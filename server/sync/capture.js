@@ -183,6 +183,8 @@ const PATH_TABLE_MAP = [
   ['/api/bank-reconciliation', 'bank_reconciliations'],
   ['/api/budgeting', 'budgets'],
   ['/api/reserves', 'legal_reserve_entries'],
+  // Specific cheque lifecycle paths before generic (batch / out-clear still map to cheque_records)
+  ['/api/cheque-records/batch-action', 'cheque_records'],
   ['/api/cheque-records', 'cheque_records'],
   ['/api/sms-module/rules', 'sms_rules'],
   ['/api/sms-module/templates', 'sms_templates'],

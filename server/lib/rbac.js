@@ -4,7 +4,7 @@ const {
   ACC_CAPABILITY_RESOURCES, capabilityDefault, resourceForNav,
 } = require('./accounting-access');
 
-const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export'];
+const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'operate'];
 
 const RESOURCES = [
   'customers', 'parties', 'products', 'invoices', 'followups', 'accounting', 'reports',
@@ -22,17 +22,20 @@ const RESOURCES = [
   'banks', 'orders', 'rfq',
   // Phase 1 cross-warehouse sales (append-only) — action create; default admin only
   'sales_cross_warehouse',
+  // Phase 3C — cheque lifecycle permissions (cheque.operate / cheque.approve)
+  'cheque',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
 const CLOSED_DEFAULT_NONE = new Set([
   'backup', 'users', 'journal_vouchers', 'payroll', 'moadian', 'settings', 'banks', 'orders', 'rfq',
   'sales_cross_warehouse',
+  'cheque',
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
-const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false };
-const SALES_CRUD = { view: true, create: true, edit: true, delete: false, approve: false, export: true };
+const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false, operate: false };
+const SALES_CRUD = { view: true, create: true, edit: true, delete: false, approve: false, export: true, operate: false };
 const ACC_FULL = { ...ALL };
 const PROD_MGR = {
   production: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
@@ -41,7 +44,10 @@ const PROD_MGR = {
   production_close: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
   production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
 };
-const NONE = { view: false, create: false, edit: false, delete: false, approve: false, export: false };
+const NONE = { view: false, create: false, edit: false, delete: false, approve: false, export: false, operate: false };
+const CHEQUE_OPERATE = {
+  view: true, create: true, edit: true, delete: false, approve: true, export: true, operate: true,
+};
 const PROD_OP = {
   production: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
   production_bom: { view: true, create: false, edit: false, delete: false, approve: false, export: false },
@@ -82,6 +88,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     payroll: ACC_FULL,
     fixed_assets: ACC_FULL,
     moadian: VIEW_ONLY,
+    cheque: CHEQUE_OPERATE,
     // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
     // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },

@@ -20,13 +20,13 @@ const OPENING_NOTE = 'مانده اول دوره';
 const REGISTERED_ALIASES = new Set(['', 'registered', 'in_hand', 'pending']);
 
 const ACTIVE_LIFECYCLE_IN = new Set(['in_collection', 'cleared', 'bounced', 'endorsed']);
-const ACTIVE_LIFECYCLE_OUT = new Set(['issued', 'expensed', 'endorsed']);
+const ACTIVE_LIFECYCLE_OUT = new Set(['issued', 'expensed', 'endorsed', 'paid', 'cleared_out']);
 
 const CLOSED_IN = new Set(['cleared', 'bounced', 'cancelled', 'void', 'paid', 'reversed', 'endorsed']);
-const CLOSED_OUT = new Set(['cleared', 'cancelled', 'void', 'paid', 'issued', 'expensed', 'reversed', 'endorsed']);
+const CLOSED_OUT = new Set(['cleared', 'cleared_out', 'cancelled', 'void', 'paid', 'issued', 'expensed', 'reversed', 'endorsed', 'bounced_out']);
 
 /** Free-text status that implies a financial transition (must use lifecycle endpoints). */
-const FINANCIAL_STATUS_RE = /وصول|برگشت|واگذار|خواباندن|در\s*جریان\s*وصول|نزد\s*بانک|cleared|bounced|received|in[_ ]?collection|send[_ -]?to[_ -]?bank|resend|واگذارى|پرداخت|خرج|صدور|issued|expensed|endorsed|endorse|expense/i;
+const FINANCIAL_STATUS_RE = /وصول|برگشت|واگذار|خواباندن|در\s*جریان\s*وصول|نزد\s*بانک|cleared|cleared[_ ]?out|out[_ -]?clear|پاس|bounced|received|in[_ ]?collection|send[_ -]?to[_ -]?bank|resend|واگذارى|پرداخت|خرج|صدور|issued|expensed|endorsed|endorse|expense/i;
 
 const STATUS_LABEL = {
   registered: 'نزد صندوق',
@@ -42,6 +42,7 @@ const STATUS_LABEL = {
   issued: 'پرداخت‌شده',
   paid: 'پرداخت‌شده',
   expensed: 'خرج‌شده',
+  cleared_out: 'پاس‌شده',
   bounced_out: 'برگشت پرداختی',
   voided: 'ابطال‌شده',
   void: 'ابطال‌شده',
@@ -65,14 +66,17 @@ const ALLOWED_TRANSITIONS = {
     guarantee: ['void', 'voided', 'returned_to_drawer'],
   },
   out: {
-    registered: ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
-    in_hand: ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
-    pending: ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
-    '': ['paid', 'issued', 'expensed', 'endorsed', 'bounced_out', 'voided', 'void', 'replaced'],
-    issued: ['bounced_out', 'voided', 'replaced'],
-    paid: ['bounced_out', 'voided', 'replaced'],
-    expensed: ['bounced_out', 'voided', 'replaced'],
-    endorsed: ['bounced_out', 'voided', 'replaced'],
+    // cleared_out = پاس بانکی (Dr 2109 / Cr بانک). Opening out may clear from registered.
+    registered: ['paid', 'issued', 'expensed', 'endorsed', 'cleared_out', 'bounced_out', 'voided', 'void', 'replaced'],
+    in_hand: ['paid', 'issued', 'expensed', 'endorsed', 'cleared_out', 'bounced_out', 'voided', 'void', 'replaced'],
+    pending: ['paid', 'issued', 'expensed', 'endorsed', 'cleared_out', 'bounced_out', 'voided', 'void', 'replaced'],
+    '': ['paid', 'issued', 'expensed', 'endorsed', 'cleared_out', 'bounced_out', 'voided', 'void', 'replaced'],
+    issued: ['cleared_out', 'bounced_out', 'voided', 'replaced'],
+    // Phase 3A: از paid/cleared_out فقط bounced_out (voided/replaced حذف)
+    paid: ['bounced_out'],
+    expensed: ['cleared_out', 'bounced_out', 'voided', 'replaced'],
+    endorsed: ['cleared_out', 'bounced_out', 'voided', 'replaced'],
+    cleared_out: ['bounced_out'],
     bounced_out: ['paid', 'issued', 'voided'],
     replaced: [],
     voided: [],

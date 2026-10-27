@@ -31574,8 +31574,8 @@ function pettyCashReplenishModal(boxId,boxName){
    posted to accounting. Actual cash movement (if realized) is recorded
    separately through Receipt/Payment Operations.
 ============================================================ */
-const TC_STATUS_LABEL={held:'نزد ما / نزد طرف مقابل',returned:'مسترد شده',realized:'وصول/پرداخت شده',bounced:'برگشت خورده'};
-const TC_STATUS_COLOR={held:'var(--orange)',returned:'var(--muted)',realized:'var(--green)',bounced:'var(--red)'};
+const TC_STATUS_LABEL={held:'نزد ما / نزد طرف مقابل',returned:'مسترد شده',collected:'ضبط/وصول‌شده',realized:'ضبط/وصول‌شده',bounced:'برگشت خورده'};
+const TC_STATUS_COLOR={held:'var(--orange)',returned:'var(--muted)',collected:'var(--green)',realized:'var(--green)',bounced:'var(--red)'};
 async function renderTrustChecksTab(body){
   const shared=chqLoadFilters();
   const dirFilter=el('tcDirFilter')?.value||shared.direction||'';
@@ -31619,25 +31619,28 @@ async function renderTrustChecksTab(body){
       <input id="tcAmtMax" class="mono" dir="ltr" placeholder="حداکثر مبلغ" value="${esc(String(amtMax||''))}" aria-label="حداکثر مبلغ" data-csp-change="${CSP.bind('change',function(event){loadAccTab('trust-checks')})}">
     </div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr>
-      <th>جهت</th><th>طرف حساب</th><th>بانک</th><th>شماره صیادی</th><th>مبلغ (ریال)</th><th>سررسید</th><th>وضعیت</th><th>عملیات</th>
+      <th>جهت</th><th>طرف حساب</th><th>قرارداد</th><th>بانک</th><th>شماره صیادی</th><th>مبلغ (ریال)</th><th>سررسید/انقضا</th><th>وضعیت</th><th>عملیات</th>
     </tr></thead><tbody>${rows.map(r=>`<tr>
       <td>${r.direction==='in'?'⬇️ دریافتی':'⬆️ پرداختی'}</td>
-      <td>${esc(r.party_name)}</td><td>${esc(r.bank_name||'-')}</td><td class="mono">${esc(r.sayadi||'-')}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.amount)}</td><td class="mono">${escDate(r.due_date)}</td>
-      <td><span class="tag" data-csp-style="${CSP.style(`background:${TC_STATUS_COLOR[r.status]};color:#fff`)}">${TC_STATUS_LABEL[r.status]||r.status}</span></td>
+      <td>${esc(r.party_name)}</td>
+      <td class="mono">${esc(r.contract_ref||(r.contract_id?('#'+r.contract_id):'-'))}</td>
+      <td>${esc(r.bank_name||'-')}</td><td class="mono">${esc(r.sayadi||'-')}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmt(r.amount)}</td>
+      <td class="mono">${escDate(r.guarantee_expiry||r.due_date)}</td>
+      <td><span class="tag" data-csp-style="${CSP.style(`background:${TC_STATUS_COLOR[r.status]||'var(--muted)'};color:#fff`)}">${TC_STATUS_LABEL[r.status]||r.status}</span></td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
         ${r.status==='held'?`
-          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){setTrustCheckStatus((r.id),'realized')})}">✅ وصول/پرداخت شد</button>
+          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){setTrustCheckStatus((r.id),'collected')})}">✅ ضبط/وصول</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){setTrustCheckStatus((r.id),'returned')})}">↩️ استرداد</button>
-          <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){setTrustCheckStatus((r.id),'bounced')})}">❌ برگشت خورد</button>`:''}
-        <button class="btn sm red icon" data-csp-click="${CSP.bind('click',function(event){deleteTrustCheck((r.id))})}">🗑️</button>
+          <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){setTrustCheckStatus((r.id),'bounced')})}">❌ برگشت</button>`:''}
+        <button class="btn sm red icon" data-csp-click="${CSP.bind('click',function(event){deleteTrustCheck((r.id))})}" aria-label="حذف نرم">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(8)}</tbody>
+    </tr>`).join('')||emptyRow(9)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="4">جمع (${fmt(rows.length)} فقره)</td>
+      <td colspan="5">جمع (${fmt(rows.length)} فقره)</td>
       <td class="mono">${fmt(tcSum)}</td><td colspan="3"></td>
     </tr></tfoot></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">چک‌های امانی صرفاً برای پیگیری امانت هستند و در سند حسابداری ثبت نمی‌شوند — در صورت وصول/پرداخت واقعی، آن را جداگانه از «عملیات دریافت» یا «عملیات پرداخت» ثبت کنید.</div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">چک امانی با سند انتظامی جفت ثبت می‌شود. استرداد/ضبط سند انتظامی را معکوس می‌کند (حذف فیزیکی نیست). وجه واقعی را جداگانه از عملیات دریافت/پرداخت بزنید.</div>`;
   if(typeof attachDatepickers==='function') attachDatepickers(body);
 }
 function trustCheckModal(){
@@ -31658,6 +31661,8 @@ function trustCheckModal(){
       <div class="fg"><label>شماره حساب</label><input id="tc-account"></div>
       <div class="fg"><label>نام صادرکننده</label><input id="tc-owner"></div>
       <div class="fg"><label>تاریخ سررسید *</label><input id="tc-due" data-jdate></div>
+      <div class="fg"><label>انقضای تضمین</label><input id="tc-expiry" data-jdate></div>
+      <div class="fg"><label>مرجع قرارداد</label><input id="tc-contract-ref"></div>
       <div class="fg full"><label>یادداشت</label><textarea id="tc-note"></textarea></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){saveTrustCheck()})}">💾 ذخیره</button>
@@ -31678,19 +31683,21 @@ async function saveTrustCheck(){
       party_phone:el('tc-phone').value||(p&&p.phone)||'',
       bank_name:el('tc-bank').value, sayadi:el('tc-sayadi').value, cheque_number:el('tc-number').value,
       account_number:el('tc-account').value, amount, owner_name:el('tc-owner').value,
-      due_date:el('tc-due').value, note:el('tc-note').value
+      due_date:el('tc-due').value, note:el('tc-note').value,
+      guarantee_expiry:el('tc-expiry')?.value||'',
+      contract_ref:el('tc-contract-ref')?.value||''
     });
-    closeModal(); showToast('چک امانی ثبت شد'); loadAccTab('trust-checks');
+    closeModal(); showToast('چک امانی + سند انتظامی ثبت شد'); loadAccTab('trust-checks');
   }catch(e){}
 }
 async function setTrustCheckStatus(id,status){
-  const labels={realized:'وصول/پرداخت شد',returned:'مسترد شود',bounced:'برگشت خورد'};
-  if(!confirm(`وضعیت این چک به «${labels[status]||status}» تغییر کند؟`)) return;
+  const labels={collected:'ضبط/وصول شود',realized:'ضبط/وصول شود',returned:'مسترد شود',bounced:'برگشت خورد'};
+  if(!confirm(`وضعیت این چک به «${labels[status]||status}» تغییر کند؟ سند انتظامی معکوس می‌شود.`)) return;
   try{ await api('PATCH','/trust-checks/'+id+'/status',{status}); showToast('وضعیت به‌روزرسانی شد'); loadAccTab('trust-checks'); }catch(e){}
 }
 async function deleteTrustCheck(id){
-  if(!confirm('این چک امانی حذف شود؟')) return;
-  try{ await api('DELETE','/trust-checks/'+id); showToast('حذف شد'); loadAccTab('trust-checks'); }catch(e){}
+  if(!confirm('حذف نرم این چک امانی؟ سند انتظامی معکوس می‌شود (حذف فیزیکی نیست).')) return;
+  try{ await api('DELETE','/trust-checks/'+id); showToast('حذف نرم شد'); loadAccTab('trust-checks'); }catch(e){}
 }
 
 /* ============================================================
@@ -35913,13 +35920,13 @@ async function renderChequeRegisterTab(body){
     return '';
   }
 
-  const ths=cols.map(k=>{
+  const ths=`<th scope="col" class="chq-batch-th chq-no-print"><input type="checkbox" aria-label="انتخاب همه" data-csp-change="${CSP.bind('change',function(event){document.querySelectorAll('.chq-batch-cb').forEach(function(c){c.checked=event.target.checked})})}"></th>`+cols.map(k=>{
     const def=CHQ_COL_DEFS.find(c=>c.k===k);
     return `<th scope="col" data-col="${k}">${esc(def?def.label:k)}</th>`;
   }).join('');
 
   const trs=rows.map(r=>{
-    const tds=cols.map(k=>`<td data-col="${k}">${cell(r,k)}</td>`).join('');
+    const tds=`<td class="chq-batch-td chq-no-print"><input type="checkbox" class="chq-batch-cb" value="${r.id}" aria-label="انتخاب چک"></td>`+cols.map(k=>`<td data-col="${k}">${cell(r,k)}</td>`).join('');
     return `<tr class="chq-row" data-id="${r.id}">${tds}</tr>`;
   }).join('');
 
@@ -36023,6 +36030,7 @@ async function renderChequeRegisterTab(body){
           </details>
         </div>
         <div class="chq-tools">
+          <button class="btn" data-csp-click="${CSP.bind('click',function(){chequeBatchActionModal()})}" aria-label="عملیات گروهی">گروهی</button>
           <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){chqResetFilters()})}">پاک کردن فیلترها</button>
           <button class="btn ghost" aria-label="انتخاب ستون‌ها" data-csp-click="${CSP.bind('click',function(){el('chqColPanel').hidden=!el('chqColPanel').hidden})}">ستون‌ها</button>
           ${prof.showAging?`<button class="btn ghost" aria-label="نمای aging سررسید" data-csp-click="${CSP.bind('click',function(){window._chqRegState.view=view==='aging'?'list':'aging';loadAccTab(chqReloadTab())})}">${view==='aging'?'لیست':'سررسید/aging'}</button>`:''}
@@ -36046,7 +36054,7 @@ async function renderChequeRegisterTab(body){
         <div class="tbl-wrap chq-tbl-desktop">
           <table class="tbl chq-tbl">
             <thead><tr>${ths}</tr></thead>
-            <tbody>${trs||`<tr><td colspan="${cols.length}" class="muted">چکی با این فیلتر نیست — <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){chqResetFilters()})}">پاک کردن فیلترها</button></td></tr>`}</tbody>
+            <tbody>${trs||`<tr><td colspan="${cols.length+1}" class="muted">چکی با این فیلتر نیست — <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){chqResetFilters()})}">پاک کردن فیلترها</button></td></tr>`}</tbody>
           </table>
         </div>
         <div class="chq-tbl-mobile chq-no-print">${cardsMobile||'<p class="muted">چکی با این فیلتر نیست</p>'}</div>
@@ -36165,6 +36173,9 @@ function chqRowActionsHtml(r, payNav){
     push(`<button class="btn sm green" aria-label="پرداخت چک" data-csp-click="${CSP.bind('click',function(){chequePayOut(cid)})}">💸</button>`,true);
     push(`<button class="btn sm" aria-label="خرج چک پرداختی" data-csp-click="${CSP.bind('click',function(){chequeExpenseOut(cid)})}">📤</button>`,false);
   }
+  if(r.direction==='out'&&acts.includes('cleared_out')){
+    push(`<button class="btn sm green" aria-label="پاس بانکی پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutClear(cid)})}">🏦 پاس</button>`,true);
+  }
   if(r.direction==='out'&&acts.includes('bounced_out')){
     push(`<button class="btn sm red" aria-label="برگشت پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutBounce(cid)})}">برگشت</button>`,false);
   }
@@ -36207,11 +36218,116 @@ async function chequeEndorseReturn(id){
   }catch(e){}
 }
 async function chequeMarkGuarantee(id){
-  if(!confirm('این چک به‌عنوان تضمینی (بدون سند مالی) علامت بخورد؟')) return;
+  if(!confirm('این چک تضمینی شود؟ در صورت داشتن سند دریافت، ابتدا معکوس و سپس سند انتظامی ثبت می‌شود.')) return;
+  const guarantee_expiry=prompt('تاریخ انقضای تضمین (YYYY/MM/DD، اختیاری):','')||'';
+  const contract_ref=prompt('شماره/مرجع قرارداد (اختیاری):','')||'';
   try{
-    await api('POST','/cheque-records/'+id+'/guarantee',{client_request_id:'g-'+id+'-'+Date.now()});
-    showToast('تضمینی ثبت شد'); loadAccTab(chqReloadTab());
+    await api('POST','/cheque-records/'+id+'/guarantee',{
+      client_request_id:'g-'+id+'-'+Date.now(),
+      guarantee_expiry, contract_ref
+    });
+    showToast('تضمینی + سند انتظامی ثبت شد'); loadAccTab(chqReloadTab());
   }catch(e){}
+}
+async function chequeOutClear(id){
+  if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
+  const bankOpts=(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>
+    `<option value="${b.id}">${esc(b.name)}</option>`
+  ).join('');
+  openModal(`
+    <div class="modal-head"><h3>🏦 پاس چک پرداختنی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">بدهکار اسناد پرداختنی (۲۱۰۹) / بستانکار بانک. تاریخ پاس نباید قبل از تاریخ صدور باشد.</p>
+      <div class="form-grid">
+        <div class="fg full"><label>بانک *</label>
+          <select id="coc-bank"><option value="">— انتخاب بانک —</option>${bankOpts}</select></div>
+        <div class="fg"><label>تاریخ پاس *</label><input id="coc-date" data-jdate value="${todayJalali()}"></div>
+      </div>
+    </div>
+    <div class="modal-foot"><button class="btn green" data-csp-click="${CSP.bind('click',function(event){chequeOutClearSave((id))})}">💾 ثبت پاس</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequeOutClearSave(id){
+  const bank_id=+el('coc-bank')?.value||null;
+  const date=String(el('coc-date')?.value||'').trim();
+  if(!bank_id){ showToast('بانک را انتخاب کنید','error'); return; }
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ را به صورت YYYY/MM/DD وارد کنید','error'); return; }
+  try{
+    await api('POST','/cheque-records/'+id+'/out-clear',{bank_id,date,client_request_id:'oc-'+id+'-'+Date.now()});
+    closeModal(); showToast('پاس بانکی ثبت شد'); loadAccTab(chqReloadTab());
+  }catch(e){}
+}
+function chqSelectedIds(){
+  return Array.from(document.querySelectorAll('.chq-batch-cb:checked')).map(x=>+x.value).filter(n=>n>0);
+}
+async function chequeBatchActionModal(){
+  const ids=chqSelectedIds();
+  if(!ids.length){ showToast('ابتدا چند چک را تیک بزنید','error'); return; }
+  if(!CACHE.banks){ try{ CACHE.banks=await api('GET','/banks')||[]; }catch(_){ CACHE.banks=[]; } }
+  const bankOpts=(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>
+    `<option value="${b.id}">${esc(b.name)}</option>`
+  ).join('');
+  openModal(`
+    <div class="modal-head"><h3>عملیات گروهی چک (${fmt(ids.length)} فقره)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg full"><label>عملیات *</label>
+          <select id="cbatch-action">
+            <option value="clear">وصول گروهی</option>
+            <option value="bounce">واخواست/برگشت گروهی</option>
+            <option value="out-clear">پاس پرداختنی گروهی</option>
+            <option value="send-to-bank">واگذاری گروهی</option>
+          </select></div>
+        <div class="fg full"><label>بانک</label>
+          <select id="cbatch-bank"><option value="">—</option>${bankOpts}</select></div>
+        <div class="fg"><label>تاریخ *</label><input id="cbatch-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg"><label>شماره واگذاری</label><input id="cbatch-slip" dir="ltr" placeholder="deposit slip"></div>
+        <div class="fg"><label>شماره گواهی واخواست</label><input id="cbatch-protest-no" dir="ltr"></div>
+        <div class="fg"><label>تاریخ واخواست</label><input id="cbatch-protest-date" data-jdate></div>
+      </div>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:8px`)}">مهلت حقوقی واخواست معمولاً ۶ ماه از سررسید است ⚠️</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){chequeBatchActionSave()})}">اجرا</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){chequePrintDepositSlip()})}">🖨 برگ واگذاری</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+  if(typeof initJalaliPickers==='function') initJalaliPickers();
+}
+async function chequeBatchActionSave(){
+  const ids=chqSelectedIds();
+  const action=el('cbatch-action')?.value||'clear';
+  const date=String(el('cbatch-date')?.value||'').trim();
+  const bank_id=+el('cbatch-bank')?.value||null;
+  const deposit_slip_no=String(el('cbatch-slip')?.value||'').trim();
+  const protest_cert_no=String(el('cbatch-protest-no')?.value||'').trim();
+  const protest_date=String(el('cbatch-protest-date')?.value||'').trim();
+  if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ نامعتبر','error'); return; }
+  try{
+    const r=await api('POST','/cheque-records/batch-action',{
+      action, ids, date, bank_id, deposit_slip_no, protest_cert_no, protest_date,
+      client_request_id:'batch-'+Date.now()
+    });
+    closeModal();
+    showToast('عملیات گروهی انجام شد'+(r&&r.count?(' ('+r.count+')'):''));
+    loadAccTab(chqReloadTab());
+  }catch(e){}
+}
+function chequePrintDepositSlip(){
+  const ids=chqSelectedIds();
+  const slip=String(el('cbatch-slip')?.value||'').trim()||('DS-'+Date.now());
+  const w=window.open('','_blank');
+  if(!w){ showToast('پنجره چاپ مسدود شد','error'); return; }
+  w.document.write(`<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>برگ واگذاری ${slip}</title>
+    <style>body{font-family:Tahoma,sans-serif;padding:24px} h1{font-size:18px} table{width:100%;border-collapse:collapse;margin-top:16px} td,th{border:1px solid #333;padding:6px;font-size:12px}</style></head><body>
+    <h1>برگ واگذاری چک — شماره ${slip}</h1>
+    <p>تاریخ چاپ: ${typeof todayJalali==='function'?todayJalali():''}</p>
+    <table><thead><tr><th>#</th><th>شناسه چک</th></tr></thead><tbody>
+    ${ids.map((id,i)=>`<tr><td>${i+1}</td><td>${id}</td></tr>`).join('')}
+    </tbody></table>
+    <script>window.onload=function(){window.print()}<\/script></body></html>`);
+  w.document.close();
 }
 async function chequeOutBounce(id){
   const date=prompt('تاریخ برگشت پرداختی:', typeof todayJalali==='function'?todayJalali():'');
@@ -36391,6 +36507,7 @@ async function chequeSendToBank(id){
           ${(CACHE.banks||[]).filter(b=>b.active!==0).map(b=>`<option value="${b.id}">${esc(b.name)}</option>`).join('')}
         </select></div>
       <div class="fg"><label>تاریخ</label><input id="csb-date" data-jdate value="${todayJalali()}"></div>
+      <div class="fg"><label>شماره واگذاری</label><input id="csb-slip" dir="ltr" placeholder="deposit slip"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){chequeSendToBankSave((id))})}">💾 واگذاری</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
@@ -36399,8 +36516,9 @@ async function chequeSendToBank(id){
 async function chequeSendToBankSave(id){
   const bank_id=+el('csb-bank')?.value||null;
   if(!bank_id){ showToast('بانک وصول را انتخاب کنید','error'); return; }
+  const deposit_slip_no=String(el('csb-slip')?.value||'').trim();
   try{
-    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id,date:el('csb-date')?.value||todayJalali()});
+    await api('POST','/cheque-records/'+id+'/send-to-bank',{collection_bank_id:bank_id,date:el('csb-date')?.value||todayJalali(),deposit_slip_no});
     closeModal(); showToast('واگذاری ثبت شد — اسناد در جریان وصول + وضعیت واگذارشده'); loadAccTab(chqReloadTab());
   }catch(e){}
 }
@@ -36439,23 +36557,27 @@ async function chequeClearSave(id){
 }
 async function chequeBounce(id){
   openModal(`
-    <div class="modal-head"><h3>↩️ برگشت چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>↩️ برگشت / واخواست چک</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
-      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">مبلغ به بدهی طرف حساب در صورت‌حساب برمی‌گردد. تاریخ برگشت را مطابق اعلام بانک وارد کنید (پیش‌فرض امروز).</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">واخواست: اسناد واخواستی. مهلت حفظ حقوق علیه ظهرنویس معمولاً <b>۶ ماه از سررسید</b> است ⚠️. شماره و تاریخ گواهی را وارد کنید.</p>
       <div class="form-grid">
         <div class="fg"><label>تاریخ برگشت *</label><input id="cbounce-date" data-jdate value="${todayJalali()}"></div>
+        <div class="fg"><label>شماره گواهی واخواست</label><input id="cbounce-protest-no" dir="ltr"></div>
+        <div class="fg"><label>تاریخ گواهی واخواست</label><input id="cbounce-protest-date" data-jdate></div>
       </div>
     </div>
-    <div class="modal-foot"><button class="btn red" data-csp-click="${CSP.bind('click',function(event){chequeBounceSave((id))})}">ثبت برگشت</button>
+    <div class="modal-foot"><button class="btn red" data-csp-click="${CSP.bind('click',function(event){chequeBounceSave((id))})}">ثبت واخواست</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   if(typeof initJalaliPickers==='function') initJalaliPickers();
 }
 async function chequeBounceSave(id){
   const date=String(el('cbounce-date')?.value||'').trim();
   if(!date || !/^\d{4}\/\d{2}\/\d{2}$/.test(date)){ showToast('تاریخ برگشت را به صورت YYYY/MM/DD وارد کنید','error'); return; }
+  const protest_cert_no=String(el('cbounce-protest-no')?.value||'').trim();
+  const protest_date=String(el('cbounce-protest-date')?.value||'').trim()||date;
   try{
-    await api('POST','/cheque-records/'+id+'/bounce',{date});
-    closeModal(); showToast('برگشت ثبت شد — مبلغ به بدهی صورت‌حساب طرف حساب اضافه شد'); loadAccTab(chqReloadTab());
+    await api('POST','/cheque-records/'+id+'/bounce',{date,protest_cert_no,protest_date});
+    closeModal(); showToast('واخواست ثبت شد'+(protest_cert_no?(' — گواهی '+protest_cert_no):'')); loadAccTab(chqReloadTab());
   }catch(e){}
 }
 async function chequeResend(id){
@@ -38890,7 +39012,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دسته‌های چک</b>: ثبت دسته‌چک‌های (دفترچه چک) خودمان، هرکدام متعلق به یک بانک با بازه سریال مشخص — برای ردیابی چک‌هایی که خودمان صادر می‌کنیم</li>
         <li><b>صندوق‌های نقدی</b>: ساخت و مدیریت صندوق‌های نقدی شرکت بدون محدودیت در تعداد (مثلاً صندوق فروشگاه، صندوق دفتر مرکزی) — درست مثل بانک‌ها، هر صندوق یک حساب دفتر کل مستقل دارد. در فرم‌های تسویه، پرداخت به تأمین‌کننده، پرداخت انگیزه فروش و فاکتور خرید، انتخاب صندوق (مثل بانک) اختیاری است</li>
         <li><b>تنخواه گردان</b>: هر صندوق نقدی را می‌توان با گزینه «این صندوق تنخواه‌گردان است» به‌عنوان صندوق تنخواه مشخص کرد تا در این صفحهٔ جداگانه با موجودی زنده نمایش داده شود — دکمهٔ «ثبت هزینه» یک هزینهٔ نقدی از همان صندوق ثبت می‌کند و دکمهٔ «افزایش تنخواه» یک انتقال وجه به آن صندوق انجام می‌دهد</li>
-        <li><b>چک‌های امانی</b>: پیگیری چک‌های دریافتی/پرداختی که صرفاً به‌عنوان امانت/ضمانت نزد ما یا نزد طرف مقابل هستند — <b>در سند حسابداری ثبت نمی‌شوند</b> چون هنوز پول واقعی جابه‌جا نشده. طرف حساب فقط از فهرست اشخاص با جستجو انتخاب می‌شود (نام آزاد پذیرفته نمی‌شود). با تغییر وضعیت به «وصول/پرداخت شد»، «مسترد شد» یا «برگشت خورد» فقط وضعیت پیگیری به‌روز می‌شود؛ ثبت واقعی وجه (در صورت وصول) باید جداگانه از «عملیات دریافت» یا «عملیات پرداخت» انجام شود</li>
+        <li><b>چک‌های امانی</b>: طرف‌حساب از فهرست اشخاص، لینک قرارداد و تاریخ انقضای تضمین. ثبت = سند انتظامی جفت؛ استرداد/ضبط/حذف نرم = معکوس همان سند (حذف فیزیکی نیست). وجه واقعی را جداگانه از عملیات دریافت/پرداخت بزنید</li>
         <li><b>انتقال وجه</b>: ثبت انتقال داخلی بین حساب‌های خودمان — صندوق به صندوق، صندوق به بانک، یا بانک به بانک. برای هر انتقال یک سند حسابداری متوازن خودکار ثبت می‌شود (بدهکار مقصد / بستانکار مبدأ). اگر مبدأ بانک باشد می‌توانید کارمزد انتقال و مرکز هزینه جداگانهٔ آن را ثبت کنید (برگ حساب کارمزد بانکی / ۶۱۱۵). در حذف، سند به‌طور کامل ابطال می‌شود</li>
         <li><b>تأمین‌کنندگان</b>: لیست تأمین‌کنندگان، مانده پرداختنی هر کدام، ثبت پرداخت و دفتر معین جداگانه</li>
         <li><b>اشخاص</b>: برای هر طرف حساب که مشتری یا تأمین‌کننده نیست — کارمند، شریک، سرمایه‌گذار، پیمانکار، ارائه‌دهنده خدمات یا هر دسته دلخواه دیگر («مدیریت دسته‌ها»). مانده اولیه، سقف بدهکاری/بستانکاری و دفتر معین جداگانه برای هرکدام</li>
@@ -39374,11 +39496,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>برگشت</b>: از «جریان وصول» یا «وصول‌شده» — مودال تاریخ برگشت؛ مبلغ به بدهی صورت‌حساب طرف حساب برمی‌گردد</li>
         <li><b>ارسال مجدد</b>: پس از برگشت — مودال <b>تاریخ وصول</b> + <b>بانک واریز</b>. برگشت ابطال نرم می‌شود؛ اگر قبلاً وصول شده بود آن وصول هم ابطال نرم می‌شود و وصول جدید با همان تاریخ/بانک در دفتر بانک ثبت می‌شود</li>
         <li><b>ابطال تسویه / اصلاح فاکتور (R13 v454):</b> اگر چک قبلاً واگذار یا وصول شده باشد، ابطال تسویه فقط برگه را مخفی نمی‌کند — سندهای واگذاری و وصول هم soft-void می‌شوند تا گردش بانک با دفتر چک و گردش طرف‌حساب یکی بماند. ابطال از خود دفتر چک همچنان همهٔ اسناد را کامل برمی‌گرداند</li>
-        <li><b>عودت به صاحب</b> / <b>برگشت از ظهرنویس</b> / <b>تضمینی</b> (بدون سند مالی) / <b>برگشت آخرین رویداد</b> از منوی ردیف یا برگه چک — همیشه سند معکوس، هرگز حذف فیزیکی</li>
+        <li><b>عودت به صاحب</b> / <b>برگشت از ظهرنویس</b> / <b>تضمینی</b> (معکوس سند دریافت + سند انتظامی جفت؛ لینک امانی با طرف/قرارداد/انقضا) / <b>برگشت آخرین رویداد</b> — همیشه سند معکوس، هرگز حذف فیزیکی</li>
+        <li><b>واخواست</b>: فیلدهای شماره/تاریخ گواهی؛ هشدار مهلت ۶ماهه. <b>عملیات گروهی</b> و شماره واگذاری (deposit slip) + چاپ برگ واگذاری</li>
+        <li><b>مجوز:</b> <code>cheque.operate</code> برای عملیات؛ بالای سقف تنظیمات <code>cheque_approve_threshold_rial</code> نیاز به <code>cheque.approve</code> (admin/accounting عبور می‌کنند)</li>
       </ul>
       <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>
       <ul>
         <li><b>پرداخت / تحویل</b>: از ثبت‌شده — مودال تاریخ؛ بدهکار حساب‌های پرداختنی، بستانکار اسناد پرداختنی</li>
+        <li><b>پاس بانکی (out-clear)</b>: Dr ۲۱۰۹ / Cr بانک — وضعیت <code>cleared_out</code></li>
         <li><b>برگشت پرداختی / ابطال / تعویض</b>: با سند معکوس؛ تعویض چک جدید با <code>replaces_cheque_id</code> می‌سازد</li>
         <li><b>خرج چک</b>: از ثبت‌شده — بخش مالک را انتخاب کنید. اداری ۶۱۰۲، فروش و توزیع ۶۱۰۳، یا سربار تولید ۵۲۰۲ با مرکز هزینه. اگر بخشی نفرستید همان هزینه اداری است. بستانکار اسناد پرداختنی است و مرکز روی هر دو سطر سند می‌نشیند. با روشن بودن «الزام مرکز هزینه» در تنظیمات، وقتی مبلغ هزینه پر باشد مرکز برای بخش‌های دوره اجباری است (سربار همیشه اجباری بوده)</li>
         <li>چک صادرشده هنگام فاکتور خرید از اول <code>issued</code> است (سند پرداخت تأمین‌کننده زده شده) و دوباره پرداخت/خرج نمی‌شود. چک اول دوره پرداختنی هم همین‌طور. طرف حساب چک اول دوره از فهرست اشخاص انتخاب می‌شود. <b>چک اول‌دوره دریافتنی</b> فقط اسناد/افتتاحیه است و اعتبار در دفتر مشتری نمی‌سازد (v376؛ heal پیوسته ردیف‌های قدیمی را پاک می‌کند).</li>
