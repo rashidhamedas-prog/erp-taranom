@@ -243,6 +243,14 @@
 }
 .prod-form-v2 .pcs-matrix-scroll{overflow-x:auto}
 .prod-form-v2 .p-stock-cell{font-size:16px;min-height:44px}
+.prod-form-v2 .p-stock-cell.is-dirty{
+  border-inline-start:3px solid var(--c-warn,#8A5A00);
+  outline:1px solid rgba(138,90,0,.35);
+}
+.pcs-badge-other{
+  background:#eff6ff;
+  color:#1d4ed8;
+}
 .prod-form-v2 #p-color-search:focus-visible,
 .prod-form-v2 .pcs-size:focus-visible,
 .prod-form-v2 .pcs-chip-x:focus-visible{

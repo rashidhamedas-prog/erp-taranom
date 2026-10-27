@@ -2,16 +2,31 @@
 'use strict';
 /**
  * Read-only report: color/variant mismatches (no UPDATE/migration).
- * Usage: node scripts/report-color-variant-mismatch.js [path/to.db]
+ * Usage: node scripts/report-color-variant-mismatch.js --db <path>
  */
 const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const dbPath = process.argv[2]
-  || process.env.DB_PATH
-  || path.join(__dirname, '../data/erp.db');
+function usage() {
+  console.error('Usage: node scripts/report-color-variant-mismatch.js --db <path-to.db>');
+  console.error('       node scripts/report-color-variant-mismatch.js --db=<path-to.db>');
+}
 
+function parseDbArg(argv) {
+  for (let i = 2; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--db') return argv[i + 1] || '';
+    if (a.startsWith('--db=')) return a.slice(5);
+  }
+  return '';
+}
+
+const dbPath = parseDbArg(process.argv);
+if (!dbPath) {
+  usage();
+  process.exit(2);
+}
 if (!fs.existsSync(dbPath)) {
   console.error('DB not found:', dbPath);
   process.exit(2);
@@ -110,5 +125,5 @@ const stockDelta = db.prepare(`
 console.log(rowsToCsv(stockDelta));
 console.log('count=', stockDelta.length);
 
-console.log('\nDone. DB=', dbPath);
+console.log('\nDone. DB=', path.resolve(dbPath));
 db.close();

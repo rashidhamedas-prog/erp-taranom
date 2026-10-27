@@ -2525,6 +2525,7 @@ async function renderPageIntoMdiBody(page, body){
 }
 
 function go(page){
+  if(typeof pcsConfirmLeaveDraft==='function' && !pcsConfirmLeaveDraft()) return;
   // ACC-CRM-UNIFY — redirects for legacy/duplicate routes
   const ROUTE_REDIRECTS = {
     'kardex': 'acc-item-kardex',
@@ -3642,6 +3643,7 @@ function closeNestedModal(){
 }
 function closeModal(){
   if(isNestedModalOpen()){ closeNestedModal(); return; }
+  if(typeof pcsConfirmLeaveDraft==='function' && document.querySelector('.prod-form-v2') && !pcsConfirmLeaveDraft()) return;
   el('modalRoot').innerHTML='';
   syncOverlayBodyClass();
   _bcWedgeHandler=null;
@@ -9690,25 +9692,31 @@ function prodColorSimilarityPairs(colors){
 function prodFaNameSort(a,b){
   return String(a.name||'').localeCompare(String(b.name||''),'fa',{sensitivity:'base',numeric:true});
 }
-/** Normalize Persian/Arabic for color search (ي/ك/آ، ZWNJ، ارقام). */
+/* PCS-SHARED:faNorm */
 function faNorm(s){
-  return String(s||'')
+  return String(s==null?'':s)
     .normalize('NFKC')
-    .replace(/[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u200C]/g,'')
-    .replace(/ي/g,'ی').replace(/ى/g,'ی')
-    .replace(/ك/g,'ک')
-    .replace(/[آأإ]/g,'ا')
+    .replace(/[\u200B\u200D-\u200F\u202A-\u202E\u2060\uFEFF]/g,'')
+    .replace(/[\u064A\u0649]/g,'\u06CC')
+    .replace(/\u0643/g,'\u06A9')
+    .replace(/[\u0622\u0623\u0625]/g,'\u0627')
+    .replace(/\u0629/g,'\u0647')
+    .replace(/[\u064B-\u065F\u0670]/g,'')
     .replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
     .replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
-    .replace(/\s+/g,' ')
+    .replace(/[\u200C\s\u00A0]+/g,' ')
     .trim()
     .toLowerCase();
 }
+/* /PCS-SHARED */
+/* PCS-SHARED:prodColorFilter */
 function prodColorFilter(list,q){
-  const nq=faNorm(q);
+  const k=x=>faNorm(x).replace(/ /g,'');
+  const nq=k(q);
   if(!nq) return Array.isArray(list)?list.slice():[];
-  return (list||[]).filter(c=>c && (faNorm(c.name).includes(nq) || faNorm(c.code).includes(nq)));
+  return (list||[]).filter(c=>c && (k(c.name).includes(nq) || k(c.code).includes(nq)));
 }
+/* /PCS-SHARED */
 function prodSkuClassifyColors(styleVars,_whId){
   const styleIds=[...prodStyleColorIds(styleVars)];
   const matrixSet=prodMatrixColorIds(styleVars);
@@ -9718,12 +9726,14 @@ function prodSkuClassifyColors(styleVars,_whId){
   const withoutStock=styleIds.filter(id=>!matrixSet.has(Number(id)) && !otherSet.has(Number(id)));
   return { withStock, withoutStock, otherWh };
 }
+/* PCS-SHARED:splitSizeLabel */
 function splitSizeLabel(name){
   const raw=String(name||'').trim();
   const m=raw.match(/^(.+?)\s*[（(]\s*(.+?)\s*[）)]\s*$/);
   if(m) return { main:m[1].trim(), sub:m[2].trim(), full:raw };
   return { main:raw, sub:'', full:raw };
 }
+/* /PCS-SHARED */
 function pcsRecentColorIds(){
   try{
     const raw=JSON.parse(localStorage.getItem('pcs_recent_colors')||'[]');
@@ -9735,12 +9745,124 @@ function pcsPushRecentColor(id){
   const next=[n, ...pcsRecentColorIds().filter(x=>x!==n)].slice(0,8);
   try{ localStorage.setItem('pcs_recent_colors', JSON.stringify(next)); }catch(_){}
 }
+function pcsCurrentWhName(){
+  const whId=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
+  const w=(CACHE.warehouses||[]).find(x=>Number(x.id)===whId);
+  return w&&w.name?String(w.name):'';
+}
+function pcsDraftRoot(){
+  const pid=Number(window._prodSkuSticky&&window._prodSkuSticky.productId)||Number(window._prodModalProduct&&window._prodModalProduct.id)||0;
+  let d=window._prodMatrixDraft;
+  if(!d || Number(d.productId)!==pid){
+    d={ productId:pid, byWh:{} };
+    window._prodMatrixDraft=d;
+  }
+  if(!d.byWh) d.byWh={};
+  return d;
+}
+function pcsDraftGet(whId, colorId, sizeId){
+  const d=window._prodMatrixDraft; if(!d||!d.byWh) return undefined;
+  const bag=d.byWh[String(Number(whId)||0)];
+  if(!bag) return undefined;
+  const key=Number(colorId)+':'+Number(sizeId);
+  return Object.prototype.hasOwnProperty.call(bag,key)?bag[key]:undefined;
+}
+function pcsDraftSet(whId, colorId, sizeId, value, serverQty){
+  const d=pcsDraftRoot();
+  const wh=String(Number(whId)||0);
+  if(!d.byWh[wh]) d.byWh[wh]={};
+  const key=Number(colorId)+':'+Number(sizeId);
+  const str=value==null?'':String(value);
+  const serverStr=serverQty==null?'':String(serverQty);
+  const numSame=str!=='' && serverStr!=='' && Number(str)===Number(serverStr);
+  if(str===serverStr || numSame){
+    delete d.byWh[wh][key];
+    if(!Object.keys(d.byWh[wh]).length) delete d.byWh[wh];
+  }else{
+    d.byWh[wh][key]=str;
+  }
+  pcsBindBeforeUnload();
+  return d;
+}
+function pcsDraftClearWh(whId){
+  const d=window._prodMatrixDraft; if(!d||!d.byWh) return;
+  if(whId==null) d.byWh={};
+  else delete d.byWh[String(Number(whId)||0)];
+  pcsBindBeforeUnload();
+}
+function pcsDraftCount(whId){
+  const d=window._prodMatrixDraft; if(!d||!d.byWh) return 0;
+  if(whId!=null){
+    const bag=d.byWh[String(Number(whId)||0)]||{};
+    return Object.keys(bag).length;
+  }
+  return Object.keys(d.byWh).reduce((n,k)=>n+Object.keys(d.byWh[k]||{}).length,0);
+}
+function pcsHasUnsavedDraft(){ return pcsDraftCount()>0; }
+function pcsConfirmLeaveDraft(){
+  if(!pcsHasUnsavedDraft()) return true;
+  if(!document.querySelector('.prod-form-v2') && !el('p-sku-chips')) return true;
+  return confirm('تغییرات ذخیره‌نشدهٔ موجودی رنگ×سایز از بین می‌رود. ادامه می‌دهید؟');
+}
+function pcsBindBeforeUnload(){
+  if(window._pcsBeforeUnloadBound) return;
+  window._pcsBeforeUnloadBound=true;
+  window.addEventListener('beforeunload', function(ev){
+    if(!pcsHasUnsavedDraft()) return;
+    if(!document.querySelector('.prod-form-v2') && !el('p-sku-chips')) return;
+    ev.preventDefault();
+    ev.returnValue='';
+  });
+}
+function pcsServerQty(cid, sid){
+  const vars=window._prodStyleVariants||[];
+  const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
+  return v&&v.stock!=null?Number(v.stock):0;
+}
+function pcsQtyMerged(cid, sid){
+  const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
+  const draft=pcsDraftGet(wh, cid, sid);
+  if(draft!==undefined) return draft;
+  return pcsServerQty(cid, sid);
+}
+function pcsFillEmptyValues(values, fillVal){
+  const fill=fillVal==null?'1':String(fillVal);
+  const next=Array.isArray(values)?values.slice():[];
+  let filled=0;
+  for(let i=0;i<next.length;i++){
+    const v=next[i]==null?'':String(next[i]).trim();
+    if(v===''||v==='0'){ next[i]=fill; filled+=1; }
+  }
+  return { next, filled };
+}
+function pcsRefreshMatrixSums(){
+  const wrap=el('p-stock-matrix-wrap'); if(!wrap) return;
+  const table=wrap.querySelector('table.pcs-matrix-tbl'); if(!table) return;
+  const sizeHdr=[...table.querySelectorAll('thead th[scope="col"]')];
+  const sizeCount=Math.max(0, sizeHdr.length-3);
+  const colSums=new Array(sizeCount).fill(0);
+  table.querySelectorAll('tbody tr').forEach(tr=>{
+    const cells=[...tr.querySelectorAll('.p-stock-cell')];
+    let row=0;
+    cells.forEach((inp,i)=>{
+      const q=Math.max(0, Math.round(parseQty(inp.value,0)));
+      row+=q;
+      if(i<colSums.length) colSums[i]+=q;
+    });
+    const sumEl=tr.querySelector('.pcs-row-sum');
+    if(sumEl) sumEl.textContent=fmt(row);
+  });
+  const footCells=[...table.querySelectorAll('tfoot td.mono')];
+  colSums.forEach((t,i)=>{ if(footCells[i]) footCells[i].textContent=fmt(t); });
+  if(footCells[colSums.length]) footCells[colSums.length].textContent=fmt(colSums.reduce((a,b)=>a+b,0));
+}
 function ensureProdSkuSticky(productId, styleVars, sizesCatalog){
   const pid=Number(productId)||0;
   let st=window._prodSkuSticky;
   if(!st || Number(st.productId)!==pid){
     st={ productId:pid, primed:false, colorIds:[], sizeOrder:[], tab:'here' };
     window._prodSkuSticky=st;
+    window._prodMatrixDraft={ productId:pid, byWh:{} };
   }
   if(st.primed) return st;
   const styleColors=[...prodStyleColorIds(styleVars)];
@@ -9790,7 +9912,13 @@ function pcsToggleColor(colorId, on){
   if(on===false || (on==null && set.has(id))) set.delete(id);
   else{ set.add(id); pcsPushRecentColor(id); }
   st.colorIds=[...set];
-  loadProdSkuChips(Number(st.productId)||0, {keepSticky:true, skipDomSync:true});
+  st._comboOpen=false; st._comboActive=0;
+  renderPcsChips();
+  renderPcsListbox();
+  renderProdStockGrid();
+  renderProdPackLiveCard();
+  try{ syncProdPackSummaryFromChips(); }catch(_){}
+  const search=el('p-color-search'); if(search) search.focus();
 }
 function pcsToggleSize(sizeId){
   if(!prodSkuCanMutate()) return;
@@ -9800,7 +9928,10 @@ function pcsToggleSize(sizeId){
   const i=order.indexOf(id);
   if(i>=0) order.splice(i,1); else order.push(id);
   st.sizeOrder=order;
-  loadProdSkuChips(Number(st.productId)||0, {keepSticky:true, skipDomSync:true});
+  renderPcsSizes();
+  renderProdStockGrid();
+  renderProdPackLiveCard();
+  try{ syncProdPackSummaryFromChips(); }catch(_){}
 }
 function moveProdSizeOrder(sizeId, dir){
   if(!prodSkuCanMutate()) return;
@@ -9812,8 +9943,8 @@ function moveProdSizeOrder(sizeId, dir){
   if(j<0||j>=arr.length) return;
   const t=arr[i]; arr[i]=arr[j]; arr[j]=t;
   st.sizeOrder=arr;
-  const productId=Number(window._prodSkuSticky&&window._prodSkuSticky.productId)||0;
-  loadProdSkuChips(productId, { keepSticky:true, skipDomSync:true });
+  renderPcsSizes();
+  renderProdStockGrid();
 }
 function setProdSkuTab(tab){
   const st=window._prodSkuSticky||(window._prodSkuSticky={});
@@ -9902,9 +10033,150 @@ function renderProdPackLiveCard(){
       ${incompleteNote}
     </div>`;
 }
+function pcsChipBadgeHtml(colorId){
+  const id=Number(colorId);
+  const cls=window._prodSkuColorClass||{withStock:[],withoutStock:[],otherWh:[]};
+  const withStockSet=new Set((cls.withStock||[]).map(Number));
+  const otherSet=new Set((cls.otherWh||[]).map(Number));
+  const whQty=prodWarehouseColorTotals(window._prodStyleVariants||[]);
+  const q=Number(whQty[id])||0;
+  const whName=pcsCurrentWhName();
+  if(withStockSet.has(id)){
+    return `<span class="pcs-badge pcs-badge-ok">✓ ${fmt(q)} در ${esc(whName||'این انبار')}</span>`;
+  }
+  if(otherSet.has(id)){
+    const total=(window._prodStyleVariants||[]).filter(v=>Number(v.color_id)===id).reduce((acc,v)=>acc+prodVariantGlobalQty(v),0);
+    // stock_by_warehouse is product-level; label tip honestly when used
+    const tip=(window._prodStockByWh||[]).length
+      ? ('جمع محصول در انبارها: '+(window._prodStockByWh||[]).map(w=>`${esc(w.warehouse_name)}: ${fmt(w.qty)}`).join(' · '))
+      : '';
+    return `<span class="pcs-badge pcs-badge-other"${tip?` title="${tip}"`:''}>در انبار دیگر: ${fmt(total)}</span>`;
+  }
+  return `<span class="pcs-badge pcs-badge-zero">بدون موجودی</span>`;
+}
+function renderPcsChips(){
+  const host=el('pcs-selected-colors'); if(!host) return;
+  const st=window._prodSkuSticky||{};
+  const colors=window._prodColorCatalog||[];
+  const ro=!prodSkuCanMutate();
+  const selected=(st.colorIds||[]).map(id=>{
+    const c=colors.find(x=>Number(x.id)===Number(id));
+    return c||{id:Number(id),name:'#'+id};
+  });
+  if(!selected.length){
+    host.innerHTML='<span class="muted">رنگی انتخاب نشده — از کادر افزودن رنگ انتخاب کنید</span>';
+    return;
+  }
+  host.innerHTML=selected.map(c=>{
+    const id=Number(c.id);
+    const hex=prodColorSwatchHex(c);
+    const removeBtn=ro?'':`<button type="button" class="pcs-chip-x" data-color-id="${id}" aria-label="حذف رنگ ${esc(c.name)}">×</button>`;
+    return `<span class="pcs-chip is-on" data-color-id="${id}" title="${esc(c.name)}">
+      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
+      <bdi class="pcs-chip-name">${esc(c.name)}</bdi>
+      ${pcsChipBadgeHtml(id)}
+      ${removeBtn}
+    </span>`;
+  }).join('');
+}
+function renderPcsListbox(){
+  const st=window._prodSkuSticky||{};
+  const search=el('p-color-search');
+  let list=el('pcs-color-listbox');
+  const wrap=el('pcs-combo-wrap');
+  if(!wrap) return;
+  const ro=!prodSkuCanMutate();
+  const open=!!st._comboOpen && !ro;
+  if(search) search.setAttribute('aria-expanded', open?'true':'false');
+  if(!open){
+    if(list) list.hidden=true;
+    if(search) search.removeAttribute('aria-activedescendant');
+    return;
+  }
+  if(!list){
+    list=document.createElement('ul');
+    list.id='pcs-color-listbox';
+    list.className='pcs-listbox';
+    list.setAttribute('role','listbox');
+    list.setAttribute('aria-label','فهرست رنگ‌ها');
+    wrap.appendChild(list);
+  }
+  list.hidden=false;
+  const usedC=new Set((st.colorIds||[]).map(Number));
+  const colorQ=String(st._colorQ||'');
+  const colors=window._prodColorCatalog||[];
+  const filteredAdd=prodColorFilter(colors.filter(c=>!usedC.has(Number(c.id))), colorQ);
+  const recentIds=pcsRecentColorIds().filter(id=>!usedC.has(id));
+  const recentColors=(!String(colorQ).trim()?recentIds.map(id=>colors.find(c=>Number(c.id)===id)).filter(Boolean):[]);
+  const alphaAdd=filteredAdd.slice().sort(prodFaNameSort);
+  const comboActive=Number(st._comboActive)||0;
+  const renderOpt=(c)=>{
+    const id=Number(c.id);
+    const hex=prodColorSwatchHex(c);
+    const sel=comboActive===id;
+    return `<li role="option" class="pcs-opt${sel?' is-active':''}" data-color-id="${id}" id="pcs-opt-${id}" aria-selected="${sel?'true':'false'}">
+      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
+      <bdi>${esc(c.name)}</bdi>
+      ${c.code?`<span class="muted mono" dir="ltr">${esc(c.code)}</span>`:''}
+    </li>`;
+  };
+  let html='';
+  if(recentColors.length) html+=`<li class="pcs-opt-group" role="presentation">اخیراً استفاده‌شده</li>`+recentColors.map(renderOpt).join('');
+  if(alphaAdd.length) html+=`<li class="pcs-opt-group" role="presentation">همه (الفبایی)</li>`+alphaAdd.map(renderOpt).join('');
+  if(!html) html='<li class="pcs-opt-empty muted" role="presentation">موردی نیست</li>';
+  list.innerHTML=html;
+  const ids=[...list.querySelectorAll('.pcs-opt[data-color-id]')].map(n=>Number(n.getAttribute('data-color-id'))).filter(Boolean);
+  if(ids.length && (!comboActive || !ids.includes(comboActive))){
+    st._comboActive=ids[0];
+    list.querySelectorAll('.pcs-opt').forEach(n=>{
+      const on=Number(n.getAttribute('data-color-id'))===ids[0];
+      n.classList.toggle('is-active', on);
+      n.setAttribute('aria-selected', on?'true':'false');
+    });
+  }
+  if(search && st._comboActive) search.setAttribute('aria-activedescendant','pcs-opt-'+st._comboActive);
+}
+function renderPcsSizes(){
+  const row=el('pcs-size-row');
+  const orderBox=el('p-size-order');
+  if(!row) return;
+  const st=window._prodSkuSticky||{};
+  const sizes=window._prodSizeCatalog||[];
+  const usedS=new Set((st.sizeOrder||[]).map(Number));
+  const ro=!prodSkuCanMutate();
+  const dis=ro?' disabled':'';
+  if(!sizes.length){
+    row.innerHTML='<span class="muted">سایزی ثبت نشده — از کالا → سایزها تعریف کنید</span>';
+  }else{
+    row.innerHTML=sizes.map(s=>{
+      const on=usedS.has(Number(s.id));
+      const parts=splitSizeLabel(s.name);
+      return `<button type="button" class="pcs-size${on?' is-on':''}" data-size-id="${s.id}" aria-pressed="${on?'true':'false'}" title="${esc(parts.full)}"${dis}>
+        <span class="pcs-size-main">${esc(parts.main)}</span>
+        ${parts.sub?`<span class="pcs-size-sub">${esc(parts.sub)}</span>`:''}
+      </button>`;
+    }).join('');
+  }
+  if(orderBox){
+    const sizeOrder=(st.sizeOrder||[]).map(Number);
+    const ordered=sizeOrder.map(id=>sizes.find(s=>Number(s.id)===Number(id))).filter(Boolean);
+    orderBox.innerHTML=ordered.length?ordered.map((s,idx)=>`
+      <div class="prod-size-ord" data-size-id="${s.id}">
+        <span class="prod-size-ord-label">${esc(s.name)}</span>
+        ${ro?'':`<span class="prod-size-ord-btns">
+          <button type="button" class="btn sm ghost" title="بالاتر" ${idx===0?'disabled':''} data-csp-click="${CSP.bind('click',function(){moveProdSizeOrder(Number(s.id),-1)})}">▲</button>
+          <button type="button" class="btn sm ghost" title="پایین‌تر" ${idx===ordered.length-1?'disabled':''} data-csp-click="${CSP.bind('click',function(){moveProdSizeOrder(Number(s.id),1)})}">▼</button>
+        </span>`}
+      </div>`).join(''):'<span class="muted">سایز انتخاب‌شده‌ای برای ترتیب نیست</span>';
+  }
+}
+
+
 async function loadProdSkuChips(productId, opts){
   opts=opts||{};
   const box=el('p-sku-chips'); if(!box) return;
+  window._pcsLoadSeq=(Number(window._pcsLoadSeq)||0)+1;
+  const seq=window._pcsLoadSeq;
   const ro=!prodSkuCanMutate();
   const dis=ro?' disabled':'';
   if(!opts.keepSticky){
@@ -9915,6 +10187,7 @@ async function loadProdSkuChips(productId, opts){
   try{ sizes=listRows(await api('GET','/product-variants/sizes'))||[]; }catch(e){ sizes=[]; if(!loadErr) loadErr=e; }
   colors=colors.slice().sort(prodFaNameSort);
   await ensureWarehouses();
+  if(seq!==window._pcsLoadSeq) return;
   const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0);
   const prod=window._prodModalProduct||{};
   const defaultWh=Number(window._prodMatrixWhId||el('p-warehouse')?.value||prod.warehouse_id||(whs[0]&&whs[0].id)||0)||0;
@@ -9925,6 +10198,7 @@ async function loadProdSkuChips(productId, opts){
       style=await api('GET','/product-variants/style/'+productId+qs);
     }catch(e){ style=null; loadErr=e; }
   }
+  if(seq!==window._pcsLoadSeq) return;
   if(loadErr && !colors.length && !sizes.length){
     box.innerHTML=`<div class="prod-sku-panel pcs-panel">
       <div class="pcs-error" role="alert">خطا در بارگذاری رنگ/سایز: ${esc(loadErr.message||'نامشخص')}</div>
@@ -9968,22 +10242,7 @@ async function loadProdSkuChips(productId, opts){
   const withStockSet=new Set(cls.withStock.map(Number));
   const withoutSet=new Set(cls.withoutStock.map(Number));
 
-  const selectedChipsHtml=selectedColorObjs.length?selectedColorObjs.map(c=>{
-    const id=Number(c.id);
-    const hex=prodColorSwatchHex(c);
-    const q=Number(whQty[id])||0;
-    let badge='';
-    if(withStockSet.has(id)) badge=`<span class="pcs-badge pcs-badge-ok" title="موجودی این انبار">✓ ${fmt(q)} در انبار محصول</span>`;
-    else if(withoutSet.has(id)) badge=`<span class="pcs-badge pcs-badge-zero">بدون موجودی</span>`;
-    else badge=`<span class="pcs-badge pcs-badge-zero">بدون موجودی</span>`;
-    const removeBtn=ro?'':`<button type="button" class="pcs-chip-x" data-color-id="${id}" aria-label="حذف رنگ ${esc(c.name)}">×</button>`;
-    return `<span class="pcs-chip is-on" data-color-id="${id}" title="${esc(c.name)}">
-      <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
-      <bdi class="pcs-chip-name">${esc(c.name)}</bdi>
-      ${badge}
-      ${removeBtn}
-    </span>`;
-  }).join(''):'<span class="muted">رنگی انتخاب نشده — از کادر افزودن رنگ انتخاب کنید</span>';
+  const selectedChipsHtml='<span class="muted">…</span>';
 
   const renderOpt=(c, idx)=>{
     const id=Number(c.id);
@@ -9998,10 +10257,7 @@ async function loadProdSkuChips(productId, opts){
   let listIdx=0;
   const recentBlock=(!colorQ && recentColors.length)?`<li class="pcs-opt-group" role="presentation">اخیراً استفاده‌شده</li>${recentColors.map(c=>renderOpt(c, listIdx++)).join('')}`:'';
   const allBlock=alphaAdd.length?`<li class="pcs-opt-group" role="presentation">همه (الفبایی)</li>${alphaAdd.map(c=>renderOpt(c, listIdx++)).join('')}`:'';
-  const listboxHtml=(comboOpen && !ro)?`
-    <ul role="listbox" id="pcs-color-listbox" class="pcs-listbox" aria-label="فهرست رنگ‌ها">
-      ${recentBlock}${allBlock || '<li class="pcs-opt-empty muted" role="presentation">موردی نیست</li>'}
-    </ul>`:'';
+  const listboxHtml=`<ul role="listbox" id="pcs-color-listbox" class="pcs-listbox" aria-label="فهرست رنگ‌ها" ${comboOpen?'':'hidden'}></ul>`;
 
   const simPairs=prodColorSimilarityPairs(colors);
   const simHtml=simPairs.length
@@ -10056,6 +10312,7 @@ async function loadProdSkuChips(productId, opts){
   const emptyHint=(!colors.length || !sizes.length)
     ? `<div class="pcs-empty muted">رنگ یا سایز کاتالوگ تعریف نشده — از لینک‌های مدیریت کاتالوگ اقدام کنید.</div>` : '';
 
+  box.dataset.pcsBound='';
   box.innerHTML=`
     <div class="prod-sku-panel pcs-panel">
       <div class="prod-sku-head">
@@ -10101,14 +10358,18 @@ async function loadProdSkuChips(productId, opts){
 
   bindPcsPanelEvents(productId||0, box);
   setProdSkuTab(tab);
+  renderPcsChips();
+  renderPcsSizes();
+  renderPcsListbox();
   renderProdStockGrid();
   renderProdPackLiveCard();
   try{ syncProdPackSummaryFromChips(); }catch(_){ }
 }
 function bindPcsPanelEvents(productId, box){
   if(!box) return;
-  if(box._pcsClick) box.removeEventListener('click', box._pcsClick);
-  box._pcsClick=function(ev){
+  if(box.dataset.pcsBound==='1') return;
+  box.dataset.pcsBound='1';
+  box.addEventListener('click', function(ev){
     const t=ev.target.closest('[data-color-id], .pcs-size, .pcs-chip-x');
     if(!t || !box.contains(t)) return;
     if(t.classList.contains('pcs-chip-x') || ev.target.closest('.pcs-chip-x')){
@@ -10127,52 +10388,64 @@ function bindPcsPanelEvents(productId, box){
         ev.preventDefault();
         const st=window._prodSkuSticky||{};
         st._comboOpen=false; st._colorQ=''; st._comboActive=0;
+        const search=el('p-color-search'); if(search) search.value='';
         pcsToggleColor(id, true);
       }
     }
-  };
-  box.addEventListener('click', box._pcsClick);
+  });
   const search=box.querySelector('#p-color-search');
   if(search){
-    search.oninput=function(){
+    let composing=false;
+    search.addEventListener('compositionstart', ()=>{ composing=true; });
+    search.addEventListener('compositionend', ()=>{
+      composing=false;
       const st=window._prodSkuSticky||{};
       st._colorQ=search.value||'';
       st._comboOpen=true;
       st._comboActive=0;
-      loadProdSkuChips(productId, {keepSticky:true, skipDomSync:true});
-      setTimeout(()=>{ const n=el('p-color-search'); if(n){ n.focus(); try{ n.setSelectionRange(n.value.length,n.value.length);}catch(_){}} },0);
-    };
-    search.onfocus=function(){
+      renderPcsListbox();
+    });
+    search.addEventListener('input', function(){
+      if(composing) return;
       const st=window._prodSkuSticky||{};
-      if(!st._comboOpen){ st._comboOpen=true; loadProdSkuChips(productId,{keepSticky:true,skipDomSync:true}); }
-    };
-    search.onkeydown=function(ev){
+      st._colorQ=search.value||'';
+      st._comboOpen=true;
+      st._comboActive=0;
+      renderPcsListbox();
+    });
+    search.addEventListener('focus', function(){
       const st=window._prodSkuSticky||{};
-      const list=[...box.querySelectorAll('.pcs-opt[data-color-id]')];
-      const ids=list.map(n=>Number(n.getAttribute('data-color-id'))).filter(Boolean);
-      if(ev.key==='ArrowDown' || ev.key==='ArrowUp'){
+      st._comboOpen=true;
+      renderPcsListbox();
+    });
+    search.addEventListener('keydown', function(ev){
+      const st=window._prodSkuSticky||{};
+      const listEl=el('pcs-color-listbox');
+      const ids=listEl?[...listEl.querySelectorAll('.pcs-opt[data-color-id]')].map(n=>Number(n.getAttribute('data-color-id'))).filter(Boolean):[];
+      if(ev.key==='ArrowDown' || ev.key==='ArrowUp' || ev.key==='Home' || ev.key==='End'){
         ev.preventDefault();
         st._comboOpen=true;
-        if(!ids.length){ loadProdSkuChips(productId,{keepSticky:true,skipDomSync:true}); return; }
+        if(!ids.length){ renderPcsListbox(); return; }
         let idx=ids.indexOf(Number(st._comboActive));
-        if(idx<0) idx=ev.key==='ArrowDown'?-1:0;
-        idx=ev.key==='ArrowDown' ? (idx+1)%ids.length : (idx-1+ids.length)%ids.length;
+        if(ev.key==='Home') idx=0;
+        else if(ev.key==='End') idx=ids.length-1;
+        else if(idx<0) idx=ev.key==='ArrowDown'?0:ids.length-1;
+        else idx=ev.key==='ArrowDown' ? (idx+1)%ids.length : (idx-1+ids.length)%ids.length;
         st._comboActive=ids[idx];
-        loadProdSkuChips(productId,{keepSticky:true,skipDomSync:true});
-        setTimeout(()=>{ el('p-color-search')?.focus(); },0);
+        renderPcsListbox();
       }else if(ev.key==='Enter'){
         ev.preventDefault();
         const pick=Number(st._comboActive)||ids[0];
-        if(pick){ st._comboOpen=false; st._colorQ=''; st._comboActive=0; pcsToggleColor(pick, true); }
+        if(pick){ st._comboOpen=false; st._colorQ=''; st._comboActive=0; search.value=''; pcsToggleColor(pick, true); }
       }else if(ev.key==='Escape'){
         ev.preventDefault();
         st._comboOpen=false; st._comboActive=0;
-        loadProdSkuChips(productId,{keepSticky:true,skipDomSync:true});
+        renderPcsListbox();
       }else if(ev.key==='Backspace' && !search.value){
         const arr=(st.colorIds||[]).slice();
         if(arr.length){ ev.preventDefault(); pcsToggleColor(arr[arr.length-1], false); }
       }
-    };
+    });
   }
   if(!window._pcsDocCloseBound){
     window._pcsDocCloseBound=true;
@@ -10181,10 +10454,8 @@ function bindPcsPanelEvents(productId, box){
       if(!st._comboOpen) return;
       if(ev.target.closest && ev.target.closest('#pcs-combo-wrap')) return;
       st._comboOpen=false;
-      const pid=Number(st.productId)||0;
-      const host=el('p-sku-chips');
-      if(host) loadProdSkuChips(pid,{keepSticky:true,skipDomSync:true});
-    }, true);
+      renderPcsListbox();
+    }, false);
   }
 }
 function includeProdPreserveColor(colorId){
@@ -10194,12 +10465,23 @@ function includeProdPreserveColor(colorId){
   if(id && !(st.colorIds||[]).includes(id)) st.colorIds=[...(st.colorIds||[]), id];
   pcsPushRecentColor(id);
   st.tab='here';
-  loadProdSkuChips(Number(st.productId)||0, {keepSticky:true, skipDomSync:true});
+  setProdSkuTab('here');
+  renderPcsChips();
+  renderPcsListbox();
+  renderProdStockGrid();
+  renderProdPackLiveCard();
+  try{ syncProdPackSummaryFromChips(); }catch(_){}
+  const search=el('p-color-search'); if(search) search.focus();
 }
 async function onProdMatrixWarehouseChange(productId){
-  // انتخاب رنگ از sticky می‌ماند؛ فقط سایز را از DOM همگام کن
   syncProdSkuStickyFromDom();
+  const prevWh=Number(window._prodMatrixWhId||0)||0;
+  const prevName=pcsCurrentWhName();
+  const dirty=pcsDraftCount(prevWh);
   window._prodMatrixWhId=Number(el('p-matrix-wh')?.value||0)||0;
+  if(dirty){
+    try{ showToast(fmt(dirty)+' تغییر ذخیره‌نشده در انبار '+(prevName||('#'+prevWh))); }catch(_){}
+  }
   if(productId) await loadProdSkuChips(productId, {keepSticky:true, skipDomSync:true});
   if(productId) await refreshProdVariantsPanel(productId);
 }
@@ -10226,43 +10508,61 @@ function pcsVariantSku(cid, sid){
 function pcsOtherWhTip(cid, sid){
   const byWh=window._prodStockByWh||[];
   if(!byWh.length) return '';
-  // فقط جمع انبارها در meta موجود است؛ جزئیات سلول در سایر انبارها در این API نیست
-  return byWh.map(w=>`${w.warehouse_name}: ${fmt(w.qty)}`).join(' · ');
+  return 'جمع کل محصول در انبارها: '+byWh.map(w=>esc(w.warehouse_name)+' = '+fmt(w.qty)).join(' · ');
 }
 function pcsFillMatrixRow(colorId, val){
   if(!prodSkuCanMutate()) return;
+  if(!confirm('فقط سلول‌های خالی/صفر این ردیف با ۱ پر می‌شوند. ادامه؟')) return;
+  const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
+  let filled=0;
   document.querySelectorAll(`.p-stock-cell[data-color="${colorId}"]`).forEach(inp=>{
+    const cur=String(inp.value||'').trim();
+    if(cur!=='' && cur!=='0') return;
     inp.value=String(val);
     inp.classList.toggle('is-zero', !(Number(val)>0));
+    const sid=Number(inp.dataset.size);
+    pcsDraftSet(wh, colorId, sid, inp.value, pcsServerQty(colorId, sid));
+    inp.classList.toggle('is-dirty', pcsDraftGet(wh, colorId, sid)!==undefined);
+    filled++;
   });
+  pcsRefreshMatrixSums();
   refreshProdMatrixRowStatus();
   renderProdPackLiveCard();
+  showToast(fmt(filled)+' سلول پر شد');
 }
 function pcsFillMatrixCol(sizeId, val){
   if(!prodSkuCanMutate()) return;
+  if(!confirm('فقط سلول‌های خالی/صفر این ستون با ۱ پر می‌شوند. ادامه؟')) return;
+  const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
+  let filled=0;
   document.querySelectorAll(`.p-stock-cell[data-size="${sizeId}"]`).forEach(inp=>{
+    const cur=String(inp.value||'').trim();
+    if(cur!=='' && cur!=='0') return;
     inp.value=String(val);
     inp.classList.toggle('is-zero', !(Number(val)>0));
+    const cid=Number(inp.dataset.color);
+    pcsDraftSet(wh, cid, sizeId, inp.value, pcsServerQty(cid, sizeId));
+    inp.classList.toggle('is-dirty', pcsDraftGet(wh, cid, sizeId)!==undefined);
+    filled++;
   });
+  pcsRefreshMatrixSums();
   refreshProdMatrixRowStatus();
   renderProdPackLiveCard();
+  showToast(fmt(filled)+' سلول پر شد');
 }
 function renderProdStockGrid(){
   const wrap=el('p-stock-matrix-wrap'); if(!wrap) return;
   const {colors,sizes}=selectedProdChips();
   const stockFg=el('p-stock-fg')||el('p-stock')?.closest('.fg');
-  const whName=(CACHE.warehouses||[]).find(w=>Number(w.id)===Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0))?.name||'';
+  const whName=pcsCurrentWhName();
+  const whId=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
   const ro=!prodSkuCanMutate();
   if(colors.length && sizes.length){
     if(stockFg) stockFg.hidden=true;
     const hint=el('pfv2-stock-matrix-hint'); if(hint) hint.hidden=false;
     const stockInp=el('p-stock'); if(stockInp){ stockInp.readOnly=true; stockInp.title='از جمع ماتریس محاسبه می‌شود'; }
-    const vars=window._prodStyleVariants||[];
-    const qtyOf=(cid,sid)=>{
-      const v=vars.find(x=>Number(x.color_id)===Number(cid)&&Number(x.size_id)===Number(sid));
-      return v&&v.stock!=null?v.stock:0;
-    };
-    const pack=computeProdCompletePack(colors, sizes, qtyOf);
+    const qtyOf=(cid,sid)=>pcsQtyMerged(cid,sid);
+    const pack=computeProdCompletePack(colors, sizes, (cid,sid)=>Number(qtyOf(cid,sid))||0);
     const incompleteIds=new Set(pack.incomplete.map(c=>Number(c.id)));
     const colTotals=sizes.map(s=>colors.reduce((acc,c)=>acc+(Number(qtyOf(c.id,s.id))||0),0));
     const tipAll=pcsOtherWhTip();
@@ -10275,7 +10575,7 @@ function renderProdStockGrid(){
           <th scope="col" class="pcs-sticky-col">رنگ \\ سایز</th>
           ${sizes.map(s=>`<th scope="col" title="${esc(s.name)}">
             <div class="pcs-th-size"><bdi>${esc(splitSizeLabel(s.name).main)}</bdi>
-            ${ro?'':`<button type="button" class="pcs-select-col pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixCol(Number(s.id),1)})}">همه ۱</button>`}
+            ${ro?'':`<button type="button" class="pcs-select-col pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixCol(Number(s.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
             </div>
           </th>`).join('')}
           <th scope="col">جمع</th>
@@ -10291,14 +10591,15 @@ function renderProdStockGrid(){
                 <span class="pcs-swatch" data-csp-style="${CSP.style('--swatch:'+hex)}"></span>
                 <bdi>${esc(c.name)}</bdi>
               </span>
-              ${ro?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">همه ۱</button>`}
+              ${ro?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
             </th>
             ${sizes.map(s=>{
               const q=qtyOf(c.id,s.id);
               const zero=!(Number(q)>0);
+              const dirty=pcsDraftGet(whId,c.id,s.id)!==undefined;
               const sku=pcsVariantSku(c.id,s.id);
               return `<td>
-                <input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" title="${esc(tipAll||'')}" ${ro?'disabled':''}>
+                <input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}${dirty?' is-dirty':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" ${tipAll?`title="${esc(tipAll)}"`:''} ${ro?'disabled':''}>
                 ${sku?`<div class="pcs-sku mono" dir="ltr"><bdi>${esc(sku)}</bdi></div>`:''}
               </td>`;
             }).join('')}
@@ -10316,17 +10617,14 @@ function renderProdStockGrid(){
       <div class="muted pcs-matrix-foot">موجودی کلی مخفی شد؛ ذخیره فقط انبار انتخاب‌شده را می‌نویسد.</div>`;
     wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
       inp.addEventListener('input', ()=>{
+        const cid=Number(inp.dataset.color), sid=Number(inp.dataset.size);
+        const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
+        pcsDraftSet(wh, cid, sid, inp.value, pcsServerQty(cid, sid));
         inp.classList.toggle('is-zero', !(Number(parseQty(inp.value,0))>0));
+        inp.classList.toggle('is-dirty', pcsDraftGet(wh, cid, sid)!==undefined);
+        pcsRefreshMatrixSums();
         refreshProdMatrixRowStatus();
         renderProdPackLiveCard();
-        // جمع سطر/ستون زنده
-        const tr=inp.closest('tr');
-        if(tr){
-          const cells=[...tr.querySelectorAll('.p-stock-cell')];
-          const sum=cells.reduce((a,n)=>a+(Number(parseQty(n.value,0))||0),0);
-          const sumEl=tr.querySelector('.pcs-row-sum');
-          if(sumEl) sumEl.textContent=fmt(sum);
-        }
       });
     });
   }else{
@@ -10474,6 +10772,7 @@ async function saveProdVariantStocks(productId){
   const warehouse_id=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||el('p-warehouse')?.value||0)||undefined;
   try{
     await api('POST','/product-variants/stock-matrix',{ product_id:Number(productId), cells, warehouse_id });
+    pcsDraftClearWh(warehouse_id);
     showToast('موجودی رنگ×سایز انبار ذخیره شد');
     await refreshProdVariantsPanel(productId);
     await loadProdSkuChips(productId);
@@ -36856,7 +37155,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <ul>
         <li><b>مودیان:</b> صف ارسال روی سرور مرکزی؛ آداپتر stub (محلی)، sandbox (HTTP به sandboxrc.tax.gov.ir — ارسال آزمایشی)، یا live (tp.tax.gov.ir). دکمه «آزمایش اتصال» و «ارسال آزمایشی»؛ وضعیت test_sent قفل قانونی فاکتور نیست</li>
         <li><b>حقوق:</b> هنگام پردازش دوره، پارامترهای کار/مالیات در snapshot ذخیره می‌شوند و با تغییر بعدی settings عوض نمی‌شوند</li>
-        <li><b>SKU پوشاک (v528→v559):</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در مودال کالا (v559): چیپ رنگ انتخاب‌شده + combobox افزودن (جستجوی ي/ک/آ و نیم‌فاصله)، برچسب بدون‌موجودی، سایز toggle، ماتریس جدول با ستون چسبان و جمع، تب «انبارهای دیگر»، هشدار نام‌های شبیه. تعویض انبار و فیلتر جستجو <b>انتخاب رنگ/سایز را عوض نمی‌کند</b>. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است. <b>پک زنده</b> = رنگ‌های کامل × سایزها و <b>تعداد پک کامل</b> = حداقل موجودی همان خانه‌ها. ذخیرهٔ این انبار رنگِ زنده‌ی انبار دیگر را پاک نمی‌کند. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code></li>
+        <li><b>SKU پوشاک (v528→v560):</b> مسیر UI: <b>کالا → اطلاعات پایه → رنگ‌های کالا / سایزهای کالا</b>. در مودال کالا (v560): چیپ رنگ انتخاب‌شده + combobox افزودن با <b>فیلتر سمت کلاینت</b> (بدون reload؛ فوکوس/caret می‌ماند؛ ي/ک/آ و نیم‌فاصله)، پیش‌نویس ماتریس تا ذخیره یا ترک صفحه، برچسب «✓ n در انبار» / «در انبار دیگر» / «بدون موجودی»، سایز toggle، ماتریس با ستون چسبان و جمع زنده، «پر کردن خالی‌ها با ۱». تعویض انبار انتخاب رنگ/سایز را عوض نمی‌کند. موجودی رنگ×سایز برای واحد عدد فقط <b>عدد صحیح</b> است. ذخیرهٔ این انبار رنگِ زنده‌ی انبار دیگر را پاک نمی‌کند. تعریف ماتریس فقط مدیر/حسابدار است. API: <code>/api/product-variants</code></li>
         <li><b>صفحه‌بندی کالا:</b> سقف صفحهٔ عمومی API ۲۰۰ است ولی کاتالوگ کالا تا ۵۰۰۰ در هر صفحه است. شمارندهٔ «کالاها» همیشه <b>تعداد کل ثبت‌شده</b> است، نه طول یک صفحه. اگر صفحه بریده شود، بقیه صفحات خودکار گرفته می‌شوند</li>
         <li><b>جستجوی کالا (کش سراسری):</b> فیلتر/سرچ در صفحهٔ کالاها فقط همان جدول را محدود می‌کند؛ کاتالوگ کامل برای فاکتور، خرید، BOM و پیکرها جدا نگه داشته می‌شود و با سرچ قبلی (مثلاً «آفاق») آلوده نمی‌شود</li>
         <li><b>انتخاب مشتری در فاکتور/پیگیری:</b> قبل از باز شدن فرم، لیست مشتریان قابل‌مشاهدهٔ همان کاربر (مالک یا assigned_to) از سرور بارگذاری می‌شود — حتی اگر هنوز صفحهٔ مشتریان را باز نکرده باشید</li>
@@ -37502,12 +37801,12 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اعتبارسنجی نام خالی همچنان مسدودکننده است؛ بقیهٔ قواعد (بارکد EAN، قیمت، پک، …) فقط هشدار نمایشی هستند.</li>
         <li>خلاصهٔ زندهٔ «N رنگ × M سایز = K عدد در پک» و لینک «محاسبهٔ خودکار» برای <code>تعداد در پک</code> اضافه شده؛ ویرایش دستی پک حفظ می‌شود.</li>
       </ul>
-      <h5>پنل رنگ و سایز کالا (SW v559)</h5>
+      <h5>پنل رنگ و سایز کالا (SW v560)</h5>
       <ul>
-        <li>انتخاب رنگ‌ها از <b>چیپ‌های انتخاب‌شده</b> + کادر جستجوی combobox است (نه شبکهٔ شصت‌تایی چک‌باکس). جستجو انتخاب را پاک نمی‌کند؛ ذخیره همان <code>color_ids</code>/<code>size_ids</code> قبلی را می‌فرستد.</li>
-        <li>رنگ بدون موجودی در این انبار برچسب «بدون موجودی» می‌گیرد؛ خلاصهٔ پک می‌نویسد: «N رنگ تعریف‌شده (M دارای موجودی) × سایز».</li>
-        <li>سایزها دکمهٔ toggle با برچسب اصلی و زیرنویس بازه هستند؛ ترتیب با ▲▼ می‌ماند.</li>
-        <li>ماتریس موجودی جدول واقعی با ستون اول چسبان، جمع سطر/ستون، SKU زیر هر خانه، و اسکرول افقی در موبایل است. تب «انبارهای دیگر» و فقط‌خواندنی برای نقش مشاهده حفظ شده است.</li>
+        <li>انتخاب رنگ‌ها از <b>چیپ‌های انتخاب‌شده</b> + کادر جستجوی combobox است. تایپ فقط listbox را فیلتر می‌کند (بدون درخواست شبکه و بدون از دست رفتن فوکوس). ذخیره همان <code>color_ids</code>/<code>size_ids</code> قبلی را می‌فرستد.</li>
+        <li>برچسب‌ها: «✓ n در ‹انبار›»، «در انبار دیگر: n»، یا «بدون موجودی». خلاصهٔ پک: «N رنگ تعریف‌شده (M دارای موجودی) × سایز».</li>
+        <li>عددهای ماتریس تا ذخیره در پیش‌نویس می‌مانند؛ ترک صفحه/مودال با پیش‌نویس هشدار می‌دهد. «پر کردن خالی‌ها با ۱» فقط سلول خالی/صفر را پر می‌کند.</li>
+        <li>سایزها دکمهٔ toggle با برچسب اصلی و زیرنویس بازه هستند؛ ترتیب با ▲▼ می‌ماند. ماتریس جدول با ستون چسبان، جمع زنده، و تب «انبارهای دیگر» است.</li>
       </ul>
       <h5>تفکیک وظایف / maker-checker (ممیزی ۸D / SW v550)</h5>
       <ul>
