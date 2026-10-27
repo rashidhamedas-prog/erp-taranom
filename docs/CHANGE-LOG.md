@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۵ — v564: فاز ۱ UI چک — تب پرداختی، فیلتر مشترک، layout دفتر (SW v564)
+- **منبع:** `cheque-module-cursor` Phase 1؛ شاخهٔ `feat/cheque-module-p1-ui`.
+- **تب‌ها:** `acc-cheques-pay` مستقل با `direction=out`؛ `acc-cheques-recv` با `direction=in`؛ فیلتر مشترک `chq.filters.v564`.
+- **دفتر چک layout:** `.chq-reg-card`، فیلتر دو ردیفه + `chq-adv`، ۹ ستون پیش‌فرض (`chq.cols.v2`)، منوی ⋯ اکشن‌ها، footer/pager RTL، aging/موبایل.
+- **افتتاحیه:** کارت تطبیق فقط‌خواندنی `GET /cheque-records/opening-reconciliation` vs GL opening_cheque.
+- **فایل‌ها:** `public/{app.js,app.css,acc-nav.js,index.html,sw.js}`، `lib/cheque-{register-query,reconciliation}.js`، `routes/cheque-records.js`، `scripts/{test-cheque-module-p1,test-cheque-register-v562}.js`، Help، CHANGE-LOG.
+- **تست:** `test:cheque-module-p1`؛ `test:cheque-register`؛ encoding.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۵ — v563: hotfix encoding + سررسید چک چندمرحله‌ای (SW v563)
 - **منبع:** `cheque-module-cursor` Phase 0؛ شاخهٔ `hotfix/utf8-and-cheque-due`.
 - **encoding:** بازگردانی `index.html` از `32a4e98` + bump `?v=563`؛ اصلاح کامنت mojibake در `app.css`؛ گارد `scripts/test-public-encoding.js` (UTF-8 fatal / U+FFFD / `????` / BOM).

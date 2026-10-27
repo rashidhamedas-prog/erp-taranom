@@ -2547,31 +2547,81 @@ body.erp-demo-mode{padding-top:32px}
 .inv-field-err-msg{margin-block-start:4px;color:var(--red);font-size:12px;font-weight:600;line-height:1.7}
 input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!important;box-shadow:0 0 0 2px rgba(220,38,38,.18)}
 
-/* v563 — دفتر چک (cheque register) */
+/* v564 — دفتر چک (cheque register layout) */
 .chq-reg{display:flex;flex-direction:column;gap:12px}
-.chq-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
-.chq-card{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);cursor:pointer;text-align:right;font:inherit;color:inherit}
-.chq-card:hover,.chq-card:focus-visible{border-color:var(--purple);outline:2px solid color-mix(in srgb,var(--purple) 35%,transparent);outline-offset:1px}
-.chq-card-label{font-size:11px;color:var(--muted);font-weight:600}
-.chq-card-count{font-size:18px;font-weight:800}
-.chq-card-amt{font-size:11px;color:var(--muted)}
-.chq-flag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:6px;background:#fff3e0;color:#9a5b00;margin-inline-start:2px}
+.chq-reg-skel{padding:24px 12px;text-align:center;font-size:14px}
+.chq-reg-error{padding:16px;border-radius:10px}
+.chq-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:stretch}
+.chq-cards>.chq-reg-card{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);cursor:pointer;text-align:start;font:inherit;color:inherit;width:100%}
+.chq-cards>.chq-reg-card:hover,.chq-cards>.chq-reg-card:focus-visible{border-color:var(--purple);outline:2px solid color-mix(in srgb,var(--purple) 35%,transparent);outline-offset:1px}
+.chq-cards>.chq-reg-card.is-active{border-color:var(--purple);background:var(--purple-light);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--purple) 25%,transparent)}
+.chq-reg-card-label{font-size:11px;color:var(--muted);font-weight:600}
+.chq-reg-card-count{font-size:18px;font-weight:800;text-align:start;unicode-bidi:plaintext}
+.chq-reg-card-amt{font-size:11px;color:var(--muted);text-align:start;unicode-bidi:plaintext}
+.chq-filters{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px;margin:12px 0;width:100%}
+.chq-filters.toolbar{flex-direction:row;align-items:flex-start}
+.chq-filter-main{display:flex;flex-wrap:wrap;gap:8px;flex:1 1 320px;align-items:center;min-width:0}
+.chq-filter-main select,.chq-filter-main input{max-width:200px;min-width:120px}
+.chq-lc{min-width:160px;max-width:220px}
+.chq-tools{display:flex;flex-wrap:wrap;gap:6px;margin-inline-start:auto;align-items:center}
+.chq-adv{width:100%;max-width:100%;border:1px dashed var(--border);border-radius:8px;padding:6px 10px;background:var(--well)}
+.chq-adv-body{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
+.chq-adv-body input,.chq-adv-body select{max-width:200px;min-width:120px}
+.chq-check{display:inline-flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap}
+.chq-check input{margin:0}
+.chq-flag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:6px;background:#fff3e0;color:#9a5b00;margin-inline-start:2px;white-space:nowrap}
 .chq-overdue{color:var(--red);font-weight:700}
-.chq-footer{display:flex;flex-wrap:wrap;gap:12px 18px;align-items:center;padding:10px 12px;border-top:2px solid var(--border);background:var(--purple-light);font-size:13px;font-weight:600}
-.chq-actions{display:flex;flex-wrap:wrap;gap:4px}
-.chq-col-panel{display:flex;flex-wrap:wrap;gap:8px 14px;padding:10px;border:1px dashed var(--border);border-radius:8px;margin-bottom:8px}
-.chq-age-row{display:grid;grid-template-columns:70px 1fr auto;gap:8px;align-items:center;margin:6px 0;font-size:12px}
-.chq-age-bar{height:10px;background:var(--border);border-radius:6px;overflow:hidden}
+.chq-tbl{font-size:12px}
+.chq-tbl td[data-col=amount],.chq-tbl td[data-col=due_date],.chq-tbl td[data-col=issue_date],.chq-tbl td[data-col=sayadi],.chq-tbl td[data-col=days],.chq-tbl td[data-col=cheque_number],.chq-tbl td[data-col=journal],.chq-tbl td[data-col=direction],.chq-tbl td[data-col=lifecycle]{white-space:nowrap}
+.chq-tbl td[data-col=amount]{text-align:left;font-variant-numeric:tabular-nums}
+.chq-tbl td[data-col=party_name],.chq-tbl td[data-col=note]{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chq-cell-ellipsis{display:block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chq-row:hover td{background:color-mix(in srgb,var(--purple) 6%,transparent)}
+.chq-actions{display:flex;flex-wrap:nowrap;gap:4px;align-items:center}
+.chq-act-more{position:relative;display:inline-block}
+.chq-act-more>summary{list-style:none;cursor:pointer;padding:4px 8px;border:1px solid var(--border);border-radius:8px;font-size:16px;line-height:1;min-width:32px;text-align:center}
+.chq-act-more>summary::-webkit-details-marker{display:none}
+.chq-act-menu{position:absolute;z-index:50;inset-inline-end:0;top:calc(100% + 4px);display:flex;flex-direction:column;gap:4px;padding:6px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);min-width:140px}
+.chq-col-panel{padding:10px;border:1px dashed var(--border);border-radius:8px;margin-bottom:8px}
+.chq-col-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px 12px}
+.chq-col-opt{display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer}
+.chq-col-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);width:100%}
+.chq-aging h4{margin:12px 0 6px;font-size:13px}
+.chq-age-row{display:grid;grid-template-columns:minmax(90px,auto) 1fr auto;gap:8px;align-items:center;margin:6px 0;font-size:12px}
+.chq-age-bar{height:10px;background:var(--border);border-radius:6px;overflow:hidden;direction:ltr}
 .chq-age-bar>i{display:block;height:100%;background:var(--purple)}
 .chq-age-bar--fut>i{background:var(--green)}
+.chq-footer{display:grid;grid-template-columns:1fr auto;gap:10px 16px;align-items:center;padding:10px 12px;border-top:2px solid var(--border);background:var(--purple-light);font-size:13px;font-weight:600}
+.chq-footer-totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px 14px}
+.chq-pager{margin-inline-start:auto;display:flex;gap:6px;align-items:center;justify-self:end}
 .chq-tbl-mobile{display:none}
-.chq-mcard{border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px;background:var(--card)}
-.chq-mcard-actions{margin-top:8px}
+.chq-mcard{border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:8px;background:var(--card);display:flex;flex-direction:column;gap:8px}
+.chq-mcard-head{font-size:13px;font-weight:700;line-height:1.5;margin:0 0 4px}
+.chq-mcard-grid{display:grid;grid-template-columns:minmax(72px,auto) 1fr;gap:4px 10px;margin:0;font-size:12px;align-items:baseline}
+.chq-mcard-grid dt{color:var(--muted);font-weight:600;margin:0}
+.chq-mcard-grid dd{margin:0;text-align:start}
+.chq-mcard-amt{font-size:15px;font-weight:800;text-align:start}
+.chq-mcard-flags{display:flex;flex-wrap:wrap;gap:4px}
+.chq-mcard-actions{margin-top:4px}
+.chq-mcard-actions .chq-actions .btn.sm{min-height:36px}
+.chq-reg-print-head{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:14px}
+.chq-opening-recon{margin-bottom:12px}
+.chq-opening-recon-note{font-size:12px;line-height:1.7;margin:0 0 8px}
+.chq-opening-toolbar{margin-bottom:8px;flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px}
+.chq-opening-toolbar-note{font-size:12px}
+.chq-no-print{}
 .chq-print-only{display:none}
 @media(max-width:768px){
   .chq-tbl-desktop{display:none}
   .chq-tbl-mobile{display:block}
   .chq-cards{grid-template-columns:1fr 1fr}
+  .chq-filters.toolbar{flex-direction:column;align-items:stretch}
+  .chq-filter-main{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%}
+  .chq-filter-main select,.chq-filter-main input,.chq-adv-body input,.chq-adv-body select{max-width:none;width:100%;min-width:0}
+  .chq-filter-pay,.chq-adv{grid-column:1/-1}
+  .chq-tools{margin-inline-start:0;width:100%;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .chq-footer{grid-template-columns:1fr}
+  .chq-pager{justify-self:stretch;justify-content:center;margin-inline-start:0}
 }
 @media print{
   .chq-no-print,.sidebar,.acc-nav,.toolbar .btn,.chq-pager{display:none!important}
