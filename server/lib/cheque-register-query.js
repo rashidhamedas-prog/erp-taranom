@@ -121,6 +121,12 @@ function buildChequeRegisterQuery(params = {}) {
     bind.push('%' + chqNum + '%');
   }
 
+  const branchQ = String(params.branch || params.branch_q || '').trim();
+  if (branchQ) {
+    where.push('branch LIKE ?');
+    bind.push('%' + branchQ + '%');
+  }
+
   const catId = parseInt(params.check_category_id, 10);
   if (Number.isFinite(catId) && catId > 0) {
     where.push('check_category_id=?');

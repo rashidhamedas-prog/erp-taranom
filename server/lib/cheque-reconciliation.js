@@ -150,8 +150,53 @@ function buildChequeReconciliation(db) {
   };
 }
 
+/**
+ * Opening-cheque subledger vs GL on 1109 (in) / 2109 (out) from opening_cheque JEs only.
+ */
+function buildOpeningChequeReconciliation(db, directionRaw) {
+  const direction = directionRaw === 'out' ? 'out' : 'in';
+  const code = direction === 'in' ? '1109' : '2109';
+  const { OPENING_NOTE } = require('./cheque-lifecycle');
+  const alive = postedAlive();
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS amount
+    FROM cheque_records
+    WHERE ${alive}
+      AND direction=?
+      AND (note LIKE ? OR status LIKE ?)
+  `).get(direction, '%' + OPENING_NOTE + '%', '%اول دوره%');
+  const cheques = { count: Number(row.count) || 0, amount: Number(row.amount) || 0 };
+
+  const glRow = db.prepare(`
+    SELECT
+      COALESCE(SUM(COALESCE(jl.debit_rial, jl.debit * 10, 0)), 0) AS debit,
+      COALESCE(SUM(COALESCE(jl.credit_rial, jl.credit * 10, 0)), 0) AS credit
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.entry_id
+    JOIN cheque_records cr ON cr.id = je.ref_id
+    WHERE jl.account_code = ?
+      AND je.ref_type = 'opening_cheque'
+      AND cr.direction = ?
+      AND COALESCE(je.deleted_at, 0) = 0
+      AND ${alive.replace(/cheque_records/g, 'cr')}
+  `).get(code, direction);
+  const debit = Number(glRow && glRow.debit) || 0;
+  const credit = Number(glRow && glRow.credit) || 0;
+  const gl_rial = direction === 'in' ? debit - credit : credit - debit;
+
+  return {
+    direction,
+    account_code: code,
+    cheques_count: cheques.count,
+    cheques_rial: cheques.amount,
+    gl_opening_rial: Math.round(gl_rial),
+    variance_rial: Math.round(gl_rial) - cheques.amount,
+  };
+}
+
 module.exports = {
   buildChequeReconciliation,
+  buildOpeningChequeReconciliation,
   sumPosted,
   glBalanceRial,
   tableHasColumn,

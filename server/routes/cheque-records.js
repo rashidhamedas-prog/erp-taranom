@@ -25,7 +25,7 @@ const {
   buildDupSayadSet, buildAdminNameSet, daysUntilDue,
 } = require('../lib/cheque-quality');
 const { runChequeRegister, runChequeSummary } = require('../lib/cheque-register-query');
-const { buildChequeReconciliation } = require('../lib/cheque-reconciliation');
+const { buildChequeReconciliation, buildOpeningChequeReconciliation } = require('../lib/cheque-reconciliation');
 const {
   returnToDrawer, endorseReturn, outBounce, outVoid, replaceCheque,
   reverseLastEvent, markGuarantee,
@@ -591,6 +591,14 @@ router.get('/summary', auth, adminOrAccounting, (req, res) => {
 router.get('/reconciliation', auth, adminOrAccounting, (req, res) => {
   try {
     res.json(buildChequeReconciliation(getDB()));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
+
+router.get('/opening-reconciliation', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(buildOpeningChequeReconciliation(getDB(), req.query.direction));
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message, code: e.code });
   }

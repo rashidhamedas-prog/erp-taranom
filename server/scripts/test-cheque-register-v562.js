@@ -201,16 +201,37 @@ db.prepare('UPDATE cheque_records SET journal_entry_id=? WHERE id IN (1,2)').run
   ok(n === 5, 'migration re-run does not alter rows');
 }
 
-/* CSP: no raw style=/onclick= in new register helpers of app.js (spot-check markers) */
+/* CSP + register layout (v564) */
 {
   const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
+  const cssSrc = fs.readFileSync(path.join(__dirname, '../public/app.css'), 'utf8');
   const start = appSrc.indexOf('async function renderChequeRegisterTab');
   const end = appSrc.indexOf('async function openChequeLeafModal');
   ok(start > 0 && end > start, 'register tab function present');
   const chunk = appSrc.slice(start, end);
   ok(!/\sstyle="/.test(chunk), 'no raw style= in register tab');
   ok(!/\sonclick=/.test(chunk), 'no raw onclick= in register tab');
-  ok(chunk.includes('data-csp-click') && chunk.includes('data-csp-style'), 'uses CSP helpers');
+  ok(chunk.includes('data-csp-click'), 'uses CSP click helpers');
+  ok(!chunk.includes('class="chq-card"'), 'register summary uses chq-reg-card not chq-card');
+  ok(appSrc.includes('chq.cols.v2'), 'column prefs key chq.cols.v2');
+  ok(appSrc.includes('CHQ_DEFAULT_COLS'), 'default 9-column preset defined');
+  ok(chunk.includes('chq-adv') && chunk.includes('chq-tools'), 'filter toolbar split main/adv/tools');
+  const regCss = cssSrc.slice(cssSrc.indexOf('/* v564'), cssSrc.indexOf('@media print', cssSrc.indexOf('/* v564')));
+  ok(!/\.chq-card-label|\.chq-card-count|\.chq-card-amt|\.chq-card:hover/.test(regCss), 'register CSS has no legacy .chq-card summary rules');
+  ok(regCss.includes('.chq-cards>.chq-reg-card'), 'summary cards scoped to .chq-cards > .chq-reg-card');
+  const classSet = new Set();
+  chunk.replace(/\bchq-[a-z0-9-]+\b/g, (c) => { classSet.add(c); });
+  classSet.delete('chq-reg-card');
+  classSet.add('chq-reg-card');
+  const skipCss = new Set(['chq-no-print', 'chq-print-only', 'is-active']);
+  const missing = [...classSet].filter((c) => !skipCss.has(c) && !new RegExp(`\\.${c.replace(/-/g, '\\-')}[\\s,{:>]`).test(cssSrc));
+  ok(missing.length === 0, `CSS rules for register classes (${classSet.size}): ${missing.join(', ') || 'all present'}`);
+  const actStart = appSrc.indexOf('function chqRowActionsHtml');
+  const actEnd = appSrc.indexOf('async function chequeReturnToDrawer');
+  const actChunk = appSrc.slice(actStart, actEnd);
+  const btnBlocks = actChunk.match(/<button[^>]*>/g) || [];
+  const noLabel = btnBlocks.filter((b) => !/aria-label=/.test(b));
+  ok(noLabel.length === 0, `chqRowActionsHtml buttons have aria-label (${btnBlocks.length})`);
 }
 
 db.close();
