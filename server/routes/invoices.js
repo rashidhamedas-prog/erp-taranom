@@ -16,6 +16,7 @@ const {
   normalizeInvoiceType, isFirmSale, invoiceTypeLabel,
   assertJournalIdempotent, assertWarehouseLines,
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse,
+  assertLineWarehousesAllowed, listCrossWarehouseLines,
   postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled, warehouseUsesPerpetualValuation,
   autoApproveNormalInvoice, allocateFreight, applyFreightToDocTotals,
   isFabricRollLine,
@@ -704,6 +705,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   } else if (!whId && seller?.sales_warehouse_id) {
     whId = seller.sales_warehouse_id;
   }
+  try {
+    assertLineWarehousesAllowed(db, req.user, built.rows, whId);
+  } catch (e) {
+    return res.status(e.status || 403).json({ error: e.message, code: e.code || 'E_CROSS_WH_FORBIDDEN' });
+  }
   let ccId = cost_center_id ? parseInt(cost_center_id, 10) : null;
   if (isSalesRep) ccId = null;
   const journalOpts = {
@@ -905,6 +911,11 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   }
 
   const row = db.prepare('SELECT i.*,c.biz as cust_biz FROM invoices i LEFT JOIN customers c ON i.cust_id=c.id WHERE i.id=?').get(created.id);
+  try {
+    for (const x of listCrossWarehouseLines(built.rows, whId)) {
+      audit(req.user.id, 'cross_warehouse_sale', 'invoice', created.id, JSON.stringify(x));
+    }
+  } catch (_) {}
   if (!isDevice()) {
     try {
       const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
@@ -1009,6 +1020,11 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   } else if (!whId && uWh?.sales_warehouse_id) {
     whId = uWh.sales_warehouse_id;
   }
+  try {
+    assertLineWarehousesAllowed(db, req.user, built.rows, whId);
+  } catch (e) {
+    return res.status(e.status || 403).json({ error: e.message, code: e.code || 'E_CROSS_WH_FORBIDDEN' });
+  }
   let ccId = cost_center_id != null && cost_center_id !== '' ? parseInt(cost_center_id, 10) : (row.cost_center_id || null);
   if (isSalesRep) ccId = row.cost_center_id || null;
 
@@ -1055,6 +1071,15 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
         journalOpts, freightRial, freight_type, allocMethod, storedPayType, skipInvoiceCash,
         salesChannel: resolveSalesChannel(req),
       }))();
+      try {
+        let prevRows = [];
+        try { prevRows = JSON.parse(row.rows || '[]'); } catch (_) { prevRows = []; }
+        const prevKeys = new Set(listCrossWarehouseLines(prevRows, row.warehouse_id).map((x) => `${x.product_id}:${x.variant_id}:${x.from_wh}`));
+        for (const x of listCrossWarehouseLines(built.rows, whId)) {
+          const k = `${x.product_id}:${x.variant_id}:${x.from_wh}`;
+          if (!prevKeys.has(k)) audit(req.user.id, 'cross_warehouse_sale', 'invoice', row.id, JSON.stringify(x));
+        }
+      } catch (_) {}
       const updated = db.prepare(`${INVOICE_JOIN_SQL} WHERE i.id=?`).get(row.id);
       return res.json(applyCatalogCostPolicy(db, req.user, {
         ...updated,
@@ -1095,6 +1120,15 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
+  try {
+    let prevRows = [];
+    try { prevRows = JSON.parse(row.rows || '[]'); } catch (_) { prevRows = []; }
+    const prevKeys = new Set(listCrossWarehouseLines(prevRows, row.warehouse_id).map((x) => `${x.product_id}:${x.variant_id}:${x.from_wh}`));
+    for (const x of listCrossWarehouseLines(built.rows, whId)) {
+      const k = `${x.product_id}:${x.variant_id}:${x.from_wh}`;
+      if (!prevKeys.has(k)) audit(req.user.id, 'cross_warehouse_sale', 'invoice', row.id, JSON.stringify(x));
+    }
+  } catch (_) {}
   res.json({ ok: true });
 });
 
@@ -1216,6 +1250,13 @@ router.post('/:id/convert', auth, (req, res) => {
   }
 
   try {
+    // Convert gate uses the converting user (req.user), not the original issuer.
+    assertLineWarehousesAllowed(db, req.user, rows, convertWhId);
+  } catch (e) {
+    return res.status(e.status || 403).json({ error: e.message, code: e.code || 'E_CROSS_WH_FORBIDDEN' });
+  }
+
+  try {
     convertWhId = requireFirmHeaderWarehouse(convertWhId);
     applyHeaderWarehouseToLines(rows, convertWhId, { force: false });
     assertWarehouseLines(db, rows, convertWhId, { requirePositive: true, allowNegativeProduct: true });
@@ -1329,6 +1370,11 @@ router.post('/:id/convert', auth, (req, res) => {
     return res.status(e.status || 400).json(payload);
   }
   audit(req.user.id, 'convert', 'invoice', inv.id, `تبدیل پیش‌فاکتور ${inv.num} به ${invoiceTypeLabel(targetType)}`);
+  try {
+    for (const x of listCrossWarehouseLines(rows, convertWhId)) {
+      audit(req.user.id, 'cross_warehouse_sale', 'invoice', inv.id, JSON.stringify(x));
+    }
+  } catch (_) {}
 
   if (!isDevice()) {
     try {

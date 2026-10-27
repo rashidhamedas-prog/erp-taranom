@@ -56,9 +56,9 @@ console.log('test-cheque-module-p3');
 /* ---- SW pin ---- */
 {
   const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
-  ok(swAtLeast(swSrc, 567), 'SW cache ≥ erp-taranom-v567');
+  ok(swAtLeast(swSrc, 568), 'SW cache ≥ erp-taranom-v568');
   const idx = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-  ok(/app\.js\?v=567/.test(idx) && /app\.css\?v=567/.test(idx), 'index.html app.js/css ?v=567');
+  ok(/app\.js\?v=568/.test(idx) && /app\.css\?v=568/.test(idx), 'index.html app.js/css ?v=568');
 }
 
 /* ---- static / export presence ---- */

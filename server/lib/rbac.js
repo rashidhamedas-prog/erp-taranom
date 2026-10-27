@@ -20,6 +20,8 @@ const RESOURCES = [
   ...ACC_CAPABILITY_RESOURCES,
   // Audit 8A — append-only: explicit gates (were auth-only or VIEW_ONLY fallback)
   'banks', 'orders', 'rfq',
+  // Phase 1 cross-warehouse sales (append-only) — action create; default admin only
+  'sales_cross_warehouse',
   // Phase 3C — cheque lifecycle permissions (cheque.operate / cheque.approve)
   'cheque',
 ];
@@ -27,6 +29,7 @@ const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
 const CLOSED_DEFAULT_NONE = new Set([
   'backup', 'users', 'journal_vouchers', 'payroll', 'moadian', 'settings', 'banks', 'orders', 'rfq',
+  'sales_cross_warehouse',
   'cheque',
 ]);
 

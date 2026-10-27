@@ -1,11 +1,20 @@
-### ۱۴۰۵/۰۸/۰۵ — v567: فاز ۳ چرخه عمر چک — عودت/واخواست/پاس/تضمینی/batch (SW v567)
-- **منبع:** `cheque-module-cursor` Phase 3؛ شاخهٔ `feat/cheque-module-p3-lifecycle` (SW از پیش‌بینی v566 به v567 به‌خاطر برخورد P2 با invoice-wh روی main).
+### ۱۴۰۵/۰۸/۰۵ — v568: فاز ۳ چرخه عمر چک — عودت/واخواست/پاس/تضمینی/batch (SW v568)
+- **منبع:** `cheque-module-cursor` Phase 3؛ شاخهٔ `feat/cheque-module-p3-lifecycle` (SW به v568 به‌خاطر برخورد با cross-warehouse v567 روی main).
 - **چرخه:** عودت از صندوق Dr 1103/Cr 1109 + دفتر طرف؛ عودت پس از برگشت بدون GL؛ واخواست + انتقال به مشتری؛ `POST /:id/out-clear` Dr 2109/Cr بانک → `cleared_out`؛ ممنوعیت void پس از پاس؛ `markGuarantee` reverse سند دریافت + انتظامی؛ `POST /batch-action` تراکنشی.
-- **COA/RBAC:** `coa_bounced_cheques` + memo guarantee؛ مجوزهای `cheque.operate` / `cheque.approve`.
-- **تست/گزارش:** `test-cheque-module-p3.js`؛ `sandbox-cheque-recon-p3.js` (recon فقط‌خواندنی روی کپی)؛ یادداشت usage در `report-cheque-quality.js`.
-- **فایل‌ها:** `lib/cheque-{lifecycle,lifecycle-actions,batch}.js`، `lib/coa-map.js`، `routes/cheque-records.js`، `routes/trust-checks.js`، `db.js`، `lib/rbac.js`، `middleware/auth.js`، `sync/capture.js`، `public/{index.html,sw.js}`، `scripts/{test-cheque-module-p3,sandbox-cheque-recon-p3,report-cheque-quality}.js`، package.json، CHANGE-LOG.
+- **COA/RBAC:** `coa_bounced_cheques` (1121) + memo 9101/9102/9201/9202؛ مجوزهای `cheque.operate` / `cheque.approve`.
+- **تست/گزارش:** `test-cheque-module-p3.js`؛ `sandbox-cheque-recon-p3.js`؛ یادداشت usage در `report-cheque-quality.js`.
+- **فایل‌ها:** `lib/cheque-{lifecycle,lifecycle-actions,batch}.js`، `lib/coa-map.js`، `routes/{cheque-records,trust-checks}.js`، `db.js`، `lib/rbac.js`، `middleware/auth.js`، `sync/capture.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
 - **تست:** `test:cheque-module-p3`؛ encoding.
 - **Deploy:** ⏳
+
+### ۱۴۰۵/۰۸/۰۵ — v567: دسترسی فروش از انبار دیگر + popover موجودی (Phase 1) (SW v567)
+- **منبع:** `invoice-cross-warehouse-cursor` Phase 1؛ شاخهٔ `feat/sales-cross-warehouse-perm`.
+- **RBAC:** منبع `sales_cross_warehouse` (append-only) با action `create`؛ پیش‌فرض فقط admin؛ برچسب «فروش از انبار دیگر».
+- **سرور:** `assertLineWarehousesAllowed` روی POST/PUT/convert → 403 `E_CROSS_WH_FORBIDDEN`؛ audit `cross_warehouse_sale`.
+- **UI:** بدون دسترسی select انبار ردیف قفل؛ popover 📦 موجودی همه انبارها؛ بج «در انبار دیگر» در پیکر؛ Help ادمین/فروش.
+- **فایل‌ها:** `lib/{rbac,sales-document}.js`, `routes/invoices.js`, `public/{app.js,app.css,index.html,sw.js}`, `scripts/test-sales-cross-warehouse.js`, CHANGE-LOG.
+- **تست:** `test:sales-cross-wh`؛ encoding.
+- **Deploy:** ✅ merge 9b2e37e3 (PR #62) — بکاپ /home/taranom/backups/crm.db.20261027-163956 (۹٬۵۶۴٬۱۶۰ بایت)؛ overlay + pm2 restart؛ health/ready=200؛ SW erp-taranom-v567؛ title ERP ترنم؛ test:sales-cross-wh ۱۸/۰؛ line-wh ۶۹/۰؛ encoding OK؛ sms ۲۲/۰؛ گزارش ~/backups/reports/xwh-p1-20261027-163956.txt.
 
 ### ۱۴۰۵/۰۸/۰۵ — v566: فاز ۲ اطلاعات پایه چک — برگ دسته، صیاد اجباری افتتاحیه، soft-delete (SW v566)
 - **منبع:** `cheque-module-cursor` Phase 2؛ شاخهٔ `feat/cheque-module-p2-master` (SW از v565 پیش‌بینی به v566 به‌خاطر برخورد با invoice-line-wh روی main).
