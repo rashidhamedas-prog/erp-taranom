@@ -5,7 +5,7 @@
 - **افتتاحیه:** کارت تطبیق فقط‌خواندنی `GET /cheque-records/opening-reconciliation` vs GL opening_cheque.
 - **فایل‌ها:** `public/{app.js,app.css,acc-nav.js,index.html,sw.js}`، `lib/cheque-{register-query,reconciliation}.js`، `routes/cheque-records.js`، `scripts/{test-cheque-module-p1,test-cheque-register-v562}.js`، Help، CHANGE-LOG.
 - **تست:** `test:cheque-module-p1`؛ `test:cheque-register`؛ encoding.
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge ``ae101685`` (PR #57) — بکاپ ``/home/taranom/backups/crm.db.20261027-160602`` (۹٬۵۳۱٬۳۹۲ بایت)؛ overlay + ``pm2 restart`` بدون ``--update-env``؛ health/ready=200؛ SW ``erp-taranom-v564``؛ title ERP ترنم؛ test:cheque-module-p1 ۱۵/۰؛ register ۴۴/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v563: hotfix encoding + سررسید چک چندمرحله‌ای (SW v563)
 - **منبع:** `cheque-module-cursor` Phase 0؛ شاخهٔ `hotfix/utf8-and-cheque-due`.
