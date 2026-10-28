@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requireWarehouseReportView } = require('../middleware/auth');
+// v577 Phase 4: inventory reports — acc_warehouse_ops:view OR reports:view (NOT invoices:view); accounting delegates keep access.
+const warehouseReportView = requireWarehouseReportView({ orDelegatedAccounting: true });
 const { j2g, todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
@@ -319,15 +321,17 @@ router.get('/sales-by-product', auth, adminOrAccounting, (req, res) => {
   res.json({ rows, totals });
 });
 
-router.get('/inventory-valuation', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  const rows = db.prepare('SELECT id,code,name,stock,COALESCE(NULLIF(average_cost_rial,0),ROUND(cost),0) cost,COALESCE(NULLIF(price_rial,0),ROUND(price),0) price FROM products ORDER BY name').all();
-  rows.forEach(p => { p.cost_value = Math.round((p.stock || 0) * (p.cost || 0)); p.retail_value = Math.round((p.stock || 0) * (p.price || 0)); });
-  const totals = rows.reduce((a, r) => ({ stock: a.stock + (r.stock || 0), cost_value: a.cost_value + r.cost_value, retail_value: a.retail_value + r.retail_value }), { stock: 0, cost_value: 0, retail_value: 0 });
-  res.json({ rows, totals });
+// v577 Phase 4: qty/value = Σ kardex (inventory_ledger rial); header stock×avg only as comparison columns.
+router.get('/inventory-valuation', auth, warehouseReportView, (req, res) => {
+  try {
+    const { buildProductValuationReport } = require('../lib/inventory/valuation');
+    res.json(buildProductValuationReport(getDB()));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || String(e) });
+  }
 });
 
-router.get('/inventory-health', auth, adminOrAccounting, (req, res) => {
+router.get('/inventory-health', auth, warehouseReportView, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
   const products = db.prepare('SELECT id,code,name,stock,unit,stock_alert FROM products ORDER BY name').all();

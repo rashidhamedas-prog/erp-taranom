@@ -278,6 +278,33 @@ function requireWarehouseOps(action, opts = {}) {
 }
 
 /**
+ * Warehouse Phase 4 (v577) — stock / valuation REPORT gate.
+ * Passes: admin · acc_warehouse_ops:view · reports:view — deliberately NOT invoices:view
+ * (seeing invoices must not imply seeing stock/valuation).
+ * opts.orInvoiceCreate: the invoice-line stock picker also admits invoices:create (authoring).
+ * opts.orDelegatedAccounting: keep delegates of accounting sections (acc-warehouse-report …) working.
+ */
+function requireWarehouseReportView(opts = {}) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
+    const { hasPermission } = require('../lib/rbac');
+    const db = getDB();
+    if (hasPermission(db, req.user, 'acc_warehouse_ops', 'view')
+      || hasPermission(db, req.user, 'reports', 'view')
+      || (opts.orInvoiceCreate && hasPermission(db, req.user, 'invoices', 'create'))) {
+      return next();
+    }
+    if (opts.orDelegatedAccounting) return adminOrAccounting(req, res, next);
+    return res.status(403).json({
+      error: 'دسترسی ندارید',
+      code: 'E_PERMISSION',
+      resource: 'acc_warehouse_ops|reports',
+      action: 'view',
+    });
+  };
+}
+
+/**
  * Phase 3C — cheque.operate. Admin/accounting always pass (no break).
  * Delegated users need resource `cheque` action `operate` (or create).
  */
@@ -367,6 +394,7 @@ module.exports = {
   isDesktopPlatform,
   requirePermission,
   requireWarehouseOps,
+  requireWarehouseReportView,
   requireChequeOperate,
   requireChequeHighValueApprove,
   managerOnly,

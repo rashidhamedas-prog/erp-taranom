@@ -4,7 +4,9 @@
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
+const { auth, adminOrAccounting, requirePermission, requireWarehouseReportView } = require('../middleware/auth');
+// v577 Phase 4: acc_warehouse_ops:view OR reports:view (NOT invoices:view); invoices:create keeps the line picker working.
+const stockReportGate = requireWarehouseReportView({ orInvoiceCreate: true });
 const { todayJalali } = require('../jalali');
 const { getKardex, reverseInventoryMovement, postInventoryMovement, invErr, warehouseQty } = require('../lib/inventory/ledger');
 const { variantWarehouseQty } = require('../lib/inventory/movement');
@@ -20,27 +22,57 @@ const { recalculateMovingAverageFromLayers } = require('../lib/inventory/costing
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { postInventoryValueAdjustmentJe, MANUAL_SOURCES } = require('../lib/subledger-recon');
 
-/** Read-only per-warehouse on-hand for invoice line UI. Never INSERT / seed. */
-function buildStockByWarehouse(db, productId, variantId) {
+/**
+ * Read-only per-warehouse on-hand for invoice line UI. Never INSERT / seed.
+ * v577 Phase 4: `qty` stays the OPERATIONAL (enforceable) number — warehouse_stock for products,
+ * vws for variants (ledger.variant_id is not complete yet). The declared report source is kardex:
+ * `kardex_qty` / `kardex_value_rial` / `weighted_avg_unit_rial` + `drift` are always returned for
+ * product-level reads; pass `source=kardex` to make `qty` the kardex value.
+ */
+function buildStockByWarehouse(db, productId, variantId, opts = {}) {
   const pid = parseInt(productId, 10);
   const vid = variantId != null && variantId !== '' ? parseInt(variantId, 10) : 0;
+  const isVariant = Number.isFinite(vid) && vid > 0;
+  const useKardex = opts.source === 'kardex';
   const warehouses = db.prepare(
     'SELECT id, name, COALESCE(allow_negative,0) AS allow_negative FROM warehouses WHERE active=1 ORDER BY id'
   ).all();
+  let kardex = null;
+  if (Number.isFinite(pid) && pid > 0) {
+    try {
+      const { buildLedgerValuationRows } = require('../lib/inventory/valuation');
+      kardex = new Map(buildLedgerValuationRows(db, { productId: pid, skipDrift: true }).rows.map((r) => [r.warehouse_id, r]));
+    } catch (_) { kardex = null; }
+  }
   return warehouses.map((w) => {
     const whId = Number(w.id);
     let qty = 0;
-    if (Number.isFinite(vid) && vid > 0) {
+    let source = 'warehouse_stock';
+    if (isVariant) {
       qty = Number(variantWarehouseQty(db, vid, whId)) || 0;
+      source = 'vws';
     } else if (Number.isFinite(pid) && pid > 0) {
       qty = Number(warehouseQty(db, pid, whId)) || 0;
     }
-    return {
+    const out = {
       warehouse_id: whId,
       name: String(w.name || ''),
       qty,
+      source,
       allow_negative: Number(w.allow_negative) ? 1 : 0,
     };
+    if (kardex && !isVariant) {
+      const k = kardex.get(whId) || null;
+      const kq = k ? k.ledger_qty : 0;
+      out.declared_source = 'kardex';
+      out.kardex_qty = kq;
+      out.kardex_value_rial = k ? k.ledger_value_rial : 0;
+      out.weighted_avg_unit_rial = k ? k.weighted_avg_unit_rial : 0;
+      out.drift_qty = Math.round((qty - kq) * 1e6) / 1e6;
+      out.drift = Math.abs(qty - kq) > 1e-6;
+      if (useKardex) { out.qty = kq; out.source = 'kardex'; }
+    }
+    return out;
   });
 }
 
@@ -352,8 +384,8 @@ router.get('/available/:productId', auth, adminOrAccounting, (req, res) => {
   });
 });
 
-// Phase 0 — invoice line stock by warehouse (read-only; invoices.view)
-router.get('/stock-by-warehouse', auth, requirePermission('invoices', 'view'), (req, res) => {
+// Phase 0 / Phase 4 — stock by warehouse (read-only; acc_warehouse_ops:view | reports:view | invoices:create)
+router.get('/stock-by-warehouse', auth, stockReportGate, (req, res) => {
   const productId = parseInt(req.query.product_id, 10);
   if (!Number.isFinite(productId) || productId <= 0) {
     return res.status(400).json({ error: 'product_id الزامی است', code: 'E_PRODUCT_REQUIRED' });
@@ -362,7 +394,7 @@ router.get('/stock-by-warehouse', auth, requirePermission('invoices', 'view'), (
     ? parseInt(req.query.variant_id, 10)
     : null;
   const db = getDB();
-  const warehouses = buildStockByWarehouse(db, productId, variantId);
+  const warehouses = buildStockByWarehouse(db, productId, variantId, { source: req.query.source });
   res.json({
     product_id: productId,
     variant_id: Number.isFinite(variantId) && variantId > 0 ? variantId : null,
@@ -370,7 +402,7 @@ router.get('/stock-by-warehouse', auth, requirePermission('invoices', 'view'), (
   });
 });
 
-router.post('/stock-by-warehouse/batch', auth, requirePermission('invoices', 'view'), (req, res) => {
+router.post('/stock-by-warehouse/batch', auth, stockReportGate, (req, res) => {
   const items = Array.isArray(req.body && req.body.items) ? req.body.items : null;
   if (!items) {
     return res.status(400).json({ error: 'items الزامی است', code: 'E_ITEMS_REQUIRED' });
@@ -389,7 +421,7 @@ router.post('/stock-by-warehouse/batch', auth, requirePermission('invoices', 'vi
     results.push({
       product_id: productId,
       variant_id: Number.isFinite(variantId) && variantId > 0 ? variantId : null,
-      warehouses: buildStockByWarehouse(db, productId, variantId),
+      warehouses: buildStockByWarehouse(db, productId, variantId, { source: req.body && req.body.source }),
     });
   }
   res.json({ results });
