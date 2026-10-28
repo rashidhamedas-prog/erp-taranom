@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۷ — stamp: پکیج coa-keys فاز ۰→۴ روی ایران (SW v589)
+- **Merge:** #102→#106 روی main (d9f8458).
+- **Deploy:** ✅ overlay — بکاپ /home/taranom/backups/crm.db.20261028-142244 — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v589 — flag=warn — coa_product_tafsili_mode=legacy_leaf.
+- **GREEN GATE روی سرور:** transfer-unit ۱۳/۰ · configurable-coa-keys ۴۴/۰ · product-tafsili ۳۲/۰ · leaf-report-p3 ۱۹/۰ · inventory-gl-gap ۲۲/۰ · coa-leaf-mapping ۶۶/۰ · sms ۲۲/۰ · encoding OK.
+- **گزارش برگ بعد از استقرار:** /home/taranom/backups/reports/coa-leaf-mapping-20261028-142423.{md,csv} — settings_nonleaf=10 · settings_control=7 · settings_not_found=1 · warehouses_perpetual_unmapped=3/5 · inactive_unmapped=0 · 
+onleaf_accounts_with_lines=5 (۲۳۱ سطر؛ کنترلی ۲ / غیرکنترلی ۳).
+- **کار دستی حامد:** نگاشت انبارهای ۳۴/۳۵/۳۶ + برگ‌های هزینه در «تنظیمات ← نگاشت کدینگ»؛ سپس در صورت نیاز detail_account و گزارش 1104.
+
 ### ۱۴۰۵/۰۸/۰۷ — v589: گزارش فقط‌خواندنی تطبیق حساب موجودی با کاردکس / gap 1104 (SW v589)
 - **شاخه:** `feat/inventory-gl-gap-report`؛ منبع: `.tmp-coa-keys-fix/phase-4-optional-gl-1104-gap-report.md` + پیوست `gl-1104-gap-analysis` در audit. **بدون merge/deploy در این نوبت** (فاز اختیاری فقط‌خواندنی؛ تأیید حامد برای اجرا روی production).
 - **رفتار:** `lib/inventory-gl-gap-report.js` کاردکس علامت‌دار (`sv = qty_out>0 ? -amount : amount`)، جمع دفتر روی حساب، تطبیق per-je، و علل a–g را برمی‌گرداند: نشت انتقال، warehouse_id خالی، کاردکس بدون je_id، تهاتر offset، دفتر بدون منبع کاردکس، fallback انبار دیگر، باقی‌مانده. **هیچ پیشنهاد سند / INSERT/UPDATE/DELETE.**
@@ -6,7 +14,7 @@
 - **تست:** `test:inventory-gl-gap` — fixture انتقال ورودصفر + NULL wh + تعدیل بی‌سند ⇒ residual=0 و مبالغ a/b/c درست؛ assert بدون نوشتن.
 - **Help:** بند ادمین «تطبیق حساب موجودی با کاردکس — گزارش فقط‌خواندنی (v586)».
 - **فایل‌ها:** `lib/inventory-gl-gap-report.js`، `scripts/{report-inventory-gl-gap,test-inventory-gl-gap-report}.js`، `routes/warehouses.js`، `public/{app.js,sw.js}`، `package.json`، CHANGE-LOG.
-- **Deploy:** ⏳ (عمداً نشده — فقط commit روی شاخه)
+- **Deploy:** ✅ #106 → d9f8458 — Iran overlay SW v589 — گزارش برگ 20261028-142423
 
 ### ۱۴۰۵/۰۸/۰۷ — v588: فاز ۳ گزارش نگاشت برگ (دسته‌ها + کنترلی) و اعتبارسنجی انبار دارایی ثابت (SW v588)
 - **شاخه:** `feat/coa-leaf-report-wh36`؛ منبع: `.tmp-coa-keys-fix/phase-3-leaf-report-and-wh36.md`. **بدون merge/deploy در این تسک** (orchestrator).
@@ -16,7 +24,7 @@
 - **تست:** `test:coa-leaf-report-p3` + به‌روزرسانی `test:coa-leaf-mapping` (۱۲xx برای دارایی ثابت).
 - **Help / SW:** راهنمای ادمین v586؛ `sw.js` erp-taranom-v588؛ `app.js?v=586`.
 - **فایل‌ها:** `lib/{coa-leaf-report,coa-leaf-policy,coa-map}.js`, `lib/inventory/ledger.js`, `routes/warehouses.js`, `scripts/{report-coa-leaf-mapping,test-coa-leaf-mapping-v585,test-coa-leaf-report-p3}.js`, `public/{app.js,app.css,index.html,sw.js}`, `package.json`, CHANGE-LOG.
-- **Deploy:** ⏳ عمداً انجام نشد (فاز ۳ فقط commit روی شاخه).
+- **Deploy:** ✅ #105 → daabbc13 (+ tip d9f8458 SW v589).
 
 ### ۱۴۰۵/۰۸/۰۷ — v587: فاز ۲ تفصیلی کالا (`coa_product_tafsili_mode`) + حساب ثبت موجودی فقط از نگاشت انبار (SW v587)
 - **شاخه:** `feat/product-tafsili-warehouse-posting`؛ منبع: `.tmp-coa-keys-fix/phase-2-product-tafsili-and-warehouse-posting.md`. **بدون merge/deploy در این نوبت.**
@@ -29,7 +37,7 @@
 - **تست:** `test:product-tafsili` (داخل `npm test`).
 - **Help / SW:** `renderAdminGuide` بند v586؛ `sw.js` → `erp-taranom-v586`؛ `app.js?v=586`.
 - **فایل‌ها:** `lib/{coa-map,product-tafsili,amend-invoice,opening-post,consignments}.js`، `lib/inventory/{ledger,periodic-close}.js`، `lib/production/cost-revaluation.js`، `lib/void-invoice.js`، `routes/{products,settings,invoices}.js`، `lib/product-quick.js`، `scripts/test-product-tafsili-v586.js`، `public/{app.js,index.html,sw.js}`، `package.json`، CHANGE-LOG.
-- **Deploy:** ⏳ (فاز ۲ — فقط commit روی branch؛ merge/deploy جدا)
+- **Deploy:** ✅ #104 → 5649c9fe (+ tip d9f8458 SW v589).
 
 ### ۱۴۰۵/۰۸/۰۷ — v586: فاز ۱ کلیدهای coa_* قابل‌تنظیم + اعتبارسنجی برگ/نوع هنگام ذخیره (SW v586)
 - **شاخه:** `feat/configurable-coa-keys`؛ منبع: `.tmp-coa-keys-fix/phase-1-configurable-coa-keys.md`. **Deploy:** ⏳ (بدون merge/deploy در این نوبت).
@@ -48,7 +56,7 @@
 - **تست:** جدید `test:wh-transfer-unit` — انتقال بین دو انبار با leaf متفاوت و ارزش فرد ۱٬۲۳۴٬۵۶۷ ریال ⇒ JE `warehouse_transfer_batch` با debit_rial=credit_rial=Σ کاردکس؛ رسید ۷۱٬۲۳۲٬۰۰۰؛ انتقال همحساب بدون JE.
 - **SW / Help:** بدون تغییر (فقط بک‌اند + تست؛ رفتار کاربر همان).
 - **فایل‌ها:** `lib/warehouse-docs.js`، `scripts/test-warehouse-transfer-unit.js`، `package.json`، CHANGE-LOG.
-- **Deploy:** ✅ squash-merge #102 (69e329fb).
+- **Deploy:** ✅ #102 → 69e329fb (+ tip d9f8458 SW v589 Iran).
 
 
 ### ۱۴۰۵/۰۸/۰۷ — v585: فاز ۱ نگاشت اجباری حساب برگ انبار/بهای تمام‌شده + نگهبان سطر غیربرگ در postToLedger (SW v585)
