@@ -114,8 +114,8 @@ try {
 
   const audit = buildStockLedger(db, { product_id: prod, show_cancelled: 1 });
   const aNotes = (audit.lines || []).map((l) => l.description || '');
-  ok(!aNotes.some((n) => /هم[\u200c\s]*ترازی|ابطال|معکوس/.test(n)),
-    'v508: no void/align history in kardex (audit flag ignored)');
+  ok((audit.lines || []).filter((l) => /هم[\u200c\s]*ترازی|ابطال|معکوس/.test(l.description || '')).every((l) => l.is_reversed === true),
+    'v576: show_cancelled shows void history only as display-only (is_reversed) rows', aNotes);
   ok(Number(ops.closing_qty) === Number(audit.closing_qty),
     'closing qty identical with/without audit rows in the table');
 } finally {
