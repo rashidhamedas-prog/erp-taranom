@@ -4,7 +4,7 @@
 - **رابط:** پس از واخواست تک‌چک و پس از واخواست گروهی، متن هشدار مهلت در پیام جدا دیده می‌شود.
 - **تست:** `test-cheque-module-p3` — ذخیرهٔ گواهی گروهی، هشدار، برگشت پرداختی (ابطال نرم سند پاس)، حذف نرم چک امانی، و سقف `cheque.approve`.
 - **فایل‌ها:** `lib/cheque-batch.js`، `routes/cheque-records.js`، `public/{app.js,index.html,sw.js}`، `scripts/test-cheque-module-p3.js`، CHANGE-LOG.
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ merge `5749c404` (PR #70) — بکاپ `/home/taranom/backups/crm.db.20261028-085303` (۹٬۶۱۳٬۳۱۲ بایت)؛ overlay چون درخت سرور کثیف بود؛ `pm2 restart` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v570`؛ `image_engine` sharp 0.33.5؛ test:cheque-module-p3 ۸۹/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۵ — v569: فاز ۴ چک — مغایرت/داشبورد KPI/گزارش‌ها (SW v569)
 - **منبع:** `cheque-module-cursor` Phase 4؛ شاخهٔ `feat/cheque-module-p4-reports` (SW از v567 پیش‌بینی به v569 به‌خاطر برخورد با P3=v568 روی main).
