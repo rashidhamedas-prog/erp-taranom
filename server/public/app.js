@@ -18377,6 +18377,19 @@ function whUserMayNegative(){
     return !!(USER_PERMS && USER_PERMS.acc_warehouse_ops && USER_PERMS.acc_warehouse_ops.negative);
   }catch(_){ return false; }
 }
+/** Pure: FA/AR digits + decimal separators → number; invalid → 0 (Phase 0 / v580). */
+function whParseQtyInput(str){
+  if(str==null) return 0;
+  let s=String(str);
+  s=s.replace(/[\u06F0-\u06F9]/g,function(ch){return String(ch.charCodeAt(0)-0x06F0);});
+  s=s.replace(/[\u0660-\u0669]/g,function(ch){return String(ch.charCodeAt(0)-0x0660);});
+  s=s.replace(/\u066C/g,'');
+  s=s.replace(/[\u066B,]/g,'.');
+  s=s.replace(/[\s\u00A0\u200C\u200F\u200E]/g,'');
+  if(!/^\d*\.?\d*$/.test(s) || s==='' || s==='.') return 0;
+  const n=Number(s);
+  return isFinite(n)&&n>0?n:0;
+}
 function whWarehouseAllowsNegative(whId){
   const w=(CACHE.warehouses||[]).find(x=>Number(x.id)===Number(whId));
   return !!(w && Number(w.allow_negative));
@@ -18425,6 +18438,12 @@ async function whPickProduct(i,id,label,available,docType){
   if(!whDocLines[i]) return;
   const dtype=docType||whDocType||'receipt';
   const wh=whLineWarehouseId();
+  if(!wh){
+    // v580: never resolve a pack without a warehouse (would fall back to company-wide product_variants.stock).
+    showToast('ابتدا انبار را انتخاب کنید','error');
+    const dd0=el('wh-dd-'+i); if(dd0) dd0.hidden=true;
+    return;
+  }
   let pack=null;
   try{ pack=await resolveServerModalPack(id, wh); }
   catch(_){ pack=null; }
@@ -18451,7 +18470,9 @@ function openWhSkuMatrixModal(opts){
   const pack=opts.pack||{};
   const cells=pack.matrix||[];
   const dtype=opts.docType||'receipt';
-  const whId=opts.warehouseId;
+  const whId=Number(opts.warehouseId)||0;
+  if(!whId){ showToast('ابتدا انبار را انتخاب کنید','error'); return; }
+  const matrixToken='wm'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
   const whNeg=whWarehouseAllowsNegative(whId);
   const userNeg=whUserMayNegative();
   const canNeg=whNeg && userNeg;
@@ -18480,7 +18501,7 @@ function openWhSkuMatrixModal(opts){
         <div class="wh-sku-stock mono">${fmtQtyFa(stock)}</div>
         ${disabled
           ?'<div class="muted wh-sku-na">ناموجود</div>'
-          :`<input type="number" min="0" step="any" class="wh-sku-qty" data-vid="${vid}" data-stock="${stock}"
+          :`<input type="text" inputmode="decimal" autocomplete="off" class="wh-sku-qty" data-vid="${vid}" data-stock="${stock}"
               data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"
               data-cid="${v.color_id!=null?v.color_id:''}" data-sid="${v.size_id!=null?v.size_id:''}"
               title="${esc(tip)}" value="">`}
@@ -18491,28 +18512,36 @@ function openWhSkuMatrixModal(opts){
   const productLabel=String(opts.productLabel||'');
   const lineIndex=opts.lineIndex;
   const productId=opts.productId;
-  const confirmBind=CSP.bind('click',function(){whConfirmSkuMatrix(lineIndex,productId,productLabel);});
+  const confirmBind=CSP.bind('click',function(){whConfirmSkuMatrix(lineIndex,productId,productLabel,matrixToken,dtype,whId);});
   openNestedModal(`
     <div class="modal-head"><h3>رنگ × سایز — ${esc(productLabel)}</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style('font-size:12px;margin:0 0 8px')}">فقط خانه‌هایی که تعداد &gt; ۰ دارند به سند اضافه می‌شوند. ${dtype==='receipt'?'رسید: همهٔ خانه‌ها فعال‌اند.':'حواله/انتقال: خانه‌های بدون موجودی فقط با مجوز منفی فعال‌اند.'}</p>
-      <div class="tbl-wrap wh-sku-matrix"><table class="tbl" data-csp-style="${CSP.style('font-size:12px')}"><thead><tr><th>رنگ \\ سایز</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+      <div class="tbl-wrap wh-sku-matrix"><table class="tbl" data-wh-matrix="${matrixToken}" data-csp-style="${CSP.style('font-size:12px')}"><thead><tr><th>رنگ \\ سایز</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
     </div>
     <div class="modal-foot">
       <button class="btn green" data-csp-click="${confirmBind}">افزودن به سند</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
     </div>`);
 }
-function whConfirmSkuMatrix(lineIndex, productId, productLabel){
-  const root=el('nestedModal')||el('modalRoot')||document;
-  const inputs=root.querySelectorAll('input.wh-sku-qty');
+function whConfirmSkuMatrix(lineIndex, productId, productLabel, matrixToken, docType, warehouseId){
+  // v580: matrix lives in #nestedModalRoot / #nestedActiveModal — NEVER fall back to #modalRoot (parent form).
+  const root=document.getElementById('nestedModalRoot')||document.getElementById('nestedActiveModal');
+  if(!root){ showToast('پنجرهٔ ماتریس رنگ/سایز پیدا نشد؛ دوباره باز کنید','error'); return; }
+  const table=matrixToken
+    ? root.querySelector('table[data-wh-matrix="'+matrixToken+'"]')
+    : root.querySelector('table[data-wh-matrix]');
+  if(!table){ showToast('جدول ماتریس رنگ/سایز پیدا نشد؛ دوباره باز کنید','error'); return; }
+  const inputs=table.querySelectorAll('input.wh-sku-qty');
   const newLines=[];
-  const canNeg=whWarehouseAllowsNegative(whLineWarehouseId())&&whUserMayNegative();
-  const outBound=whDocType==='issue'||whDocType==='transfer';
+  const wh=Number(warehouseId)||whLineWarehouseId();
+  const canNeg=whWarehouseAllowsNegative(wh)&&whUserMayNegative();
+  const dtype=docType||whDocType;
+  const outBound=dtype==='issue'||dtype==='transfer';
   for(let n=0;n<inputs.length;n++){
     const inp=inputs[n];
-    const q=Number(inp.value)||0;
+    const q=whParseQtyInput(inp.value);
     if(!(q>0)) continue;
     const stock=Number(inp.getAttribute('data-stock'))||0;
     const cname=inp.getAttribute('data-cname')||'';
@@ -40029,6 +40058,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دفتر چک</b>: فقط برگ‌های <b>pay_type=چک</b> را نشان می‌دهد — کارتخوان/نقد/واریز اینجا نمی‌آیند. برچسب «قسط N» در شرح قدیمی یعنی <b>مرحلهٔ دریافت</b> (مثلاً چک+کارتخوان)، نه لزوماً دو فقره چک. هر فقره چک <b>مبلغ خودش</b> را دارد؛ جمع چند چک روی یک صیاد نیست. چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. <b>ابطال کامل</b> در دفتر چک (R13) تسویهٔ مرتبط را معکوس می‌کند و <b>ردیف تسویه/صورت‌حساب</b> را از دفتر عملیاتی برمی‌دارد. خرج/ظهرنویسی + ابطال کامل</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله عملیاتی + سند جابه‌جایی به موجودی امانی (۱۱۱۴) می‌زند؛ فروش/کسری ارسالی از همان حساب امانی COGS/هزینه می‌گیرد. خرید/کسری دریافتی با تفصیلی شخص (حساب پرداختنی شخص). <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده. برگشت/ابطال ارسالی سند ارسال را هم معکوس می‌کند (R13)</li>
+        <li><b>ماتریس رنگ×سایز رسید/حواله/انتقال (v580)</b>: دکمهٔ «افزودن به سند» حالا تعدادهای واردشده را درست می‌خواند (خطای «هیچ تعدادی وارد نشده» با وجود ورود عدد رفع شد)؛ ارقام فارسی/عربی و اعشار «۱٫۵» پذیرفته می‌شود. ماتریس فقط بعد از انتخاب انبار باز می‌شود و عدد بالای هر خانه موجودی همان انبار است. در حواله/انتقال، تعداد بیش از موجودی بدون مجوز موجودی منفی مجاز نیست.</li>
         <li><b>انبارگردانی (v578)</b>: موجودی سیستم هر ردیف (هر رنگ×سایز جدا) از <b>snapshot کاردکس</b> لحظهٔ شروع ثابت می‌شود؛ مغایرت = شمارش تأییدشده − snapshot. برگهٔ چاپ کور موجودی سیستم ندارد. اعمال، سند «مغایرت انبارگردانی» می‌سازد و با ابطال (R13) کاملاً برمی‌گردد. شروع/شمارش/تکمیل: مجوز «انبار: ایجاد»؛ اعمال: مدیر/حسابداری؛ ابطال/حذف: مجوز «انبار: حذف/ابطال».</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b>. اگر ردیف به شخصِ مشتری یا به کد تفصیلی مشتری بخورد، همان مبلغ در گردش مشتری هم می‌نشیند و با ابطال برداشته می‌شود. پیام ثبت، شماره سند را نشان می‌دهد. تکرار همان درخواست، سند ابطال‌شده را به‌جای سند جدید برنمی‌گرداند. <b>قالب سند</b> و <b>پیوست</b> مثل قبل است و دکمهٔ <b>ابطال</b> سند را معکوس می‌کند</li>
         <li><b>ابطال کامل (R13 / v373–v374 / v446)</b>: ابطال اثر سند را برمی‌گرداند اما <b>سند ابطالی جدا و ردیف «ابطال/اصلاح» پوچ در گزارش‌ها ساخته نمی‌شود</b>. سند حسابداری اصلی soft-void می‌شود؛ ردیف‌های زیردفتر طرف‌حساب (از جمله ابطال پرداخت حقوق) بازنشسته می‌شوند تا در گردش مشتری/تأمین‌کننده/شخص فقط وضعیت نهایی دیده شود. همین قانون برای <b>پرداخت انگیزه فروش، دفتر بازاریاب و نماینده فروش</b> است: جفت «پرداخت انگیزه + ابطال» از گردش شخص و صورت‌حساب نماینده حذف می‌شود و در مانده فقط اسناد زنده می‌ماند. ابطال رکورد حقوق ردیف را حذف فیزیکی نمی‌کند.</li>
