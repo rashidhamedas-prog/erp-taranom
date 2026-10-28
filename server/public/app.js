@@ -17785,11 +17785,11 @@ async function renderWarehousesTab(body){
   const typeMap=Object.fromEntries((lookup.types||[]).map(o=>[o.value,o.label]));
   const leafMap=new Map(((leafRep&&leafRep.warehouses)||[]).map(x=>[x.warehouse_id,x]));
   const leafBanner=(leafRep&&leafRep.summary&&leafRep.summary.needs_attention&&isAdmin())
-    ?`<div class="alert warn" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.9`)}">⚠️ نگاشت حساب برگ ناقص است — ${fmtQtyFa(leafRep.summary.warehouses_perpetual_unmapped)} انبار دائمی بدون حساب برگ موجودی/بهای تمام‌شده، ${fmtQtyFa(leafRep.summary.nonleaf_accounts_with_lines)} حساب غیربرگ دارای سطر دفتر. حالت فعلی: <b>${esc(leafRep.flag.value==='enforce'?'اجباری (enforce)':'هشدار (warn)')}</b>.
+    ?`<div class="alert warn coa-leaf-banner">⚠️ نگاشت حساب برگ ناقص است — ${fmtQtyFa(leafRep.summary.warehouses_perpetual_unmapped)} انبار دائمی فعال بی‌نگاشت، ${fmtQtyFa(leafRep.summary.settings_nonleaf||0)} کلید غیربرگ، ${fmtQtyFa(leafRep.summary.settings_not_found||0)} یافت‌نشده، ${fmtQtyFa(leafRep.summary.nonleaf_accounts_with_lines)} حساب غیربرگ دارای سطر. حالت: <b>${esc(leafRep.flag.value==='enforce'?'اجباری (enforce)':'هشدار (warn)')}</b>.
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openCoaLeafReportModal()})}">📋 گزارش نگاشت</button></div>`:'';
   body.innerHTML=`
     ${leafBanner}
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseModal()})}">➕ انبار جدید</button>
+    <div class="toolbar coa-leaf-toolbar"><button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseModal()})}">➕ انبار جدید</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openCoaLeafReportModal()})}">📋 گزارش نگاشت حساب برگ</button></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/warehouses" data-bulk-label="حذف" data-bulk-confirm="{n} انبار حذف شود؟"><thead><tr>
       <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>حساب موجودی</th><th>حساب بهای تمام‌شده</th><th>مرکز هزینه</th><th>روش ثبت</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
@@ -17814,34 +17814,57 @@ async function renderWarehousesTab(body){
       </td>
     </tr>`).join('')||emptyRow(12)}</tbody></table></div>`;
 }
-/* v585 Phase 1 — گزارش نگاشت حساب برگ (فقط‌خواندنی) + تعیین حالت warn/enforce (فقط ادمین) */
+/* v586 Phase 3 — گزارش نگاشت حساب برگ (دسته‌ها + کنترلی + انبار غیرفعال) */
 async function openCoaLeafReportModal(){
   let rep=null;
   try{ rep=await api('GET','/warehouses/coa-leaf-report'); }catch(e){ return; }
   if(!rep) return;
   CACHE.coaLeafReport=rep;
-  const reasonFa={empty:'خالی',not_found:'یافت نشد',not_leaf:'غیربرگ',wrong_group:'ناسازگار با کاربرد'};
-  const whRows=(rep.warehouses||[]).map(w=>`<tr>
+  const reasonFa={empty:'خالی',not_found:'یافت نشد',not_leaf:'غیربرگ',wrong_group:'ناسازگار با کاربرد',control:'کنترلی'};
+  const sum=rep.summary||{};
+  const mkSetRows=(rows,emptyMsg)=>(rows||[]).map(s=>`<tr><td class="mono">${esc(s.key)}</td><td class="mono">${esc(s.code)}</td><td>${esc(s.name||'')}</td><td>${esc(reasonFa[s.reason]||s.reason||'')}</td><td>${esc(s.source||'')}</td></tr>`).join('')||`<tr><td colspan="5" class="empty">${emptyMsg}</td></tr>`;
+  const whRows=(rep.warehouses_unmapped||[]).map(w=>`<tr>
     <td>${esc(w.name)}${w.fixed_asset_type?' <span class="tag t-cancel">دارایی ثابت</span>':''}</td>
     <td>${w.perpetual?'دائمی':'ادواری'}</td>
     <td class="mono">${esc(w.inventory_coa_code||'—')}</td><td>${w.inventory_ok?'<span class="tag t-done">OK</span>':esc(reasonFa[w.inventory_reason]||'')}</td>
     <td class="mono">${esc(w.cogs_coa_code||'—')}</td><td>${w.cogs_ok?'<span class="tag t-done">OK</span>':esc(reasonFa[w.cogs_reason]||'')}</td>
-  </tr>`).join('')||'<tr><td colspan="6" class="empty">انباری نیست</td></tr>';
-  const setRows=(rep.settings_nonleaf||[]).map(s=>`<tr><td class="mono">${esc(s.key)}</td><td class="mono">${esc(s.code)}</td><td>${esc(s.name||'')}</td><td>${esc(reasonFa[s.reason]||'')}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">همه برگ‌اند</td></tr>';
-  const balRows=(rep.nonleaf_balances||[]).map(b=>`<tr><td class="mono">${esc(b.code)}</td><td>${esc(b.name||'')}</td><td class="num">${fmtQtyFa(b.line_count)}</td><td class="num">${fmt(b.balance_rial)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">سطری روی حساب غیربرگ نیست</td></tr>';
+  </tr>`).join('')||'<tr><td colspan="6" class="empty">انبار دائمی فعال بی‌نگاشت نیست</td></tr>';
+  const whInactiveRows=(rep.warehouses_inactive_unmapped||[]).map(w=>`<tr>
+    <td>${esc(w.name)}</td><td class="mono">${esc(w.inventory_coa_code||'—')}</td><td class="mono">${esc(w.cogs_coa_code||'—')}</td>
+  </tr>`).join('')||'<tr><td colspan="3" class="empty">انبار غیرفعال بی‌نگاشت نیست</td></tr>';
+  const ctrlRows=(rep.control_accounts||[]).map(c=>`<tr>
+    <td class="mono">${esc(c.code)}</td><td>${esc(c.name||'')}</td>
+    <td class="num">${fmtQtyFa(c.active_detail_count)}</td>
+    <td class="num">${fmtQtyFa(c.lines_on_control)}${c.needs_attention?' <span class="tag t-cancel">توجه</span>':''}</td>
+    <td class="mono muted">${esc((c.keys||[]).join(', '))}</td>
+  </tr>`).join('')||'<tr><td colspan="5" class="empty">حساب کنترلی نیست</td></tr>';
+  const balCtl=(rep.nonleaf_balances_split&&rep.nonleaf_balances_split.control)||[];
+  const balNon=(rep.nonleaf_balances_split&&rep.nonleaf_balances_split.non_control)||(rep.nonleaf_balances||[]);
+  const balRowFn=(rows,empty)=>rows.map(b=>`<tr><td class="mono">${esc(b.code)}</td><td>${esc(b.name||'')}</td><td class="num">${fmtQtyFa(b.line_count)}</td><td class="num">${fmt(b.balance_rial)}</td></tr>`).join('')||`<tr><td colspan="4" class="empty">${empty}</td></tr>`;
   const flagCtl=isAdmin()?`<div class="fg"><label>حالت اجرای قانون حساب برگ ${hlp('warn: سند ثبت می‌شود و فقط هشدار/لاگ می‌ماند. enforce: فروش انبار بی‌نگاشت و سطر غیربرگ رد می‌شود (422). فقط بعد از تکمیل همهٔ نگاشت‌ها enforce کنید.')}</label>
       <select id="leaf-flag"><option value="warn" ${rep.flag.value!=='enforce'?'selected':''}>warn — فقط هشدار</option><option value="enforce" ${rep.flag.value==='enforce'?'selected':''}>enforce — اجباری</option></select></div>`:`<div class="muted">حالت: ${esc(rep.flag.value)}</div>`;
   openModal(`
     <div class="modal-head"><h3>📋 گزارش نگاشت حساب برگ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body">
-      <div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;line-height:1.8`)}">گزارش فقط‌خواندنی است؛ هیچ نگاشتی خودکار پر نمی‌شود. نگاشت هر انبار را از «✏️ ویرایش انبار» تکمیل کنید.</div>
+    <div class="modal-body coa-leaf-report">
+      <p class="coa-leaf-report-intro muted">گزارش فقط‌خواندنی است؛ هیچ نگاشتی خودکار پر نمی‌شود. کلیدهای کنترلی در شمارش «غیربرگ» نیستند. نگاشت هر انبار را از «✏️ ویرایش انبار» تکمیل کنید.</p>
+      <div class="coa-leaf-kpis muted">کلیدها: ${fmtQtyFa(sum.settings_keys_total||0)} · غیربرگ: ${fmtQtyFa(sum.settings_nonleaf||0)} · یافت‌نشده: ${fmtQtyFa(sum.settings_not_found||0)} · کنترلی: ${fmtQtyFa(sum.settings_control||0)} · انبار دائمی بی‌نگاشت: ${fmtQtyFa(sum.warehouses_perpetual_unmapped||0)}</div>
       ${flagCtl}
-      <h4>انبارها</h4>
-      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>انبار</th><th>روش</th><th>موجودی</th><th>وضعیت</th><th>بهای تمام‌شده</th><th>وضعیت</th></tr></thead><tbody>${whRows}</tbody></table></div>
-      <h4>کلیدهای coa_* غیربرگ</h4>
-      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کلید</th><th>کد</th><th>نام</th><th>علت</th></tr></thead><tbody>${setRows}</tbody></table></div>
-      <h4>مانده روی حساب‌های غیربرگ</h4>
-      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کد</th><th>نام</th><th>تعداد سطر</th><th>مانده (ریال)</th></tr></thead><tbody>${balRows}</tbody></table></div>
+      <h4>انبارهای دائمی فعال بی‌نگاشت</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>انبار</th><th>روش</th><th>موجودی</th><th>وضعیت</th><th>بهای تمام‌شده</th><th>وضعیت</th></tr></thead><tbody>${whRows}</tbody></table></div>
+      <h4>انبارهای غیرفعال بی‌نگاشت (دائمی)</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>انبار</th><th>موجودی</th><th>بهای تمام‌شده</th></tr></thead><tbody>${whInactiveRows}</tbody></table></div>
+      <h4>کلیدهای غیربرگ (نیازمند توجه)</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>کلید</th><th>کد</th><th>نام</th><th>علت</th><th>منبع</th></tr></thead><tbody>${mkSetRows(rep.settings_nonleaf,'همه برگ‌اند')}</tbody></table></div>
+      <h4>کلیدهای کنترلی (سطر باید روی تفصیلی برود)</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>کلید</th><th>کد</th><th>نام</th><th>علت</th><th>منبع</th></tr></thead><tbody>${mkSetRows(rep.settings_control,'کلید کنترلی غیربرگ نیست')}</tbody></table></div>
+      <h4>کلیدهای یافت‌نشده</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>کلید</th><th>کد</th><th>نام</th><th>علت</th><th>منبع</th></tr></thead><tbody>${mkSetRows(rep.settings_not_found,'همه یافت شدند')}</tbody></table></div>
+      <h4>حساب‌های کنترلی — سطر روی خود حساب</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>کد</th><th>نام</th><th>تفصیلی فعال</th><th>سطر روی کنترل</th><th>کلیدها</th></tr></thead><tbody>${ctrlRows}</tbody></table></div>
+      <h4>مانده غیربرگ — کنترلی</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>کد</th><th>نام</th><th>تعداد سطر</th><th>مانده (ریال)</th></tr></thead><tbody>${balRowFn(balCtl,'مانده کنترلی نیست')}</tbody></table></div>
+      <h4>مانده غیربرگ — غیرکنترلی</h4>
+      <div class="tbl-wrap"><table class="tbl coa-leaf-tbl"><thead><tr><th>کد</th><th>نام</th><th>تعداد سطر</th><th>مانده (ریال)</th></tr></thead><tbody>${balRowFn(balNon,'مانده غیرکنترلی نیست')}</tbody></table></div>
     </div>
     <div class="modal-foot">${isAdmin()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){saveLeafFlag()})}">💾 ذخیرهٔ حالت</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
@@ -39723,6 +39746,15 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🔗','نگاشت حساب برگ انبار، کلیدهای کنترلی و دارایی ثابت (v585 / v588)',`
+      <p>هر انبار <b>دائمی (Perpetual)</b> باید دو حساب <b>برگ</b> (بدون زیرمجموعه) داشته باشد: <b>حساب موجودی</b> (زیر گروه ۱۱) و <b>حساب بهای تمام‌شده</b> (زیر گروه ۵). در «اطلاعات پایه ← انبارها ← ✏️» هر دو را وارد کنید؛ هیچ حسابی خودکار انتخاب یا پر نمی‌شود. انبار <b>ادواری</b> از این اجبار معاف است.</p>
+      <ul>
+        <li><b>فروش:</b> سند بهای تمام‌شده بدهکار حساب بهای تمام‌شدهٔ همان انبار و بستانکار حساب موجودی همان انبار است؛ در فاکتور چندانباره برای هر انبار یک سطر جدا ثبت می‌شود.</li>
+        <li><b>حالت اجرا (<span dir="ltr">ledger_leaf_enforcement</span>):</b> پیش‌فرض <b>warn</b> است: رفتار قبلی حفظ می‌شود، فقط لاگ <span dir="ltr">E_WAREHOUSE_COA_UNMAPPED</span> / <span dir="ltr">E_ACCOUNT_NOT_LEAF</span> و هشدار برای ادمین می‌آید. با <b>enforce</b> فروش از انبار بی‌نگاشت با خطای ۴۲۲ <span dir="ltr">E_WAREHOUSE_COA_UNMAPPED</span> رد و کل تراکنش برگردانده می‌شود، و هر سند با سطر روی حساب غیربرگ با <span dir="ltr">E_ACCOUNT_NOT_LEAF</span> رد می‌شود. ابتدا همهٔ نگاشت‌ها را کامل کنید، سپس در «📋 گزارش نگاشت حساب برگ» به enforce تغییر دهید.</li>
+        <li><b>گزارش (v588):</b> دکمهٔ «📋 گزارش نگاشت حساب برگ» دسته‌ها را جدا نشان می‌دهد: <b>غیربرگ</b> (نیازمند توجه)، <b>کنترلی</b> (مثل دریافتنی/پرداختنی — در شمارش غیربرگ نیستند)، <b>یافت‌نشده</b>، حساب‌های کنترلی با تعداد سطر روی خود کنترل، مانده غیربرگ کنترلی/غیرکنترلی، و انبارهای <b>غیرفعال</b> بی‌نگاشت در بخش جدا. <span dir="ltr">settings_nonleaf</span> فقط تعداد غیربرگ است. نسخهٔ سرور: <span dir="ltr">node server/scripts/report-coa-leaf-mapping.js --db=…</span>.</li>
+        <li><b>انبار از نوع «دارایی ثابت» (مثل انبار ۳۶):</b> حساب موجودی باید برگ زیر گروه <b>۱۲</b> باشد؛ کد ۱۱۰۴ / گروه ۱۱ رد می‌شود (۴۲۲). هرگز به <span dir="ltr">coa_finished_goods</span> برنمی‌گردد. اگر روش ثبت دائمی باشد فقط هشدار «این انبار موجودی کالا نیست؛ ادواری یا غیرفعال کنید» می‌آید — نوع/روش انبار به‌صورت خودکار عوض نمی‌شود.</li>
+        <li>این تغییر هیچ سندی نمی‌سازد و مانده‌های قبلی (مثل ۱۱۰۴) را جابه‌جا نمی‌کند؛ بازسازی حساب‌ها تصمیم جداگانهٔ مدیر و حسابرس است.</li>
+      </ul>`),
     helpSec('🗂️','نگاشت کدینگ قابل‌تنظیم (v586)',`
       <p>در <b>تنظیمات ← نگاشت کدینگ</b> همهٔ کلیدهای منطقی حساب (<span dir="ltr">coa_*</span> — حدود ۹۳ کلید از جمله هزینه اداری، انگیزه، کالای ساخته‌شده، کسری انبار، زیان واگذاری و انواع حواله) از یک منبع واحد قابل ویرایش‌اند و در گروه‌های درآمد / هزینه / موجودی / حواله‌ها / کنترلی نشان داده می‌شوند.</p>
       <ul>
@@ -39743,8 +39775,8 @@ function renderAdminGuide(){
       <ul>
         <li><b>فروش:</b> سند بهای تمام‌شده بدهکار حساب بهای تمام‌شدهٔ همان انبار و بستانکار حساب موجودی همان انبار است؛ در فاکتور چندانباره برای هر انبار یک سطر جدا ثبت می‌شود.</li>
         <li><b>حالت اجرا (<span dir="ltr">ledger_leaf_enforcement</span>):</b> پیش‌فرض <b>warn</b> است: رفتار قبلی حفظ می‌شود، فقط لاگ <span dir="ltr">E_WAREHOUSE_COA_UNMAPPED</span> / <span dir="ltr">E_ACCOUNT_NOT_LEAF</span> و هشدار برای ادمین می‌آید. با <b>enforce</b> فروش از انبار بی‌نگاشت با خطای ۴۲۲ <span dir="ltr">E_WAREHOUSE_COA_UNMAPPED</span> رد و کل تراکنش برگردانده می‌شود، و هر سند با سطر روی حساب غیربرگ با <span dir="ltr">E_ACCOUNT_NOT_LEAF</span> رد می‌شود. ابتدا همهٔ نگاشت‌ها را کامل کنید، سپس در «📋 گزارش نگاشت حساب برگ» به enforce تغییر دهید.</li>
-        <li><b>گزارش:</b> دکمهٔ «📋 گزارش نگاشت حساب برگ» انبارهای بی‌نگاشت، کلیدهای <span dir="ltr">coa_*</span> غیربرگ و مانده روی حساب‌های غیربرگ (مثل ۱۱۰۴) را نشان می‌دهد. نسخهٔ سرور: <span dir="ltr">node server/scripts/report-coa-leaf-mapping.js --db=…</span> (فقط‌خواندنی).</li>
-        <li><b>انبار از نوع «دارایی ثابت»:</b> بدون نگاشت حساب موجودی به ۱۱۰۴ برنمی‌گردد؛ یا حساب برگ معتبر دارد یا خطای <span dir="ltr">E_WAREHOUSE_TYPE_UNSUPPORTED</span> می‌دهد.</li>
+        <li><b>گزارش (v586):</b> دکمهٔ «📋 گزارش نگاشت حساب برگ» دسته‌ها را جدا نشان می‌دهد: <b>غیربرگ</b> (نیازمند توجه)، <b>کنترلی</b> (مثل دریافتنی/پرداختنی — در شمارش غیربرگ نیستند)، <b>یافت‌نشده</b>، حساب‌های کنترلی با تعداد سطر روی خود کنترل، مانده غیربرگ کنترلی/غیرکنترلی، و انبارهای <b>غیرفعال</b> بی‌نگاشت در بخش جدا. <span dir="ltr">settings_nonleaf</span> فقط تعداد غیربرگ است. نسخهٔ سرور: <span dir="ltr">node server/scripts/report-coa-leaf-mapping.js --db=…</span>.</li>
+        <li><b>انبار از نوع «دارایی ثابت» (مثل انبار ۳۶):</b> حساب موجودی باید برگ زیر گروه <b>۱۲</b> باشد؛ کد ۱۱۰۴ / گروه ۱۱ رد می‌شود (۴۲۲). هرگز به <span dir="ltr">coa_finished_goods</span> برنمی‌گردد. اگر روش ثبت دائمی باشد فقط هشدار «این انبار موجودی کالا نیست؛ ادواری یا غیرفعال کنید» می‌آید — نوع/روش انبار به‌صورت خودکار عوض نمی‌شود.</li>
         <li>این تغییر هیچ سندی نمی‌سازد و مانده‌های قبلی (مثل ۱۱۰۴) را جابه‌جا نمی‌کند؛ بازسازی حساب‌ها تصمیم جداگانهٔ مدیر و حسابرس است.</li>
       </ul>`),
     helpSec('🧾','اصلاح دادهٔ انبار و تطبیق بهای تمام‌شده (v584)',`

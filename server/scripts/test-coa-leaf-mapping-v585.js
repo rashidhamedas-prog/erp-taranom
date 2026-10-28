@@ -81,9 +81,12 @@ async function main() {
   }
   coa('110401', 'موجودی کالا — انبار الف', 'asset', '1104');
   coa('110402', 'موجودی کالا — انبار ب', 'asset', '1104');
+  coa('1201', 'دارایی ثابت — ماشین‌آلات', 'asset', '1200');
+  coa('120101', 'دارایی ثابت — ماشین‌آلات برگ', 'asset', '1201');
   coa('5190', 'بهای تمام‌شده — الف', 'cogs', '5000');
   coa('5191', 'بهای تمام‌شده — ب', 'cogs', '5000');
   ok(!require('../lib/coa-map').isPostableCode(db, '1104'), 'fixture: 1104 is non-leaf (has 110401/110402)');
+  ok(require('../lib/coa-map').isPostableCode(db, '120101'), 'fixture: 120101 is leaf (fixed-asset inventory)');
 
   // ── users / customer / warehouses ──
   const adminId = insert('users', { name: 'مدیر', username: 'leaf_admin', password: 'x', role: 'admin', active: 1, must_change_password: 0 });
@@ -292,7 +295,7 @@ async function main() {
     try { je = postToLedger(db, { sourceType: 'leaf_test', sourceId: 4, date: todayJalali(), description: 't', createdBy: adminId, lines: mkLines('5190') }); } catch (e) { err = e; }
     ok(je && !err, 'enforce: leaf lines post normally', err && err.message);
 
-    // ── 8. دارایی_ثابت (warehouse 36 style) ──
+    // ── 8. دارایی_ثابت (warehouse 36 style) — Phase 3: inventory ⊂ 12xx leaf; never 1104 ──
     console.log('— fixed-asset type —');
     ok(policy.isFixedAssetWarehouseType('دارایی_ثابت') && policy.isFixedAssetWarehouseType('دارایی ثابت') && !policy.isFixedAssetWarehouseType('finished_goods'),
       'type recognized (underscore / space / other types)');
@@ -301,13 +304,28 @@ async function main() {
     try { L.inventoryAccountForWarehouse(db, whFA); } catch (e) { err = e; }
     ok(err && err.code === 'E_WAREHOUSE_TYPE_UNSUPPORTED' && err.status === 422, 'unmapped fixed-asset warehouse → clear error, not 1104', err && err.code);
     const ro = L.inventoryAccountForWarehouse(db, whFA, { readOnly: true });
-    ok(ro && ro.unmapped_fixed_asset === true, 'read-only callers get a flagged result instead of an exception');
-    db.prepare('UPDATE warehouses SET inventory_coa_code=? WHERE id=?').run('110402', whFA);
-    ok(L.inventoryAccountForWarehouse(db, whFA).code === '110402', 'mapped fixed-asset warehouse → its map');
+    ok(ro && ro.unmapped_fixed_asset === true && !ro.code, 'read-only callers get flagged result without 1104 fallback');
+    // 1104 / 11xx goods COA is invalid for fixed-asset type
+    db.prepare('UPDATE warehouses SET inventory_coa_code=? WHERE id=?').run('1104', whFA);
+    err = null;
+    try { L.inventoryAccountForWarehouse(db, whFA); } catch (e) { err = e; }
+    ok(err && err.code === 'E_WAREHOUSE_TYPE_UNSUPPORTED' && err.status === 422, 'fixed-asset with inventory_coa_code=1104 → 422', err && err.code);
+    const v1104 = policy.validateWarehouseCoaInput(db, {
+      warehouse_type: 'دارایی_ثابت', inventory_system: 'perpetual',
+      inventory_coa_code: '1104', cogs_coa_code: '5190',
+    });
+    ok(v1104 && v1104.status === 422 && v1104.code === 'E_WH_INV_COA_INVALID', 'validateWarehouseCoaInput: 1104 on fixed-asset → 422', v1104);
+    db.prepare('UPDATE warehouses SET inventory_coa_code=? WHERE id=?').run('120101', whFA);
+    ok(L.inventoryAccountForWarehouse(db, whFA).code === '120101', 'mapped fixed-asset warehouse → 12xx leaf');
+    const vOk = policy.validateWarehouseCoaInput(db, {
+      warehouse_type: 'دارایی_ثابت', inventory_system: 'perpetual',
+      inventory_coa_code: '120101', cogs_coa_code: '5190',
+    });
+    ok(vOk && vOk.status === 0 && /موجودی کالا نیست/.test(vOk.warning || ''), 'perpetual fixed-asset → soft warning (not reject)', vOk);
     db.prepare('UPDATE warehouses SET inventory_coa_code=NULL WHERE id=?').run(whFA);
     const PFA = product('دارایی', whFA);
-    // seed kardex directly with a mapped account first (receive needs the map)
-    db.prepare('UPDATE warehouses SET inventory_coa_code=? WHERE id=?').run('110402', whFA);
+    // seed kardex with a valid 12xx map first (receive needs the map)
+    db.prepare('UPDATE warehouses SET inventory_coa_code=? WHERE id=?').run('120101', whFA);
     receive(PFA, whFA, 5);
     db.prepare('UPDATE warehouses SET inventory_coa_code=NULL WHERE id=?').run(whFA);
     setFlag('warn');
@@ -327,7 +345,7 @@ async function main() {
     ok(run.status === 0, 'report script exits 0', run.stderr || run.stdout);
     ok(fs.existsSync(outPrefix + '.md') && fs.existsSync(outPrefix + '.csv'), 'report script wrote .md and .csv');
     const md = fs.existsSync(outPrefix + '.md') ? fs.readFileSync(outPrefix + '.md', 'utf8') : '';
-    ok(md.includes('انبار الف') && /total_changes: (\d+) → \1/.test(md), 'report content + total_changes unchanged (read-only)');
+    ok(md.includes('انبار الف') && md.includes('فاز ۳') && /total_changes: (\d+) → \1/.test(md), 'report content + total_changes unchanged (read-only)');
     ok(JSON.stringify(qa('SELECT * FROM warehouses ORDER BY id')) === sum0, 'report script left DB untouched');
     ok(/readonly:\s*true/.test(fs.readFileSync(path.join(__dirname, 'report-coa-leaf-mapping.js'), 'utf8')), 'script opens DB readonly');
   } finally {
