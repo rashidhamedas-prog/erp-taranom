@@ -189,6 +189,18 @@ async function main() {
     ok(afterB === beforeB - 1, 'movement deducted from whB', { beforeB, afterB });
   }
 
+  // ATP is per-line: header whA has stock, but line whB is short → 409 (not silently using header)
+  db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?').run(0, prodId, whB);
+  db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?').run(50, prodId, whA);
+  const atpLine = await api('POST', '/api/invoices', {
+    cust_id: custId, type: 'normal', date: today, warehouse_id: whA, pay_type: 'credit', vat_exempt: 1,
+    client_request_id: key('atp-line'),
+    rows: [{ product_id: prodId, name: 'کالای تست', qty: 3, price: 100000, warehouse_id: whB }],
+  }, 'acct');
+  ok(atpLine.status === 409 && atpLine.data && (atpLine.data.code === 'E_ATP_INSUFFICIENT' || atpLine.data.code === 'E_NEGATIVE_STOCK'
+    || atpLine.data.code === 'E_NEGATIVE_OVERRIDE_FORBIDDEN'),
+    'ATP/stock gate uses line warehouse not header', atpLine);
+
   // rep stays locked (sales_warehouse forced) — cross line rewritten to whA so not 403
   const repCreate = await api('POST', '/api/invoices', {
     ...basePayload(), type: 'proforma',
