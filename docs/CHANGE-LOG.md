@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۷ — v584: تطبیق COGS با کاردکس شامل سندهای fix و reversal (SW v584)
+- **شاخه/PR:** `fix/cogs-reconcile-include-fix-vouchers`؛ منبع: `.tmp-cogs-reconcile/phase-0-reconcile-fix-vouchers.md`.
+- **ریشه:** گزارش/پیش‌نویس `cogs_vs_kardex` فقط `invoice_cogs` (و aliasهای قدیمی) را می‌شمرد و `invoice_cogs_fix` / `invoice_cogs_reversal` را نمی‌دید → اختلاف کاذب روی ۱۳ فاکتور (مثل T-0015 ≈ ۷۶۲M که جمع دو سند fix است).
+- **رفتار:** helper مشترک `lib/inventory/cogs-per-invoice.js` → `cogsPostedForInvoice` جمع (بدهکار−بستانکار) حساب `coa_cogs` روی همهٔ اسناد اصلی/fix/reversal همان فاکتور. مسیرهای `invoiceCogsDiffs` (فاز D اصلاح داده)، `subledger-recon` متریک `cogs_vs_movements`، و گزارش `report-cross-warehouse-sales` به همین تابع وصل شدند. هیچ سند حسابداری ساخته/پست نمی‌شود.
+- **گزارش فقط‌خواندنی:** `scripts/report-cogs-reconcile.js --db=…` → `~/backups/reports/cogs-reconcile-<ts>.{md,csv}`.
+- **تست:** `test:cogs-reconcile-fix` (cogs+fix، fix-only، reversal، اختلاف واقعی، void، الگوی T-0015).
+- **Help:** بند تطبیق بهای تمام‌شده در «اصلاح دادهٔ انبار… (v584)».
+- **فایل‌ها:** `lib/inventory/{cogs-per-invoice,wh-data-correction}.js`، `lib/subledger-recon.js`، `scripts/{report-cogs-reconcile,report-cross-warehouse-sales,test-cogs-reconcile-fix-vouchers}.js`، `public/{app.js,sw.js}`، `package.json`، CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۷ — v583 (فرانت): فاز ۲ نمایش موجودی فاکتور — یکپارچه‌سازی پاپ‌اور، برچسب ردیف، کارت پیکر، هشدار و ماتریس انبار (SW v583)
 - **شاخه/PR:** `fix/invoice-stock-display-unify` (روی main پس از v582)؛ منبع: `.tmp-invoice-stock-display/phase-2-client-unified-stock-display.md`. فقط فرانت + تست — بدون تغییر بک‌اند/داده.
 - **کش واحد:** `ensureInvLineStockForCart` و `hydrateInvOtherWhStock` از `POST /inventory/line-availability/batch` با `exclude_invoice_id = window._invBuilderId` می‌خوانند (chunk ≤۱۰۰؛ اگر فاکتور قابل‌خواندن نبود یک‌بار بدون exclude). شکل کش `{pid:vid:{wh:{on_hand,reserved,own,available,drift,note}}}`؛ TTL ۶۰ث (`invLineStockFresh`) جای `if(cache[key]) return` بی‌قیدوشرط؛ `invLineStockClear()` هنگام باز شدن فاکتور، بعد از ذخیره و بعد از تبدیل پیش‌فاکتور؛ پاسخ دیررسیدهٔ بعد از clear دور ریخته می‌شود؛ خطای شبکه ۱۵ث backoff (حلقهٔ رندر نمی‌زند). کلید سطح کالا (`pid:0`) هم برای هر ردیف واکشی می‌شود.

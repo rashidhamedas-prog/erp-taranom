@@ -11,7 +11,7 @@ const path = require('path');
 const Database = require('better-sqlite3');
 const { listCrossWarehouseLines } = require('../lib/sales-document');
 const { inventoryAccountForWarehouse, inventoryAmountLinesByWarehouse } = require('../lib/inventory/ledger');
-const { jlCreditRial } = require('../lib/money');
+const { jlCreditRial, jlDebitRial } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
 
 const args = process.argv.slice(2);
@@ -106,27 +106,32 @@ function expectedInventoryCredits(invoiceId, movByWh) {
 }
 
 function actualInventoryCredits(invoiceId) {
+  const { COGS_JE_REF_TYPES } = require('../lib/inventory/cogs-per-invoice');
   const cogsCode = cogsAccountCode();
-  const je = db.prepare(`
+  const ph = COGS_JE_REF_TYPES.map(() => '?').join(',');
+  const jes = db.prepare(`
     SELECT id FROM journal_entries
-    WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at, 0)=0
-    LIMIT 1
-  `).get(invoiceId);
-  if (!je) return { lines: [], missingJe: true };
+    WHERE ref_type IN (${ph}) AND ref_id=? AND COALESCE(deleted_at, 0)=0
+      AND COALESCE(status,'approved') NOT IN ('reversed','void')
+  `).all(...COGS_JE_REF_TYPES, invoiceId);
+  if (!jes.length) return { lines: [], missingJe: true };
   const jlCols = db.prepare('PRAGMA table_info(journal_lines)').all().map((c) => c.name);
   const acctCol = jlCols.includes('account_code') ? 'account_code' : 'code';
   const nameCol = jlCols.includes('account_name') ? 'account_name'
     : (jlCols.includes('name') ? 'name' : "''");
-  const rows = db.prepare(`
-    SELECT ${acctCol} AS account_code, debit, credit, debit_rial, credit_rial, ${nameCol} AS name
-    FROM journal_lines WHERE entry_id=?
-  `).all(je.id);
   const invCredits = [];
-  for (const l of rows) {
-    const code = String(l.account_code || '').trim();
-    if (!code || code === cogsCode) continue;
-    const credit = jlCreditRial(l);
-    if (credit > 0) invCredits.push({ code, name: l.name || '', creditRial: credit });
+  for (const je of jes) {
+    const rows = db.prepare(`
+      SELECT ${acctCol} AS account_code, debit, credit, debit_rial, credit_rial, ${nameCol} AS name
+      FROM journal_lines WHERE entry_id=?
+    `).all(je.id);
+    for (const l of rows) {
+      const code = String(l.account_code || '').trim();
+      if (!code || code === cogsCode) continue;
+      // خالص بستانکار موجودی (بستانکار − بدهکار) تا اثر fix و reversal درست جمع شود
+      const netCredit = jlCreditRial(l) - jlDebitRial(l);
+      if (netCredit !== 0) invCredits.push({ code, name: l.name || '', creditRial: netCredit });
+    }
   }
   const merged = new Map();
   for (const l of invCredits) {
@@ -135,7 +140,7 @@ function actualInventoryCredits(invoiceId) {
     if (l.name) prev.name = l.name;
     merged.set(l.code, prev);
   }
-  return { lines: [...merged.values()], missingJe: false };
+  return { lines: [...merged.values()].filter((x) => x.creditRial > 0), missingJe: false };
 }
 
 function compareCredits(expected, actualLines) {
