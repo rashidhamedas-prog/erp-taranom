@@ -387,6 +387,42 @@ function wouldCreateChildUnderMappedCoa(db, parentCode) {
   return mappedCoaTargetCodes(db).has(p);
 }
 
+const E_COA_LEAF_IS_WAREHOUSE_MAP = 'E_COA_LEAF_IS_WAREHOUSE_MAP';
+
+/** Codes used as warehouses.inventory_coa_code / cogs_coa_code — never spawn tafsili under them. */
+function warehouseMappedCoaCodes(db) {
+  try {
+    const rows = db.prepare(`
+      SELECT DISTINCT TRIM(code) AS code FROM (
+        SELECT inventory_coa_code AS code FROM warehouses
+          WHERE inventory_coa_code IS NOT NULL AND TRIM(inventory_coa_code) <> ''
+        UNION ALL
+        SELECT cogs_coa_code AS code FROM warehouses
+          WHERE cogs_coa_code IS NOT NULL AND TRIM(cogs_coa_code) <> ''
+      )
+    `).all();
+    return new Set(rows.map((r) => String(r.code || '').trim()).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function assertNotWarehouseMappedCoa(db, ...codes) {
+  const mapped = warehouseMappedCoaCodes(db);
+  for (const raw of codes) {
+    const c = String(raw || '').trim();
+    if (c && mapped.has(c)) {
+      const e = new Error(
+        'حساب مقصد با نگاشت موجودی/بهای تمام‌شدهٔ انبار یکی است؛ ساخت تفصیلی ممنوع (E_COA_LEAF_IS_WAREHOUSE_MAP)'
+      );
+      e.code = E_COA_LEAF_IS_WAREHOUSE_MAP;
+      e.account_code = c;
+      throw e;
+    }
+  }
+}
+
+
 /** Ensure parent کل/معین exists for mapped control account; then allocate تفصیلی. */
 function ensureControlParents(db, kind) {
   const key = KIND_KEY[kind];
@@ -397,6 +433,8 @@ function ensureControlParents(db, kind) {
   // Prefer 6-digit معین; if only 4-digit کل, append 01
   let moein = code.length >= 6 ? code.slice(0, 6) : (code.length === 4 ? code + '01' : code);
   if (moein.length !== 6) return null;
+  // v586: never create under a warehouse inventory/cogs map (even if معین already exists)
+  assertNotWarehouseMappedCoa(db, code, moein);
   const kol = moein.slice(0, 4);
   const existingMoein = db.prepare('SELECT code,type FROM chart_of_accounts WHERE code=?').get(moein);
   if (existingMoein) return existingMoein;
@@ -422,13 +460,24 @@ function allocTafsili(db, kind, name) {
     const parent = ensureControlParents(db, kind);
     if (!parent) return null;
     const moein = parent.code;
+    assertNotWarehouseMappedCoa(db, moein);
     const row = db.prepare("SELECT MAX(CAST(substr(code,7) AS INTEGER)) m FROM chart_of_accounts WHERE level=4 AND length(code)=12 AND substr(code,1,6)=?").get(moein);
     const next = String((row && row.m ? row.m : 0) + 1).padStart(6, '0');
     const full = moein + next;
     db.prepare('INSERT INTO chart_of_accounts (code,name,type,parent_code,level,nature,tafsili_type) VALUES (?,?,?,?,4,NULL,?)')
       .run(full, String(name || '').trim() || ('حساب ' + full), parent.type, moein, KIND_TYPE[kind] || null);
     return full;
-  } catch { return null; }
+  } catch (e) {
+    if (e && e.code === E_COA_LEAF_IS_WAREHOUSE_MAP) {
+      try {
+        console.warn('[allocTafsili] E_COA_LEAF_IS_WAREHOUSE_MAP', {
+          kind, account_code: e.account_code || null, name: String(name || '').slice(0, 80),
+        });
+      } catch (_) { /* ignore */ }
+      return null;
+    }
+    return null;
+  }
 }
 
 /**
@@ -815,4 +864,5 @@ module.exports = {
   KIND_KEY, CONTROL_COA_KEYS, COA_UI_GROUPS,
   isControlCoaKey, coaKeyUiGroup, coaKeyCompatRule, validateCoaKeyAssignment,
   listCoaKeyDescriptors, mappedCoaTargetCodes, wouldCreateChildUnderMappedCoa,
+  E_COA_LEAF_IS_WAREHOUSE_MAP, warehouseMappedCoaCodes, assertNotWarehouseMappedCoa,
 };

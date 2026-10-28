@@ -23,6 +23,15 @@ function initWarehouseInventorySystem(db) {
   } catch (e) {
     console.error('ledger_leaf_enforcement default', e.message);
   }
+  // v586 Phase 2 — product tafsili mode: legacy_leaf (default) | detail_account. INSERT OR IGNORE only.
+  try {
+    db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('coa_product_tafsili_mode','legacy_leaf')").run();
+  } catch (e) {
+    console.error('coa_product_tafsili_mode default', e.message);
+  }
+  try {
+    db.prepare("INSERT OR IGNORE INTO detail_categories (code,name) VALUES ('product','کالا')").run();
+  } catch (_) { /* detail_categories may not exist yet at early boot */ }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS warehouse_period_closes (

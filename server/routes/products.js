@@ -1,5 +1,6 @@
 const router = require('express').Router();
-const { allocTafsili, releaseTafsili } = require('../lib/coa-map');
+const { releaseTafsili } = require('../lib/coa-map');
+const { assignProductTafsili } = require('../lib/product-tafsili');
 const { parseQty } = require('../lib/round3');
 const { parseStockQty, requiresIntegerQty } = require('../lib/inventory/qty-policy');
 const { getDB, audit } = require('../db');
@@ -656,7 +657,7 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
         .run(Math.round(Number(req.body.std_cost_rial) || 0), result.lastInsertRowid);
     }
   }
-  try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, result.lastInsertRowid); } catch (_) {}
+  try { assignProductTafsili(db, result.lastInsertRowid, name); } catch (_) {}
   if (bodyHas(req.body, 'website_stock_push')) {
     const { normalizeWebsiteStockPush } = require('../lib/website-stock-sync');
     const flag = normalizeWebsiteStockPush(req.body.website_stock_push, 1);
@@ -1118,7 +1119,7 @@ router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, 
           parseInt(row['تعداد در پک'] || row['pack_size'] || 1),
           normalizeStr(row['بارکد'] || row['barcode'] || '') || null
         );
-        try { const cc = allocTafsili(db, 'product', name); if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, r.lastInsertRowid); } catch (_) {}
+        try { assignProductTafsili(db, r.lastInsertRowid, name); } catch (_) {}
         inserted++;
       }
     });

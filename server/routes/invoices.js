@@ -55,7 +55,9 @@ function shortagePayload(db, e, payload) {
   return payload;
 }
 
-// سند بهای تمام‌شده: Dr بهای تمام‌شده / Cr موجودی هر کالا (با feature_cogs_voucher).
+// LEGACY (v586 Phase 2 — intentionally untouched): only runs when feature_cogs_voucher=1.
+// Modern perpetual sales use postCogsFromMovements → inventoryAccountForWarehouse / cogsPartsByWarehouse.
+// This path still credits products.coa_code per line; do not extend it — leave flag at 0 in production.
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
   const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
   if (!on || on.value !== '1') return;

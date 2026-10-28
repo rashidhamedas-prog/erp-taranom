@@ -468,24 +468,30 @@ function buildPerpetualCogsLines(db, cogsRial, movements, headerWhId) {
   ];
 }
 
-function buildLegacyCogsLines(db, rows) {
+/**
+ * Periodic / non-perpetual COGS rewrite: inventory credit from warehouse map only.
+ * (Legacy products.coa_code path removed in v586 — see also postCogsVoucher note.)
+ */
+function buildLegacyCogsLines(db, rows, warehouseId) {
   const { parseQty } = require('./round3');
+  const { inventoryAccountForWarehouse } = require('./inventory/ledger');
+  const inv = inventoryAccountForWarehouse(db, warehouseId || null);
   const lines = [];
   let total = 0;
   for (const r of rows || []) {
     if (!r.product_id) continue;
-    const p = db.prepare('SELECT cost,average_cost_rial,coa_code,name FROM products WHERE id=?').get(r.product_id);
-    if (!p || !p.coa_code) continue;
+    const p = db.prepare('SELECT cost,average_cost_rial,name FROM products WHERE id=?').get(r.product_id);
+    if (!p) continue;
     const unitRial = Number(p.average_cost_rial) > 0 ? Number(p.average_cost_rial) : (Number(p.cost) || 0);
     const amtRial = Math.round(unitRial * (parseQty(r.qty) || 0));
     if (amtRial <= 0) continue;
     const amt = rialToLedger(amtRial);
     total += amt;
-    lines.push({ code: p.coa_code, name: p.name, debit: 0, credit: amt });
   }
   if (!total) return [];
   const cogs = acct(db, 'coa_cogs');
-  lines.unshift({ code: cogs.code, name: cogs.name, debit: total, credit: 0 });
+  lines.push({ code: cogs.code, name: cogs.name, debit: total, credit: 0 });
+  lines.push({ code: inv.code, name: inv.name, debit: 0, credit: total });
   return lines;
 }
 
@@ -494,7 +500,7 @@ function rewriteCogsInPlace(db, { row, num, date, userId, rows, cogsRial, moveme
   const whIdHdr = parseInt(row.warehouse_id, 10) || null;
   const lines = perpetual
     ? buildPerpetualCogsLines(db, cogsRial, movements, whIdHdr)
-    : buildLegacyCogsLines(db, rows);
+    : buildLegacyCogsLines(db, rows, whIdHdr);
   let ccId = parseInt(row.cost_center_id, 10) || null;
   const whId = parseInt(row.warehouse_id, 10) || null;
   if (!ccId && whId) {
