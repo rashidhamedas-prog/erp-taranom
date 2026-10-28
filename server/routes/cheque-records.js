@@ -1658,6 +1658,8 @@ router.post('/batch-action', auth, adminOrAccounting, requireChequeOperate, requ
       date: body.date,
       bankId: body.bank_id || body.collection_bank_id || null,
       depositSlipNo: body.deposit_slip_no,
+      protestCertNo: body.protest_cert_no,
+      protestDate: body.protest_date,
       user: req.user,
       todayFn: todayJalali,
       clientRequestId: body.client_request_id || req.get('Idempotency-Key') || null,

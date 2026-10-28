@@ -36311,7 +36311,10 @@ async function chequeBatchActionSave(){
       client_request_id:'batch-'+Date.now()
     });
     closeModal();
-    showToast('عملیات گروهی انجام شد'+(r&&r.count?(' ('+r.count+')'):''));
+    const n=(r&&r.results&&r.results.length)||r&&r.count||ids.length;
+    showToast('عملیات گروهی انجام شد ('+n+')');
+    const warns=[...new Set(((r&&r.results)||[]).map(x=>x&&x.warning).filter(Boolean))];
+    if(warns.length) showToast(warns.join(' | '),'error');
     loadAccTab(chqReloadTab());
   }catch(e){}
 }
@@ -36577,8 +36580,11 @@ async function chequeBounceSave(id){
   const protest_cert_no=String(el('cbounce-protest-no')?.value||'').trim();
   const protest_date=String(el('cbounce-protest-date')?.value||'').trim()||date;
   try{
-    await api('POST','/cheque-records/'+id+'/bounce',{date,protest_cert_no,protest_date});
-    closeModal(); showToast('واخواست ثبت شد'+(protest_cert_no?(' — گواهی '+protest_cert_no):'')); loadAccTab(chqReloadTab());
+    const r=await api('POST','/cheque-records/'+id+'/bounce',{date,protest_cert_no,protest_date});
+    closeModal();
+    showToast('واخواست ثبت شد'+(protest_cert_no?(' — گواهی '+protest_cert_no):''));
+    if(r&&r.warning) showToast(r.warning,'error');
+    loadAccTab(chqReloadTab());
   }catch(e){}
 }
 async function chequeResend(id){
@@ -39500,7 +39506,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>ارسال مجدد</b>: پس از برگشت — مودال <b>تاریخ وصول</b> + <b>بانک واریز</b>. برگشت ابطال نرم می‌شود؛ اگر قبلاً وصول شده بود آن وصول هم ابطال نرم می‌شود و وصول جدید با همان تاریخ/بانک در دفتر بانک ثبت می‌شود</li>
         <li><b>ابطال تسویه / اصلاح فاکتور (R13 v454):</b> اگر چک قبلاً واگذار یا وصول شده باشد، ابطال تسویه فقط برگه را مخفی نمی‌کند — سندهای واگذاری و وصول هم soft-void می‌شوند تا گردش بانک با دفتر چک و گردش طرف‌حساب یکی بماند. ابطال از خود دفتر چک همچنان همهٔ اسناد را کامل برمی‌گرداند</li>
         <li><b>عودت به صاحب</b> / <b>برگشت از ظهرنویس</b> / <b>تضمینی</b> (معکوس سند دریافت + سند انتظامی جفت؛ لینک امانی با طرف/قرارداد/انقضا) / <b>برگشت آخرین رویداد</b> — همیشه سند معکوس، هرگز حذف فیزیکی</li>
-        <li><b>واخواست</b>: فیلدهای شماره/تاریخ گواهی؛ هشدار مهلت ۶ماهه. <b>عملیات گروهی</b> و شماره واگذاری (deposit slip) + چاپ برگ واگذاری</li>
+        <li><b>واخواست</b>: شماره و تاریخ گواهی هم روی تک‌چک و هم در عملیات گروهی ذخیره می‌شود. پس از ثبت، اگر سررسید داشته باشد، پیام مهلت ۶ماهه (گذشته، نزدیک، یا باقی‌مانده) جدا نشان داده می‌شود. <b>عملیات گروهی</b> و شماره واگذاری (deposit slip) + چاپ برگ واگذاری</li>
         <li><b>مجوز:</b> <code>cheque.operate</code> برای عملیات؛ بالای سقف تنظیمات <code>cheque_approve_threshold_rial</code> نیاز به <code>cheque.approve</code> (admin/accounting عبور می‌کنند)</li>
       </ul>
       <p>برای چک‌های پرداختی (منوی <b>چک‌های پرداختی</b>، پیش‌فرض فقط جهت پرداختی):</p>
