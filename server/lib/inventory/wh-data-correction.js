@@ -896,14 +896,20 @@ function cogsCodeSet(db) {
 }
 
 function postableAccount(db, code) {
-  const acc = db.prepare('SELECT code, name, is_active FROM chart_of_accounts WHERE code=?').get(code);
-  if (!acc || acc.is_active === 0) return null;
-  const kids = db.prepare(`
-    SELECT code, name FROM chart_of_accounts
-    WHERE parent_code=? AND COALESCE(is_active,1)=1
-  `).all(code);
-  if (!kids.length) return { code: acc.code, name: acc.name };
-  if (kids.length === 1) return kids[0];
+  let current = code;
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const acc = db.prepare('SELECT code, name, is_active FROM chart_of_accounts WHERE code=?').get(current);
+    if (!acc || acc.is_active === 0) return null;
+    const kids = db.prepare(`
+      SELECT code, name FROM chart_of_accounts
+      WHERE parent_code=? AND is_active=1
+    `).all(current);
+    if (!kids.length) return { code: acc.code, name: acc.name };
+    if (kids.length !== 1) return null;
+    current = kids[0].code;
+  }
   return null;
 }
 
@@ -1059,7 +1065,11 @@ function buildVoucherDrafts(ctx, opts) {
       ? inventoryAccountForWarehouse(db, diff.warehouse_id).code
       : acct(db, 'coa_inventory').code));
     if (!cogs || !invAcct) {
-      throw stop(`STOP: حساب بهای تمام‌شده یا موجودی برای فاکتور ${diff.num || diff.invoice_id} سطح پست یکتا نیست`);
+      ctx.ambiguous.push({
+        rule: 'cogs_account_not_leaf', row_key: key,
+        detail: `فاکتور ${diff.num || diff.invoice_id}: حساب بهای تمام‌شده یا موجودی برگ یکتا نیست؛ پیش‌نویس ساخته نشد`,
+      });
+      continue;
     }
     const amt = Math.abs(diff.diff_rial);
     const lines = diff.diff_rial > 0
