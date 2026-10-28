@@ -2041,6 +2041,14 @@ body.erp-demo-mode{padding-top:32px}
 .inv-xwh-pop-name small{color:var(--muted, #64748b);font-weight:400}
 .inv-xwh-pop-qty{font-variant-numeric:tabular-nums;font-weight:700;color:var(--green)}
 .inv-xwh-pop-qty--low{color:var(--red)}
+/* v583: پک = فهرست هر SKU (رنگ/سایز: موجودی) به‌جای جمع؛ نشان ناهمخوانی با کاردکس */
+.inv-xwh-pop-skus{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:11px;font-variant-numeric:tabular-nums}
+.inv-xwh-pop-sku{color:var(--green);white-space:nowrap}
+.inv-xwh-pop-sku b{font-weight:700}
+.inv-xwh-pop-sku.inv-xwh-pop-qty--low{color:var(--red)}
+.inv-xwh-pop-sub{display:block;font-size:10px;font-weight:400;color:var(--muted, #64748b)}
+.inv-drift-badge{display:inline-block;margin-inline-start:4px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:700;line-height:1.6;background:var(--warnbox-bg);color:var(--orange);border:1px solid var(--orange);cursor:help;white-space:nowrap}
+.inv-drift-mark{color:var(--orange);cursor:help}
 .inv-xwh-pop-note{margin-top:4px;padding:5px 6px;border-top:1px dashed var(--border);color:var(--orange);font-size:11px;line-height:1.5}
 .inv-xwh-pop-empty{padding:6px}
 .inv-xwh-badge{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--warnbox-bg);color:var(--orange);border:1px solid var(--orange)}

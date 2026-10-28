@@ -4,9 +4,12 @@
  * Each XWH-SHARED block is a VERBATIM copy of the same block in server/public/app.js;
  * scripts/test-invoice-line-wh-stock.js asserts byte parity. Edit both together.
  *
- * stockCache: { 'pid:vid': { [warehouseId]: qty } }  (vid = 0 for non-variant)
+ * v583 (Phase 2): stockCache: { 'pid:vid': { [warehouseId]: { on_hand, reserved, own, available, drift, note } } }
+ *   (vid = 0 for non-variant). `available` comes from POST /api/inventory/line-availability/batch and
+ *   ALREADY includes the edited invoice's own quantity (add-back is server-side). A bare number per
+ *   warehouse is still accepted (legacy) and treated as available.
  * collectInvoiceStockWarnings(cart, { headerWh, stockCache, heldFn(kind,id,wh), warehouseName(id), variantLabel(color,size), findProduct(id) })
- *   kind 'product' → heldFn('product', productId, wh); kind 'sku' → heldFn('sku', variantId, wh)
+ *   heldFn is ONLY a fallback while the cache for that product/SKU has not loaded (never added on top of `available`).
  */
 
 /* XWH-SHARED:invLineStockKey */
@@ -31,25 +34,139 @@ function invEffectiveLineWh(row, headerWh) {
 }
 /* /XWH-SHARED */
 
-/* XWH-SHARED:invLineAvail */
-function invLineAvail(row, headerWh, stockCache) {
-  if (!row) return 0;
+/* XWH-SHARED:invLineStockEntry */
+function invLineStockEntry(row, headerWh, stockCache) {
+  if (!row) return null;
   const wh = invEffectiveLineWh(row, headerWh);
-  if (!wh) return 0;
+  if (!wh) return null;
   const cache = stockCache || {};
-  const key = invLineStockKey(row.product_id, row.variant_id);
-  const map = cache[key];
-  if (map && map[wh] != null) return Number(map[wh]) || 0;
-  if (map && map[String(wh)] != null) return Number(map[String(wh)]) || 0;
-  return 0;
+  const map = cache[invLineStockKey(row.product_id, row.variant_id)];
+  if (!map) return null;
+  const e = map[wh] != null ? map[wh] : map[String(wh)];
+  if (e == null) return null;
+  if (typeof e === 'object') {
+    return {
+      on_hand: Number(e.on_hand) || 0,
+      reserved: Number(e.reserved) || 0,
+      own: Number(e.own) || 0,
+      available: Number(e.available) || 0,
+      drift: !!e.drift,
+      note: String(e.note || ''),
+    };
+  }
+  const n = Number(e) || 0;
+  return { on_hand: n, reserved: 0, own: 0, available: n, drift: false, note: '' };
 }
 /* /XWH-SHARED */
-
+/* XWH-SHARED:invLineAvail */
+function invLineAvail(row, headerWh, stockCache) {
+  const e = invLineStockEntry(row, headerWh, stockCache);
+  return e ? e.available : 0;
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invGroupStockAt */
+function invGroupStockAt(rows, whId, stockCache, variantLabel) {
+  const wh = Number(whId) || 0;
+  const labelFn = typeof variantLabel === 'function' ? variantLabel : function () { return ''; };
+  const order = [];
+  const by = {};
+  (rows || []).forEach(function (r) {
+    if (!r) return;
+    const key = invLineStockKey(r.product_id, r.variant_id);
+    if (!by[key]) {
+      by[key] = {
+        key: key,
+        product_id: Number(r.product_id) || 0,
+        variant_id: Number(r.variant_id) || null,
+        label: labelFn(r.color_name || r.color, r.size_name) || '',
+        need: 0,
+      };
+      order.push(key);
+    }
+    by[key].need += Number(r.qty) || 0;
+  });
+  let shortN = 0;
+  let unknownN = 0;
+  let drift = false;
+  const skus = order.map(function (key) {
+    const g = by[key];
+    const e = wh
+      ? invLineStockEntry({ product_id: g.product_id, variant_id: g.variant_id, warehouse_id: wh }, wh, stockCache)
+      : null;
+    const known = !!e;
+    const short = known && g.need > e.available + 1e-9;
+    if (!known) unknownN += 1;
+    if (short) shortN += 1;
+    if (known && e.drift) drift = true;
+    return {
+      key: g.key,
+      variant_id: g.variant_id,
+      label: g.label,
+      need: g.need,
+      known: known,
+      available: known ? e.available : null,
+      on_hand: known ? e.on_hand : null,
+      reserved: known ? e.reserved : 0,
+      own: known ? e.own : 0,
+      drift: known ? e.drift : false,
+      note: known ? e.note : '',
+      short: short,
+    };
+  });
+  return {
+    warehouse_id: wh,
+    skus: skus,
+    shortN: shortN,
+    unknownN: unknownN,
+    drift: drift,
+    ok: skus.length > 0 && shortN === 0 && unknownN === 0,
+  };
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invGroupStockStatus */
+function invGroupStockStatus(info) {
+  if (!info || !info.skus || !info.skus.length) return { mode: 'unknown', low: false };
+  if (info.skus.length === 1) {
+    const s = info.skus[0];
+    if (!s.known) return { mode: 'unknown', low: false };
+    return { mode: 'num', value: s.available, low: !!s.short };
+  }
+  if (info.shortN > 0) return { mode: 'short', n: info.shortN, low: true };
+  if (info.unknownN > 0) return { mode: 'unknown', low: false };
+  return { mode: 'ok', low: false };
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invCardAvail */
+function invCardAvail(productId, whId, stockCache, fallbackWhQty, heldQty, cartQty) {
+  const e = invLineStockEntry({ product_id: productId, variant_id: null, warehouse_id: whId }, whId, stockCache);
+  const base = e ? e.available : (Number(fallbackWhQty) || 0) + (Number(heldQty) || 0);
+  return {
+    base: base,
+    available: base - (Number(cartQty) || 0),
+    from_cache: !!e,
+    drift: !!(e && e.drift),
+    note: e ? e.note : '',
+  };
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invOtherWhQty */
+function invOtherWhQty(productId, headerWh, whIds, stockCache) {
+  let sum = 0;
+  (whIds || []).forEach(function (id) {
+    if (Number(id) === Number(headerWh)) return;
+    const e = invLineStockEntry({ product_id: productId, variant_id: null, warehouse_id: id }, id, stockCache);
+    if (e && e.available > 0) sum += e.available;
+  });
+  return sum;
+}
+/* /XWH-SHARED */
 /* XWH-SHARED:collectInvoiceStockWarnings */
 function collectInvoiceStockWarnings(cart, opts) {
   const o = opts || {};
   const headerWh = o.headerWh;
   const stockCache = o.stockCache || {};
+  // v583: heldFn is ONLY a fallback while the server availability (already includes the edited
+  // invoice's own quantity) has not loaded yet — never added on top of a cached `available`.
   const heldFn = typeof o.heldFn === 'function'
     ? o.heldFn
     : function () { return 0; };
@@ -106,14 +223,18 @@ function collectInvoiceStockWarnings(cart, opts) {
   Object.keys(byProd).forEach(function (pk) {
     const g = byProd[pk];
     const sample = { product_id: g.product_id, warehouse_id: g.warehouse_id, variant_id: null };
-    let avail = invLineAvail(sample, headerWh, stockCache);
-    if (!(stockCache[invLineStockKey(g.product_id, null)] || stockCache[invLineStockKey(g.product_id, 0)])) {
+    const pe = invLineStockEntry(sample, headerWh, stockCache);
+    let avail;
+    if (pe) {
+      avail = pe.available;
+    } else {
+      avail = 0;
       const p = findProduct(g.product_id);
       if (p && Number(headerWh) === Number(g.warehouse_id)) {
         avail = Number(p.wh_qty != null ? p.wh_qty : (p.stock || 0)) || 0;
       }
+      avail += Number(heldFn('product', g.product_id, g.warehouse_id)) || 0;
     }
-    avail += Number(heldFn('product', g.product_id, g.warehouse_id)) || 0;
     if (g.qty > avail + 1e-9) {
       const whName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
       const baseName = g.name || (findProduct(g.product_id) && findProduct(g.product_id).name) || 'کالا';
@@ -137,8 +258,13 @@ function collectInvoiceStockWarnings(cart, opts) {
       warehouse_id: g.warehouse_id,
       variant_id: g.variant_id,
     };
-    let avail = invLineAvail(sample, headerWh, stockCache);
-    avail += Number(heldFn('sku', g.variant_id, g.warehouse_id)) || 0;
+    const se = invLineStockEntry(sample, headerWh, stockCache);
+    let avail;
+    if (se) {
+      avail = se.available;
+    } else {
+      avail = Number(heldFn('sku', g.variant_id, g.warehouse_id)) || 0;
+    }
     if (g.qty > avail + 1e-9) {
       const whName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
       issues.push({
@@ -162,6 +288,11 @@ function collectInvoiceStockWarnings(cart, opts) {
 module.exports = {
   invLineStockKey,
   invEffectiveLineWh,
+  invLineStockEntry,
   invLineAvail,
+  invGroupStockAt,
+  invGroupStockStatus,
+  invCardAvail,
+  invOtherWhQty,
   collectInvoiceStockWarnings,
 };
