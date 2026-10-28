@@ -49,6 +49,21 @@ function sendErr(res, e) {
   return res.status(status).json({ error: e.message || String(e), code: e.code || undefined, ...e });
 }
 
+// v574 فاز ۱ انبار: گزارش تطبیق لایه‌های موجودی — فقط SELECT، بدون هیچ اصلاح خودکار.
+router.get('/reconcile', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { computeLayerReconcile } = require('../lib/inventory/layer-reconcile');
+    const q = req.query || {};
+    const flag = (v) => ['1', 'true', 'yes'].includes(String(v || '').toLowerCase());
+    res.json(computeLayerReconcile(getDB(), {
+      productId: parseInt(q.product_id, 10) || null,
+      warehouseId: parseInt(q.warehouse_id, 10) || null,
+      onlyDrift: flag(q.only_drift),
+      limit: parseInt(q.limit, 10) || 0,
+    }));
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/ledger', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { product_id, warehouse_id, event_type, limit } = req.query;

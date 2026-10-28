@@ -539,6 +539,24 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
   audit(user.id, 'create', 'warehouse_doc', docId,
     `${typeLabelFa(type)} انبار ${num}: ${ids.length} ردیف / ${qtyTotal} عدد`);
 
+  // v574 فاز ۱: اگر لایه‌های کالا×انبار لمس‌شده اختلاف دارند فقط هشدار audit — بدون هیچ اصلاح (heal).
+  try {
+    const pairs = [];
+    for (const line of lines) {
+      const pid = parseInt(line.product_id, 10);
+      if (!pid) continue;
+      if (fromWh) pairs.push({ product_id: pid, warehouse_id: fromWh });
+      if (toWh) pairs.push({ product_id: pid, warehouse_id: toWh });
+    }
+    if (pairs.length) {
+      const drift = require('./inventory/layer-reconcile').detectPairDrift(db, pairs);
+      if (drift.drift) {
+        audit(user.id, 'warning', 'inventory_layer_drift', docId,
+          `اختلاف لایه‌های موجودی پس از ${typeLabelFa(type)} انبار ${num} (فقط هشدار، بدون اصلاح): ${drift.summary}`.slice(0, 900));
+      }
+    }
+  } catch (_) { /* هشدار drift هرگز نباید سند انبار را خراب کند */ }
+
   return {
     ok: true,
     id: docId,

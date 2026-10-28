@@ -45,6 +45,7 @@ const ACC_TAB_RESOLVE = {
   'acc-warehouse-ops': 'warehouse-ops',
   'acc-warehouse-report': 'warehouse-report',
   'acc-variant-stock-report': 'variant-stock-report',
+  'acc-inv-reconcile': 'inv-reconcile',
   'acc-stocktaking': 'stocktaking',
   'acc-inv-batches': 'inv-batches',
   'acc-fabric-rolls': 'fabric-rolls',
@@ -183,6 +184,7 @@ const ACC_NAV_SECTIONS = [
     { title: 'گزارشات', items: [
       { id: 'acc-warehouse-report', icon: '📊', label: 'گزارش جامع انبار' },
       { id: 'acc-variant-stock-report', icon: '🎨', label: 'گزارش رنگ و سایز' },
+      { id: 'acc-inv-reconcile', icon: '🧮', label: 'تطبیق موجودی' },
       { id: 'acc-item-kardex', icon: '🗃️', label: 'کاردکس کالا' },
       { id: 'acc-fabric-roll-kardex', icon: '🧵', label: 'گردش مواد/طاقه' },
     ]},

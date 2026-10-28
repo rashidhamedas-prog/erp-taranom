@@ -2701,3 +2701,31 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
 .wh-sku-stock{font-size:11px;margin-bottom:4px}
 .wh-sku-na{font-size:11px}
 .wh-sku-qty{width:64px;text-align:center;padding:4px}
+
+/* v574 Phase 1 — تطبیق موجودی (read-only reconcile) */
+.rcn-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.rcn-kpi{text-align:right;font:inherit;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 14px;display:flex;flex-direction:column;gap:4px;cursor:pointer}
+.rcn-kpi strong{font-size:18px;font-variant-numeric:tabular-nums}
+.rcn-kpi em{font-style:normal;font-size:11px;color:var(--muted)}
+.rcn-kpi.active{outline:2px solid var(--purple2)}
+.rcn-kpi.bad strong{color:var(--red)}
+.rcn-kpi.ok strong{color:var(--green)}
+.rcn-lead{font-size:12px;line-height:1.9;color:var(--muted);margin:0 0 10px}
+.rcn-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.rcn-bar input[type=search],.rcn-bar select{padding:8px 12px;border:1.5px solid var(--input-border);border-radius:8px;background:var(--card);color:var(--text);font:inherit}
+.rcn-check{display:inline-flex;gap:6px;align-items:center;font-size:12px}
+.rcn-status{font-size:12px;color:var(--muted);margin:0 0 8px}
+.rcn-flags{display:flex;flex-wrap:wrap;gap:4px}
+.rcn-flag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:var(--bad-bg);color:var(--bad-fg);white-space:nowrap}
+.rcn-flag.warn{background:var(--amber-bg);color:var(--amber-fg)}
+.rcn-ok{color:var(--green);font-size:12px}
+.rcn-diff{color:var(--red);font-weight:700}
+.rcn-tbl td,.rcn-tbl th{white-space:nowrap}
+.rcn-exc{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 14px;margin-bottom:10px}
+.rcn-exc summary{cursor:pointer;font-weight:700;font-size:13px;display:flex;gap:8px;align-items:center}
+.rcn-exc ul{margin:8px 0 0;padding:0 18px 0 0;font-size:12px;line-height:2}
+.rcn-exc .rcn-exc-n{background:var(--bad-bg);color:var(--bad-fg);border-radius:999px;padding:1px 9px;font-size:11px}
+.rcn-exc.is-zero .rcn-exc-n{background:var(--ok-bg);color:var(--ok-fg)}
+.rcn-banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--amber-bg);color:var(--amber-fg);border:1px solid rgba(217,119,6,.35);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.8}
+.rcn-banner .rcn-banner-txt{flex:1 1 260px}
+.rcn-h{font-size:14px;margin:18px 0 8px}

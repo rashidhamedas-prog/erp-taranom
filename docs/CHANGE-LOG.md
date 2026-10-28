@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۷ — v574: فاز ۱ ماژول انبار — تطبیق لایه‌های موجودی فقط‌خواندنی (SW v574)
+- **منبع:** `.tmp-warehouse-spec/02-phase1-reconciliation.md`؛ شاخهٔ `wh/phase-1-layer-reconcile`؛ بک‌اند [Backend](ccdb05a5-fefe-4f81-966e-3029b4f26b9b) + فرانت [Frontend](cc7bdf7f-8d73-4146-82d1-e8a24e33f7c9).
+- **API:** `GET /api/inventory/reconcile` (admin/accounting، `read_only`) — لایه‌ها + استثناها؛ هیچ UPDATE/INSERT روی موجودی.
+- **پس از سند انبار:** اگر کالا×انبار اختلاف داشته باشد فقط `audit(warning, inventory_layer_drift)` — بدون heal.
+- **UI:** منو انبار←گزارشات←«تطبیق موجودی»؛ KPI/فیلتر/CSV؛ «ثبت سند تعدیل» → `openStockAdjustModal`؛ بنر drift روی تب عملیات انبار.
+- **تفویض:** `acc-inv-reconcile` → `/api/inventory` در `accounting-access.js`.
+- **تست:** `test:inv-layer-reconcile` (۴۳ assertion) داخل `npm test`.
+- **فایل‌ها:** `lib/inventory/layer-reconcile.js`، `routes/inventory.js`، `lib/warehouse-docs.js`، `lib/accounting-access.js`، `public/{app.js,app.css,acc-nav.js,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
+- **Deploy:** ⏳ pending
+
 ### ۱۴۰۵/۰۸/۰۶ — v573: فاز ۰ ماژول انبار — انتخاب‌گر defined + منفی تفکیک‌شده (SW v573)
 - **منبع:** `warehouse-module-cursor` Phase 0؛ ممیزی موازی [فاز ۰](2d034fc3-d932-43b9-a3f4-0ac5bb73a108).
 - **انتخاب‌گر:** `whPickProduct` فقط `resolveServerModalPack` (mode=defined)؛ ماتریس رنگ×سایز؛ رسید بدون وابستگی به موجودی؛ حواله/انتقال خانه‌های صفر را قفل می‌کند مگر انبار+مجوز منفی (فعلاً فقط admin تا اکشن `negative`).

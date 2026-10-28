@@ -2207,7 +2207,7 @@ const LU = (()=> {
     'acc-close-temp':'circle', 'acc-close-perm':'circle', 'acc-revaluation':'repeat',
     'acc-financial-statement':'landmark', 'acc-pl-statement':'trending',
     'acc-invoice-list-tax':'receipt', 'acc-reconciliation':'search',
-    'acc-subledger-recon':'search', 'acc-inv-valuation':'coins',
+    'acc-subledger-recon':'search', 'acc-inv-valuation':'coins', 'acc-inv-reconcile':'search',
     'acc-production-dashboard':'chart', 'acc-production-estimate':'calc',
     'acc-production-mrp':'box', 'acc-production-orders':'factory', 'acc-production-kanban':'clipboard',
     'acc-production-boms':'ruler', 'acc-production-rates':'settings', 'acc-production-access':'lock',
@@ -2337,7 +2337,7 @@ const ACC_MODULE_MAP={
   'acc-petty-cash':'module_petty_cash','acc-trust-checks':'module_trust_checks',
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-warehouse-report':'module_warehouses',
-  'acc-variant-stock-report':'module_warehouses',
+  'acc-variant-stock-report':'module_warehouses','acc-inv-reconcile':'module_warehouses',
   'acc-stocktaking':'module_warehouses','acc-item-kardex':'module_warehouses',
   'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-fabric-roll-kardex':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
@@ -13194,7 +13194,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','inv-reconcile','stocktaking','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -13681,6 +13681,8 @@ async function loadAccTab(tab){
     await renderUnitsTab(body);
   } else if(tab==='variant-stock-report'){
     await renderVariantStockReportTab(body);
+  } else if(tab==='inv-reconcile'){
+    await renderInvReconcileTab(body);
   } else if(tab==='warehouse-report'){
     await renderWarehouseReportTab(body);
   } else if(tab==='sync-devices'){
@@ -17489,12 +17491,348 @@ async function viewWarehouseStock(id,name){
 /* ============================================================
    WAREHOUSE OPERATIONS (رسید / حواله / انتقال انبار) — document-centric
 ============================================================ */
+/* ===== v574 Phase 1 — تطبیق موجودی (فقط‌خواندنی؛ اصلاح فقط با «ثبت سند تعدیل») ===== */
+const RCN_FLAGS={
+  products_ws:['سرستون ≠ انبار','bad'],
+  ws_vws:['انبار ≠ رنگ/سایزِ انبار','bad'],
+  pv_vws:['واریانت ≠ رنگ/سایزِ انبار','bad'],
+  ws_ledger:['انبار ≠ کاردکس','bad'],
+  ws_movements:['انبار ≠ حرکات','warn'],
+  ws_negative:['انبار منفی','bad'],
+  ledger_no_wh:['کاردکس بدون انبار','warn'],
+  default_variant:['واریانت پیش‌فرض دارای موجودی','warn'],
+  duplicate_opening:['افتتاحیهٔ تکراری','bad'],
+  zero_qty_value:['مقدار صفر با ارزش ≠ ۰','bad'],
+  value_mismatch:['ارزش ≠ موجودی×میانگین','warn']
+};
+/** گروه KPI بالای صفحه (کلیک = فیلتر پرچم) */
+const RCN_KPI_KEYS=['products_ws','ws_vws','pv_vws','ws_ledger','ws_negative','ledger_no_wh','default_variant','duplicate_opening','zero_qty_value'];
+const RCN_FIELDS={
+  pid:['product_id','pid'],
+  code:['product_code','code','sku','item_code'],
+  name:['product_name','name','title'],
+  wid:['warehouse_id','wh_id'],
+  wname:['warehouse_name','wh_name','warehouse'],
+  prod:['products_stock','product_stock','header_qty','products_qty','stock'],
+  ws:['warehouse_stock_qty','ws_qty','warehouse_qty','wh_qty','ws'],
+  vws:['vws_sum','vws_qty','sum_vws','variant_ws_qty','vws'],
+  pv:['pv_stock_sum','pv_sum','sum_pv','variant_stock_sum','pv_qty','pv'],
+  led:['ledger_qty','ledger_sum','sum_ledger','ledger'],
+  mov:['movements_qty','inventory_movements_qty','sum_movements','movement_qty','movements'],
+  ledv:['ledger_value_rial','ledger_value','ledger_amount','value_ledger'],
+  exp:['stock_x_avg_rial','stock_x_avg','stock_avg_value','expected_value','stock_times_avg']
+};
+function rcnFlagKey(raw){
+  const s=String(raw==null?'':raw).toLowerCase().replace(/[^a-z0-9]+/g,'_');
+  if(RCN_FLAGS[s]) return s;
+  if(/dup.*open|open.*dup/.test(s)) return 'duplicate_opening';
+  if(/zero.*(val|amount)|qty_zero|zero_qty/.test(s)) return 'zero_qty_value';
+  if(/default.*variant|matrix.*default|variant.*default/.test(s)) return 'default_variant';
+  if(/(no|without|null|missing)_?(wh|warehouse)/.test(s)) return 'ledger_no_wh';
+  if(/neg/.test(s)) return 'ws_negative';
+  if(/(pv|variant_stock).*vws|vws.*pv/.test(s)) return 'pv_vws';
+  if(/ws.*vws|vws.*ws|warehouse.*variant/.test(s)) return 'ws_vws';
+  if(/ledger|kardex|cardex/.test(s)) return 'ws_ledger';
+  if(/movement/.test(s)) return 'ws_movements';
+  if(/value.*(mismatch|avg)|avg.*value|stock_x_avg/.test(s)) return 'value_mismatch';
+  if(/(product|header|head).*ws|ws.*(product|header)|products?_stock/.test(s)) return 'products_ws';
+  return '';
+}
+function rcnNum(v){ if(v==null||v==='') return null; const n=Number(v); return isFinite(n)?n:null; }
+function rcnPickNum(src,keys){ for(const k of keys){ if(src[k]!=null){ const n=rcnNum(src[k]); if(n!=null) return n; } } return null; }
+function rcnPickStr(src,keys){ for(const k of keys){ if(src[k]!=null&&src[k]!=='') return String(src[k]); } return ''; }
+function rcnQ(n){ return n==null?'—':fmtQtyFa(n); }
+function rcnV(n){ return n==null?'—':fmt(n); }
+function rcnFlagEntry(k,label){
+  const key=rcnFlagKey(k); const def=RCN_FLAGS[key];
+  return {key:def?key:String(k), label:def?def[0]:(label||String(k)), level:def?def[1]:'warn'};
+}
+function rcnNormFlags(raw){
+  const f=raw.flags!=null?raw.flags:(raw.drift_flags!=null?raw.drift_flags:(raw.issues!=null?raw.issues:raw.drifts));
+  if(f==null) return null;
+  const out=[];
+  const add=(k,label)=>{ if(!k) return; const e=rcnFlagEntry(k,label); if(!out.some(o=>o.key===e.key)) out.push(e); };
+  if(Array.isArray(f)) f.forEach(x=>{ if(typeof x==='string') add(x); else if(x) add(x.code||x.key||x.type||x.name,x.label||x.message); });
+  else if(typeof f==='object') Object.keys(f).forEach(k=>{ if(f[k]) add(k); });
+  else if(typeof f==='string') f.split(/[,|،]/).forEach(s=>{ s=s.trim(); if(s) add(s); });
+  return out;
+}
+function rcnComputeFlags(r){
+  const T=0.0005, out=[];
+  const ne=(a,b)=>a!=null&&b!=null&&Math.abs(a-b)>T;
+  const add=k=>out.push({key:k,label:RCN_FLAGS[k][0],level:RCN_FLAGS[k][1]});
+  if(ne(r.prod,r.ws)) add('products_ws');
+  if(ne(r.ws,r.vws)) add('ws_vws');
+  if(ne(r.pv,r.vws)) add('pv_vws');
+  if(ne(r.ws,r.led)) add('ws_ledger');
+  if(ne(r.ws,r.mov)) add('ws_movements');
+  if(r.ws!=null&&r.ws<-T) add('ws_negative');
+  if(r.ws!=null&&Math.abs(r.ws)<=T&&r.ledv!=null&&Math.abs(r.ledv)>=1) add('zero_qty_value');
+  return out;
+}
+function rcnNormRow(raw){
+  raw=raw||{};
+  const src=Object.assign({},(raw.layers&&typeof raw.layers==='object')?raw.layers:{},(raw.qty&&typeof raw.qty==='object')?raw.qty:{},raw);
+  const r={raw:raw};
+  r.pid=src.product_id!=null?src.product_id:(src.pid!=null?src.pid:null);
+  r.wid=src.warehouse_id!=null?src.warehouse_id:(src.wh_id!=null?src.wh_id:null);
+  r.code=rcnPickStr(src,RCN_FIELDS.code); r.name=rcnPickStr(src,RCN_FIELDS.name); r.wname=rcnPickStr(src,RCN_FIELDS.wname);
+  ['prod','ws','vws','pv','led','mov','ledv','exp'].forEach(k=>{ r[k]=rcnPickNum(src,RCN_FIELDS[k]); });
+  let flags=rcnNormFlags(src);
+  if(flags==null) flags=rcnComputeFlags(r);
+  r.flags=flags;
+  const dr=src.has_drift!=null?src.has_drift:(src.drift!=null?src.drift:(src.is_drift!=null?src.is_drift:src.mismatch));
+  r.drift=flags.length>0||dr===true||dr===1;
+  return r;
+}
+function rcnNormExceptions(ex){
+  const out=[];
+  if(!ex) return out;
+  const push=(k,v)=>{
+    let items=[],count=0;
+    if(Array.isArray(v)){ items=v; count=v.length; }
+    else if(v&&typeof v==='object'){ items=v.items||v.rows||v.list||[]; count=v.count!=null?Number(v.count):items.length; }
+    else { count=Number(v)||0; }
+    const e=rcnFlagEntry(k);
+    out.push({key:e.key,label:e.label,level:e.level,count:count,items:items});
+  };
+  if(Array.isArray(ex)){
+    const g={};
+    ex.forEach(x=>{ const k=(x&&(x.type||x.kind||x.code||x.key))||'other'; (g[k]=g[k]||[]).push(x); });
+    Object.keys(g).forEach(k=>push(k,g[k]));
+  } else if(typeof ex==='object'){
+    Object.keys(ex).forEach(k=>push(k,ex[k]));
+  }
+  return out;
+}
+function rcnNormalize(d){
+  let rows=[],ex=null,sum={};
+  if(Array.isArray(d)) rows=d;
+  else if(d&&typeof d==='object'){
+    rows=d.rows||d.items||d.data||[];
+    ex=d.exceptions||d.anomalies||null;
+    sum=d.summary||d.totals||{};
+  }
+  if(!Array.isArray(rows)) rows=[];
+  const nrows=rows.map(rcnNormRow);
+  const exc=rcnNormExceptions(ex);
+  const counts={};
+  nrows.forEach(r=>r.flags.forEach(f=>{ counts[f.key]=(counts[f.key]||0)+1; }));
+  exc.forEach(e=>{ if(RCN_KPI_KEYS.indexOf(e.key)>=0 && !(e.key in counts) && e.count) counts[e.key]=e.count; });
+  const srv={};
+  if(sum&&typeof sum==='object') Object.keys(sum).forEach(k=>{ const n=rcnNum(sum[k]); const fk=rcnFlagKey(k); if(n!=null&&fk&&!(fk in srv)) srv[fk]=n; });
+  Object.keys(srv).forEach(k=>{ counts[k]=srv[k]; });
+  const total=rcnNum(sum&&(sum.total_rows!=null?sum.total_rows:(sum.checked!=null?sum.checked:(sum.rows_total!=null?sum.rows_total:sum.rows))));
+  const driftSrv=rcnNum(sum&&(sum.drift_rows!=null?sum.drift_rows:(sum.drift_count!=null?sum.drift_count:(sum.drift!=null?sum.drift:sum.mismatched))));
+  const driftRows=nrows.filter(r=>r.drift).length;
+  const products=new Set(nrows.filter(r=>r.drift&&r.pid!=null).map(r=>r.pid)).size;
+  return {rows:nrows,exceptions:exc,counts:counts,total:total!=null?total:nrows.length,drift:driftSrv!=null?driftSrv:driftRows,products:rcnNum(sum&&(sum.drift_products!=null?sum.drift_products:sum.products_with_drift))!=null?rcnNum(sum.drift_products!=null?sum.drift_products:sum.products_with_drift):products,generated:(d&&d.generated_at)||''};
+}
+function rcnState(){ if(!window._rcn) window._rcn={norm:null,q:'',wh:'',flag:'',onlyDrift:true}; return window._rcn; }
+async function renderInvReconcileTab(body){
+  if(!body) return;
+  if(!ME||(ME.role!=='admin'&&ME.role!=='accounting')){ body.innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
+  const st=rcnState();
+  body.innerHTML=`<p class="rcn-lead">مقایسهٔ لایه‌های موجودی هر کالا×انبار: سرستون کالا، موجودی انبار (ws)، رنگ/سایزِ انبار (vws)، واریانت (pv)، کاردکس (ledger) و حرکات. این صفحه <b>فقط‌خواندنی</b> است و هیچ‌چیز را خودکار اصلاح نمی‌کند؛ برای اصلاح، از دکمهٔ «ثبت سند تعدیل» (با تأیید انسانی) استفاده کنید.</p>
+    <div class="rcn-bar">
+      <input type="search" id="rcnQ" placeholder="جستجوی کد یا نام کالا" value="${esc(st.q)}" autocomplete="off" data-csp-input="${CSP.bind('input',function(){ rcnReadFilters(); rcnPaint(); })}">
+      <select id="rcnWh" data-csp-change="${CSP.bind('change',function(){ rcnReadFilters(); rcnPaint(); })}"><option value="">همه انبارها</option></select>
+      <label class="rcn-check"><input type="checkbox" id="rcnOnly" ${st.onlyDrift?'checked':''} data-csp-change="${CSP.bind('change',function(){ rcnReadFilters(); rcnPaint(); })}"> فقط ردیف‌های دارای اختلاف</label>
+      <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){ rcnReload(); })}">🔄 بارگذاری مجدد</button>
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){ rcnExportCsv('rows'); })}">⬇️ خروجی CSV</button>
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){ rcnExportCsv('exceptions'); })}">⬇️ CSV استثناها</button>
+    </div>
+    <div id="rcnKpis"></div>
+    <p class="rcn-status" id="rcnStatus" aria-live="polite">در حال خواندن گزارش…</p>
+    <div id="rcnTable"></div>
+    <h3 class="rcn-h">استثناها</h3>
+    <div id="rcnExc"></div>`;
+  await rcnReload();
+}
+function rcnReadFilters(){
+  const st=rcnState();
+  st.q=(el('rcnQ')&&el('rcnQ').value||'').trim().toLowerCase();
+  st.wh=el('rcnWh')?el('rcnWh').value:'';
+  st.onlyDrift=!!(el('rcnOnly')&&el('rcnOnly').checked);
+}
+async function rcnReload(){
+  const st=rcnState();
+  const status=el('rcnStatus');
+  if(status) status.textContent='در حال خواندن گزارش…';
+  try{
+    const d=await api('GET','/inventory/reconcile');
+    st.norm=rcnNormalize(d);
+    window._rcnLast={at:Date.now(),drift:st.norm.drift};
+    if(typeof window._whDrift==='object'&&window._whDrift&&st.norm.drift===0) window._whDrift=null;
+    rcnFillWarehouses();
+    rcnPaint();
+  }catch(e){
+    st.norm=null;
+    if(status) status.textContent='گزارش خوانده نشد';
+    const t=el('rcnTable');
+    if(t) t.innerHTML='<div class="empty">گزارش تطبیق موجودی باز نشد. اتصال یا دسترسی را بررسی کنید و «بارگذاری مجدد» را بزنید.</div>';
+    const k=el('rcnKpis'); if(k) k.innerHTML='';
+    const x=el('rcnExc'); if(x) x.innerHTML='';
+  }
+}
+function rcnFillWarehouses(){
+  const sel=el('rcnWh'); const st=rcnState();
+  if(!sel||!st.norm) return;
+  const m=new Map();
+  st.norm.rows.forEach(r=>{ if(r.wid!=null&&!m.has(String(r.wid))) m.set(String(r.wid),r.wname||('انبار '+r.wid)); });
+  sel.innerHTML='<option value="">همه انبارها</option>'+[...m.entries()].map(([id,n])=>`<option value="${esc(id)}">${esc(n)}</option>`).join('');
+  sel.value=m.has(String(st.wh))?String(st.wh):'';
+  if(sel.value!==String(st.wh)) st.wh=sel.value;
+}
+function rcnFiltered(){
+  const st=rcnState();
+  if(!st.norm) return [];
+  return st.norm.rows.filter(r=>{
+    if(st.onlyDrift&&!r.drift) return false;
+    if(st.wh&&String(r.wid)!==String(st.wh)) return false;
+    if(st.flag&&!r.flags.some(f=>f.key===st.flag)) return false;
+    if(st.q&&((r.code||'')+' '+(r.name||'')).toLowerCase().indexOf(st.q)<0) return false;
+    return true;
+  });
+}
+function rcnSetFlag(key){
+  const st=rcnState();
+  st.flag=(st.flag===key)?'':key;
+  if(st.flag) st.onlyDrift=false;
+  if(el('rcnOnly')) el('rcnOnly').checked=st.onlyDrift;
+  rcnPaint();
+}
+function rcnAdjust(pid,wid){
+  if(!canStockAdjust()){ showToast('برای ثبت سند تعدیل دسترسی لازم است','error'); return; }
+  openStockAdjustModal({product_id:pid,warehouse_id:wid,onDone:function(){ rcnReload(); }});
+}
+function rcnAdjustBtn(pid,wid,small){
+  if(pid==null) return '<span class="muted">—</span>';
+  if(!canStockAdjust()) return '<span class="muted" title="دسترسی تعدیل ندارید">—</span>';
+  return `<button type="button" class="btn ${small?'sm ':''}purple" title="ثبت سند تعدیل برای این کالا×انبار" data-csp-click="${CSP.bind('click',function(){ rcnAdjust(pid,wid); })}">⚖️ ثبت سند تعدیل</button>`;
+}
+function rcnPaint(){
+  const st=rcnState(); const n=st.norm;
+  if(!n) return;
+  const kp=el('rcnKpis'), status=el('rcnStatus'), tb=el('rcnTable'), ex=el('rcnExc');
+  if(kp){
+    const cards=[`<div class="rcn-kpi ${n.drift?'bad':'ok'}"><span>ردیف‌های دارای اختلاف</span><strong>${fmt(n.drift)}</strong><em>از ${fmt(n.total)} ردیف کالا×انبار</em></div>`,
+      `<div class="rcn-kpi ${n.products?'bad':'ok'}"><span>کالاهای دارای اختلاف</span><strong>${fmt(n.products)}</strong><em>کالای یکتا</em></div>`];
+    RCN_KPI_KEYS.forEach(k=>{
+      const c=n.counts[k]||0;
+      if(!c&&['products_ws','ws_vws','pv_vws','ws_ledger','ws_negative','ledger_no_wh'].indexOf(k)<0) return;
+      cards.push(`<button type="button" class="rcn-kpi ${c?'bad':'ok'}${st.flag===k?' active':''}" data-csp-click="${CSP.bind('click',function(){ rcnSetFlag(k); })}"><span>${esc(RCN_FLAGS[k][0])}</span><strong>${fmt(c)}</strong><em>${st.flag===k?'فیلتر فعال — کلیک برای لغو':'کلیک برای فیلتر'}</em></button>`);
+    });
+    kp.className='rcn-kpis'; kp.innerHTML=cards.join('');
+  }
+  const rows=rcnFiltered();
+  const CAP=800;
+  if(status) status.textContent=`${fmt(rows.length)} ردیف نمایش${rows.length>CAP?` (فقط ${fmt(CAP)} ردیف اول؛ خروجی CSV کامل است)`:''}${n.generated?' · تهیه‌شده: '+esc(String(n.generated)):''}`;
+  if(tb){
+    const diffCls=(v,base)=>(v!=null&&base!=null&&Math.abs(v-base)>0.0005)?' rcn-diff':'';
+    const body=rows.slice(0,CAP).map(r=>{
+      const base=r.ws;
+      const flags=r.flags.length?r.flags.map(f=>`<span class="rcn-flag ${f.level==='warn'?'warn':''}">${esc(f.label)}</span>`).join(''):'<span class="rcn-ok">✓ هم‌خوان</span>';
+      return `<tr>
+        <td class="mono">${esc(r.code||'—')}</td><td>${esc(r.name||('#'+(r.pid==null?'':r.pid)))}</td><td>${esc(r.wname||(r.wid==null?'—':'انبار '+r.wid))}</td>
+        <td class="mono${diffCls(r.prod,base)}" data-col-kind="qty">${rcnQ(r.prod)}</td>
+        <td class="mono" data-col-kind="qty">${rcnQ(r.ws)}</td>
+        <td class="mono${diffCls(r.vws,base)}" data-col-kind="qty">${rcnQ(r.vws)}</td>
+        <td class="mono${diffCls(r.pv,r.vws!=null?r.vws:base)}" data-col-kind="qty">${rcnQ(r.pv)}</td>
+        <td class="mono${diffCls(r.led,base)}" data-col-kind="qty">${rcnQ(r.led)}</td>
+        <td class="mono${diffCls(r.mov,base)}" data-col-kind="qty">${rcnQ(r.mov)}</td>
+        <td class="mono" data-col-kind="money">${rcnV(r.ledv)}</td>
+        <td class="mono" data-col-kind="money">${rcnV(r.exp)}</td>
+        <td><div class="rcn-flags">${flags}</div></td>
+        <td>${rcnAdjustBtn(r.pid,r.wid,true)}</td></tr>`;
+    }).join('');
+    tb.innerHTML=`<div class="tbl-wrap" data-scroll="1"><table class="tbl rcn-tbl"><thead><tr>
+      <th>کد</th><th>کالا</th><th>انبار</th><th data-col-kind="qty">سرستون</th><th data-col-kind="qty">انبار (ws)</th><th data-col-kind="qty">رنگ/سایزِ انبار (vws)</th><th data-col-kind="qty">واریانت (pv)</th><th data-col-kind="qty">کاردکس</th><th data-col-kind="qty">حرکات</th><th data-col-kind="money">ارزش کاردکس</th><th data-col-kind="money">موجودی×میانگین</th><th>پرچم‌ها</th><th class="no-sort">اقدام</th>
+      </tr></thead><tbody>${body||emptyRow(13)}</tbody></table></div>`;
+  }
+  if(ex){
+    if(!n.exceptions.length){ ex.innerHTML='<div class="muted">استثنایی گزارش نشده است.</div>'; }
+    else ex.innerHTML=n.exceptions.map(e=>{
+      const items=(e.items||[]).slice(0,100).map(it=>rcnExcItem(it)).join('');
+      const more=(e.items||[]).length>100?`<li class="muted">… و ${fmt((e.items||[]).length-100)} مورد دیگر (در CSV استثناها)</li>`:'';
+      return `<details class="rcn-exc${e.count?'':' is-zero'}"${e.count&&e.count<=12?' open':''}><summary><span>${esc(e.label)}</span><span class="rcn-exc-n">${fmt(e.count)}</span></summary>${items||more?`<ul>${items}${more}</ul>`:''}</details>`;
+    }).join('');
+  }
+}
+function rcnExcItem(it){
+  if(it==null) return '';
+  if(typeof it!=='object') return `<li>${esc(String(it))}</li>`;
+  const r=rcnNormRow(it);
+  const bits=[];
+  const q=rcnPickNum(it,['qty','quantity','ws_qty','warehouse_stock_qty']); if(q!=null) bits.push('مقدار: '+rcnQ(q));
+  const v=rcnPickNum(it,['value','amount','ledger_value','ledger_value_rial']); if(v!=null) bits.push('ارزش: '+rcnV(v));
+  const c=rcnPickNum(it,['count','n','rows']); if(c!=null) bits.push('تعداد: '+fmt(c));
+  const note=rcnPickStr(it,['note','message','detail','reason']); if(note) bits.push(note);
+  const label=[(r.code?r.code+' — ':'')+(r.name||(r.pid!=null?'کالا #'+r.pid:'')),r.wname].filter(Boolean).join(' · ')||'—';
+  return `<li>${esc(label)}${bits.length?' <span class="muted">('+esc(bits.join(' · '))+')</span>':''} ${r.pid!=null?rcnAdjustBtn(r.pid,r.wid,true):''}</li>`;
+}
+function rcnCsvDownload(lines,name){
+  if(lines.length<2){ showToast('ردیفی برای خروجی نیست','error'); return; }
+  const blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  showToast('خروجی CSV آماده شد');
+}
+function rcnCsvCell(v){ const s=v==null?'':String(v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+function rcnExportCsv(kind){
+  const st=rcnState();
+  if(!st.norm){ showToast('اول گزارش را بخوانید','error'); return; }
+  const day=new Date().toISOString().slice(0,10);
+  if(kind==='exceptions'){
+    const lines=[['نوع استثنا','کد کالا','کالا','انبار','توضیح'].map(rcnCsvCell).join(',')];
+    st.norm.exceptions.forEach(e=>{
+      if(!(e.items||[]).length){ if(e.count) lines.push([e.label,'','','','تعداد: '+e.count].map(rcnCsvCell).join(',')); return; }
+      e.items.forEach(it=>{
+        const r=rcnNormRow(typeof it==='object'?it:{});
+        lines.push([e.label,r.code,r.name||(typeof it!=='object'?it:''),r.wname,rcnPickStr(typeof it==='object'?it:{},['note','message','detail','reason'])].map(rcnCsvCell).join(','));
+      });
+    });
+    rcnCsvDownload(lines,'inventory-reconcile-exceptions-'+day+'.csv');
+    return;
+  }
+  const lines=[['کد کالا','کالا','انبار','سرستون','انبار (ws)','رنگ/سایزِ انبار (vws)','واریانت (pv)','کاردکس','حرکات','ارزش کاردکس','موجودی×میانگین','پرچم‌ها'].map(rcnCsvCell).join(',')];
+  rcnFiltered().forEach(r=>{
+    lines.push([r.code,r.name,r.wname,r.prod,r.ws,r.vws,r.pv,r.led,r.mov,r.ledv,r.exp,r.flags.map(f=>f.label).join(' | ')].map(rcnCsvCell).join(','));
+  });
+  rcnCsvDownload(lines,'inventory-reconcile-'+day+'.csv');
+}
+/** بنر نرم هشدار drift در تب عملیات انبار — از پاسخ ثبت سند یا آخرین بارگذاری صفحهٔ تطبیق */
+function whDriftCapture(r){
+  try{
+    if(!r||typeof r!=='object') return;
+    const w=r.drift_warning||r.reconcile_warning||r.drift||r.reconcile;
+    const arr=Array.isArray(r.warnings)?r.warnings:[];
+    const warnText=arr.map(x=>typeof x==='string'?x:((x&&(x.code||x.message))||'')).find(s=>/drift|reconcile|تطبیق|اختلاف/i.test(s));
+    const hit=(w&&(w===true||w.warn===true||w.drift===true||w.count>0||(Array.isArray(w)&&w.length)||typeof w==='string'))||warnText;
+    if(!hit) return;
+    window._whDrift={at:Date.now(),msg:typeof w==='string'?w:((w&&w.message)||warnText||''),count:(w&&(w.count||(Array.isArray(w)?w.length:0)))||null};
+    showToast('هشدار: پس از این سند بین لایه‌های موجودی اختلاف دیده شد (فقط ثبت هشدار؛ اصلاح خودکار انجام نشد)','error');
+  }catch(_){}
+}
+function whDriftBannerHtml(){
+  if(!ME||(ME.role!=='admin'&&ME.role!=='accounting')) return '';
+  const w=window._whDrift;
+  const last=window._rcnLast;
+  let msg='';
+  if(w) msg=(w.msg&&!/^[a-z_ ]+$/i.test(w.msg)?w.msg+' — ':'')+'پس از آخرین سند انبار، بین لایه‌های موجودی'+(w.count?(' '+fmt(w.count)+' مورد'):'')+' اختلاف ثبت شد. هیچ اصلاح خودکاری انجام نشده است.';
+  else if(last&&last.drift>0&&(Date.now()-last.at)<30*60*1000) msg='آخرین تطبیق موجودی '+fmt(last.drift)+' ردیف دارای اختلاف نشان داد. هیچ اصلاح خودکاری انجام نشده است.';
+  if(!msg) return '';
+  return `<div class="rcn-banner" role="status"><span class="rcn-banner-txt">⚠️ ${esc(msg)}</span>
+    <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){ go('acc-inv-reconcile'); })}">🧮 تطبیق موجودی</button>
+    <button type="button" class="btn sm ghost" title="بستن" data-csp-click="${CSP.bind('click',function(){ window._whDrift=null; window._rcnLast=null; loadAccTab('warehouse-ops'); })}">×</button></div>`;
+}
 async function renderWarehouseOpsTab(body){
   await ensureWarehouses();
   if(!CACHE.allProducts||!CACHE.allProducts.length) CACHE.allProducts=await api('GET','/products')||[];
   const docs=await api('GET','/warehouses/moves/docs')||[];
   const typeLabel={receipt:'⬇️ رسید',issue:'⬆️ حواله',transfer:'🔄 انتقال'};
-  body.innerHTML=`
+  body.innerHTML=whDriftBannerHtml()+`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;flex-wrap:wrap;gap:8px`)}">
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){warehouseReceiptModal()})}">⬇️ رسید انبار</button>
       <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){warehouseIssueModal()})}">⬆️ حواله انبار</button>
@@ -17641,6 +17979,7 @@ async function saveWarehouseDocRevise(docId, type){
     const r=await api('POST','/warehouses/moves/docs/'+docId+'/revise',body);
     closeModal();
     showToast('سند جدید '+esc(r.num||'')+' صادر شد ('+(r.count||lines.length)+' ردیف)');
+    whDriftCapture(r);
     CACHE.allProducts=await api('GET','/products')||[];
     loadAccTab('warehouse-ops');
   }catch(e){}
@@ -17650,6 +17989,7 @@ async function voidWarehouseDoc(id){
   try{
     const r=await api('POST','/warehouses/moves/docs/'+id+'/void',{});
     showToast((r.count&&r.count>1)?('سند ابطال شد ('+r.count+' ردیف)'):'سند انبار ابطال شد');
+    whDriftCapture(r);
     CACHE.allProducts=await api('GET','/products')||[];
     loadAccTab('warehouse-ops');
   }catch(e){}
@@ -17659,6 +17999,7 @@ async function voidWarehouseMove(id){
   try{
     const r=await api('POST','/warehouses/moves/'+id+'/void',{});
     showToast((r.count&&r.count>1)?(r.count+' ردیف ابطال شد'):'عملیات انبار ابطال شد');
+    whDriftCapture(r);
     CACHE.allProducts=await api('GET','/products')||[];
     loadAccTab('warehouse-ops');
   }catch(e){}
@@ -17908,7 +18249,7 @@ async function saveWarehouseReceipt(){
   const supplier_id=receipt_class==='grni'?(+el('wr-supplier')?.value||null):null;
   try{
     const r=await api('POST','/warehouses/moves/docs',{type:'receipt',warehouse_id,lines,date:el('wr-date').value,note:el('wr-note').value,receipt_class,supplier_id,opening:receipt_class==='opening'?1:0});
-    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف رسید ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف رسید ثبت شد'); whDriftCapture(r); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
 function warehouseIssueModal(){
@@ -17934,7 +18275,7 @@ async function saveWarehouseIssue(){
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
   try{
     const r=await api('POST','/warehouses/moves/docs',{type:'issue',warehouse_id,lines,date:el('wi-date').value,note:el('wi-note').value});
-    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف حواله ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف حواله ثبت شد'); whDriftCapture(r); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
 function warehouseTransferModal(){
@@ -17966,7 +18307,7 @@ async function saveWarehouseTransfer(){
   if(!from_warehouse_id||!to_warehouse_id||!lines.length){ showToast('انبارها و حداقل یک کالا الزامی است','error'); return; }
   try{
     const r=await api('POST','/warehouses/moves/docs',{type:'transfer',from_warehouse_id,to_warehouse_id,lines,date:el('wt-date').value,note:el('wt-note').value});
-    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف انتقال ثبت شد'); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
+    closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف انتقال ثبت شد'); whDriftCapture(r); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
 
@@ -38530,6 +38871,16 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🧮','تطبیق موجودی — گزارش فقط‌خواندنی لایه‌ها (v574 / فاز ۱ انبار)',`
+      <p>منو: <b>انبار ← گزارشات ← تطبیق موجودی</b> (فقط مدیر و حسابدار). این صفحه برای هر <b>کالا×انبار</b> لایه‌های موجودی را کنار هم می‌گذارد تا اختلاف‌ها دیده شود: سرستون کالا، موجودی انبار (<span dir="ltr">ws</span>)، رنگ/سایزِ انبار (<span dir="ltr">vws</span>)، موجودی واریانت (<span dir="ltr">pv</span>)، کاردکس و حرکات، به‌همراه ارزش کاردکس و «موجودی×میانگین».</p>
+      <ul>
+        <li><b>فقط‌خواندنی:</b> هیچ موجودی یا سندی خودکار تغییر نمی‌کند. اختلاف ردیف با رنگ قرمز و پرچم نشان داده می‌شود.</li>
+        <li><b>کارت‌های بالا:</b> تعداد ردیف/کالای دارای اختلاف و هر نوع پرچم (سرستون≠انبار، انبار≠رنگ/سایز، واریانت≠رنگ/سایز، انبار≠کاردکس، انبار منفی، کاردکس بدون انبار، …). روی هر کارت کلیک کنید تا جدول فقط همان نوع را نشان دهد؛ دوباره کلیک = لغو فیلتر.</li>
+        <li><b>استثناها:</b> انبار منفی، ردیف کاردکس بدون انبار، واریانت پیش‌فرض دارای موجودی در کالای ماتریسی، افتتاحیهٔ تکراری برای یک (کالا، انبار) و مقدار صفر با ارزش غیرصفر.</li>
+        <li><b>خروجی CSV:</b> «خروجی CSV» ردیف‌های فیلترشدهٔ فعلی و «CSV استثناها» فهرست استثناها را می‌دهد.</li>
+        <li><b>اصلاح:</b> دکمهٔ <b>⚖️ ثبت سند تعدیل</b> همان فرم «تعدیل موجودی» (با کالا و انبار پیش‌انتخاب) را باز می‌کند؛ ثبت با تأیید انسانی و سازوکار ابطال/دلیل تعدیل (v525) انجام می‌شود. پس از ثبت، گزارش دوباره خوانده می‌شود.</li>
+        <li><b>بنر هشدار:</b> اگر پس از یک سند انبار سرور اختلاف لایه‌ها را هشدار دهد (فقط در audit ثبت می‌شود، اصلاحی انجام نمی‌شود)، در بالای «رسید، حواله و انتقال» بنر زرد با لینک به همین صفحه دیده می‌شود.</li>
+      </ul>`),
     helpSec('📦','فروش از انبار دیگر — دسترسی و popover (v567)',`
       <p>در ماتریس دسترسی کاربران منبع جدید <b>«فروش از انبار دیگر»</b> (<span dir="ltr">sales_cross_warehouse</span>، عمل «ایجاد») اضافه شده است. مدیر همیشه مجاز است؛ حسابدار و مدیر فروش فقط با تیک این دسترسی می‌توانند انبار یک ردیف را متفاوت از انبار سربرگ انتخاب کنند. نمایندگان فروش مثل قبل روی انبار خودشان قفل می‌مانند.</p>
       <ul>
