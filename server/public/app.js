@@ -36065,7 +36065,7 @@ async function renderChequeRegisterTab(body){
           <span>دریافتی: <b class="mono" dir="ltr">${fmt(tin.count)}</b> فقره · <b class="mono" dir="ltr">${fmt(tin.amount)}</b> ریال</span>
           <span>پرداختی: <b class="mono" dir="ltr">${fmt(tout.count)}</b> فقره · <b class="mono" dir="ltr">${fmt(tout.amount)}</b> ریال</span>
           <span>جمع صفحه: <b class="mono" dir="ltr">${fmt(pageAmt)}</b> ریال</span>
-          <span>جمع کل فیلتر: <b class="mono" dir="ltr">${fmt(payload.total_count||0)}</b> فقره</span>
+          <span>جمع کل فیلتر: <b class="mono" dir="ltr">${fmt(payload.total_count||0)}</b> فقره · <b class="mono" dir="ltr">${fmt((Number(tin.amount)||0)+(Number(tout.amount)||0))}</b> ریال</span>
         </div>
         <span class="chq-pager chq-no-print">
           <button class="btn sm" ${payload.page<=1?'disabled':''} aria-label="صفحه قبل" data-csp-click="${CSP.bind('click',function(){chqGotoPage((payload.page||1)-1)})}">›</button>
@@ -36146,49 +36146,49 @@ function chqRowActionsHtml(r, payNav){
   const cid=r.id;
   const items=[];
   const push=(html,primary)=>{ items.push({html,primary:!!primary}); };
-  push(`<button class="btn sm ghost" aria-label="وضعیت و تاریخچه" data-csp-click="${CSP.bind('click',function(){openChequeLeafModal(cid)})}">📋</button>`,false);
+  push(`<button class="btn sm ghost" title="وضعیت و تاریخچه" aria-label="وضعیت و تاریخچه" data-csp-click="${CSP.bind('click',function(){openChequeLeafModal(cid)})}">📋</button>`,false);
   if(r.direction==='in'&&chequeLifecycleRegistered(r)){
-    push(`<button class="btn sm" aria-label="واگذاری به بانک" data-csp-click="${CSP.bind('click',function(){chequeSendToBank(cid)})}">🏦</button>`,true);
-    push(`<button class="btn sm" aria-label="خرج چک" data-csp-click="${CSP.bind('click',function(){chequeEndorseIn(cid)})}">✍️</button>`,false);
+    push(`<button class="btn sm" title="واگذاری به بانک" aria-label="واگذاری به بانک" data-csp-click="${CSP.bind('click',function(){chequeSendToBank(cid)})}">🏦</button>`,true);
+    push(`<button class="btn sm" title="خرج چک" aria-label="خرج چک" data-csp-click="${CSP.bind('click',function(){chequeEndorseIn(cid)})}">✍️</button>`,false);
   }
   if(r.direction==='in'&&r.lifecycle_status==='in_collection'){
-    push(`<button class="btn sm green" aria-label="وصول چک" data-csp-click="${CSP.bind('click',function(){chequeClear(cid)})}">✅</button>`,true);
-    push(`<button class="btn sm red" aria-label="برگشت چک" data-csp-click="${CSP.bind('click',function(){chequeBounce(cid)})}">↩️</button>`,false);
+    push(`<button class="btn sm green" title="وصول چک" aria-label="وصول چک" data-csp-click="${CSP.bind('click',function(){chequeClear(cid)})}">✅</button>`,true);
+    push(`<button class="btn sm red" title="برگشت چک" aria-label="برگشت چک" data-csp-click="${CSP.bind('click',function(){chequeBounce(cid)})}">↩️</button>`,false);
   }
   if(r.direction==='in'&&r.lifecycle_status==='cleared'){
-    push(`<button class="btn sm red" aria-label="برگشت چک" data-csp-click="${CSP.bind('click',function(){chequeBounce(cid)})}">↩️</button>`,true);
+    push(`<button class="btn sm red" title="برگشت چک" aria-label="برگشت چک" data-csp-click="${CSP.bind('click',function(){chequeBounce(cid)})}">↩️</button>`,true);
   }
   if(r.direction==='in'&&r.lifecycle_status==='bounced'){
-    push(`<button class="btn sm orange" aria-label="ارسال مجدد" data-csp-click="${CSP.bind('click',function(){chequeResend(cid)})}">🔁</button>`,true);
+    push(`<button class="btn sm orange" title="ارسال مجدد" aria-label="ارسال مجدد" data-csp-click="${CSP.bind('click',function(){chequeResend(cid)})}">🔁</button>`,true);
   }
   if(acts.includes('returned_to_drawer')){
-    push(`<button class="btn sm" aria-label="عودت به صاحب" data-csp-click="${CSP.bind('click',function(){chequeReturnToDrawer(cid)})}">📤 عودت</button>`,false);
+    push(`<button class="btn sm" title="عودت به صاحب" aria-label="عودت به صاحب" data-csp-click="${CSP.bind('click',function(){chequeReturnToDrawer(cid)})}">📤 عودت</button>`,false);
   }
   if(acts.includes('endorse_returned')){
-    push(`<button class="btn sm" aria-label="برگشت از ظهرنویس" data-csp-click="${CSP.bind('click',function(){chequeEndorseReturn(cid)})}">↩️ ظهرنویس</button>`,false);
+    push(`<button class="btn sm" title="برگشت از ظهرنویس" aria-label="برگشت از ظهرنویس" data-csp-click="${CSP.bind('click',function(){chequeEndorseReturn(cid)})}">↩️ ظهرنویس</button>`,false);
   }
   if(acts.includes('guarantee')){
-    push(`<button class="btn sm" aria-label="علامت تضمینی" data-csp-click="${CSP.bind('click',function(){chequeMarkGuarantee(cid)})}">🔒</button>`,false);
+    push(`<button class="btn sm" title="علامت تضمینی" aria-label="علامت تضمینی" data-csp-click="${CSP.bind('click',function(){chequeMarkGuarantee(cid)})}">🔒</button>`,false);
   }
   if(payNav&&r.direction==='out'&&chequeLifecycleRegistered(r)){
-    push(`<button class="btn sm green" aria-label="پرداخت چک" data-csp-click="${CSP.bind('click',function(){chequePayOut(cid)})}">💸</button>`,true);
-    push(`<button class="btn sm" aria-label="خرج چک پرداختی" data-csp-click="${CSP.bind('click',function(){chequeExpenseOut(cid)})}">📤</button>`,false);
+    push(`<button class="btn sm green" title="پرداخت چک" aria-label="پرداخت چک" data-csp-click="${CSP.bind('click',function(){chequePayOut(cid)})}">💸</button>`,true);
+    push(`<button class="btn sm" title="خرج چک پرداختی" aria-label="خرج چک پرداختی" data-csp-click="${CSP.bind('click',function(){chequeExpenseOut(cid)})}">📤</button>`,false);
   }
   if(r.direction==='out'&&acts.includes('cleared_out')){
-    push(`<button class="btn sm green" aria-label="پاس بانکی پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutClear(cid)})}">🏦 پاس</button>`,true);
+    push(`<button class="btn sm green" title="پاس بانکی پرداختی" aria-label="پاس بانکی پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutClear(cid)})}">🏦 پاس</button>`,true);
   }
   if(r.direction==='out'&&acts.includes('bounced_out')){
-    push(`<button class="btn sm red" aria-label="برگشت پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutBounce(cid)})}">برگشت</button>`,false);
+    push(`<button class="btn sm red" title="برگشت پرداختی" aria-label="برگشت پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutBounce(cid)})}">برگشت</button>`,false);
   }
   if(r.direction==='out'&&(acts.includes('voided')||acts.includes('void'))){
-    push(`<button class="btn sm red" aria-label="ابطال چک پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutVoid(cid)})}">ابطال</button>`,false);
+    push(`<button class="btn sm red" title="ابطال چک پرداختی" aria-label="ابطال چک پرداختی" data-csp-click="${CSP.bind('click',function(){chequeOutVoid(cid)})}">ابطال</button>`,false);
   }
   if(r.direction==='out'&&acts.includes('replaced')){
-    push(`<button class="btn sm" aria-label="تعویض چک" data-csp-click="${CSP.bind('click',function(){chequeReplace(cid)})}">تعویض</button>`,false);
+    push(`<button class="btn sm" title="تعویض چک" aria-label="تعویض چک" data-csp-click="${CSP.bind('click',function(){chequeReplace(cid)})}">تعویض</button>`,false);
   }
   if(ME.role==='admin'||ME.role==='accounting'){
     const num=String(r.cheque_number||'');
-    push(`<button class="btn sm red" aria-label="ابطال کامل" data-csp-click="${CSP.bind('click',function(){voidChequeRegister(cid,num)})}">⛔</button>`,false);
+    push(`<button class="btn sm red" title="ابطال کامل" aria-label="ابطال کامل" data-csp-click="${CSP.bind('click',function(){voidChequeRegister(cid,num)})}">⛔</button>`,false);
   }
   const hist=items[0];
   let primary=items.find(x=>x.primary);
@@ -36199,7 +36199,7 @@ function chqRowActionsHtml(r, payNav){
   return `<div class="chq-actions">
     ${hist?hist.html:''}
     ${primary?primary.html:''}
-    ${moreHtml?`<details class="chq-act-more"><summary aria-label="عملیات بیشتر">⋯</summary><div class="chq-act-menu">${moreHtml}</div></details>`:''}
+    ${moreHtml?`<details class="chq-act-more"><summary title="عملیات بیشتر" aria-label="عملیات بیشتر">⋯</summary><div class="chq-act-menu">${moreHtml}</div></details>`:''}
   </div>`;
 }
 async function chequeReturnToDrawer(id){
@@ -39468,7 +39468,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>داشبورد فروش و خرید</b>: در منوی <b>فروش و خرید ← گزارشات</b>. KPI فروش/خرید خالص، <b>سود ناخالص و سود خالص</b> (فروش خالص − COGS − برآورد انگیزه، مثل صورت سود و زیان)، حاشیه٪، پل سود، مقایسه دوره قبل، شکاف تجاری، برگشت و VAT، روند ماهانه با خط سود تقریبی، Topها و هشدار. <b>Drill-down دو سطحی</b> به اسناد و باز کردن فاکتور. خرید به‌عنوان موجودی مستقیم از سود کم نمی‌شود</li>
         <li><b>داشبورد بانک و صندوق (نقدینگی)</b>: در منوی بانک و صندوق ← گزارشات. مانده زنده دفتر، ورود/خروج بازه، جریان وجوه سه‌بخشی (IAS 7)، تطبیق بانک باز، تمرکز نقدینگی، روند ماهانه و چک‌لیست الزامات</li>
         <li><b>داشبورد چک و الزامات</b>: در منوی چک ← گزارشات. پرتفوی دریافتنی/پرداختنی، KPI افق سررسید ۷/۳۰/۹۰ (ورود+خروج)، سررسیدگذشتهٔ باز، بی‌صیاد، صیاد ثبت‌نشده در سامانه، برگ نزدیک انقضای ۳ساله، واخواست نزدیک مهلت ۶ماهه، چک تضمینی، پیش‌بینی نقدینگی از سررسیدها، پل تطبیق دفتر کل (۱۱۰۹ / ۱۱۱۶ / ۲۱۰۹). API: <code>/cheque-records/dashboard-kpis</code></li>
-        <li><b>گزارش دفتر چک و دسته</b>: موجودی برگه دسته‌ها، مصرف سریال، بانک بدون دسته، پرداختنی‌های ثبت‌شدهٔ تحویل‌نشده و آخرین صدورهای دفتر</li>
+        <li><b>گزارش دفتر چک و دسته</b>: موجودی برگه، توالی سریال هر دسته (سفید، صادر، باطل، مفقود)، گسست سریال، برگ باطل یا مفقود، صادرشدهٔ پاس‌نشده، و گردش چک طرف‌حساب (دریافتی، خرج‌شده، برگشتی)</li>
         <li><b>بودجه‌بندی</b>: تعریف بودجه سالانه و گزارش انحراف بودجه/واقعی</li>
         <li><b>اندوخته و ذخایر</b>: اندوخته قانونی، ذخیره مطالبات مشکوک‌الوصول، NRV موجودی، فهرست کالاهای راکد</li>
       </ul>`),

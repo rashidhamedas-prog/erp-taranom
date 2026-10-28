@@ -55,7 +55,9 @@ console.log('test-cheque-module-p4');
   const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   ok(swAtLeast(swSrc, 569), 'SW cache ≥ erp-taranom-v569');
   const idx = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-  ok(/app\.js\?v=569/.test(idx) && /app\.css\?v=569/.test(idx), 'index.html app.js/css ?v=569');
+  const jsV = parseInt((idx.match(/app\.js\?v=(\d+)/) || [])[1] || '0', 10);
+  const cssV = parseInt((idx.match(/app\.css\?v=(\d+)/) || [])[1] || '0', 10);
+  ok(jsV >= 569 && cssV >= 569, `index.html app.js/css ?v≥569 (js=${jsV}, css=${cssV})`);
 }
 
 /* ---- static: bounced code + sibling surfaces ---- */
@@ -109,6 +111,8 @@ console.log('test-cheque-module-p4');
   softTodo(/void_lost_leaves|issued_uncleared|party-cheque-turnover/.test(portalSrc),
     'portal-ui surfaces Phase 4C report sections',
     'portal chequebook / party turnover UI');
+  ok(/leaves_sequence/.test(portalSrc) && /توالی برگ/.test(portalSrc),
+    'portal-ui renders per-book leaf sequence');
 }
 
 /* ---- runtime sample DB ---- */
