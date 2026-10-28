@@ -10,6 +10,7 @@ const stockReportGate = requireWarehouseReportView({ orInvoiceCreate: true });
 const { todayJalali } = require('../jalali');
 const { getKardex, reverseInventoryMovement, postInventoryMovement, invErr, warehouseQty } = require('../lib/inventory/ledger');
 const { variantWarehouseQty } = require('../lib/inventory/movement');
+const { lineAvailability, lineAvailabilityBatch } = require('../lib/inventory/line-availability');
 const { listFabricRolls, listFabricCirculation, receiveFabricRoll, voidFabricRoll, updateFabricRoll } = require('../lib/inventory/fabric-rolls');
 const {
   createBatch, listBatches, createSerial, listSerials, setSerialStatus, pickBatchesFefo,
@@ -34,48 +35,32 @@ function buildStockByWarehouse(db, productId, variantId, opts = {}) {
   const vid = variantId != null && variantId !== '' ? parseInt(variantId, 10) : 0;
   const isVariant = Number.isFinite(vid) && vid > 0;
   const useKardex = opts.source === 'kardex';
-  const warehouses = db.prepare(
-    'SELECT id, name, COALESCE(allow_negative,0) AS allow_negative FROM warehouses WHERE active=1 ORDER BY id'
-  ).all();
-  let kardex = null;
-  if (Number.isFinite(pid) && pid > 0) {
-    try {
-      const { buildLedgerValuationRows } = require('../lib/inventory/valuation');
-      kardex = new Map(buildLedgerValuationRows(db, { productId: pid, skipDrift: true }).rows.map((r) => [r.warehouse_id, r]));
-    } catch (_) { kardex = null; }
+  if (!Number.isFinite(pid) || pid <= 0) {
+    // legacy shape for an invalid product: warehouses with qty 0
+    return db.prepare('SELECT id, name, COALESCE(allow_negative,0) AS allow_negative FROM warehouses WHERE active=1 ORDER BY id')
+      .all().map((w) => ({ warehouse_id: Number(w.id), name: String(w.name || ''), qty: 0, source: 'warehouse_stock', allow_negative: Number(w.allow_negative) ? 1 : 0 }));
   }
-  return warehouses.map((w) => {
-    const whId = Number(w.id);
-    let qty = 0;
-    let source = 'warehouse_stock';
-    if (isVariant) {
-      qty = Number(variantWarehouseQty(db, vid, whId)) || 0;
-      source = 'vws';
-    } else if (Number.isFinite(pid) && pid > 0) {
-      qty = Number(warehouseQty(db, pid, whId)) || 0;
-    }
+  // v580: one source of truth — qty === line-availability on_hand (same layer shortage control enforces).
+  return lineAvailability(db, { productId: pid, variantId: isVariant ? vid : null }).map((a) => {
     const out = {
-      warehouse_id: whId,
-      name: String(w.name || ''),
-      qty,
-      source,
-      allow_negative: Number(w.allow_negative) ? 1 : 0,
+      warehouse_id: a.warehouse_id,
+      name: a.name,
+      qty: a.on_hand,
+      source: a.source,
+      allow_negative: a.allow_negative,
     };
-    if (kardex && !isVariant) {
-      const k = kardex.get(whId) || null;
-      const kq = k ? k.ledger_qty : 0;
+    if (a.kardex_qty != null && !isVariant) {
       out.declared_source = 'kardex';
-      out.kardex_qty = kq;
-      out.kardex_value_rial = k ? k.ledger_value_rial : 0;
-      out.weighted_avg_unit_rial = k ? k.weighted_avg_unit_rial : 0;
-      out.drift_qty = Math.round((qty - kq) * 1e6) / 1e6;
-      out.drift = Math.abs(qty - kq) > 1e-6;
-      if (useKardex) { out.qty = kq; out.source = 'kardex'; }
+      out.kardex_qty = a.kardex_qty;
+      out.kardex_value_rial = a.kardex_value_rial;
+      out.weighted_avg_unit_rial = a.weighted_avg_unit_rial;
+      out.drift_qty = a.drift_qty;
+      out.drift = a.drift_product;
+      if (useKardex) { out.qty = a.kardex_qty; out.source = 'kardex'; }
     }
     return out;
   });
 }
-
 function sendErr(res, e) {
   const status = e.status || 400;
   return res.status(status).json({ error: e.message || String(e), code: e.code || undefined, ...e });
@@ -425,6 +410,51 @@ router.post('/stock-by-warehouse/batch', auth, stockReportGate, (req, res) => {
     });
   }
   res.json({ results });
+});
+
+/**
+ * v580 invoice-stock-display Phase 1 — unified sellable quantity per (product, variant, warehouse).
+ * READ-ONLY POST (body carries the item list; nothing is written) → deliberately NOT in capture.js
+ * PATH_TABLE_MAP; the sync outbox must not replay it. No new tables → SYNCABLE_TABLES unchanged.
+ * available = on_hand − reserved + own_doc_qty (own_doc_qty only with a viewable exclude_invoice_id).
+ */
+function canUseInvoiceForAvailability(db, req, inv) {
+  if (!inv) return false;
+  try {
+    const { canViewWalkinInvoice } = require('../lib/store-quick-sale');
+    const walkin = canViewWalkinInvoice(db, req, inv);
+    if (walkin !== null) return walkin;
+  } catch (_) { /* fall through */ }
+  const role = req.user && req.user.role;
+  if (role === 'admin' || role === 'accounting' || role === 'sales_manager') return true;
+  return Number(inv.user_id) === Number(req.user && req.user.id);
+}
+
+router.post('/line-availability/batch', auth, stockReportGate, (req, res) => {
+  const body = req.body || {};
+  const items = Array.isArray(body.items) ? body.items : null;
+  if (!items) {
+    return res.status(400).json({ error: 'items الزامی است', code: 'E_ITEMS_REQUIRED' });
+  }
+  if (items.length > 100) {
+    return res.status(400).json({ error: 'حداکثر ۱۰۰ قلم در هر درخواست', code: 'E_ITEMS_LIMIT' });
+  }
+  const db = getDB();
+  let excludeInvoiceId = null;
+  if (body.exclude_invoice_id != null && body.exclude_invoice_id !== '') {
+    const id = parseInt(body.exclude_invoice_id, 10);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'exclude_invoice_id نامعتبر است', code: 'E_EXCLUDE_INVOICE_INVALID' });
+    }
+    const inv = db.prepare('SELECT id, user_id, cust_id FROM invoices WHERE id=?').get(id);
+    if (!inv) return res.status(404).json({ error: 'فاکتور پیدا نشد', code: 'E_INVOICE_NOT_FOUND' });
+    if (!canUseInvoiceForAvailability(db, req, inv)) {
+      return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_INVOICE_FORBIDDEN' });
+    }
+    excludeInvoiceId = id;
+  }
+  const results = lineAvailabilityBatch(db, items, { excludeInvoiceId });
+  res.json({ exclude_invoice_id: excludeInvoiceId, results });
 });
 
 router.post('/reservations', auth, adminOrAccounting, (req, res) => {

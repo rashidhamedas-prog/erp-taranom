@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۷ — v582 (بک‌اند): فاز ۱ نمایش موجودی فاکتور — API واحد موجودی قابل‌فروش (SW v582)
+- **شاخه/PR:** `fix/stock-line-availability-api` (rebase روی main پس از v581)؛ منبع: `.tmp-invoice-stock-display/phase-1-server-line-availability.md`.
+- **تابع:** `server/lib/inventory/line-availability.js` → `on_hand` (vws/ws همان لایهٔ کمبود)، `reserved`، `own_doc_qty` (add-back فاکتور کسرشده)، `available`، `drift`/`kardex_qty`/`movements_qty` فقط‌خواندنی.
+- **API:** `POST /api/inventory/line-availability/batch` (gate گزارش انبار؛ max ۱۰۰؛ `exclude_invoice_id` فقط با مجوز دیدن فاکتور). `buildStockByWarehouse` از همین تابع می‌خواند (`qty=on_hand`).
+- **سینک:** مسیر فقط‌خواندنی در blocklist capture.
+- **تست:** `test:line-availability` (۶۳ assertion، fixture کالای ۱۳۱).
+- **Help:** بند راهنمای ادمین دربارهٔ منبع واحد موجودی قابل‌فروش.
+- **فایل‌ها:** `lib/inventory/line-availability.js`، `routes/inventory.js`، `sync/capture.js`، `scripts/test-line-availability.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG. **Deploy:** ⏳
 ### ۱۴۰۵/۰۸/۰۷ — v581: اصلاح دادهٔ انبار — لایهٔ منفی وقتی انبار منفی را ممنوع کرده دست نمی‌خورد (SW v581)
 - **علت:** فاز B روی کپی تولید با تریگر `trg_ws_no_negative` قطع شد (`E_NEGATIVE_STOCK`). کاردکس منفی را نباید با شکستن تریگر روی انباری که `allow_negative` ندارد نوشت.
 - **رفتار:** اگر جمع کاردکس منفی است و انبار (یا تنظیم سراسری) موجودی منفی را اجازه نمی‌دهد، `warehouse_stock` و رنگ/سایز همان جفت عوض نمی‌شود، کالا مبهم می‌ماند، و در `ambiguous.csv` با قاعدهٔ `ws_negative_blocked` می‌آید. سند ثبت‌شده و ردیف کاردکس همچنان حذف نمی‌شوند.
@@ -12,7 +20,7 @@
 - **اصلاح:** (۱) ریشه فقط `#nestedModalRoot`/`#nestedActiveModal` (هرگز `#modalRoot`)؛ `openWhSkuMatrixModal` توکن `data-wh-matrix` روی جدول می‌گذارد و confirm دقیقاً همان جدول را query می‌کند (نبود جدول → خطای صریح). (۲) تابع خالص `whParseQtyInput` (ارقام فارسی/عربی، `٫`/`,`→`.`، حذف `٬`/فاصله، نامعتبر→۰)؛ inputها `type=text inputmode=decimal`. (۳) موفقیت: splice خطوط → `closeNestedModal` → `renderWhDocLines`. (۴) کنترل «بیش از موجودی» برای issue/transfer بدون مجوز منفی حفظ شد. (۵) بدون انبار انتخاب‌شده ماتریس باز نمی‌شود — توست «ابتدا انبار را انتخاب کنید».
 - **تست:** جدید `test:wh-sku-matrix-confirm` (۴۲ assertion، داخل `npm test`).
 - **Help:** `renderAdminGuide()` ← بند «ماتریس رنگ×سایز رسید/حواله/انتقال (v580)».
-- **فایل‌ها:** `public/{app.js,index.html,sw.js}`، `scripts/test-wh-sku-matrix-confirm.js`، `package.json`، CHANGE-LOG. بدون تغییر بک‌اند/داده. **Deploy:** ⏳
+- **فایل‌ها:** `public/{app.js,index.html,sw.js}`، `scripts/test-wh-sku-matrix-confirm.js`، `package.json`، CHANGE-LOG. بدون تغییر بک‌اند/داده. **Deploy:** ✅ merge bf481248 (PR #90) — بکاپ /home/taranom/backups/crm.db.20261028-121031؛ overlay؛ health=200؛ SW erp-taranom-v580؛ test:wh-sku-matrix-confirm ۴۲/۰؛ encoding OK.
 
 ### ۱۴۰۵/۰۸/۰۷ — v579: اصلاح دادهٔ انبار — گزارش، بازسازی مقدار از کاردکس، پر کردن شناسه، پیش‌نویس سند (SW v579)
 - **منبع:** `warehouse-data-correction-cursor` (فازهای A تا D). حامد رشید اصلاح داده را تأیید کرده است. سند ثبت‌شده و ردیف کاردکس حذف نمی‌شوند.
