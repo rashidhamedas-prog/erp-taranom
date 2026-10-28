@@ -93,7 +93,39 @@ const LEGACY = {
   coa_unemployment_payable:   { code: '2113', name: 'بیمه بیکاری پرداختنی' },
   // Periodic inventory — temporary purchases account until period close
   coa_purchases_temp:         { code: '5102', name: 'خرید کالا (ادواری)' },
+  // Warehouse Phase 2 — حساب طرف حواله به‌تفکیک نوع (issue_type). همگی روی حساب‌های موجود
+  // نمودار؛ در تنظیمات قابل تغییرند. APPEND keys only.
+  coa_issue_internal_consume: { code: '6102', name: 'مصرف داخلی — هزینه‌های عمومی و اداری' },
+  coa_issue_sample_gift:      { code: '6103', name: 'نمونه/هدیه — هزینه‌های توزیع و فروش' },
+  coa_issue_scrap:            { code: '6108', name: 'ضایعات — کسری و ضایعات انبار' },
+  coa_issue_consignment:      { code: '1114', name: 'امانی — موجودی نزد دیگران' },
+  coa_issue_return_to_supplier: { code: '2101', name: 'مرجوعی به تأمین‌کننده — حساب‌های پرداختنی' },
+  coa_issue_other:            { code: '6108', name: 'سایر حواله‌ها — کسری و ضایعات انبار' },
 };
+
+/** Warehouse issue types (warehouse_docs.issue_type) → logical COA key. */
+const ISSUE_TYPE_COA_KEYS = {
+  internal_consume: 'coa_issue_internal_consume',
+  sample_gift: 'coa_issue_sample_gift',
+  scrap: 'coa_issue_scrap',
+  consignment: 'coa_issue_consignment',
+  return_to_supplier: 'coa_issue_return_to_supplier',
+  other: 'coa_issue_other',
+};
+const ISSUE_TYPES = Object.keys(ISSUE_TYPE_COA_KEYS);
+
+/** Logical COA key for an issue type, or null when the type is unknown. */
+function issueCoaKey(issueType) {
+  const t = String(issueType || '').trim().toLowerCase();
+  return Object.prototype.hasOwnProperty.call(ISSUE_TYPE_COA_KEYS, t) ? ISSUE_TYPE_COA_KEYS[t] : null;
+}
+
+/** Resolve { code, name } of the counterpart account for an issue type (via settings override or default). */
+function issueCounterpartAccount(db, issueType) {
+  const key = issueCoaKey(issueType);
+  if (!key) throw new Error('coa-map: unknown issue_type ' + issueType);
+  return acct(db, key);
+}
 
 let _cache = null, _cacheAt = 0;
 
@@ -561,4 +593,5 @@ module.exports = {
   releaseTafsili, releaseEntityCoa, baseCoaTree,
   isPostableCode, resolvePostableLeaf, ensureLogicalPostable,
   ensureSystemFeeAccountsPostable, coerceSystemPostableCode,
+  ISSUE_TYPES, ISSUE_TYPE_COA_KEYS, issueCoaKey, issueCounterpartAccount,
 };

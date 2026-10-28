@@ -12,7 +12,9 @@ const {
 const {
   postStockMovement, hasActiveMatrixVariants, variantWarehouseQty,
 } = require('./inventory/movement');
-const { adjustBatchQty, pickBatchesFefo } = require('./inventory/batch-serial');
+const {
+  adjustBatchQty, pickBatchesFefo, splitBatchForTransfer,
+} = require('./inventory/batch-serial');
 const { isPeriodicWarehouse } = require('./inventory/periodic-close');
 const { postToLedger } = require('./ledger');
 const { acct } = require('./coa-map');
@@ -39,7 +41,8 @@ function availableForIssue(db, productId, warehouseId, variantId) {
 
 function userMayWhNegative(db, user) {
   if (!user) return false;
-  // Phase 0 interim (spec 0.1): dedicated `negative` action not shipped yet → admin only.
+  // admin always; others only through the dedicated `acc_warehouse_ops.negative` grant
+  // (Phase 2 RBAC). Until a role/user holds that action this stays admin-only.
   if (user.role === 'admin') return true;
   try {
     const { hasPermission } = require('./rbac');
@@ -47,8 +50,149 @@ function userMayWhNegative(db, user) {
       && hasPermission(db, user, 'acc_warehouse_ops', 'negative')) {
       return true;
     }
-  } catch (_) { /* action may not exist yet */ }
+  } catch (_) { /* RBAC action may not exist yet */ }
   return false;
+}
+
+// ── Issue types (Phase 2, v575) ──────────────────────────────────────────────
+// Every issue (حواله) must carry a type. The counterpart account comes from coa-map
+// (`coa_issue_<type>` — settings override or the per-type default); there is NO generic default
+// (the old blanket coa_inventory_loss is gone). Type ids == coa-map ISSUE_TYPE_COA_KEYS == UI.
+// needs (same vocabulary as the UI): cc | cc_or_person | person | supplier
+const ISSUE_TYPES = {
+  internal_consume: { label: 'مصرف داخلی', needs: 'cc' },
+  sample_gift: { label: 'نمونه/هدیه', needs: 'cc_or_person' },
+  scrap: { label: 'ضایعات', needs: 'cc' },
+  consignment: { label: 'امانی', needs: 'person' },
+  return_to_supplier: { label: 'مرجوعی به تأمین‌کننده', needs: 'supplier' },
+  other: { label: 'سایر', needs: 'cc_or_person' },
+};
+
+function issueErr(msg, code, status = 400) {
+  return Object.assign(new Error(msg), { status, code });
+}
+
+function normalizeIssueType(raw) {
+  return String(raw == null ? '' : raw).trim().toLowerCase();
+}
+
+/** { code, name } counterpart account for an issue type (setting override → LEGACY key → default). */
+function resolveIssueCounterpart(db, issueType) {
+  const meta = ISSUE_TYPES[issueType];
+  if (!meta) throw issueErr('نوع حواله نامعتبر است', 'E_ISSUE_TYPE_INVALID');
+  const key = `coa_issue_${issueType}`;
+  let configured = null;
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    configured = row && String(row.value || '').trim();
+  } catch (_) { configured = null; }
+  if (configured) {
+    const acc = db.prepare('SELECT code, name FROM chart_of_accounts WHERE code=?').get(configured);
+    if (!acc) {
+      throw issueErr(`حساب تنظیم‌شده برای «${meta.label}» (${configured}) در کدینگ وجود ندارد`, 'E_ISSUE_COA_INVALID');
+    }
+    return { code: acc.code, name: acc.name };
+  }
+  return require('./coa-map').issueCounterpartAccount(db, issueType);
+}
+
+/**
+ * Validates issue_type + required cost-center / recipient for that type.
+ * Returns { issueType, costCenterId, recipient, supplierId, label }.
+ */
+function resolveIssueContext(db, body) {
+  const issueType = normalizeIssueType(body.issue_type);
+  if (!issueType) {
+    throw issueErr('نوع حواله الزامی است (مصرف داخلی / نمونه‌هدیه / ضایعات / امانی / مرجوعی به تأمین‌کننده / سایر)', 'E_ISSUE_TYPE_REQUIRED');
+  }
+  const meta = ISSUE_TYPES[issueType];
+  if (!meta) throw issueErr('نوع حواله نامعتبر است', 'E_ISSUE_TYPE_INVALID');
+
+  // "person" = any named recipient: free text, person_id, customer_id or recipient_id.
+  const personId = parseInt(body.person_id || body.recipient_person_id, 10) > 0
+    ? parseInt(body.person_id || body.recipient_person_id, 10) : null;
+  const recipient = String(body.recipient || body.recipient_name || '').trim()
+    || (personId ? `شخص #${personId}` : '')
+    || (parseInt(body.recipient_id, 10) > 0 ? `#${parseInt(body.recipient_id, 10)}` : '')
+    || (parseInt(body.customer_id, 10) > 0 ? `مشتری #${parseInt(body.customer_id, 10)}` : '');
+  const supplierId = parseInt(body.supplier_id, 10) > 0 ? parseInt(body.supplier_id, 10) : null;
+  let costCenterId = parseInt(body.cost_center_id, 10) || null;
+  if (costCenterId) {
+    const cc = db.prepare('SELECT id FROM cost_centers WHERE id=?').get(costCenterId);
+    if (!cc) throw issueErr('مرکز هزینه انتخاب‌شده یافت نشد', 'E_COST_CENTER_NOT_FOUND');
+  } else {
+    costCenterId = null;
+  }
+
+  const need = meta.needs;
+  const hasRecipient = !!recipient;
+  let okReq = true;
+  if (need === 'cc') okReq = !!costCenterId;
+  else if (need === 'cc_or_person') okReq = !!costCenterId || hasRecipient;
+  else if (need === 'person') okReq = hasRecipient;
+  else if (need === 'supplier') okReq = !!supplierId;
+  if (!okReq) {
+    const what = need === 'cc' ? 'مرکز هزینه'
+      : (need === 'cc_or_person' ? 'مرکز هزینه یا گیرنده'
+        : (need === 'supplier' ? 'تأمین‌کننده' : 'گیرنده'));
+    throw issueErr(`برای حوالهٔ «${meta.label}» ${what} الزامی است`, 'E_ISSUE_TARGET_REQUIRED');
+  }
+  if (supplierId) {
+    const sup = db.prepare('SELECT id FROM suppliers WHERE id=?').get(supplierId);
+    if (!sup) throw issueErr('تأمین‌کننده یافت نشد', 'E_SUPPLIER_NOT_FOUND', 404);
+  }
+  return {
+    issueType, costCenterId, recipient, supplierId, personId, label: meta.label,
+  };
+}
+
+function tableHasColumn(db, table, col) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  } catch (_) { return false; }
+}
+
+/** Phase 2: block a second ACTIVE opening for the same (product, warehouse, variant) → 409. */
+function assertNoActiveOpening(db, { productId, warehouseId, variantId }) {
+  const vid = variantId || null;
+  const dup = db.prepare(`
+    SELECT m.id, d.num FROM warehouse_moves m
+    JOIN warehouse_docs d ON d.id=m.doc_id
+    WHERE m.type='receipt' AND d.receipt_class='opening'
+      AND COALESCE(d.status,'posted')<>'reversed'
+      AND COALESCE(m.status,'posted')<>'reversed'
+      AND m.product_id=? AND m.to_warehouse_id=?
+      AND COALESCE(m.variant_id,0)=COALESCE(?,0)
+    LIMIT 1
+  `).get(productId, warehouseId, vid);
+  let ledgerDup = null;
+  if (!dup) {
+    // Legacy/backfilled opening ledger rows (never modified — only consulted).
+    const hasVar = require('./inventory/ledger').ledgerHasVariantColumn(db);
+    if (hasVar) {
+      ledgerDup = db.prepare(`
+        SELECT id FROM inventory_ledger
+        WHERE event_type='opening' AND COALESCE(status,'posted')='posted'
+          AND product_id=? AND warehouse_id=? AND COALESCE(variant_id,0)=COALESCE(?,0)
+        LIMIT 1
+      `).get(productId, warehouseId, vid);
+    } else if (!vid) {
+      ledgerDup = db.prepare(`
+        SELECT id FROM inventory_ledger
+        WHERE event_type='opening' AND COALESCE(status,'posted')='posted'
+          AND product_id=? AND warehouse_id=?
+        LIMIT 1
+      `).get(productId, warehouseId);
+    }
+  }
+  if (dup || ledgerDup) {
+    const ref = dup ? `سند ${dup.num || dup.id}` : `ردیف کاردکس #${ledgerDup.id}`;
+    throw Object.assign(new Error(
+      `برای این کالا/انبار/واریانت قبلاً موجودی اول دوره ثبت شده است (${ref}) — ابتدا آن را ابطال کنید`
+    ), {
+      status: 409, code: 'E_OPENING_EXISTS', product_id: productId, warehouse_id: warehouseId, variant_id: vid,
+    });
+  }
 }
 
 function assertIssueQtyAllowed(db, user, {
@@ -231,6 +375,9 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     err.status = 400;
     throw err;
   }
+  // Phase 2: issue type is mandatory; it selects the counterpart COA (no generic default).
+  const issueCtx = type === 'issue' ? resolveIssueContext(db, body) : null;
+  const issueCounterpart = issueCtx ? resolveIssueCounterpart(db, issueCtx.issueType) : null;
   const lines = Array.isArray(body.lines) ? body.lines : [];
   if (!lines.length) {
     const err = new Error('حداقل یک ردیف کالا لازم است');
@@ -295,6 +442,21 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     supplierId
   );
   const docId = docIns.lastInsertRowid;
+  if (issueCtx) {
+    // Additive columns (parallel schema agent) — persist only what exists.
+    const sets = [];
+    const vals = [];
+    for (const [col, v] of [
+      ['issue_type', issueCtx.issueType],
+      ['cost_center_id', issueCtx.costCenterId],
+      ['recipient', issueCtx.recipient || null],
+      ['person_id', issueCtx.personId],
+      ['supplier_id', issueCtx.supplierId],
+    ]) {
+      if (tableHasColumn(db, 'warehouse_docs', col)) { sets.push(`${col}=?`); vals.push(v); }
+    }
+    if (sets.length) db.prepare(`UPDATE warehouse_docs SET ${sets.join(', ')} WHERE id=?`).run(...vals, docId);
+  }
   const ids = [];
   let totalAmountRial = 0;
   let qtyTotal = 0;
@@ -327,13 +489,16 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     if (type === 'receipt') {
       const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toWh);
       if (!warehouse) throw Object.assign(new Error('انبار یافت نشد'), { status: 404 });
+      if (receiptClass === 'opening') {
+        assertNoActiveOpening(db, { productId: product_id, warehouseId: toWh, variantId });
+      }
       const explicitUnitCost = Math.round(Number(line.unit_cost_rial) || (
         Number(line.amount_rial) > 0 ? Number(line.amount_rial) / qty : 0
       ));
       const led = VAP.withSourceGroup(valueGroup, () => postInventoryMovement(db, {
         eventType: 'receipt', productId: product_id, warehouseId: toWh, qty,
         unitCostRial: explicitUnitCost > 0 ? explicitUnitCost : Math.round(Number(product.average_cost_rial) || 0),
-        batchId: batchId || null,
+        batchId: batchId || null, variantId,
         sourceType: 'warehouse_move', date,
         note: `رسید انبار (${warehouse.name})${note ? ' - ' + note : ''}`,
         createdBy: user.id,
@@ -372,7 +537,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       const warehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
       const led = postInventoryMovement(db, {
         eventType: 'issue', productId: product_id, warehouseId: fromWh, qty: -qty,
-        batchId: issueBatchId || null,
+        batchId: issueBatchId || null, variantId,
         sourceType: 'warehouse_move', date,
         note: `حواله انبار (${warehouse?.name || fromWh})${note ? ' - ' + note : ''}`,
         createdBy: user.id,
@@ -402,13 +567,17 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       const unit = Math.round(Number(product.average_cost_rial) || 0);
       const ledOut = postInventoryMovement(db, {
         eventType: 'transfer_out', productId: product_id, warehouseId: fromWh, qty: -qty,
-        unitCostRial: unit, sourceType: 'warehouse_transfer', date,
+        unitCostRial: unit, sourceType: 'warehouse_transfer', date, variantId,
+        batchId: batchId || null,
         note: `خروج انتقال به ${toWarehouse?.name}`, createdBy: user.id, updateAvg: false,
       });
-      // Closed month, different destination pool: enter at the destination pool rate; the
-      // source-rate difference is parked (approval moves it into the destination pool).
-      let inAmount = Math.round(Number(ledOut.amount_rial) || 0);
-      let inUnit = unit;
+      // Phase 2: inbound value === outbound value, taken from the SAME out ledger row
+      // (Σamount(out) = Σamount(in) per transfer doc). The unit is the out row's effective unit.
+      // Only exception: closed value month + different destination pool (v525) — there the
+      // destination enters at its pool rate and the difference is parked for approval.
+      const outAmount = Math.round(Number(ledOut.amount_rial) || 0);
+      let inAmount = outAmount;
+      let inUnit = Math.round(Number(ledOut.unit_cost_rial) || 0) || unit;
       let transferPark = 0;
       if (valueClosed && VAP.poolKeyOf(db, product_id, fromWh) !== VAP.poolKeyOf(db, product_id, toWh)) {
         const destUnit = VAP.closedInboundPoolUnit(db, product_id, toWh);
@@ -418,9 +587,19 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
           inUnit = destUnit;
         }
       }
+      // Partial lot transfer → split the lot (new row for the destination); whole lot → move row.
+      let destBatchId = null;
+      if (batchId) {
+        const sp = splitBatchForTransfer(db, {
+          batchId, productId: product_id, qty, fromWarehouseId: fromWh,
+          toWarehouseId: toWh, createdBy: user.id,
+        });
+        destBatchId = sp.destBatchId;
+      }
       const ledIn = postInventoryMovement(db, {
         eventType: 'transfer_in', productId: product_id, warehouseId: toWh, qty,
         unitCostRial: inUnit, amountRial: inAmount, sourceType: 'warehouse_transfer', date,
+        variantId, batchId: destBatchId || null,
         note: `ورود انتقال از ${fromWarehouse?.name}`, createdBy: user.id, updateAvg: false,
       });
       if (transferPark) {
@@ -432,10 +611,10 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       }
       const r = db.prepare(`
         INSERT INTO warehouse_moves
-          (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status,doc_id,line_no,variant_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?)
+          (type,product_id,from_warehouse_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,batch_id,status,doc_id,line_no,variant_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'posted',?,?,?)
       `).run('transfer', product_id, fromWh, toWh, qty, date, note, user.id,
-        ledOut.id, unit, ledOut.amount_rial, docId, lineNo, variantId);
+        ledOut.id, inUnit, ledOut.amount_rial, batchId || null, docId, lineNo, variantId);
       db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id IN (?,?)').run(r.lastInsertRowid, ledOut.id, ledIn.id);
       ids.push(r.lastInsertRowid);
       postWhVariantMovement(db, {
@@ -448,10 +627,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         docType: 'wh_transfer_in', docId: r.lastInsertRowid, docLine: lineIdx, userId: user.id,
         note: `ورود انتقال از ${fromWarehouse?.name}`,
       });
-      if (batchId) {
-        db.prepare('UPDATE inventory_batches SET warehouse_id=? WHERE id=?').run(toWh, batchId);
-      }
-      totalAmountRial += Math.round(Number(ledOut.amount_rial) || 0);
+      totalAmountRial += outAmount;
     }
     lineIdx += 1;
   }
@@ -492,12 +668,25 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         || receiptClass === 'supplier_receipt');
       // Purchase with invoice must use /purchases or /procurement GR — not this path with 9999.
       // Classes: opening→3102 | grni→2112 | adjustment (default)→9999 for ops/count fixes.
-      let counterpartKey = 'coa_inventory_loss';
+      // Receipt: class-driven. Issue: per issue_type (coa_issue_<type>) — never a blanket loss account.
+      let counterpart;
       if (type === 'receipt') {
-        counterpartKey = isOpening ? 'coa_opening_balance' : (isGrni ? 'coa_grni' : 'coa_adjustment');
+        counterpart = acct(db, isOpening ? 'coa_opening_balance' : (isGrni ? 'coa_grni' : 'coa_adjustment'));
+      } else {
+        counterpart = issueCounterpart;
       }
-      const counterpart = acct(db, counterpartKey);
       const lineCc = whCc(valuationWh);
+      // Issue: the counterpart (expense / consignment / …) is charged to the chosen cost center.
+      const counterpartCc = (type === 'issue' && issueCtx && issueCtx.costCenterId) || lineCc;
+      // return_to_supplier debits the payable control → tag the supplier's tafsili when known.
+      let counterpartDetailId = null;
+      if (type === 'issue' && issueCtx && issueCtx.supplierId) {
+        try {
+          const s = db.prepare('SELECT party_id FROM suppliers WHERE id=?').get(issueCtx.supplierId);
+          const p = s && s.party_id ? db.prepare('SELECT detail_account_id FROM parties WHERE id=?').get(s.party_id) : null;
+          counterpartDetailId = (p && p.detail_account_id) || null;
+        } catch (_) { counterpartDetailId = null; }
+      }
       const receiptJeType = isOpening ? 'opening_inventory'
         : (isGrni ? 'warehouse_receipt_grni' : `warehouse_${type}_batch`);
       jeId = postToLedger(db, {
@@ -508,7 +697,9 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
           ? `موجودی اول دوره — رسید انبار (${ids.length} ردیف)`
           : (type === 'receipt' && isGrni
             ? `رسید تأمین‌کننده (GRNI) — انبار ${num} (${ids.length} ردیف)`
-            : `${typeLabelFa(type)} انبار ${num} (${ids.length} ردیف)`),
+            : (type === 'issue' && issueCtx
+              ? `حواله ${issueCtx.label} انبار ${num} (${ids.length} ردیف)${issueCtx.recipient ? ' — گیرنده: ' + issueCtx.recipient : ''}`
+              : `${typeLabelFa(type)} انبار ${num} (${ids.length} ردیف)`)),
         createdBy: user.id,
         voucherType: isOpening && type === 'receipt' ? 'opening' : 'auto',
         srcSystem: body.from_excel || body.src_system === 'excel' ? 'excel' : null,
@@ -519,7 +710,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
             { code: counterpart.code, name: counterpart.name, debit: 0, credit: amountToman, cost_center_id: lineCc },
           ]
           : [
-            { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0, cost_center_id: lineCc },
+            { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0, cost_center_id: counterpartCc, detail_account_id: counterpartDetailId },
             { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman, cost_center_id: lineCc },
           ],
       });
@@ -567,6 +758,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     count: ids.length,
     je_id: jeId,
     type,
+    issue_type: issueCtx ? issueCtx.issueType : null,
   };
 }
 
@@ -658,6 +850,12 @@ function reviseWarehouseDoc(db, docId, body, user) {
     });
     const created = createWarehouseDocInTx(db, {
       ...body,
+      // keep the original issue type / targets when the editor does not resend them
+      issue_type: body.issue_type || old.issue_type || undefined,
+      cost_center_id: body.cost_center_id || old.cost_center_id || undefined,
+      recipient: body.recipient || old.recipient || undefined,
+      person_id: body.person_id || old.person_id || undefined,
+      supplier_id: body.supplier_id || (old.type === 'issue' ? old.supplier_id : undefined) || undefined,
       type: body.type || old.type,
       replaces_doc_id: docId,
     }, user, { replacesDocId: docId });
@@ -779,5 +977,8 @@ module.exports = {
   postWhVariantMovement,
   parseVariantId,
   availableForIssue,
+  ISSUE_TYPES,
+  resolveIssueCounterpart,
+  userMayWhNegative,
   ensureWarehouseDocSequence,
 };

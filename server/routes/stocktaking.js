@@ -1,6 +1,13 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requireWarehouseOps } = require('../middleware/auth');
+
+// Warehouse Phase 2 — acc_warehouse_ops: view (reads) | create (start/count/complete) | delete (=void/delete).
+// orDelegatedAccounting keeps existing acc_stocktaking delegates working; `apply` (posts JE) stays
+// admin/accounting-only so a create-only storekeeper can count but never apply.
+const stView = requireWarehouseOps('view', { orDelegatedAccounting: true });
+const stCreate = requireWarehouseOps('create', { orDelegatedAccounting: true });
+const stVoid = requireWarehouseOps('delete', { orDelegatedAccounting: true });
 const { todayJalali } = require('../jalali');
 const { applyCycleCount, voidCycleCount, syncSessionVariantLines } = require('../lib/inventory/cycle-count');
 const { hasActiveMatrixVariants, variantWarehouseQty } = require('../lib/inventory/movement');
@@ -67,7 +74,7 @@ function qtyFromConfirmed(it, fallback) {
   return parseQty(fallback);
 }
 
-router.get('/', auth, adminOrAccounting, (req, res) => {
+router.get('/', auth, stView, (req, res) => {
   const db = getDB();
   const { warehouse_id, user_id, date_from, date_to, status } = req.query;
   const where = [];
@@ -90,7 +97,7 @@ router.get('/', auth, adminOrAccounting, (req, res) => {
   res.json(rows);
 });
 
-router.get('/:id/tags', auth, adminOrAccounting, (req, res) => {
+router.get('/:id/tags', auth, stView, (req, res) => {
   const db = getDB();
   const session = db.prepare('SELECT id, status FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
@@ -110,7 +117,7 @@ router.get('/:id/tags', auth, adminOrAccounting, (req, res) => {
   res.json({ session_id: session.id, items });
 });
 
-router.get('/:id', auth, adminOrAccounting, (req, res) => {
+router.get('/:id', auth, stView, (req, res) => {
   const db = getDB();
   const session = db.prepare(`
     SELECT s.*, w.name as warehouse_name, u.name as responsible_name
@@ -137,7 +144,7 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
   res.json({ session, items });
 });
 
-router.post('/', auth, adminOrAccounting, (req, res) => {
+router.post('/', auth, stCreate, (req, res) => {
   const { warehouse_id, date, responsible_user_id, note } = req.body;
   const whId = parseInt(warehouse_id, 10);
   if (!whId) return res.status(400).json({ error: 'انبار الزامی است' });
@@ -162,7 +169,7 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   res.json({ id: sessionId, item_count: prods.length });
 });
 
-router.put('/:id/items', auth, adminOrAccounting, (req, res) => {
+router.put('/:id/items', auth, stCreate, (req, res) => {
   const db = getDB();
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
@@ -196,7 +203,7 @@ router.put('/:id/items', auth, adminOrAccounting, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/:id/complete', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/complete', auth, stCreate, (req, res) => {
   const db = getDB();
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
@@ -217,7 +224,7 @@ router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/:id/void', auth, adminOrAccounting, (req, res) => {
+router.post('/:id/void', auth, stVoid, (req, res) => {
   try {
     const db = getDB();
     const result = voidCycleCount(db, +req.params.id, { createdBy: req.user.id });
@@ -228,7 +235,7 @@ router.post('/:id/void', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+router.delete('/:id', auth, stVoid, (req, res) => {
   const db = getDB();
   const session = db.prepare('SELECT * FROM stocktaking_sessions WHERE id=?').get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });

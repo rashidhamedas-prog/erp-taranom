@@ -155,7 +155,7 @@ delete process.env.HTTPS_PROXY;
   let issueDenied = null;
   try {
     createWarehouseDoc(db, {
-      type: 'issue', warehouse_id: whStrict, date: todayJalali(), note: 'حواله بیش از موجودی',
+      type: 'issue', issue_type: 'other', recipient: 'تست', warehouse_id: whStrict, date: todayJalali(), note: 'حواله بیش از موجودی',
       lines: [{ product_id: prodId, variant_id: variants[0], qty: 999 }],
     }, acct);
   } catch (e) { issueDenied = e; }
@@ -171,7 +171,7 @@ delete process.env.HTTPS_PROXY;
   let issueAcctNeg = null;
   try {
     createWarehouseDoc(db, {
-      type: 'issue', warehouse_id: whNeg, date: todayJalali(), note: 'منفی بدون مجوز',
+      type: 'issue', issue_type: 'other', recipient: 'تست', warehouse_id: whNeg, date: todayJalali(), note: 'منفی بدون مجوز',
       lines: [{ product_id: prodId, variant_id: variants[2], qty: 1 }],
     }, acct);
   } catch (e) { issueAcctNeg = e; }
@@ -182,7 +182,7 @@ delete process.env.HTTPS_PROXY;
   let issueAdmin = null;
   try {
     issueAdmin = createWarehouseDoc(db, {
-      type: 'issue', warehouse_id: whNeg, date: todayJalali(), note: 'منفی با ادمین',
+      type: 'issue', issue_type: 'other', recipient: 'تست', warehouse_id: whNeg, date: todayJalali(), note: 'منفی با ادمین',
       lines: [{ product_id: prodId, variant_id: variants[2], qty: 1 }],
     }, admin);
   } catch (e) { issueAdmin = e; }

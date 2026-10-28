@@ -251,7 +251,26 @@ function isAlignSeedOpts(eventType, sourceType, note) {
 }
 
 /**
+ * Does inventory_ledger have the additive nullable `variant_id` column?
+ * Positive result cached per db handle; negative result re-checked after a short TTL so a
+ * column added by a migration during the same process is picked up.
+ */
+const _variantColCache = new WeakMap();
+function ledgerHasVariantColumn(db) {
+  const hit = _variantColCache.get(db);
+  const now = Date.now();
+  if (hit && (hit.has || now - hit.at < 5000)) return hit.has;
+  let has = false;
+  try {
+    has = db.prepare('PRAGMA table_info(inventory_ledger)').all().some((c) => c.name === 'variant_id');
+  } catch (_) { has = false; }
+  _variantColCache.set(db, { has, at: now });
+  return has;
+}
+
+/**
  * Core: post one inventory movement (append-only).
+ * @param {number} [opts.variantId]  matrix variant — written on new rows when the column exists
  * @param {object} opts
  * @param {string} opts.eventType  receipt|issue|transfer_out|transfer_in|adjustment|sale|sale_return|purchase|purchase_return|production_issue|production_receipt|scrap|opening|landed_cost|cycle_count
  * @param {number} opts.productId
@@ -496,18 +515,24 @@ function postInventoryMovement(db, opts) {
   }
 
   const txNo = nextTxNo(db);
+  // Phase 2 (v575): variant_id is written on NEW rows only, and only when the column exists
+  // (additive column may land from a parallel migration). No backfill of old rows.
+  const ledVariantId = opts.variantId != null && Number(opts.variantId) > 0
+    ? Math.trunc(Number(opts.variantId)) : null;
+  const writeVariant = ledVariantId != null && ledgerHasVariantColumn(db);
   const result = db.prepare(`
     INSERT INTO inventory_ledger (
       tx_no, event_type, product_id, warehouse_id,
       qty_in, qty_out, qty_balance, unit_cost_rial, amount_rial, avg_cost_after_rial,
       batch_id, serial_id, source_type, source_id, je_id, reversed_of,
-      status, date, note, created_by
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      status, date, note, created_by${writeVariant ? ', variant_id' : ''}
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${writeVariant ? ',?' : ''})
   `).run(
     txNo, eventType, productId, warehouseId,
     qtyIn, qtyOut, stockInfo.qtyAfter, unit, amount, avgAfter,
     batchId, serialId, sourceType, sourceId, jeId, reversedOf,
-    'posted', date || '', note || '', createdBy
+    'posted', date || '', note || '', createdBy,
+    ...(writeVariant ? [ledVariantId] : [])
   );
 
   const ledgerId = result.lastInsertRowid;
@@ -649,6 +674,7 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
     sourceId: row.source_id,
     batchId: row.batch_id,
     serialId: row.serial_id,
+    variantId: row.variant_id || null,
     reversedOf: row.id,
     date: revDate,
     note: note || `معکوس ${row.tx_no}`,
@@ -891,6 +917,7 @@ function retireOrphanVoidedProductionIssues(db) {
 
 module.exports = {
   postInventoryMovement,
+  ledgerHasVariantColumn,
   reverseInventoryMovement,
   getKardex,
   isZeroQtyValueGhost,

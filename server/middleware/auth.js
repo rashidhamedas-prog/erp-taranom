@@ -252,6 +252,32 @@ function requirePermission(resource, action) {
 }
 
 /**
+ * Warehouse Phase 2 — acc_warehouse_ops per-action gate.
+ * action: 'view' | 'create' | 'delete' (= void) | 'negative' (or an array = ALL required).
+ * admin always passes; accounting passes through its role defaults (all flags) unless an
+ * admin explicitly revoked them (role override / per-user deny).
+ * opts.orDelegatedAccounting: on pass-fail fall back to adminOrAccounting (keeps delegates of the
+ * sibling sections acc_warehouses / acc_stocktaking working on routes they already reached;
+ * those sections never map to acc_warehouse_ops flags, so a create-only storekeeper gains nothing).
+ */
+function requireWarehouseOps(action, opts = {}) {
+  const actions = Array.isArray(action) ? action : [action];
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'توکن یافت نشد' });
+    const { hasPermission } = require('../lib/rbac');
+    const db = getDB();
+    if (actions.every((a) => hasPermission(db, req.user, 'acc_warehouse_ops', a))) return next();
+    if (opts.orDelegatedAccounting) return adminOrAccounting(req, res, next);
+    return res.status(403).json({
+      error: 'دسترسی ندارید',
+      code: 'E_PERMISSION',
+      resource: 'acc_warehouse_ops',
+      action: actions.join('+'),
+    });
+  };
+}
+
+/**
  * Phase 3C — cheque.operate. Admin/accounting always pass (no break).
  * Delegated users need resource `cheque` action `operate` (or create).
  */
@@ -340,6 +366,7 @@ module.exports = {
   centralOnlyStrict,
   isDesktopPlatform,
   requirePermission,
+  requireWarehouseOps,
   requireChequeOperate,
   requireChequeHighValueApprove,
   managerOnly,

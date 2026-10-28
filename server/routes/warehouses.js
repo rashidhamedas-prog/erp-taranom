@@ -1,6 +1,15 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, requireWarehouseOps } = require('../middleware/auth');
+
+// Warehouse Phase 2 — /moves/* gated by acc_warehouse_ops: view | create | delete (=void).
+// `negative` is enforced inside createWarehouseDoc (userMayWhNegative).
+const opsView = requireWarehouseOps('view');
+const opsCreate = requireWarehouseOps('create');
+const opsVoid = requireWarehouseOps('delete');
+const opsRevise = requireWarehouseOps(['create', 'delete']); // revise = void + re-post
+// Read helpers a storekeeper needs to fill a document (product search / stock lookup).
+const opsViewOrWh = requireWarehouseOps('view', { orDelegatedAccounting: true });
 const { voidWarehouseMove } = require('../lib/void-warehouse-move');
 const {
   listWarehouseDocs, getWarehouseDoc, createWarehouseDoc,
@@ -94,7 +103,7 @@ router.get('/stock/variant-report', auth, adminOrAccounting, (req, res) => {
 });
 
 // INV-03 — shared picker for receipt/issue/transfer lines (before /:id)
-router.get('/products/search', auth, adminOrAccounting, (req, res) => {
+router.get('/products/search', auth, opsViewOrWh, (req, res) => {
   try {
     const db = getDB();
     res.json(searchWarehouseLineProducts(db, req.user, req.query));
@@ -286,7 +295,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 // Products currently assigned to a warehouse (= "warehouse stock report")
-router.get('/:id/stock', auth, adminOrAccounting, (req, res) => {
+router.get('/:id/stock', auth, opsViewOrWh, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT p.id, p.code, p.name, ws.qty AS stock, p.unit, p.stock_alert
@@ -356,7 +365,7 @@ router.post('/:id/period-closes/:closeId/reopen', auth, adminOrAccounting, (req,
 });
 
 // ---- Warehouse documents (aggregated remittance / receipt / transfer) ----
-router.get('/moves/docs', auth, adminOrAccounting, (req, res) => {
+router.get('/moves/docs', auth, opsView, (req, res) => {
   try {
     const db = getDB();
     res.json(listWarehouseDocs(db, {
@@ -368,7 +377,7 @@ router.get('/moves/docs', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.get('/moves/docs/:id', auth, adminOrAccounting, (req, res) => {
+router.get('/moves/docs/:id', auth, opsView, (req, res) => {
   try {
     const db = getDB();
     const doc = getWarehouseDoc(db, req.params.id);
@@ -380,7 +389,7 @@ router.get('/moves/docs/:id', auth, adminOrAccounting, (req, res) => {
 });
 
 /** چاپ حواله / رسید / انتقال انبار (A4|A5) — عملیاتی بدون مبلغ */
-router.get('/moves/docs/:id/print', auth, adminOrAccounting, (req, res) => {
+router.get('/moves/docs/:id/print', auth, opsView, (req, res) => {
   try {
     const db = getDB();
     const doc = getWarehouseDoc(db, req.params.id);
@@ -401,7 +410,7 @@ router.get('/moves/docs/:id/print', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/moves/docs', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/docs', auth, opsCreate, (req, res) => {
   try {
     const db = getDB();
     const result = createWarehouseDoc(db, req.body, req.user);
@@ -411,7 +420,7 @@ router.post('/moves/docs', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/moves/docs/:id/void', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/docs/:id/void', auth, opsVoid, (req, res) => {
   try {
     const db = getDB();
     const result = voidWarehouseDoc(db, req.params.id, req.user, {
@@ -423,7 +432,7 @@ router.post('/moves/docs/:id/void', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/moves/docs/:id/revise', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/docs/:id/revise', auth, opsRevise, (req, res) => {
   try {
     const db = getDB();
     const result = reviseWarehouseDoc(db, req.params.id, req.body, req.user);
@@ -434,7 +443,7 @@ router.post('/moves/docs/:id/revise', auth, adminOrAccounting, (req, res) => {
 });
 
 // ---- Warehouse movement history (line-level; kept for debug/excel) ----
-router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
+router.get('/moves/list', auth, opsView, (req, res) => {
   const db = getDB();
   const rows = db.prepare(`
     SELECT m.*, p.name as product_name, p.code as product_code,
@@ -453,7 +462,7 @@ router.get('/moves/list', auth, adminOrAccounting, (req, res) => {
 });
 
 // Void warehouse move (R13 — if doc_id present, voids whole document)
-router.post('/moves/:id/void', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/:id/void', auth, opsVoid, (req, res) => {
   try {
     const db = getDB();
     const result = voidWarehouseMove(db, req.params.id, req.user);
@@ -463,7 +472,7 @@ router.post('/moves/:id/void', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/receipt', auth, opsCreate, (req, res) => {
   try {
     const db = getDB();
     const result = createWarehouseDoc(db, {
@@ -487,20 +496,26 @@ router.post('/moves/receipt', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/issue', auth, opsCreate, (req, res) => {
   try {
     const db = getDB();
+    const b = req.body || {};
     const result = createWarehouseDoc(db, {
       type: 'issue',
-      warehouse_id: req.body.warehouse_id,
-      from_warehouse_id: req.body.warehouse_id,
-      date: req.body.date,
-      note: req.body.note,
+      warehouse_id: b.warehouse_id,
+      from_warehouse_id: b.warehouse_id,
+      date: b.date,
+      note: b.note,
+      issue_type: b.issue_type,
+      cost_center_id: b.cost_center_id,
+      person_id: b.person_id,
+      supplier_id: b.supplier_id,
+      recipient: b.recipient,
       lines: [{
-        product_id: req.body.product_id,
-        qty: req.body.qty,
-        variant_id: req.body.variant_id,
-        batch_id: req.body.batch_id,
+        product_id: b.product_id,
+        qty: b.qty,
+        variant_id: b.variant_id,
+        batch_id: b.batch_id,
       }],
     }, req.user);
     res.json({ id: result.ids[0], doc_id: result.id, num: result.num, ok: true, ...result });
@@ -509,7 +524,7 @@ router.post('/moves/issue', auth, adminOrAccounting, (req, res) => {
   }
 });
 
-router.post('/moves/transfer', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/transfer', auth, opsCreate, (req, res) => {
   try {
     const db = getDB();
     const result = createWarehouseDoc(db, {
@@ -574,7 +589,7 @@ router.post('/lookup-options', auth, adminOrAccounting, (req, res) => {
 });
 
 /** Multi-line warehouse document — proxies to warehouse_docs (backward compatible). */
-router.post('/moves/batch', auth, adminOrAccounting, (req, res) => {
+router.post('/moves/batch', auth, opsCreate, (req, res) => {
   try {
     const db = getDB();
     const result = createWarehouseDoc(db, req.body, req.user);

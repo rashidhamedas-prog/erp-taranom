@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۰۷ — v575: فاز ۲ عملیات انبار — نوع حواله، انتقال، RBAC، ledger.variant_id (SW v575)
+- **منبع:** `.tmp-warehouse-spec/03-phase2-operations.md`؛ شاخهٔ `wh/phase-2-operations`؛ [Schema+RBAC](6e6de869-5814-41d5-8c5c-11950457f256) + [Ops](a0f72ee6-d3f4-42c4-81b6-d82a70e108fa) + [UI](9b43a8da-59ce-45d3-b63d-a8a9d5b9553d).
+- **اسکیما:** `warehouse_docs.issue_type`؛ `inventory_ledger.variant_id` (nullable، بدون backfill).
+- **حواله:** `issue_type` الزامی + COA `coa_issue_*` (بدون پیش‌فرض `coa_inventory_loss`)؛ مرکز هزینه/شخص/تأمین‌کننده بر اساس نوع.
+- **انتقال:** مبلغ ورود = مبلغ خروج؛ انتقال جزئی بچ → split (نه UPDATE کل بچ).
+- **opening یکتا:** 409 `E_OPENING_EXISTS` برای (کالا، انبار، واریانت) فعال.
+- **RBAC:** مسیرهای `/moves/*` و stocktaking روی `acc_warehouse_ops` (view/create/delete؛ negative ادمین‌پیش‌فرض).
+- **UI:** مودال حواله + Help؛ برچسب‌های RBAC operate/negative.
+- **تست:** `test:wh-ops-p2` (۷۷) داخل `npm test`.
+- **فایل‌ها:** `db.js`، `lib/{coa-map,warehouse-docs,rbac,accounting-access,void-warehouse-move}.js`، `lib/inventory/{ledger,batch-serial}.js`، `middleware/auth.js`، `routes/{warehouses,stocktaking,settings}.js`، `public/{app.js,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
+- **Deploy:** ⏳ pending
+
 ### ۱۴۰۵/۰۸/۰۷ — v574: فاز ۱ ماژول انبار — تطبیق لایه‌های موجودی فقط‌خواندنی (SW v574)
 - **منبع:** `.tmp-warehouse-spec/02-phase1-reconciliation.md`؛ شاخهٔ `wh/phase-1-layer-reconcile`؛ بک‌اند [Backend](ccdb05a5-fefe-4f81-966e-3029b4f26b9b) + فرانت [Frontend](cc7bdf7f-8d73-4146-82d1-e8a24e33f7c9).
 - **API:** `GET /api/inventory/reconcile` (admin/accounting، `read_only`) — لایه‌ها + استثناها؛ هیچ UPDATE/INSERT روی موجودی.
