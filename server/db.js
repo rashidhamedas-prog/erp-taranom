@@ -4046,6 +4046,9 @@ function backfillAccounting(db) {
   } catch (e) {
     console.error('backfill accounting error:', e.message);
   }
+  try {
+    require('./lib/inventory/wh-data-correction').ensureWhDataCorrections(db);
+  } catch (e) { console.warn('wh_data_corrections:', e.message); }
 }
 
 // Helper used across routes to record audit entries

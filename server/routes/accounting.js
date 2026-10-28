@@ -3213,6 +3213,7 @@ router.delete('/customer-groups/:id', auth, adminOrAccounting, (req, res) => {
 
 module.exports = router;
 module.exports.postManualVoucher = postManualVoucher;
+module.exports.validateAndBuildVoucherLines = validateAndBuildVoucherLines;
 // Shared with the B2B portal (routes/b2b.js) so customers see the exact same
 // statement the accounting module produces.
 module.exports.buildStatement = buildStatement;

@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۷ — v579: اصلاح دادهٔ انبار — گزارش، بازسازی مقدار از کاردکس، پر کردن شناسه، پیش‌نویس سند (SW v579)
+- **منبع:** `warehouse-data-correction-cursor` (فازهای A تا D). حامد رشید اصلاح داده را تأیید کرده است. سند ثبت‌شده و ردیف کاردکس حذف نمی‌شوند.
+- **گزارش:** `server/scripts/inv-reconcile-report.js --readonly` همان `computeLayerReconcile` را می‌نویسد و `total_changes` را قبل/بعد چاپ می‌کند. دو شمارش اضافه: انتقال بدون واریانت، و فاکتورهایی که بهای تمام‌شدهٔ دفتر با خروج کاردکس نمی‌خواند.
+- **اصلاح:** `server/scripts/wh-data-correction.js` فاز B (خنثی‌سازی opening تکراری دقیق با `reverseInventoryMovement`، سپس ws/vws/pv/سرستون از کاردکس)، فاز C (انبار قطعی روی کاردکس برگشت فروش و واریانت قطعی روی انتقال، بعد بازسازی فقط همان کالاها)، فاز D (پیش‌نویس در `voucher_drafts` با کاربر فنی، بدون `postToLedger`). اجرای دوم صفر ردیف عوض می‌کند. ردّ هر تغییر در `wh_data_corrections`.
+- **همگام‌سازی:** push مقدار خام `warehouse_stock` را نمی‌فرستد؛ بازپخش API است. بازنویسی خاموشِ موجودی قدیمی از این مسیر ممکن نیست.
+- **راهنما:** بخش «اصلاح دادهٔ انبار» در راهنمای ادمین. پیش‌نویس‌ها در حسابداری ← اسناد ← پیش‌نویس‌ها؛ پست با کاربر دیگر.
+- **تست:** `test:wh-data-correction` (۳۷ assertion، داخل `npm test`).
+- **فایل‌ها:** `lib/inventory/wh-data-correction.js`، `scripts/{inv-reconcile-report,wh-data-correction,test-wh-data-correction}.js`، `db.js`، `routes/accounting.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
+- **Deploy:** ⏳
+
 ### ۱۴۰۵/۰۸/۰۷ — v578 (بک‌اند): فاز ۵ انبار — انبارگردانی با snapshot کاردکس، قفل حرکت، برگهٔ کور، سند «مغایرت انبارگردانی» (SW v578)
 - **منبع:** `.tmp-warehouse-spec/06-phase5-stocktake.md` + ممیزی O8؛ شاخهٔ `wh/phase-5-stocktake`؛ UI در ورودی «v578 (فرانت)» همین تاریخ.
 - **O8 — snapshot کاردکس:** `system_qty` هر ردیف = Σ ردیف‌های زندهٔ `inventory_ledger` (همان `LEDGER_LIVE_SQL` فاز ۱/۴ و همان closing فاز ۳) در **لحظهٔ شروع** برای کالا×انبار×واریانت؛ helper مشترک `kardexSnapshotByProduct` / `kardexSnapshotQty` در `lib/ledgers.js`. ستون‌های جدید `stocktaking_sessions.snapshot_at/snapshot_source` و `stocktaking_items.snapshot_qty/snapshot_source` (ensureColumn). **apply دیگر از موجودی زنده re-snap نمی‌کند**: مغایرت = شمارش − snapshot ثابت؛ حرکت پس از snapshot اثرش را حفظ می‌کند و فقط اختلاف ثبت می‌شود (`moved_since_snapshot` فقط اطلاع‌رسانی).
