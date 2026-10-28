@@ -226,22 +226,39 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const row = db.prepare('SELECT * FROM warehouses WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  const inUse = db.prepare('SELECT COUNT(*) c FROM products WHERE warehouse_id=?').get(req.params.id).c;
+  const whId = req.params.id;
+  const inUse = db.prepare('SELECT COUNT(*) c FROM products WHERE warehouse_id=?').get(whId).c;
   if (inUse > 0) return res.status(400).json({ error: 'این انبار دارای کالا است و قابل حذف نیست — می‌توانید آن را غیرفعال کنید' });
-  const wsQty = db.prepare('SELECT COALESCE(SUM(ABS(qty)),0) c FROM warehouse_stock WHERE warehouse_id=?').get(req.params.id).c;
+  const wsQty = db.prepare('SELECT COALESCE(SUM(ABS(qty)),0) c FROM warehouse_stock WHERE warehouse_id=?').get(whId).c;
   if (Number(wsQty) > 0) {
     return res.status(400).json({ error: 'این انبار موجودی دارد و قابل حذف نیست — ابتدا موجودی را صفر یا انبار را غیرفعال کنید' });
   }
   const moveCount = db.prepare(`
     SELECT COUNT(*) c FROM warehouse_moves
     WHERE (from_warehouse_id=? OR to_warehouse_id=?) AND COALESCE(status,'posted')<>'reversed'
-  `).get(req.params.id, req.params.id).c;
-  if (moveCount > 0) {
-    db.prepare('UPDATE warehouses SET active=0 WHERE id=?').run(req.params.id);
-    audit(req.user.id, 'update', 'warehouse', req.params.id, `غیرفعال‌سازی انبار ${row.name} (تاریخچه حرکت)`);
+  `).get(whId, whId).c;
+  let ledgerCount = 0;
+  try {
+    ledgerCount = db.prepare('SELECT COUNT(*) c FROM inventory_ledger WHERE warehouse_id=?').get(whId).c;
+  } catch (_) { ledgerCount = 0; }
+  let vwsCount = 0;
+  try {
+    vwsCount = db.prepare('SELECT COUNT(*) c FROM variant_warehouse_stock WHERE warehouse_id=? AND COALESCE(qty,0)<>0').get(whId).c;
+  } catch (_) { vwsCount = 0; }
+  let docCount = 0;
+  try {
+    docCount = db.prepare(`
+      SELECT COUNT(*) c FROM warehouse_docs
+      WHERE from_warehouse_id=? OR to_warehouse_id=?
+    `).get(whId, whId).c;
+  } catch (_) { docCount = 0; }
+  // Any ledger / nonzero vws / warehouse doc history → soft-deactivate only (never physical delete).
+  if (moveCount > 0 || ledgerCount > 0 || vwsCount > 0 || docCount > 0) {
+    db.prepare('UPDATE warehouses SET active=0 WHERE id=?').run(whId);
+    audit(req.user.id, 'update', 'warehouse', whId, `غیرفعال‌سازی انبار ${row.name} (سابقه کاردکس/اسناد)`);
     return res.json({ ok: true, deactivated: true });
   }
-  db.prepare('DELETE FROM warehouses WHERE id=?').run(req.params.id);
+  db.prepare('DELETE FROM warehouses WHERE id=?').run(whId);
   // Prevent boot-time seed from recreating default warehouses after intentional deletes
   const left = db.prepare('SELECT COUNT(*) c FROM warehouses').get().c;
   if (left === 0) {

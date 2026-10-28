@@ -2692,3 +2692,12 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
 .chq-import-errs{margin:8px 0;padding-inline-start:18px;font-size:12px;color:var(--red);line-height:1.7}
 .chq-pay-lead,.chq-out-lead{font-size:12px;line-height:1.8;margin-bottom:8px}
 .chq-pay-exp-grid{margin:0;padding:0;border:0}
+
+/* Phase 0 warehouse picker — defined SKU matrix */
+.wh-sku-matrix{max-height:420px;overflow:auto}
+.wh-sku-cell{text-align:center;vertical-align:middle;min-width:72px}
+.wh-sku-cell.is-disabled{opacity:.55;background:#f5f5f5}
+.wh-sku-cell.is-neg-warn{background:#fff8e1}
+.wh-sku-stock{font-size:11px;margin-bottom:4px}
+.wh-sku-na{font-size:11px}
+.wh-sku-qty{width:64px;text-align:center;padding:4px}

@@ -17664,9 +17664,21 @@ async function voidWarehouseMove(id){
   }catch(e){}
 }
 let whDocLines=[{product_id:'',qty:1}];
+let whDocType='receipt'; // receipt | issue | transfer — drives picker matrix rules
 let _whSearchTimer=null;
 function whLineWarehouseId(){
   return Number(el('wi-warehouse')?.value||el('wt-from')?.value||el('wr-warehouse')?.value||0)||0;
+}
+function whUserMayNegative(){
+  // Phase 0 interim: dedicated negative action not shipped → admin only (+ negative if present).
+  if(ME && ME.role==='admin') return true;
+  try{
+    return !!(USER_PERMS && USER_PERMS.acc_warehouse_ops && USER_PERMS.acc_warehouse_ops.negative);
+  }catch(_){ return false; }
+}
+function whWarehouseAllowsNegative(whId){
+  const w=(CACHE.warehouses||[]).find(x=>Number(x.id)===Number(whId));
+  return !!(w && Number(w.allow_negative));
 }
 function whProductPickerHtml(i,l){
   const label=l.product_label||'';
@@ -17703,44 +17715,23 @@ async function whSearchProduct(i,q){
     box.innerHTML=rows.map(p=>{
       const label=`${p.name||''} (${p.code||p.sku||'-'})`;
       const avail=p.available!=null?p.available:0;
-      return `<button type="button" class="btn sm ghost" data-csp-style="${CSP.style('display:block;width:100%;text-align:right')}" data-csp-click="${CSP.bind('click',function(){whPickProduct((i),(p.id),label,p.available)})}">${esc(p.name)} <span class="mono">${esc(p.code||p.sku||'')}</span> — موجود: ${fmt(avail)}</button>`;
+      return `<button type="button" class="btn sm ghost" data-csp-style="${CSP.style('display:block;width:100%;text-align:right')}" data-csp-click="${CSP.bind('click',function(){whPickProduct((i),(p.id),label,p.available,whDocType)})}">${esc(p.name)} <span class="mono">${esc(p.code||p.sku||'')}</span> — موجود: ${fmt(avail)}</button>`;
     }).join('');
   }catch(e){ box.hidden=true; }
 }
-async function whPickProduct(i,id,label,available){
+/** Warehouse docs: always defined matrix — never sales auto-pack (v573 / Phase 0). */
+async function whPickProduct(i,id,label,available,docType){
   if(!whDocLines[i]) return;
+  const dtype=docType||whDocType||'receipt';
   const wh=whLineWarehouseId();
   let pack=null;
-  try{ pack=await resolveServerAutoPack(id, wh, {}); }
+  try{ pack=await resolveServerModalPack(id, wh); }
   catch(_){ pack=null; }
-  if(pack && pack.has_matrix){
-    const live=livePackRowsForSale(pack, wh);
-    if(!live.length){
-      const whName=(CACHE.warehouses||[]).find(w=>Number(w.id)===Number(wh))?.name||'';
-      showToast(whName
-        ?('در «'+whName+'» هیچ رنگ/سایز موجودی برای این کالا نیست — انبار مبدأ را عوض کنید یا موجودی همان انبار را ببینید')
-        :'هیچ رنگ/سایز موجودی برای این کالا نیست','error');
-      return;
-    }
-    const newLines=live.map(function(v){
-      const cname=v.color_name||'';
-      const sname=v.size_name||'';
-      const bits=[label, variantAttrsLabel(cname, sname)].filter(Boolean);
-      return {
-        product_id:id,
-        product_label:bits.join(' — '),
-        available:v.stock!=null?Number(v.stock):(v.sku_stock!=null?Number(v.sku_stock):available),
-        qty:1,
-        variant_id:Number(v.variant_id!=null?v.variant_id:v.id)||null,
-        color_id:v.color_id||null,
-        size_id:v.size_id||null,
-        color_name:cname,
-        size_name:sname
-      };
+  if(pack && pack.has_matrix && pack.matrix && pack.matrix.length){
+    const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
+    openWhSkuMatrixModal({
+      lineIndex:i, productId:id, productLabel:label, warehouseId:wh, docType:dtype, pack,
     });
-    whDocLines.splice(i, 1, ...newLines);
-    renderWhDocLines();
-    showToast('پک زنده انبار مبدأ ('+fmt(live.length)+' قطعه) اضافه شد');
     return;
   }
   whDocLines[i].product_id=id;
@@ -17753,7 +17744,100 @@ async function whPickProduct(i,id,label,available){
   whDocLines[i].size_name='';
   const inp=el('wh-q-'+i); if(inp) inp.value=label;
   const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
-  const atp=el('wh-atp-'+i); if(atp) atp.textContent=available!=null?('موجود قابل‌فروش: '+fmt(available)):'';
+  const atp=el('wh-atp-'+i); if(atp) atp.textContent=available!=null?('موجود این انبار: '+fmt(available)):'';
+}
+function openWhSkuMatrixModal(opts){
+  const pack=opts.pack||{};
+  const cells=pack.matrix||[];
+  const dtype=opts.docType||'receipt';
+  const whId=opts.warehouseId;
+  const whNeg=whWarehouseAllowsNegative(whId);
+  const userNeg=whUserMayNegative();
+  const canNeg=whNeg && userNeg;
+  const colors=[];
+  const sizes=[];
+  const byKey={};
+  cells.forEach(function(v){
+    const cid=v.color_id!=null?String(v.color_id):('c:'+(v.color_name||''));
+    const sid=v.size_id!=null?String(v.size_id):('s:'+(v.size_name||''));
+    if(!colors.find(c=>c.key===cid)) colors.push({key:cid,id:v.color_id,name:v.color_name||'—'});
+    if(!sizes.find(s=>s.key===sid)) sizes.push({key:sid,id:v.size_id,name:v.size_name||'—'});
+    byKey[cid+'|'+sid]=v;
+  });
+  const head=sizes.map(s=>`<th>${esc(s.name)}</th>`).join('');
+  const body=colors.map(function(c){
+    const tds=sizes.map(function(s){
+      const v=byKey[c.key+'|'+s.key];
+      if(!v) return '<td class="muted">—</td>';
+      const stock=Number(v.sku_stock!=null?v.sku_stock:v.stock)||0;
+      const vid=Number(v.variant_id!=null?v.variant_id:v.id)||0;
+      const outBound=dtype==='issue'||dtype==='transfer';
+      const disabled=outBound && stock<=0 && !canNeg;
+      const warn=outBound && stock<=0 && canNeg;
+      const tip=disabled?'ناموجود':(warn?'موجودی منفی می‌شود':'');
+      return `<td class="wh-sku-cell${disabled?' is-disabled':''}${warn?' is-neg-warn':''}">
+        <div class="wh-sku-stock mono">${fmtQtyFa(stock)}</div>
+        ${disabled
+          ?'<div class="muted wh-sku-na">ناموجود</div>'
+          :`<input type="number" min="0" step="any" class="wh-sku-qty" data-vid="${vid}" data-stock="${stock}"
+              data-cname="${esc(v.color_name||'')}" data-sname="${esc(v.size_name||'')}"
+              data-cid="${v.color_id!=null?v.color_id:''}" data-sid="${v.size_id!=null?v.size_id:''}"
+              title="${esc(tip)}" value="">`}
+      </td>`;
+    }).join('');
+    return `<tr><th>${esc(c.name)}</th>${tds}</tr>`;
+  }).join('');
+  const productLabel=String(opts.productLabel||'');
+  const lineIndex=opts.lineIndex;
+  const productId=opts.productId;
+  const confirmBind=CSP.bind('click',function(){whConfirmSkuMatrix(lineIndex,productId,productLabel);});
+  openNestedModal(`
+    <div class="modal-head"><h3>رنگ × سایز — ${esc(productLabel)}</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted" data-csp-style="${CSP.style('font-size:12px;margin:0 0 8px')}">فقط خانه‌هایی که تعداد &gt; ۰ دارند به سند اضافه می‌شوند. ${dtype==='receipt'?'رسید: همهٔ خانه‌ها فعال‌اند.':'حواله/انتقال: خانه‌های بدون موجودی فقط با مجوز منفی فعال‌اند.'}</p>
+      <div class="tbl-wrap wh-sku-matrix"><table class="tbl" data-csp-style="${CSP.style('font-size:12px')}"><thead><tr><th>رنگ \\ سایز</th>${head}</tr></thead><tbody>${body}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn green" data-csp-click="${confirmBind}">افزودن به سند</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+    </div>`);
+}
+function whConfirmSkuMatrix(lineIndex, productId, productLabel){
+  const root=el('nestedModal')||el('modalRoot')||document;
+  const inputs=root.querySelectorAll('input.wh-sku-qty');
+  const newLines=[];
+  const canNeg=whWarehouseAllowsNegative(whLineWarehouseId())&&whUserMayNegative();
+  const outBound=whDocType==='issue'||whDocType==='transfer';
+  for(let n=0;n<inputs.length;n++){
+    const inp=inputs[n];
+    const q=Number(inp.value)||0;
+    if(!(q>0)) continue;
+    const stock=Number(inp.getAttribute('data-stock'))||0;
+    const cname=inp.getAttribute('data-cname')||'';
+    const sname=inp.getAttribute('data-sname')||'';
+    const bits=[productLabel, typeof variantAttrsLabel==='function'?variantAttrsLabel(cname,sname):(cname+' '+sname)].filter(Boolean);
+    if(outBound && q>stock && !canNeg){
+      showToast('تعداد بیشتر از موجودی برای «'+bits.join(' — ')+'» مجاز نیست','error');
+      return;
+    }
+    newLines.push({
+      product_id:productId,
+      product_label:bits.join(' — '),
+      available:stock,
+      qty:q,
+      variant_id:Number(inp.getAttribute('data-vid'))||null,
+      color_id:inp.getAttribute('data-cid')?Number(inp.getAttribute('data-cid')):null,
+      size_id:inp.getAttribute('data-sid')?Number(inp.getAttribute('data-sid')):null,
+      color_name:cname,
+      size_name:sname
+    });
+  }
+  if(!newLines.length){ showToast('هیچ تعدادی وارد نشده','error'); return; }
+  whDocLines.splice(lineIndex, 1, ...newLines);
+  closeNestedModal();
+  renderWhDocLines();
+  showToast(fmt(newLines.length)+' ردیف رنگ/سایز اضافه شد');
 }
 function whDocLinesPayload(){
   for(let i=0;i<whDocLines.length;i++){
@@ -17788,6 +17872,7 @@ function renderWhDocLines(){
   try{ bindNumFit(box||document); }catch(_){}
 }
 function warehouseReceiptModal(){
+  whDocType='receipt';
   whDocLines=[{product_id:'',qty:1}];
   if(!CACHE.suppliers) CACHE.suppliers=[];
   openModal(`
@@ -17827,6 +17912,7 @@ async function saveWarehouseReceipt(){
   }catch(e){}
 }
 function warehouseIssueModal(){
+  whDocType='issue';
   whDocLines=[{product_id:'',qty:1}];
   openModal(`
     <div class="modal-head"><h3>⬆️ حواله انبار (چند کالا)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -17852,6 +17938,7 @@ async function saveWarehouseIssue(){
   }catch(e){}
 }
 function warehouseTransferModal(){
+  whDocType='transfer';
   whDocLines=[{product_id:'',qty:1}];
   openModal(`
     <div class="modal-head"><h3>🔄 انتقال بین انبارها (چند کالا)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
@@ -38449,6 +38536,15 @@ function renderAdminGuide(){
         <li>بدون دسترسی، انتخابگر انبار هر ردیف غیرفعال است و روی انبار سربرگ می‌ماند (راهنمای «برای فروش از انبار دیگر دسترسی لازم است»).</li>
         <li>دکمهٔ <b>📦</b> کنار انبار ردیف، موجودی همهٔ انبارها را نشان می‌دهد؛ با دسترسی، کلیک روی یک انبار همان را برای ردیف انتخاب و موجودی/هشدار را دوباره حساب می‌کند.</li>
         <li>در پیکر کالا اگر موجودی انبار سربرگ صفر ولی انبار دیگر موجودی دارد، بج «در انبار دیگر: n» (جمع انبارهای دیگر) دیده می‌شود.</li>
+      </ul>`),
+    helpSec('📦','رسید و حواله انبار — انتخاب رنگ×سایز (v573)',`
+      <p>در عملیات انبار (رسید / حواله / انتقال)، انتخاب کالای ماتریسی دیگر از «پک فروش» استفاده نمی‌کند. همهٔ رنگ×سایزهای فعال با موجودی همان انبار در ماتریس دیده می‌شوند؛ فقط خانه‌هایی که تعداد وارد کرده‌اید به سند می‌روند.</p>
+      <ul>
+        <li><b>رسید:</b> حتی با موجودی صفر همهٔ خانه‌ها فعال‌اند (کالای نو قابل دریافت است).</li>
+        <li><b>حواله/انتقال:</b> خانهٔ بدون موجودی «ناموجود» است مگر انبار منفی‌مجاز باشد و کاربر مدیر (یا مجوز عملیات منفی) باشد.</li>
+        <li>سرور مرجع نهایی است: کمبود بدون مجوز با کد <span dir="ltr">NEGATIVE_NOT_ALLOWED</span> رد می‌شود. تنظیم منفی تولید روی حوالهٔ انبار اثر ندارد.</li>
+        <li>حذف انباری که سابقهٔ کاردکس یا سند دارد فقط آن را غیرفعال می‌کند.</li>
+        <li>طرف حساب افتتاحیه فقط با انتخاب صریح «موجودی اول دوره» است، نه از متن یادداشت.</li>
       </ul>`),
     helpSec('🏭','فروش چندانباری — COGS و موجودی منفی (v569→v572)',`
       <p>بهای تمام‌شده فاکتور قطعی به تفکیک <b>انبار هر ردیف</b> به حساب موجودی همان انبار بستانکار می‌شود (فقط انبارهای دائمی). اگر سربرگ ادواری باشد ولی ردیف از انبار دائمی بیاید، همان ردیف همچنان سند COGS و کاردکس دائمی می‌گیرد. حواله انبار برای فاکتور چندانباری، هر انبار را در بخش/صفحهٔ جدا چاپ می‌کند. فروش با کمبود موجودی بدون «اجازه منفی» انبار، فقط با دسترسی <b>موجودی منفی (تأیید)</b> مجاز است و در audit ثبت می‌شود. گزارش فقط‌خواندنی <span dir="ltr">report-cross-warehouse-sales.js --db</span> خروجی را در <span dir="ltr">~/backups/reports/xwh-p2-…</span> هم می‌نویسد.</p>`),
