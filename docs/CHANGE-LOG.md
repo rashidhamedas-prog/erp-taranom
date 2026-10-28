@@ -6,7 +6,7 @@
 - **تفویض:** `acc-inv-reconcile` → `/api/inventory` در `accounting-access.js`.
 - **تست:** `test:inv-layer-reconcile` (۴۳ assertion) داخل `npm test`.
 - **فایل‌ها:** `lib/inventory/layer-reconcile.js`، `routes/inventory.js`، `lib/warehouse-docs.js`، `lib/accounting-access.js`، `public/{app.js,app.css,acc-nav.js,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ merge 40155950 (PR #79) — بکاپ /home/taranom/backups/crm.db.20261028-100657 (۹٬۶۱۷٬۴۰۸ بایت)؛ overlay؛ pm2 restart بدون --update-env؛ health/ready=200؛ SW erp-taranom-v574؛ sharp 0.33.5؛ test:inv-layer-reconcile ۴۳/۰؛ test:wh-picker-p0 ۲۱/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۶ — v573: فاز ۰ ماژول انبار — انتخاب‌گر defined + منفی تفکیک‌شده (SW v573)
 - **منبع:** `warehouse-module-cursor` Phase 0؛ ممیزی موازی [فاز ۰](2d034fc3-d932-43b9-a3f4-0ac5bb73a108).
