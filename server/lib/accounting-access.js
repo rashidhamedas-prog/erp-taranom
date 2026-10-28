@@ -56,6 +56,7 @@ const ACC_ITEMS = {
   'acc-inv-landed': { apis: ['/api/inventory'] },
   'acc-consignments': { apis: ['/api/consignments', '/api/inventory'] },
   'acc-warehouse-report': { apis: ['/api/inventory', '/api/adv-reports/inventory-valuation', '/api/adv-reports/inventory-health'] },
+  'acc-inv-reconcile': { apis: ['/api/inventory'] },
   'acc-variant-stock-report': { apis: ['/api/inventory', '/api/product-variants'] },
   'acc-item-kardex': { apis: ['/api/inventory', '/api/ledgers'] },
   'acc-fabric-roll-kardex': { apis: ['/api/inventory'] },
