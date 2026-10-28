@@ -953,15 +953,18 @@ function computeDocumentAmountVsJe(ctx) {
       }, lines, inv.final);
     }
     if (setting(db, 'feature_cogs_voucher', '0') === '1' && tableExists(db, 'inventory_ledger')) {
+      const { COGS_JE_REF_TYPES, cogsPostedForInvoice } = require('./inventory/cogs-per-invoice');
       const mv = new Map();
       for (const r of liveLedgerRows(db, dateTo, "AND l.source_type='invoice'")) {
         const k = Number(r.source_id);
         mv.set(k, (mv.get(k) || 0) - signedLedgerAmount(r));
       }
       for (const inv of invs) {
-        if (!je.has('invoice_cogs', inv.id)) continue;
-        const lines = jeLinesFor(db, 'invoice_cogs', inv.id);
-        const cogs = lines.reduce((s, l) => s + Number(l.d || 0), 0);
+        const hasAny = COGS_JE_REF_TYPES.some((t) => je.has(t, inv.id));
+        if (!hasAny) continue;
+        const lines = [];
+        for (const t of COGS_JE_REF_TYPES) lines.push(...jeLinesFor(db, t, inv.id));
+        const cogs = cogsPostedForInvoice(db, inv.id);
         const movRaw = mv.get(Number(inv.id)) || 0;
         const movement = Math.round(movRaw);
         pushAmountRow(rows, { id: `invoice_cogs:${inv.id}`, doc_type: 'invoice_cogs', doc_id: inv.id, num: inv.num, date: inv.date, metric: 'cogs_vs_movements', doc_rial: movement, je_rial: Math.round(cogs) }, lines, movRaw);

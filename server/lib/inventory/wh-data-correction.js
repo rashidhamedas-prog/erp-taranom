@@ -764,16 +764,6 @@ function resolveMoveVariant(db, move) {
   return { ambiguous: true, detail: 'قاعدهٔ قطعی واریانت پیدا نشد' };
 }
 
-function cogsCodeSet(db) {
-  const { acct } = require('../coa-map');
-  const root = acct(db, 'coa_cogs');
-  const codes = new Set([root.code]);
-  if (tableExists(db, 'chart_of_accounts')) {
-    for (const r of db.prepare('SELECT code FROM chart_of_accounts WHERE parent_code=?').all(root.code)) codes.add(r.code);
-  }
-  return { root, codes };
-}
-
 function postableAccount(db, code) {
   const acc = db.prepare('SELECT code, name, is_active FROM chart_of_accounts WHERE code=?').get(code);
   if (!acc || acc.is_active === 0) return null;
@@ -786,40 +776,18 @@ function postableAccount(db, code) {
   return null;
 }
 
+/**
+ * فاکتورهایی که خروج کاردکس با جمع اسناد COGS (اصلی+fix+reversal) نمی‌خواند.
+ * منطق جمع سند از cogs-per-invoice.js.
+ */
 function invoiceCogsDiffs(db) {
   if (!tableExists(db, 'invoices') || !tableExists(db, 'journal_entries')) return [];
-  const { codes } = cogsCodeSet(db);
-  const jeCols = colSet(db, 'journal_entries');
-  const jlCols = colSet(db, 'journal_lines');
-  const acctCol = jlCols.has('account_code') ? 'account_code' : 'code';
-  const jeWhere = ["ref_type IN ('invoice','invoice_cogs','sales_invoice')"];
-  if (jeCols.has('deleted_at')) jeWhere.push('COALESCE(deleted_at,0)=0');
-  if (jeCols.has('status')) jeWhere.push("COALESCE(status,'approved') NOT IN ('reversed','void')");
-  const kardex = new Map();
-  for (const r of db.prepare(`
-    SELECT source_id, SUM(COALESCE(amount_rial,0)) amt
-    FROM inventory_ledger
-    WHERE ${LEDGER_LIVE_SQL}
-      AND source_type IN ('invoice','sale','sales_invoice')
-      AND COALESCE(qty_out,0)>0
-    GROUP BY source_id
-  `).all()) kardex.set(r.source_id, Math.round(n(r.amt)));
-
-  const cogs = new Map();
-  const lines = db.prepare(`
-    SELECT e.ref_id, l.${acctCol} AS code, l.debit, l.credit
-           ${jlCols.has('debit_rial') ? ', l.debit_rial' : ', NULL AS debit_rial'}
-           ${jlCols.has('credit_rial') ? ', l.credit_rial' : ', NULL AS credit_rial'}
-    FROM journal_entries e
-    JOIN journal_lines l ON l.entry_id=e.id
-    WHERE ${jeWhere.join(' AND ')}
-  `).all();
-  const { jlDebitRial, jlCreditRial } = require('../money');
-  for (const l of lines) {
-    if (!codes.has(String(l.code || ''))) continue;
-    const net = jlDebitRial(l) - jlCreditRial(l);
-    cogs.set(l.ref_id, (cogs.get(l.ref_id) || 0) + net);
-  }
+  const {
+    cogsPostedByInvoiceMap,
+    kardexSaleOutByInvoiceMap,
+  } = require('./cogs-per-invoice');
+  const kardex = kardexSaleOutByInvoiceMap(db);
+  const cogs = cogsPostedByInvoiceMap(db);
   const ids = new Set([...kardex.keys(), ...cogs.keys()]);
   const out = [];
   for (const id of ids) {
@@ -833,7 +801,7 @@ function invoiceCogsDiffs(db) {
     `).get(id);
     if (!inv) continue;
     const k = kardex.get(id) || 0;
-    const c = Math.round(cogs.get(id) || 0);
+    const c = cogs.get(id) || 0;
     const diff = k - c;
     if (diff === 0) continue;
     out.push({
