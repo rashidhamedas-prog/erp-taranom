@@ -200,8 +200,18 @@ router.get('/', auth, (req, res) => {
   }));
 });
 
+// v585 Phase 1 — read-only leaf-mapping report (admin/accounting); never writes.
+router.get('/coa-leaf-report', auth, adminOrAccounting, (req, res) => {
+  try {
+    res.json(require('../lib/coa-leaf-report').buildCoaLeafReport(getDB()));
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || String(e), code: e.code });
+  }
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method, inventory_system, inventory_coa_code } = req.body;
+  const cogs_coa_code = req.body.cogs_coa_code;
   if (!name) return res.status(400).json({ error: 'نام انبار الزامی است' });
   const db = getDB();
   const { resolveWarehouseCostCenter } = require('../lib/cost-center-repair');
@@ -215,15 +225,18 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
   }
   const invSys = String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual';
   const invCoa = String(inventory_coa_code || '').trim() || null;
-  if (invCoa) {
-    const coa = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1').get(invCoa);
-    if (!coa) return res.status(400).json({ error: 'کد حساب موجودی انبار در دفتر کل یافت نشد', code: 'E_WH_INV_COA' });
-  }
+  const cogsCoa = String(cogs_coa_code || '').trim() || null;
+  // v585 Phase 1: perpetual ⇒ leaf inventory + leaf COGS accounts required; periodic exempt.
+  const coaErr = require('../lib/coa-leaf-policy').validateWarehouseCoaInput(db, {
+    warehouse_type: warehouse_type || 'finished_goods', inventory_system: invSys,
+    inventory_coa_code: invCoa, cogs_coa_code: cogsCoa,
+  });
+  if (coaErr) return res.status(coaErr.status).json({ error: coaErr.error, code: coaErr.code });
   const result = db.transaction(() => {
     if (is_default) db.prepare('UPDATE warehouses SET is_default=0').run();
     return db.prepare(`
-      INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system,inventory_coa_code)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      INSERT INTO warehouses (name,address,code,entity,warehouse_type,cost_center_id,is_default,allow_negative,costing_method,inventory_system,inventory_coa_code,cogs_coa_code)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       name, address || '', whCode,
       ent,
@@ -233,7 +246,8 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       allow_negative ? 1 : 0,
       costing_method || null,
       invSys,
-      invCoa
+      invCoa,
+      cogsCoa
     );
   })();
   if (req.body.valuation_level !== undefined) {
@@ -264,16 +278,30 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   let nextInvCoa = row.inventory_coa_code || null;
   if (inventory_coa_code !== undefined) {
     nextInvCoa = String(inventory_coa_code || '').trim() || null;
-    if (nextInvCoa) {
-      const coa = db.prepare('SELECT code FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1').get(nextInvCoa);
-      if (!coa) return res.status(400).json({ error: 'کد حساب موجودی انبار در دفتر کل یافت نشد', code: 'E_WH_INV_COA' });
-    }
+  }
+  let nextCogsCoa = row.cogs_coa_code || null;
+  if (req.body.cogs_coa_code !== undefined) {
+    nextCogsCoa = String(req.body.cogs_coa_code || '').trim() || null;
+  }
+  // v585 Phase 1: validate the resulting mapping when the request touches it and the warehouse
+  // stays active (deactivating / toggling flags of a legacy unmapped warehouse stays possible).
+  const touchesCoa = ['inventory_coa_code', 'cogs_coa_code', 'inventory_system', 'warehouse_type']
+    .some((k) => req.body[k] !== undefined);
+  const nextActive = active != null ? (active ? 1 : 0) : row.active;
+  if (touchesCoa && Number(nextActive) === 1) {
+    const coaErr = require('../lib/coa-leaf-policy').validateWarehouseCoaInput(db, {
+      warehouse_type: warehouse_type || row.warehouse_type || 'finished_goods',
+      inventory_system: invSys,
+      inventory_coa_code: nextInvCoa,
+      cogs_coa_code: nextCogsCoa,
+    });
+    if (coaErr) return res.status(coaErr.status).json({ error: coaErr.error, code: coaErr.code });
   }
   db.transaction(() => {
     const def = is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0);
     if (def) db.prepare('UPDATE warehouses SET is_default=0 WHERE id<>?').run(req.params.id);
     db.prepare(`
-      UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?,inventory_coa_code=?
+      UPDATE warehouses SET name=?,address=?,active=?,entity=?,warehouse_type=?,cost_center_id=?,is_default=?,code=?,allow_negative=?,costing_method=?,inventory_system=?,inventory_coa_code=?,cogs_coa_code=?
       WHERE id=?
     `).run(
       name || row.name, address ?? row.address,
@@ -287,6 +315,7 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       costing_method !== undefined ? (costing_method || null) : (row.costing_method || null),
       invSys,
       nextInvCoa,
+      nextCogsCoa,
       req.params.id
     );
     if (req.body.valuation_level !== undefined) {

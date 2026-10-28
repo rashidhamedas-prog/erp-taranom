@@ -431,7 +431,6 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
 }
 
 function buildPerpetualCogsLines(db, cogsRial, movements, headerWhId) {
-  const { inventoryAmountLinesByWarehouse } = require('./inventory/ledger');
   const { warehouseUsesPerpetualValuation } = require('./sales-document');
   const items = [];
   if (Array.isArray(movements) && movements.length) {
@@ -453,12 +452,16 @@ function buildPerpetualCogsLines(db, cogsRial, movements, headerWhId) {
       }
     }
   }
-  const parts = inventoryAmountLinesByWarehouse(db, items);
+  // v585 Phase 1: same per-warehouse leaf mapping as the original sale (enforce → 422 + rollback).
+  const { cogsPartsByWarehouse } = require('./coa-leaf-policy');
+  const mapped = cogsPartsByWarehouse(db, items, { ref: { source: 'invoice_cogs_amend' } });
+  const parts = mapped.invParts;
   const total = parts.reduce((a, p) => a + Math.round(Number(p.amountRial) || 0), 0);
   if (total <= 0) return [];
-  const cogs = acct(db, 'coa_cogs');
   return [
-    { code: cogs.code, name: cogs.name, debit: rialToLedger(total), credit: 0 },
+    ...mapped.cogsParts.map((c) => ({
+      code: c.code, name: c.name, debit: rialToLedger(Math.round(Number(c.amountRial) || 0)), credit: 0,
+    })),
     ...parts.map((p) => ({
       code: p.code, name: p.name, debit: 0, credit: rialToLedger(Math.round(Number(p.amountRial) || 0)),
     })),

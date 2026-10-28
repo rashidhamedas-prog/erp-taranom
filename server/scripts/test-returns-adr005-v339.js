@@ -220,6 +220,7 @@ function receivableAccountCode(db, custId) {
 
     r = await j('POST', '/api/warehouses', {
       name: 'انبار مواد v339', code: 'WH-RM339', active: 1, warehouse_type: 'raw_material',
+      inventory_coa_code: '1110', cogs_coa_code: '5101', // v585: perpetual ⇒ leaf maps required
     }, token);
     ok(r.status === 200 && r.data.id, 'create raw_material warehouse', r.data?.error);
     const whId = r.data.id;

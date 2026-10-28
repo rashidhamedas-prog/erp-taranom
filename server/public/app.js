@@ -17773,24 +17773,33 @@ function productOptions(selectedId){
   return `<option value="">-- انتخاب کالا --</option>` + (CACHE.allProducts||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)} (${esc(p.code||'-')}) — موجودی: ${fmtQtyFa(p.stock||0)}</option>`).join('');
 }
 async function renderWarehousesTab(body){
-  const [warehouses,lookup]=await Promise.all([
+  const [warehouses,lookup,leafRep]=await Promise.all([
     api('GET','/warehouses')||[],
-    api('GET','/warehouses/lookup-options')||{}
+    api('GET','/warehouses/lookup-options')||{},
+    api('GET','/warehouses/coa-leaf-report',null,false,true).catch(()=>null)
   ]);
   CACHE.warehouses=warehouses;
   CACHE.warehouseLookup=lookup;
+  CACHE.coaLeafReport=leafRep||null;
   const entityMap=Object.fromEntries((lookup.entities||[]).map(o=>[o.value,o.label]));
   const typeMap=Object.fromEntries((lookup.types||[]).map(o=>[o.value,o.label]));
+  const leafMap=new Map(((leafRep&&leafRep.warehouses)||[]).map(x=>[x.warehouse_id,x]));
+  const leafBanner=(leafRep&&leafRep.summary&&leafRep.summary.needs_attention&&isAdmin())
+    ?`<div class="alert warn" data-csp-style="${CSP.style(`margin-bottom:12px;line-height:1.9`)}">⚠️ نگاشت حساب برگ ناقص است — ${fmtQtyFa(leafRep.summary.warehouses_perpetual_unmapped)} انبار دائمی بدون حساب برگ موجودی/بهای تمام‌شده، ${fmtQtyFa(leafRep.summary.nonleaf_accounts_with_lines)} حساب غیربرگ دارای سطر دفتر. حالت فعلی: <b>${esc(leafRep.flag.value==='enforce'?'اجباری (enforce)':'هشدار (warn)')}</b>.
+      <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){openCoaLeafReportModal()})}">📋 گزارش نگاشت</button></div>`:'';
   body.innerHTML=`
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseModal()})}">➕ انبار جدید</button></div>
+    ${leafBanner}
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(event){warehouseModal()})}">➕ انبار جدید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){openCoaLeafReportModal()})}">📋 گزارش نگاشت حساب برگ</button></div>
     <div class="tbl-wrap"><table class="tbl" data-bulk-delete="/warehouses" data-bulk-label="حذف" data-bulk-confirm="{n} انبار حذف شود؟"><thead><tr>
-      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>حساب موجودی</th><th>مرکز هزینه</th><th>روش ثبت</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
+      <th>کد</th><th>نام انبار</th><th>واحد</th><th>نوع</th><th>حساب موجودی</th><th>حساب بهای تمام‌شده</th><th>مرکز هزینه</th><th>روش ثبت</th><th>آدرس</th><th>پیش‌فرض</th><th>وضعیت</th><th class="no-sort">عملیات</th>
     </tr></thead><tbody>${warehouses.map(w=>`<tr data-id="${w.id}">
       <td class="mono">${esc(w.code||'-')}</td>
       <td>${esc(w.name)}</td>
       <td>${entityMap[w.entity]||w.entity||'-'}</td>
       <td>${typeMap[w.warehouse_type]||w.warehouse_type||'-'}</td>
-      <td class="mono" title="${esc(w.inventory_account_name||'')}">${esc(w.inventory_account_code||w.inventory_coa_code||'—')}</td>
+      <td class="mono" title="${esc(w.inventory_account_name||'')}">${esc(w.inventory_account_code||w.inventory_coa_code||'—')}${(leafMap.get(w.id)&&leafMap.get(w.id).perpetual&&!leafMap.get(w.id).mapped)?' <span class="tag t-cancel">بی‌نگاشت</span>':''}</td>
+      <td class="mono">${esc(w.cogs_coa_code||'—')}</td>
       <td>${esc(w.cost_center_code?w.cost_center_code+' — ':'')}${esc(w.cost_center_name||'—')}</td>
       <td>${w.inventory_system==='periodic'?'ادواری':'دائمی'}</td>
       ${tdClip(w.address||'-', 180, true)}
@@ -17803,7 +17812,48 @@ async function renderWarehousesTab(body){
         <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){warehouseModal((w.id))})}">✏️</button>
         <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteWarehouse((w.id))})}">🗑️</button>
       </td>
-    </tr>`).join('')||emptyRow(11)}</tbody></table></div>`;
+    </tr>`).join('')||emptyRow(12)}</tbody></table></div>`;
+}
+/* v585 Phase 1 — گزارش نگاشت حساب برگ (فقط‌خواندنی) + تعیین حالت warn/enforce (فقط ادمین) */
+async function openCoaLeafReportModal(){
+  let rep=null;
+  try{ rep=await api('GET','/warehouses/coa-leaf-report'); }catch(e){ return; }
+  if(!rep) return;
+  CACHE.coaLeafReport=rep;
+  const reasonFa={empty:'خالی',not_found:'یافت نشد',not_leaf:'غیربرگ',wrong_group:'ناسازگار با کاربرد'};
+  const whRows=(rep.warehouses||[]).map(w=>`<tr>
+    <td>${esc(w.name)}${w.fixed_asset_type?' <span class="tag t-cancel">دارایی ثابت</span>':''}</td>
+    <td>${w.perpetual?'دائمی':'ادواری'}</td>
+    <td class="mono">${esc(w.inventory_coa_code||'—')}</td><td>${w.inventory_ok?'<span class="tag t-done">OK</span>':esc(reasonFa[w.inventory_reason]||'')}</td>
+    <td class="mono">${esc(w.cogs_coa_code||'—')}</td><td>${w.cogs_ok?'<span class="tag t-done">OK</span>':esc(reasonFa[w.cogs_reason]||'')}</td>
+  </tr>`).join('')||'<tr><td colspan="6" class="empty">انباری نیست</td></tr>';
+  const setRows=(rep.settings_nonleaf||[]).map(s=>`<tr><td class="mono">${esc(s.key)}</td><td class="mono">${esc(s.code)}</td><td>${esc(s.name||'')}</td><td>${esc(reasonFa[s.reason]||'')}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">همه برگ‌اند</td></tr>';
+  const balRows=(rep.nonleaf_balances||[]).map(b=>`<tr><td class="mono">${esc(b.code)}</td><td>${esc(b.name||'')}</td><td class="num">${fmtQtyFa(b.line_count)}</td><td class="num">${fmt(b.balance_rial)}</td></tr>`).join('')||'<tr><td colspan="4" class="empty">سطری روی حساب غیربرگ نیست</td></tr>';
+  const flagCtl=isAdmin()?`<div class="fg"><label>حالت اجرای قانون حساب برگ ${hlp('warn: سند ثبت می‌شود و فقط هشدار/لاگ می‌ماند. enforce: فروش انبار بی‌نگاشت و سطر غیربرگ رد می‌شود (422). فقط بعد از تکمیل همهٔ نگاشت‌ها enforce کنید.')}</label>
+      <select id="leaf-flag"><option value="warn" ${rep.flag.value!=='enforce'?'selected':''}>warn — فقط هشدار</option><option value="enforce" ${rep.flag.value==='enforce'?'selected':''}>enforce — اجباری</option></select></div>`:`<div class="muted">حالت: ${esc(rep.flag.value)}</div>`;
+  openModal(`
+    <div class="modal-head"><h3>📋 گزارش نگاشت حساب برگ</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;line-height:1.8`)}">گزارش فقط‌خواندنی است؛ هیچ نگاشتی خودکار پر نمی‌شود. نگاشت هر انبار را از «✏️ ویرایش انبار» تکمیل کنید.</div>
+      ${flagCtl}
+      <h4>انبارها</h4>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>انبار</th><th>روش</th><th>موجودی</th><th>وضعیت</th><th>بهای تمام‌شده</th><th>وضعیت</th></tr></thead><tbody>${whRows}</tbody></table></div>
+      <h4>کلیدهای coa_* غیربرگ</h4>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کلید</th><th>کد</th><th>نام</th><th>علت</th></tr></thead><tbody>${setRows}</tbody></table></div>
+      <h4>مانده روی حساب‌های غیربرگ</h4>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>کد</th><th>نام</th><th>تعداد سطر</th><th>مانده (ریال)</th></tr></thead><tbody>${balRows}</tbody></table></div>
+    </div>
+    <div class="modal-foot">${isAdmin()?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){saveLeafFlag()})}">💾 ذخیرهٔ حالت</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
+}
+async function saveLeafFlag(){
+  const v=el('leaf-flag')?.value||'warn';
+  if(v==='enforce'&&!confirm('با enforce، فروش از انبار بی‌نگاشت و ثبت سند روی حساب غیربرگ رد می‌شود. ادامه می‌دهید؟')) return;
+  try{
+    await api('PUT','/settings',{ledger_leaf_enforcement:v});
+    CACHE.coaLeafReport=null;
+    closeModal(); showToast('حالت حساب برگ: '+v); loadAccTab('warehouses');
+  }catch(e){}
 }
 function warehousePeriodCloseModal(id,name){
   const ym=todayJalali().slice(0,7);
@@ -17911,9 +17961,12 @@ async function warehouseModal(id){
         <option value="perpetual" ${(w.inventory_system||'perpetual')!=='periodic'?'selected':''}>دائمی (Perpetual)</option>
         <option value="periodic" ${w.inventory_system==='periodic'?'selected':''}>ادواری (Periodic)</option>
       </select></div>
-      <div class="fg"><label>حساب موجودی (اختیاری) ${hlp('اگر خالی باشد از نوع انبار نگاشت می‌شود: مواد→۱۱۱۰، بسته‌بندی→۱۱۱۲، WIP→۱۱۱۱، امانی→۱۱۱۴، ضایعات→۱۱۱۳، محصول→۱۱۰۴. خرید/GR/COGS/هزینه حمل همین حساب را می‌زنند.')}</label>
-        <input id="wh-inv-coa" class="mono" dir="ltr" placeholder="مثلاً 1110" value="${esc(w.inventory_coa_code||'')}">
-        ${w.inventory_account_code?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اکنون: ${esc(w.inventory_account_code)} — ${esc(w.inventory_account_name||'')}</div>`:''}
+      <div class="fg"><label>حساب برگ موجودی * ${hlp('برای انبار دائمی الزامی است. باید حساب برگ (بدون زیرمجموعه) زیر گروه ۱۱ (موجودی کالا) باشد. هیچ حسابی خودکار انتخاب نمی‌شود. انبار ادواری معاف است.')}</label>
+        <input id="wh-inv-coa" class="mono" dir="ltr" placeholder="کد حساب برگ موجودی" value="${esc(w.inventory_coa_code||'')}">
+        ${w.inventory_account_code?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اکنون در دفتر: ${esc(w.inventory_account_code)} — ${esc(w.inventory_account_name||'')}</div>`:''}
+      </div>
+      <div class="fg"><label>حساب برگ بهای تمام‌شده * ${hlp('برای انبار دائمی الزامی است. باید حساب برگ زیر گروه ۵ (بهای تمام‌شده کالای فروش‌رفته) باشد. فروش از این انبار بدهکار این حساب و بستانکار حساب موجودی می‌شود.')}</label>
+        <input id="wh-cogs-coa" class="mono" dir="ltr" placeholder="کد حساب برگ بهای تمام‌شده" value="${esc(w.cogs_coa_code||'')}">
       </div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
         <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
@@ -17951,9 +18004,14 @@ async function saveWarehouse(id){
     costing_method:el('wh-costing')?.value||null,
     valuation_level:el('wh-val-level')?el('wh-val-level').value||'':undefined,
     inventory_system:el('wh-inv-sys')?.value||'perpetual',
-    inventory_coa_code:(el('wh-inv-coa')?.value||'').trim()||null
+    inventory_coa_code:(el('wh-inv-coa')?.value||'').trim()||null,
+    cogs_coa_code:(el('wh-cogs-coa')?.value||'').trim()||null
   };
   if(id) data.active=+el('wh-active').value;
+  if(data.inventory_system!=='periodic' && (!id || data.active!==0)){
+    if(!data.inventory_coa_code){ showToast('برای انبار دائمی، حساب برگ موجودی الزامی است','error'); return; }
+    if(!data.cogs_coa_code){ showToast('برای انبار دائمی، حساب برگ بهای تمام‌شده الزامی است','error'); return; }
+  }
   try{
     if(id) await api('PUT','/warehouses/'+id,data); else await api('POST','/warehouses',data);
     CACHE.warehouses=null; CACHE._prodWarehouses=null; CACHE._prodMetaLoaded=false; clearPageCache();
@@ -39609,6 +39667,15 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🔗','نگاشت اجباری حساب برگ انبار و بهای تمام‌شده (v585)',`
+      <p>هر انبار <b>دائمی (Perpetual)</b> باید دو حساب <b>برگ</b> (بدون زیرمجموعه) داشته باشد: <b>حساب موجودی</b> (زیر گروه ۱۱) و <b>حساب بهای تمام‌شده</b> (زیر گروه ۵). در «اطلاعات پایه ← انبارها ← ✏️» هر دو را وارد کنید؛ هیچ حسابی خودکار انتخاب یا پر نمی‌شود. انبار <b>ادواری</b> از این اجبار معاف است.</p>
+      <ul>
+        <li><b>فروش:</b> سند بهای تمام‌شده بدهکار حساب بهای تمام‌شدهٔ همان انبار و بستانکار حساب موجودی همان انبار است؛ در فاکتور چندانباره برای هر انبار یک سطر جدا ثبت می‌شود.</li>
+        <li><b>حالت اجرا (<span dir="ltr">ledger_leaf_enforcement</span>):</b> پیش‌فرض <b>warn</b> است: رفتار قبلی حفظ می‌شود، فقط لاگ <span dir="ltr">E_WAREHOUSE_COA_UNMAPPED</span> / <span dir="ltr">E_ACCOUNT_NOT_LEAF</span> و هشدار برای ادمین می‌آید. با <b>enforce</b> فروش از انبار بی‌نگاشت با خطای ۴۲۲ <span dir="ltr">E_WAREHOUSE_COA_UNMAPPED</span> رد و کل تراکنش برگردانده می‌شود، و هر سند با سطر روی حساب غیربرگ با <span dir="ltr">E_ACCOUNT_NOT_LEAF</span> رد می‌شود. ابتدا همهٔ نگاشت‌ها را کامل کنید، سپس در «📋 گزارش نگاشت حساب برگ» به enforce تغییر دهید.</li>
+        <li><b>گزارش:</b> دکمهٔ «📋 گزارش نگاشت حساب برگ» انبارهای بی‌نگاشت، کلیدهای <span dir="ltr">coa_*</span> غیربرگ و مانده روی حساب‌های غیربرگ (مثل ۱۱۰۴) را نشان می‌دهد. نسخهٔ سرور: <span dir="ltr">node server/scripts/report-coa-leaf-mapping.js --db=…</span> (فقط‌خواندنی).</li>
+        <li><b>انبار از نوع «دارایی ثابت»:</b> بدون نگاشت حساب موجودی به ۱۱۰۴ برنمی‌گردد؛ یا حساب برگ معتبر دارد یا خطای <span dir="ltr">E_WAREHOUSE_TYPE_UNSUPPORTED</span> می‌دهد.</li>
+        <li>این تغییر هیچ سندی نمی‌سازد و مانده‌های قبلی (مثل ۱۱۰۴) را جابه‌جا نمی‌کند؛ بازسازی حساب‌ها تصمیم جداگانهٔ مدیر و حسابرس است.</li>
+      </ul>`),
     helpSec('🧾','اصلاح دادهٔ انبار و تطبیق بهای تمام‌شده (v584)',`
       <p>اگر موجودی انبار، رنگ/سایز یا سرستون کالا با <b>کاردکس</b> یکی نباشد، عدد قابل‌اتکا جمع ردیف‌های زندهٔ کاردکس است. اصلاح مقدار فقط همین لایه‌های خلاصه را با کاردکس هم‌خوان می‌کند. ردیف کاردکس حذف نمی‌شود؛ موجودی اول دورهٔ تکراریِ دقیقاً یکسان با برگشت سند خنثی می‌شود، نه با پاک کردن.</p>
       <ul>

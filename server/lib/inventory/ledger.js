@@ -113,7 +113,7 @@ function warehouseQty(db, productId, warehouseId) {
  * Priority: warehouses.inventory_coa_code (valid COA) → warehouse_type map → coa_inventory.
  * ADR-001: valuation stays at product header; this only picks the GL control account.
  */
-function inventoryAccountForWarehouse(db, warehouseId) {
+function inventoryAccountForWarehouse(db, warehouseId, opts = {}) {
   if (!warehouseId) return acct(db, 'coa_inventory');
   let wh;
   try {
@@ -129,6 +129,17 @@ function inventoryAccountForWarehouse(db, warehouseId) {
     if (row) return { code: row.code, name: row.name };
   }
   const t = wh?.warehouse_type || '';
+  // v585: non-standard type «دارایی_ثابت» (warehouse 36) must carry an explicit inventory map.
+  // Never silently fall through to finished_goods/1104; readOnly callers (reports) get the
+  // legacy account flagged `unmapped_fixed_asset` instead of an exception.
+  if (require('../coa-leaf-policy').isFixedAssetWarehouseType(t)) {
+    if (opts && opts.readOnly) return { ...acct(db, 'coa_finished_goods'), unmapped_fixed_asset: true };
+    throw require('../coa-leaf-policy').leafErr(
+      'E_WAREHOUSE_TYPE_UNSUPPORTED', 422,
+      'انبار از نوع «دارایی ثابت» است و حساب موجودی ندارد — ابتدا در اطلاعات پایه ← انبارها حساب برگ موجودی را تعیین کنید (E_WAREHOUSE_TYPE_UNSUPPORTED)',
+      { warehouse_id: Number(warehouseId) },
+    );
+  }
   if (t === 'raw_material') return acct(db, 'coa_raw_materials');
   if (t === 'packaging') return acct(db, 'coa_packaging_materials');
   if (t === 'wip') return acct(db, 'coa_wip');

@@ -334,7 +334,8 @@ function liveLedgerRows(db, dateTo, extraWhere = '', extraParams = []) {
 }
 
 function inventoryAccountFor(db, warehouseId) {
-  return require('./inventory/ledger').inventoryAccountForWarehouse(db, warehouseId || null);
+  // read-only reconciliation: an unmapped «دارایی_ثابت» warehouse is flagged, never thrown (v585)
+  return require('./inventory/ledger').inventoryAccountForWarehouse(db, warehouseId || null, { readOnly: true });
 }
 
 function warehouseMeta(db) {

@@ -47,6 +47,8 @@ const ALLOWED_KEYS = [
   'sales.full_pack_mode',
   // Phase 3C — سقف تأیید دوم برای وصول/واخواست/ابطال چک (ریال؛ 0=غیرفعال)
   'cheque_approve_threshold_rial',
+  // v585 Phase 1 — leaf-account enforcement: warn (default) | enforce
+  'ledger_leaf_enforcement',
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which
@@ -170,6 +172,13 @@ router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
     if (String(body[key] || '').trim().toLowerCase() !== 'rial') {
       return res.status(400).json({ error: 'واحد پول فقط ریال است و مبلغ سندها عوض نمی‌شود' });
     }
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'ledger_leaf_enforcement')) {
+    const v = String(body.ledger_leaf_enforcement || '').trim().toLowerCase();
+    if (v !== 'warn' && v !== 'enforce') {
+      return res.status(400).json({ error: 'مقدار ledger_leaf_enforcement فقط warn یا enforce است', code: 'E_LEAF_FLAG' });
+    }
+    body.ledger_leaf_enforcement = v;
   }
   const dbForPolicy = getDB();
   const policyCheck = validateStaffPolicyBody(body, dbForPolicy);
