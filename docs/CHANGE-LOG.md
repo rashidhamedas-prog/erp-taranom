@@ -4,7 +4,7 @@
 - **سرور:** `NEGATIVE_NOT_ALLOWED`؛ `allowNegative(..., {context:'warehouse'})` بدون اثر `production_allow_negative_stock`؛ پیش‌فرض `postStockMovement` fail-closed؛ افتتاحیه فقط با `receipt_class`؛ حذف انبار با سابقهٔ ledger/vws/اسناد → فقط `active=0`؛ `holdColorRetire` هنگام create سند انبار تا رسید یک SKU رنگ‌های صفر خواهر را خاموش نکند.
 - **تست:** `test:wh-picker-p0` داخل `npm test` (۲۱ assertion).
 - **فایل‌ها:** `lib/inventory/{ledger,movement}.js`، `lib/warehouse-docs.js`، `routes/warehouses.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ merge `b56908d8` (PR #77) — بکاپ `/home/taranom/backups/crm.db.20261028-095615` (۹٬۶۱۷٬۴۰۸ بایت)؛ overlay چون درخت سرور کثیف بود؛ `pm2 restart` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v573`؛ sharp 0.33.5؛ test:wh-picker-p0 ۲۱/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۶ — v572: فروش چندانباری — COGS با هدر ادواری + گزارش فایل + تست p2 در npm test (SW v572)
 - **منبع:** شکاف‌های [ممیزی فاز ۰](f5669813-7700-45a2-b973-bfab9d575751)، [فاز ۱](14bc849c-c30d-416b-b27d-7b8a890e4731)، [فاز ۲](cf176c18-381e-435a-8da0-afa3ec1aa240) نسبت به `invoice-cross-warehouse-cursor` (فازهای ۰–۲ قبلاً با v565/v567/v569 روی main بودند).
