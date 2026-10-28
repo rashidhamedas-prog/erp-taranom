@@ -79,7 +79,9 @@ const LEGACY = {
   coa_severance_payable:      { code: '2110', name: 'ذخیره مزایای پایان خدمت' },
   coa_eidi_payable:           { code: '2111', name: 'ذخیره عیدی کارکنان' },
   coa_asset_disposal_gain:    { code: '4201', name: 'سود واگذاری دارایی' },
-  coa_asset_disposal_loss:    { code: '6105', name: 'زیان واگذاری دارایی' },
+  // پیش‌فرض 6105 همان استهلاک است (عمداً عوض نمی‌شود — DBهای موجود وابسته‌اند).
+  // suggested فقط راهنمای UI/metadata است؛ migration داده ممنوع.
+  coa_asset_disposal_loss:    { code: '6105', name: 'زیان واگذاری دارایی', suggested: '6119' },
   // POS-01/02 — card in-transit + dedicated fee (1118/6114 unused in existing chart)
   coa_card_in_transit:        { code: '1118', name: 'وجوه در راه کارتخوان' },
   coa_card_fee:               { code: '6114', name: 'کارمزد کارتخوان' },
@@ -147,13 +149,15 @@ function usesExtendedCoa(db) {
 // Resolve a logical account key → { code, name }.
 // In Mahak mode the settings row holds the mapped code and the name comes
 // from chart_of_accounts; otherwise the legacy pair is returned untouched.
+// Non-control keys that resolve to a non-leaf warn into coa-leaf-policy
+// (no resolvePostableLeaf auto-fallback).
 function acct(db, key) {
   const legacy = LEGACY[key];
   if (!legacy) throw new Error('coa-map: unknown key ' + key);
   const now = Date.now();
   if (!_cache || now - _cacheAt > 15000) { _cache = {}; _cacheAt = now; }
   if (_cache[key]) return _cache[key];
-  let out = legacy;
+  let out = { code: legacy.code, name: legacy.name };
   try {
     const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
     if (row && row.value) {
@@ -162,6 +166,15 @@ function acct(db, key) {
     }
   } catch { /* settings not ready during boot */ }
   _cache[key] = out;
+  try {
+    if (!isControlCoaKey(key) && out && out.code && !isPostableCode(db, out.code)) {
+      require('./coa-leaf-policy').logLeafIssue('E_COA_KEY_NOT_LEAF', {
+        key,
+        account_code: String(out.code),
+        mode: 'warn',
+      });
+    }
+  } catch { /* boot / circular-safe */ }
   return out;
 }
 
@@ -177,6 +190,202 @@ const KIND_TYPE = {
   bank: 'بانک ها', cashbox: 'صندوق ها', person: 'اشخاص',
   production_order: 'سفارش تولید', cost_center_oh: 'مراکز هزینه', cost_center_lb: 'مراکز هزینه',
 };
+
+/** Control keys may map to non-leaf معین (tafsili children hang under them). */
+const CONTROL_COA_KEYS = new Set([
+  ...Object.values(KIND_KEY),
+  'coa_issue_return_to_supplier',
+]);
+
+function isControlCoaKey(key) {
+  return CONTROL_COA_KEYS.has(String(key || ''));
+}
+
+const COA_UI_GROUPS = ['درآمد', 'هزینه', 'موجودی', 'حواله‌ها', 'کنترلی'];
+
+/** UI group for settings «نگاشت کدینگ» (۵ گروه ثابت). */
+function coaKeyUiGroup(key) {
+  const k = String(key || '');
+  if (k.startsWith('coa_issue_')) return 'حواله‌ها';
+  if (isControlCoaKey(k)) return 'کنترلی';
+  // هزینه قبل از الگوی coa_sales* تا coa_sales_expense در درآمد نیفتد
+  if (/_expense$|_loss$/.test(k) || k === 'coa_cogs' || k === 'coa_abnormal_waste' || k === 'coa_rework_cost'
+      || k === 'coa_subcontract_fee' || k.startsWith('coa_var_') || k === 'coa_stocktake_loss'
+      || k === 'coa_inventory_writedown_exp' || k === 'coa_doubtful_expense') {
+    return 'هزینه';
+  }
+  if (/_gain$/.test(k) || /^coa_sales/.test(k) || k === 'coa_other_income' || k === 'coa_bank_interest'
+      || k === 'coa_stocktake_gain' || k === 'coa_inventory_gain' || k === 'coa_fx_gain'
+      || k === 'coa_asset_disposal_gain') {
+    return 'درآمد';
+  }
+  if (/inventory|finished_goods|raw_materials|wip|packaging_materials|scrap_inventory|subcontract_inventory|purchases_temp|inventory_writedown|inventory_in_transit/.test(k)) {
+    return 'موجودی';
+  }
+  return 'کنترلی';
+}
+
+/**
+ * Prefix/type compatibility for a logical coa_* key.
+ * Returns null when no hard rule applies (existence/leaf only).
+ */
+function coaKeyCompatRule(key) {
+  const k = String(key || '');
+  if (k === 'coa_issue_consignment') {
+    return { prefixes: ['1114'], types: ['asset'], label: '1114*' };
+  }
+  if (['coa_issue_internal_consume', 'coa_issue_sample_gift', 'coa_issue_scrap', 'coa_issue_other'].includes(k)
+      || /_expense$|_loss$/.test(k) || k === 'coa_inventory_writedown_exp' || k === 'coa_doubtful_expense') {
+    return { prefixes: ['6'], types: ['expense'], label: '6xxx' };
+  }
+  if (k === 'coa_cogs' || k === 'coa_purchases_temp') {
+    return { prefixes: ['5'], types: ['cogs', 'expense'], label: '5xxx' };
+  }
+  if (['coa_inventory', 'coa_finished_goods', 'coa_raw_materials', 'coa_wip', 'coa_packaging_materials',
+    'coa_scrap_inventory', 'coa_subcontract_inventory', 'coa_inventory_in_transit', 'coa_inventory_writedown',
+  ].includes(k)) {
+    return { prefixes: ['11'], types: ['asset'], label: '11xx' };
+  }
+  if (/_payable$/.test(k) || k === 'coa_grni' || k === 'coa_doubtful_debts' || k === 'coa_issue_return_to_supplier') {
+    return { prefixes: ['2'], types: ['liability'], label: '2xxx' };
+  }
+  if (/_gain$/.test(k) || /^coa_sales/.test(k) || k === 'coa_other_income' || k === 'coa_bank_interest') {
+    return { prefixes: ['4'], types: ['revenue'], label: '4xxx' };
+  }
+  if (k === 'coa_cash_default' || k === 'coa_bank_default' || k === 'coa_cheques_receivable'
+      || k === 'coa_cheques_in_collection' || k === 'coa_card_in_transit' || k === 'coa_vat_receivable'
+      || k === 'coa_rep_advance' || k === 'coa_employee_advance' || k === 'coa_bounced_cheques'
+      || k === 'coa_notes_dishonored' || k === 'coa_receivable' || k === 'coa_misc_persons') {
+    return { prefixes: ['11'], types: ['asset'], label: '11xx' };
+  }
+  if (k === 'coa_fixed_assets' || k === 'coa_accumulated_depreciation') {
+    return { prefixes: ['12'], types: ['asset'], label: '12xx' };
+  }
+  if (k === 'coa_cheques_payable') {
+    return { prefixes: ['2'], types: ['liability'], label: '2xxx' };
+  }
+  if (k.startsWith('coa_memo_')) {
+    return { prefixes: ['9'], types: ['equity', 'asset', 'liability'], label: '9xxx' };
+  }
+  if (k === 'coa_opening_balance' || k === 'coa_retained_earnings' || k === 'coa_fiscal_opening'
+      || k === 'coa_legal_reserve' || k === 'coa_revaluation_surplus') {
+    return { prefixes: ['3'], types: ['equity'], label: '3xxx' };
+  }
+  if (k === 'coa_labor_control' || k === 'coa_overhead_control' || k === 'coa_overhead_applied'
+      || k.startsWith('coa_var_') || k === 'coa_abnormal_waste' || k === 'coa_rework_cost'
+      || k === 'coa_subcontract_fee') {
+    return { prefixes: ['5'], types: ['cogs', 'expense'], label: '5xxx' };
+  }
+  if (k === 'coa_adjustment') {
+    return { prefixes: ['9'], types: ['equity', 'expense', 'asset'], label: '9xxx' };
+  }
+  return null;
+}
+
+function standardCoaMode(db) {
+  try {
+    const r = db.prepare("SELECT value FROM settings WHERE key='coa_mode'").get();
+    const m = r ? String(r.value || '') : '';
+    return !(m === 'extended' || m === 'mahak');
+  } catch (_) {
+    return true;
+  }
+}
+
+function coaKeyMatchesRule(db, code, row, rule) {
+  const c = String(code || '');
+  if (standardCoaMode(db)) {
+    return (rule.prefixes || []).some((p) => c.startsWith(p));
+  }
+  const t = String((row && row.type) || '').toLowerCase();
+  return (rule.types || []).some((x) => x === t);
+}
+
+/**
+ * Validate a settings assignment for a LEGACY coa_* key.
+ * Empty code = clear override (use LEGACY default) → ok.
+ */
+function validateCoaKeyAssignment(db, key, code) {
+  const k = String(key || '');
+  const legacy = LEGACY[k];
+  if (!legacy) {
+    return {
+      ok: false,
+      status: 400,
+      code: 'E_COA_UNKNOWN_KEY',
+      error: `کلید کدینگ ناشناخته: ${k}`,
+    };
+  }
+  const c = String(code == null ? '' : code).trim();
+  if (!c) return { ok: true };
+
+  const row = db.prepare('SELECT code, type, is_active FROM chart_of_accounts WHERE code=?').get(c);
+  if (!row || row.is_active === 0) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'E_COA_NOT_FOUND',
+      error: `حساب «${c}» برای کلید «${legacy.name}» (${k}) یافت نشد یا غیرفعال است`,
+    };
+  }
+
+  // Type/group before leaf so e.g. coa_cogs=1104 → TYPE_MISMATCH (spec), not NOT_LEAF.
+  const rule = coaKeyCompatRule(k);
+  if (rule && !coaKeyMatchesRule(db, c, row, rule)) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'E_COA_TYPE_MISMATCH',
+      error: `حساب «${c}» برای کلید «${legacy.name}» (${k}) با گروه مجاز (${rule.label}) سازگار نیست`,
+    };
+  }
+
+  if (!isControlCoaKey(k) && !isPostableCode(db, c)) {
+    return {
+      ok: false,
+      status: 422,
+      code: 'E_COA_NOT_LEAF',
+      error: `حساب «${c}» برای کلید «${legacy.name}» (${k}) باید برگ (بدون زیرمجموعه) باشد`,
+    };
+  }
+  return { ok: true };
+}
+
+/** Descriptor list for GET /settings/coa-keys (SSOT from LEGACY). */
+function listCoaKeyDescriptors() {
+  return Object.entries(LEGACY).map(([key, meta]) => ({
+    key,
+    name: meta.name,
+    group: coaKeyUiGroup(key),
+    is_control: isControlCoaKey(key),
+    default_code: meta.code,
+    suggested: meta.suggested || null,
+  }));
+}
+
+/** Codes currently targeted by any LEGACY key (settings override or default). */
+function mappedCoaTargetCodes(db) {
+  const set = new Set();
+  for (const [key, meta] of Object.entries(LEGACY)) {
+    let code = String(meta.code || '');
+    try {
+      const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+      if (row && row.value) code = String(row.value).trim() || code;
+    } catch { /* boot */ }
+    if (code) set.add(code);
+  }
+  return set;
+}
+
+/**
+ * True when inserting `code` under `parent` would create a child beneath an
+ * account that a coa_* key maps to — forbidden for ensureMissingBaseCoa/rebuildBaseCoa.
+ */
+function wouldCreateChildUnderMappedCoa(db, parentCode) {
+  const p = String(parentCode || '').trim();
+  if (!p) return false;
+  return mappedCoaTargetCodes(db).has(p);
+}
 
 /** Ensure parent کل/معین exists for mapped control account; then allocate تفصیلی. */
 function ensureControlParents(db, kind) {
@@ -366,7 +575,10 @@ function rebuildBaseCoa(db) {
   const ins = hasLevel
     ? db.prepare('INSERT OR REPLACE INTO chart_of_accounts (code,name,type,parent_code,level) VALUES (?,?,?,?,?)')
     : db.prepare('INSERT OR REPLACE INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)');
+  // First pass: insert roots / non-forbidden rows. Skip any row whose parent is
+  // already a coa_* mapping target (never create children under mapped accounts).
   for (const [code, name, type, parent, level] of baseCoaTree()) {
+    if (wouldCreateChildUnderMappedCoa(db, parent)) continue;
     if (hasLevel) ins.run(code, name, type, parent, level);
     else ins.run(code, name, type, parent);
   }
@@ -383,6 +595,7 @@ function rebuildBaseCoa(db) {
  * Insert any base-tree control accounts that are missing (never overwrite
  * existing names/types). Live books posted to 6115 while the row was absent
  * from chart_of_accounts, which dropped the expense from the balance sheet.
+ * Never inserts a new child under an account that a coa_* key maps to.
  */
 function ensureMissingBaseCoa(db) {
   const cols = db.prepare('PRAGMA table_info(chart_of_accounts)').all().map((c) => c.name);
@@ -392,10 +605,11 @@ function ensureMissingBaseCoa(db) {
     : db.prepare('INSERT OR IGNORE INTO chart_of_accounts (code,name,type,parent_code) VALUES (?,?,?,?)');
   let inserted = 0;
   for (const [code, name, type, parent, level] of baseCoaTree()) {
+    if (wouldCreateChildUnderMappedCoa(db, parent)) continue;
     const before = db.prepare('SELECT 1 FROM chart_of_accounts WHERE code=?').get(code);
     if (hasLevel) ins.run(code, name, type, parent, level);
     else ins.run(code, name, type, parent);
-    if (!before) inserted += 1;
+    if (!before && db.prepare('SELECT 1 FROM chart_of_accounts WHERE code=?').get(code)) inserted += 1;
   }
   return inserted;
 }
@@ -598,4 +812,7 @@ module.exports = {
   isPostableCode, resolvePostableLeaf, ensureLogicalPostable,
   ensureSystemFeeAccountsPostable, coerceSystemPostableCode,
   ISSUE_TYPES, ISSUE_TYPE_COA_KEYS, issueCoaKey, issueCounterpartAccount,
+  KIND_KEY, CONTROL_COA_KEYS, COA_UI_GROUPS,
+  isControlCoaKey, coaKeyUiGroup, coaKeyCompatRule, validateCoaKeyAssignment,
+  listCoaKeyDescriptors, mappedCoaTargetCodes, wouldCreateChildUnderMappedCoa,
 };

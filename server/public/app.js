@@ -36759,6 +36759,7 @@ function usesExtendedCoa(){
   const m=CACHE.settings?.coa_mode||CACHE.moduleFlags?.coa_mode||'';
   return m==='extended';
 }
+/** Fallback labels if GET /settings/coa-keys fails; live SSOT is LEGACY via that endpoint. */
 const COA_MAP_LABELS = {
   coa_receivable: 'حساب دریافتنی (معین)',
   coa_payable: 'حساب پرداختنی (معین)',
@@ -36781,8 +36782,45 @@ const COA_MAP_LABELS = {
   coa_payroll_payable: 'حساب بدهی حقوق/بیمه',
   coa_vat_payable: 'مالیات بر ارزش افزوده پرداختنی',
   coa_vat_receivable: 'مالیات بر ارزش افزوده دریافتنی',
-  coa_depreciation_expense: 'هزینه استهلاک دارایی'
+  coa_depreciation_expense: 'هزینه استهلاک دارایی',
+  coa_admin_expense: 'هزینه‌های عمومی و اداری',
+  coa_rep_commission_expense: 'هزینه انگیزه فروش',
+  coa_finished_goods: 'موجودی کالای ساخته‌شده',
+  coa_inventory_loss: 'کسری و ضایعات انبار',
+  coa_asset_disposal_loss: 'زیان واگذاری دارایی',
+  coa_issue_internal_consume: 'حواله — مصرف داخلی',
+  coa_issue_sample_gift: 'حواله — نمونه/هدیه',
+  coa_issue_scrap: 'حواله — ضایعات',
+  coa_issue_consignment: 'حواله — امانی',
+  coa_issue_return_to_supplier: 'حواله — مرجوعی به تأمین‌کننده',
+  coa_issue_other: 'حواله — سایر',
 };
+const COA_UI_GROUP_ORDER = ['درآمد', 'هزینه', 'موجودی', 'حواله‌ها', 'کنترلی'];
+function coaMapFieldsHtml(s, coaKeyList){
+  const list = (coaKeyList && coaKeyList.length)
+    ? coaKeyList
+    : Object.keys(COA_MAP_LABELS).map(k=>({ key:k, name:COA_MAP_LABELS[k], group:'کنترلی', is_control:false, default_code:'', suggested:null }));
+  const byGroup = {};
+  for(const g of COA_UI_GROUP_ORDER) byGroup[g]=[];
+  for(const d of list){
+    const g = COA_UI_GROUP_ORDER.includes(d.group) ? d.group : 'کنترلی';
+    byGroup[g].push(d);
+  }
+  return COA_UI_GROUP_ORDER.map(g=>{
+    const rows = byGroup[g]||[];
+    if(!rows.length) return '';
+    return `<div class="fg full" data-csp-style="${CSP.style(`margin-top:10px;margin-bottom:4px`)}"><b data-csp-style="${CSP.style(`color:var(--purple)`)}">${esc(g)}</b></div>`
+      + rows.map(d=>{
+        const hint = d.is_control
+          ? 'حساب کنترلی (می‌تواند غیربرگ/معین باشد؛ تفصیلی زیر آن ساخته می‌شود)'
+          : 'باید حساب برگ (بدون زیرمجموعه) و هم‌گروه با کاربرد کلید باشد';
+        const sug = d.suggested ? ` — پیشنهادی: ${d.suggested}` : '';
+        const ph = d.default_code ? `پیش‌فرض ${d.default_code}` : 'پیش‌فرض سیستم';
+        return `<div class="fg fg-code"><label>${esc(d.name||COA_MAP_LABELS[d.key]||d.key)} ${hlp(hint+sug)}</label>
+          <input id="s-${esc(d.key)}" dir="ltr" class="mono coa-map-input" data-coa-key="${esc(d.key)}" value="${esc(s[d.key]||'')}" placeholder="${esc(ph)}"></div>`;
+      }).join('');
+  }).join('');
+}
 function coaCodeFieldHtml(type, id, coaCode){
   if(!usesExtendedCoa()) return '';
   return `<div class="fg full" data-csp-style="${CSP.style(`border-top:1px dashed var(--border);padding-top:8px;margin-top:4px`)}">
@@ -38369,6 +38407,11 @@ ROUTES.settings = async function(){
     s = CACHE.settings = s || {};
   }
   await ensureWarehouses().catch(()=>{});
+  let coaKeyCatalog = CACHE.coaKeys || null;
+  try{
+    const ck = await api('GET','/settings/coa-keys');
+    if(ck && Array.isArray(ck.keys)) coaKeyCatalog = CACHE.coaKeys = ck.keys;
+  }catch(_){ /* fallback labels below */ }
   const whOpts = (CACHE.warehouses||[]).filter(w=>w.active!==0)
     .map(w=>`<option value="${w.id}">${esc(w.name)}${w.code?' ('+esc(w.code)+')':''}</option>`).join('');
   const fyData = await api('GET','/fiscal-year').catch(()=>({current:null,years:[]}));
@@ -38595,12 +38638,12 @@ ROUTES.settings = async function(){
   const accountingPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('hash')} نگاشت کدینگ</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        نگاشت حساب‌های کنترلی برای اسناد خودکار. در نصب عادی نیازی به تغییر نیست.
+        همهٔ کلیدهای منطقی حساب (<span dir="ltr">coa_*</span>) از یک منبع واحد قابل‌تنظیم‌اند. حساب غیرکنترلی باید <b>برگ</b> باشد؛ کلیدهای کنترلی می‌توانند معین غیربرگ باشند.
+        ذخیره با کد ناموجود/غیرفعال، غیربرگ (غیرکنترلی)، یا گروه ناسازگار رد می‌شود.
         ${s.coa_mode==='extended'?`<br><b data-csp-style="${CSP.style(`color:var(--purple)`)}">حالت فعلی: کدینگ تفصیلی</b> — نگاشت از واردات داده تنظیم شده است.`:''}
       </div>
       <div class="form-grid">
-        ${Object.keys(COA_MAP_LABELS).map(k=>`<div class="fg fg-code"><label>${COA_MAP_LABELS[k]} ${hlp('کد معین یا تفصیلی در دفتر کل')}</label>
-          <input id="s-${k}" dir="ltr" class="mono" value="${esc(s[k]||'')}" placeholder="پیش‌فرض سیستم"></div>`).join('')}
+        ${coaMapFieldsHtml(s, coaKeyCatalog)}
       </div>
       <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-require_cc_on_expense', s.require_cc_on_expense==='1', 'الزام مرکز هزینه روی همهٔ هزینه‌ها', 'وقتی روشن باشد، فقط اگر مبلغ هزینهٔ دوره پر باشد (بدهکار حساب هزینه ۶xxx / type=expense در پرداخت هزینه، سند دستی، خرج چک، انگیزه، …) مرکز هزینه الزامی است. بهای تمام‌شدهٔ فروش (۵۱۰۱/COGS) و سطر با مبلغ صفر بلاک نمی‌شوند — در صورت وجود از مرکز انبار stamp می‌شوند. سربار تولید حتی با خاموش بودن همیشه مرکز می‌خواهد. اسناد قدیمی تغییر نمی‌کنند.')}</div>
@@ -39055,8 +39098,10 @@ async function saveSettings(){
   data.rep_sms_notify = el('s-rep_sms_notify')?.checked ? '1' : '0';
   if(el('s-feature_ai_assistant')) data.feature_ai_assistant = el('s-feature_ai_assistant').checked ? '1' : '0';
   if(el('s-feature_b2b_portal')) data.feature_b2b_portal = el('s-feature_b2b_portal').checked ? '1' : '0';
-  const coaKeys=['coa_receivable','coa_payable','coa_misc_persons','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense'];
-  coaKeys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value.trim(); });
+  document.querySelectorAll('input.coa-map-input[data-coa-key], input.mono[id^="s-coa_"]').forEach(inp=>{
+    const k = inp.getAttribute('data-coa-key') || String(inp.id||'').replace(/^s-/,'');
+    if(k && k.startsWith('coa_') && k !== 'coa_mode') data[k]=String(inp.value||'').trim();
+  });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
   if(el('s-require_cc_on_expense')) data.require_cc_on_expense = el('s-require_cc_on_expense').checked ? '1' : '0';
   if(el('s-returns_reverse_vat')) data.returns_reverse_vat = el('s-returns_reverse_vat').checked ? '1' : '0';
@@ -39667,6 +39712,13 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🗂️','نگاشت کدینگ قابل‌تنظیم (v586)',`
+      <p>در <b>تنظیمات ← نگاشت کدینگ</b> همهٔ کلیدهای منطقی حساب (<span dir="ltr">coa_*</span> — حدود ۹۳ کلید از جمله هزینه اداری، انگیزه، کالای ساخته‌شده، کسری انبار، زیان واگذاری و انواع حواله) از یک منبع واحد قابل ویرایش‌اند و در گروه‌های درآمد / هزینه / موجودی / حواله‌ها / کنترلی نشان داده می‌شوند.</p>
+      <ul>
+        <li>حساب غیرکنترلی باید در دفتر کل <b>فعال و برگ</b> (بدون زیرمجموعه) باشد و با گروه کلید سازگار باشد؛ وگرنه ذخیره با خطای فارسی <span dir="ltr">E_COA_NOT_FOUND / E_COA_NOT_LEAF / E_COA_TYPE_MISMATCH</span> رد می‌شود.</li>
+        <li>کلیدهای <b>کنترلی</b> (دریافتنی، پرداختنی، موجودی کالا، صندوق، بانک، اشخاص، WIP، سربار/دستمزد، و مرجوعی به تأمین‌کننده) می‌توانند معین غیربرگ باشند.</li>
+        <li>پیش‌فرض‌های سیستم عوض نمی‌شوند؛ برای زیان واگذاری دارایی فقط کد پیشنهادی <span dir="ltr">6119</span> در راهنما آمده است. انتخاب برگ نهایی با مدیر/حسابدار است.</li>
+      </ul>`),
     helpSec('🔗','نگاشت اجباری حساب برگ انبار و بهای تمام‌شده (v585)',`
       <p>هر انبار <b>دائمی (Perpetual)</b> باید دو حساب <b>برگ</b> (بدون زیرمجموعه) داشته باشد: <b>حساب موجودی</b> (زیر گروه ۱۱) و <b>حساب بهای تمام‌شده</b> (زیر گروه ۵). در «اطلاعات پایه ← انبارها ← ✏️» هر دو را وارد کنید؛ هیچ حسابی خودکار انتخاب یا پر نمی‌شود. انبار <b>ادواری</b> از این اجبار معاف است.</p>
       <ul>

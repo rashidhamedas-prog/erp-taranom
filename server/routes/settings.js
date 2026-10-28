@@ -2,7 +2,13 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { sendSMS } = require('../sms');
-const { clearCoaCache } = require('../lib/coa-map');
+const {
+  clearCoaCache,
+  LEGACY,
+  listCoaKeyDescriptors,
+  validateCoaKeyAssignment,
+  COA_UI_GROUPS,
+} = require('../lib/coa-map');
 const { assertSafeOutboundTarget } = require('../lib/safe-outbound-request');
 const {
   getPublicSettings,
@@ -11,9 +17,11 @@ const {
 } = require('../lib/secret-settings');
 const { validateStaffPolicyBody, normalizeTwofaRoles } = require('../lib/staff-security');
 
-const ALLOWED_KEYS = [
+/** Non-coa settings keys (coa_mode is a mode flag, not a LEGACY mapping key). */
+const NON_COA_ALLOWED_KEYS = [
   'currency_base','currency_display',
-  'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_bank_fee','coa_bank_interest','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense','coa_issue_internal_consume','coa_issue_sample_gift','coa_issue_scrap','coa_issue_consignment','coa_issue_return_to_supplier','coa_issue_other','feature_cogs_voucher','returns_reverse_vat','returns_allow_open','returns_auto_allocate_credit',
+  'coa_mode',
+  'feature_cogs_voucher','returns_reverse_vat','returns_allow_open','returns_auto_allocate_credit',
   'telegram_bot_token', 'telegram_chat_id',
   'sms_provider', 'sms_api_key', 'sms_from', 'sms_otp_template',
   'niksms_api_key', 'smsir_api_key', 'smsir_line',
@@ -49,6 +57,12 @@ const ALLOWED_KEYS = [
   'cheque_approve_threshold_rial',
   // v585 Phase 1 — leaf-account enforcement: warn (default) | enforce
   'ledger_leaf_enforcement',
+];
+
+/** SSOT: every LEGACY coa_* key is persistable (no hand-maintained coa allow-list). */
+const ALLOWED_KEYS = [
+  ...NON_COA_ALLOWED_KEYS,
+  ...Object.keys(LEGACY),
 ];
 
 // Module flags a non-admin (e.g. accounting role) also needs, to know which
@@ -145,6 +159,17 @@ router.get('/website-outbox', auth, adminOnly, centralOnly, (req, res) => {
   }
 });
 
+/** Readonly catalog of configurable coa_* keys (SSOT from LEGACY). */
+router.get('/coa-keys', auth, adminOnly, (req, res) => {
+  try {
+    const keys = listCoaKeyDescriptors();
+    res.json({ keys, groups: COA_UI_GROUPS, count: keys.length });
+  } catch (e) {
+    console.error('GET /api/settings/coa-keys failed:', e && e.message);
+    res.status(500).json({ error: 'خواندن فهرست کلیدهای کدینگ ناموفق بود', code: 'E_COA_KEYS' });
+  }
+});
+
 // GET all settings (admin only)
 router.get('/', auth, adminOnly, (req, res) => {
   try {
@@ -163,6 +188,15 @@ router.get('/', auth, adminOnly, (req, res) => {
     });
   }
 });
+
+function currentSettingValue(db, key) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
+    return row ? String(row.value == null ? '' : row.value) : '';
+  } catch (_) {
+    return '';
+  }
+}
 
 // PUT upsert key-value pairs (admin only)
 router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
@@ -194,7 +228,24 @@ router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
     try { await assertSafeOutboundTarget(String(value)); }
     catch (error) { return res.status(400).json({ error: error.message || 'آدرس ارتباط با وب‌سایت مجاز نیست' }); }
   }
+
+  // Validate changed LEGACY coa_* assignments (leaf + type; control keys may be non-leaf).
   const db = dbForPolicy;
+  for (const [key, value] of entries) {
+    if (!Object.prototype.hasOwnProperty.call(LEGACY, key)) continue;
+    const next = value == null ? '' : String(value).trim();
+    const prev = currentSettingValue(db, key).trim();
+    if (next === prev) continue;
+    const check = validateCoaKeyAssignment(db, key, next);
+    if (!check.ok) {
+      return res.status(check.status || 422).json({
+        error: check.error,
+        code: check.code,
+        key,
+      });
+    }
+  }
+
   updateSettings(db, entries, new Set(ALLOWED_KEYS));
   if (entries.some(([k]) => k.startsWith('coa_') || k === 'feature_cogs_voucher')) clearCoaCache();
   audit(req.user.id, 'update', 'settings', null, 'بروزرسانی تنظیمات');
@@ -225,3 +276,4 @@ router.post('/test-sms', auth, adminOnly, async (req, res) => {
 
 module.exports = router;
 module.exports.ALLOWED_KEYS = ALLOWED_KEYS;
+module.exports.NON_COA_ALLOWED_KEYS = NON_COA_ALLOWED_KEYS;
