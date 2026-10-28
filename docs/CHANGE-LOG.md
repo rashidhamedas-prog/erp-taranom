@@ -1,11 +1,9 @@
-### ۱۴۰۵/۰۸/۰۷ — v579: اصلاح دادهٔ انبار — گزارش، بازسازی مقدار از کاردکس، پر کردن شناسه، پیش‌نویس سند (SW v579)
-- **منبع:** `warehouse-data-correction-cursor` (فازهای A تا D). حامد رشید اصلاح داده را تأیید کرده است. سند ثبت‌شده و ردیف کاردکس حذف نمی‌شوند.
-- **گزارش:** `server/scripts/inv-reconcile-report.js --readonly` همان `computeLayerReconcile` را می‌نویسد و `total_changes` را قبل/بعد چاپ می‌کند. دو شمارش اضافه: انتقال بدون واریانت، و فاکتورهایی که بهای تمام‌شدهٔ دفتر با خروج کاردکس نمی‌خواند.
-- **اصلاح:** `server/scripts/wh-data-correction.js` فاز B (خنثی‌سازی opening تکراری دقیق با `reverseInventoryMovement`، سپس ws/vws/pv/سرستون از کاردکس)، فاز C (انبار قطعی روی کاردکس برگشت فروش و واریانت قطعی روی انتقال، بعد بازسازی فقط همان کالاها)، فاز D (پیش‌نویس در `voucher_drafts` با کاربر فنی، بدون `postToLedger`). اجرای دوم صفر ردیف عوض می‌کند. ردّ هر تغییر در `wh_data_corrections`.
-- **همگام‌سازی:** push مقدار خام `warehouse_stock` را نمی‌فرستد؛ بازپخش API است. بازنویسی خاموشِ موجودی قدیمی از این مسیر ممکن نیست.
-- **راهنما:** بخش «اصلاح دادهٔ انبار» در راهنمای ادمین. پیش‌نویس‌ها در حسابداری ← اسناد ← پیش‌نویس‌ها؛ پست با کاربر دیگر.
-- **تست:** `test:wh-data-correction` (۳۷ assertion، داخل `npm test`).
-- **فایل‌ها:** `lib/inventory/wh-data-correction.js`، `scripts/{inv-reconcile-report,wh-data-correction,test-wh-data-correction}.js`، `db.js`، `routes/accounting.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
+### ۱۴۰۵/۰۸/۰۷ — v581: اصلاح دادهٔ انبار — لایهٔ منفی وقتی انبار منفی را ممنوع کرده دست نمی‌خورد (SW v581)
+- **علت:** فاز B روی کپی تولید با تریگر `trg_ws_no_negative` قطع شد (`E_NEGATIVE_STOCK`). کاردکس منفی را نباید با شکستن تریگر روی انباری که `allow_negative` ندارد نوشت.
+- **رفتار:** اگر جمع کاردکس منفی است و انبار (یا تنظیم سراسری) موجودی منفی را اجازه نمی‌دهد، `warehouse_stock` و رنگ/سایز همان جفت عوض نمی‌شود، کالا مبهم می‌ماند، و در `ambiguous.csv` با قاعدهٔ `ws_negative_blocked` می‌آید. سند ثبت‌شده و ردیف کاردکس همچنان حذف نمی‌شوند.
+- **راهنما:** همان بخش «اصلاح دادهٔ انبار» یک بند برای این حالت دارد.
+- **تست:** `test:wh-data-correction` ۳۹/۰.
+- **فایل‌ها:** `lib/inventory/wh-data-correction.js`، `scripts/test-wh-data-correction.js`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
 - **Deploy:** ⏳
 
 ### ۱۴۰۵/۰۸/۰۷ — v580 (فرانت): فاز ۰ نمایش موجودی فاکتور/انبار — رفع «هیچ تعدادی وارد نشده» در ماتریس رنگ×سایز رسید/حواله/انتقال (SW v580)
@@ -15,6 +13,17 @@
 - **تست:** جدید `test:wh-sku-matrix-confirm` (۴۲ assertion، داخل `npm test`).
 - **Help:** `renderAdminGuide()` ← بند «ماتریس رنگ×سایز رسید/حواله/انتقال (v580)».
 - **فایل‌ها:** `public/{app.js,index.html,sw.js}`، `scripts/test-wh-sku-matrix-confirm.js`، `package.json`، CHANGE-LOG. بدون تغییر بک‌اند/داده. **Deploy:** ⏳
+
+### ۱۴۰۵/۰۸/۰۷ — v579: اصلاح دادهٔ انبار — گزارش، بازسازی مقدار از کاردکس، پر کردن شناسه، پیش‌نویس سند (SW v579)
+- **منبع:** `warehouse-data-correction-cursor` (فازهای A تا D). حامد رشید اصلاح داده را تأیید کرده است. سند ثبت‌شده و ردیف کاردکس حذف نمی‌شوند.
+- **گزارش:** `server/scripts/inv-reconcile-report.js --readonly` همان `computeLayerReconcile` را می‌نویسد و `total_changes` را قبل/بعد چاپ می‌کند. دو شمارش اضافه: انتقال بدون واریانت، و فاکتورهایی که بهای تمام‌شدهٔ دفتر با خروج کاردکس نمی‌خواند.
+- **اصلاح:** `server/scripts/wh-data-correction.js` فاز B (خنثی‌سازی opening تکراری دقیق با `reverseInventoryMovement`، سپس ws/vws/pv/سرستون از کاردکس)، فاز C (انبار قطعی روی کاردکس برگشت فروش و واریانت قطعی روی انتقال، بعد بازسازی فقط همان کالاها)، فاز D (پیش‌نویس در `voucher_drafts` با کاربر فنی، بدون `postToLedger`). اجرای دوم صفر ردیف عوض می‌کند. ردّ هر تغییر در `wh_data_corrections`.
+- **همگام‌سازی:** push مقدار خام `warehouse_stock` را نمی‌فرستد؛ بازپخش API است. بازنویسی خاموشِ موجودی قدیمی از این مسیر ممکن نیست.
+- **راهنما:** بخش «اصلاح دادهٔ انبار» در راهنمای ادمین. پیش‌نویس‌ها در حسابداری ← اسناد ← پیش‌نویس‌ها؛ پست با کاربر دیگر.
+- **تست:** `test:wh-data-correction` (۳۷ assertion، داخل `npm test`).
+- **فایل‌ها:** `lib/inventory/wh-data-correction.js`، `scripts/{inv-reconcile-report,wh-data-correction,test-wh-data-correction}.js`، `db.js`، `routes/accounting.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
+- **Deploy:** ✅ merge 3301e140 — بکاپ `/home/taranom/backups/crm.db.20261028-120501` — overlay — health 200 — SW erp-taranom-v579 — test:wh-data-correction ۳۷/۰ — sms ۲۲/۰. دادهٔ تولید در این نوبت عوض نشد.
+
 ### ۱۴۰۵/۰۸/۰۷ — v578 (بک‌اند): فاز ۵ انبار — انبارگردانی با snapshot کاردکس، قفل حرکت، برگهٔ کور، سند «مغایرت انبارگردانی» (SW v578)
 - **منبع:** `.tmp-warehouse-spec/06-phase5-stocktake.md` + ممیزی O8؛ شاخهٔ `wh/phase-5-stocktake`؛ UI در ورودی «v578 (فرانت)» همین تاریخ.
 - **O8 — snapshot کاردکس:** `system_qty` هر ردیف = Σ ردیف‌های زندهٔ `inventory_ledger` (همان `LEDGER_LIVE_SQL` فاز ۱/۴ و همان closing فاز ۳) در **لحظهٔ شروع** برای کالا×انبار×واریانت؛ helper مشترک `kardexSnapshotByProduct` / `kardexSnapshotQty` در `lib/ledgers.js`. ستون‌های جدید `stocktaking_sessions.snapshot_at/snapshot_source` و `stocktaking_items.snapshot_qty/snapshot_source` (ensureColumn). **apply دیگر از موجودی زنده re-snap نمی‌کند**: مغایرت = شمارش − snapshot ثابت؛ حرکت پس از snapshot اثرش را حفظ می‌کند و فقط اختلاف ثبت می‌شود (`moved_since_snapshot` فقط اطلاع‌رسانی).
