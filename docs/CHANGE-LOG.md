@@ -8,7 +8,7 @@
 - **RBAC:** `requireWarehouseReportView` در `middleware/auth.js` — `acc_warehouse_ops:view` **یا** `reports:view` (نه `invoices:view`)؛ picker فاکتور علاوه بر آن `invoices:create` را می‌پذیرد؛ مسیرهای انبار/adv-reports نمایندگان بخش‌های حسابداری را هم نگه می‌دارند.
 - **تست:** `test:wh-reports-p4` (۸۵ assertion، داخل `npm test`)؛ `test-invoice-line-wh-stock` و `test-warehouse-audit-v305` با قرارداد جدید هم‌راستا شدند.
 - **فایل‌ها:** `lib/inventory/{valuation,variant-report}.js`، `routes/{warehouses,inventory,adv-reports}.js`، `middleware/auth.js`، `scripts/test-warehouse-reports-v577.js`، `package.json`، CHANGE-LOG.
-- **Deploy:** ⏳ منتظر merge/deploy فاز ۴ (بک‌اند + فرانت).
+- **Deploy:** ✅ merge 77289f3c (PR #85) — بکاپ /home/taranom/backups/crm.db.20261028-110453؛ overlay؛ health/ready=200؛ SW erp-taranom-v577؛ test:wh-reports-p4 ۸۵/۰؛ kardex ۹۳/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۷ — v577 (فرانت): فاز ۴ انبار — گزارش موجودی/ارزش از کاردکس Σ + ستون‌ها و پرچم‌ها (SW v577)
 - **شاخه:** `wh/phase-4-reports-valuation`؛ بک‌اند (valuation/variant-report/routes) را agent بک‌اند نگه می‌دارد؛ این ورودی فقط UI است.
@@ -18,7 +18,7 @@
 - **نرمال‌ساز مشترک:** `whRepNormRow` در `app.js` — فیلدهای `kardex_qty / ledger_value_rial / weighted_avg_unit_rial / drift_* / flags.*` را می‌خواند و برای API قدیمی به `qty / amount_rial` برمی‌گردد.
 - **Help:** `renderAdminGuide()` ← بخش «گزارش موجودی و ارزش انبار — منبع کاردکس Σ و پرچم‌ها (v577 / فاز ۴ انبار)».
 - **SW/کش:** `sw.js` و `?v=577` برای `app.js` / `app.css` / `variant-stock-report.js` در `index.html`.
-- **Deploy:** ⏳ منتظر merge/deploy فاز ۴ (بک‌اند + فرانت).
+- **Deploy:** ✅ merge 77289f3c (PR #85) — بکاپ /home/taranom/backups/crm.db.20261028-110453؛ overlay؛ health/ready=200؛ SW erp-taranom-v577؛ test:wh-reports-p4 ۸۵/۰؛ kardex ۹۳/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۷ — v576: فاز ۳ انبار — کاردکس استاندارد (صفحه‌بندی، واریانت، ابطال، چاپ) (SW v576)
 - **منبع:** `.tmp-warehouse-spec/04-phase3-kardex.md`؛ شاخهٔ `wh/phase-3-kardex`؛ بک‌اند [Backend](e4ec0e26-0c4d-47d7-b3e3-055bae57f7d5) + فرانت [Frontend](b890f9ad-417d-4161-ab10-3154d6c2b56e).
