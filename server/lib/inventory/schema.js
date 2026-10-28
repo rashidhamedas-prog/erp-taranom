@@ -313,8 +313,13 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'stocktaking_sessions', 'je_id', 'INTEGER');
     ensureColumn(db, 'stocktaking_sessions', 'total_gain_rial', 'INTEGER DEFAULT 0');
     ensureColumn(db, 'stocktaking_sessions', 'total_loss_rial', 'INTEGER DEFAULT 0');
+    // v578 Phase 5 — kardex snapshot frozen at session start (never re-snapped at apply).
+    ensureColumn(db, 'stocktaking_sessions', 'snapshot_at', 'TEXT');
+    ensureColumn(db, 'stocktaking_sessions', 'snapshot_source', 'TEXT');
   }
   if (tableExists(db, 'stocktaking_items')) {
+    ensureColumn(db, 'stocktaking_items', 'snapshot_qty', 'REAL');
+    ensureColumn(db, 'stocktaking_items', 'snapshot_source', 'TEXT');
     ensureColumn(db, 'stocktaking_items', 'unit_cost_rial', 'INTEGER DEFAULT 0');
     ensureColumn(db, 'stocktaking_items', 'amount_rial', 'INTEGER DEFAULT 0');
     ensureColumn(db, 'stocktaking_items', 'ledger_id', 'INTEGER');

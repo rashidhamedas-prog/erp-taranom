@@ -5,64 +5,27 @@ const { auth, adminOrAccounting, requireWarehouseOps } = require('../middleware/
 // Warehouse Phase 2 — acc_warehouse_ops: view (reads) | create (start/count/complete) | delete (=void/delete).
 // orDelegatedAccounting keeps existing acc_stocktaking delegates working; `apply` (posts JE) stays
 // admin/accounting-only so a create-only storekeeper can count but never apply.
+// v578 (Phase 5): create = count entry · apply = admin/accounting (posts the «مغایرت انبارگردانی» JE) ·
+// void/delete = acc_warehouse_ops:delete (R13 full reverse). Blind sheet = /:id/sheet (no system qty).
 const stView = requireWarehouseOps('view', { orDelegatedAccounting: true });
 const stCreate = requireWarehouseOps('create', { orDelegatedAccounting: true });
 const stVoid = requireWarehouseOps('delete', { orDelegatedAccounting: true });
-const { todayJalali } = require('../jalali');
-const { applyCycleCount, voidCycleCount, syncSessionVariantLines } = require('../lib/inventory/cycle-count');
-const { hasActiveMatrixVariants, variantWarehouseQty } = require('../lib/inventory/movement');
+const { applyCycleCount, voidCycleCount, syncSessionVariantLines, createSession, lockMode, STOCKTAKE_DOC_TYPE, STOCKTAKE_DOC_LABEL } = require('../lib/inventory/cycle-count');
 const { round3, parseQty } = require('../lib/round3');
 
-function productsForWarehouse(db, warehouseId) {
-  const rows = db.prepare(`
-    SELECT p.id, p.code, p.name, p.unit, p.stock, p.warehouse_id,
-      COALESCE(ws.qty, CASE WHEN p.warehouse_id=? THEN p.stock ELSE 0 END) as wh_qty
-    FROM products p
-    LEFT JOIN warehouse_stock ws ON ws.product_id=p.id AND ws.warehouse_id=?
-    WHERE p.warehouse_id=? OR ws.warehouse_id=? OR ws.qty IS NOT NULL
-    ORDER BY p.name
-  `).all(warehouseId, warehouseId, warehouseId, warehouseId);
-  const seen = new Set();
-  const products = rows.filter(r => {
-    if (seen.has(r.id)) return false;
-    seen.add(r.id);
-    return (r.warehouse_id === parseInt(warehouseId, 10)) || (r.wh_qty != null && r.wh_qty > 0);
-  });
-  const out = [];
-  for (const r of products) {
-    if (hasActiveMatrixVariants(db, r.id)) {
-      const variants = db.prepare(`
-        SELECT pv.id, pc.name AS color_name, ps.name AS size_name
-        FROM product_variants pv
-        LEFT JOIN product_colors pc ON pc.id = pv.color_id
-        LEFT JOIN product_sizes ps ON ps.id = pv.size_id
-        WHERE pv.product_id=? AND pv.active=1 AND COALESCE(pv.is_default,0)=0
-        ORDER BY pc.sort_order, ps.sort_order, pv.id
-      `).all(r.id);
-      for (const v of variants) {
-        out.push({
-          product_id: r.id,
-          variant_id: v.id,
-          code: r.code,
-          name: r.name,
-          color_name: v.color_name || '',
-          size_name: v.size_name || '',
-          unit: r.unit,
-          system_qty: variantWarehouseQty(db, v.id, warehouseId),
-        });
-      }
-      continue;
-    }
-    out.push({
-      product_id: r.id,
-      variant_id: null,
-      code: r.code,
-      name: r.name,
-      unit: r.unit,
-      system_qty: round3(r.wh_qty != null ? r.wh_qty : (r.warehouse_id === parseInt(warehouseId, 10) ? (r.stock || 0) : 0)),
-    });
-  }
-  return out;
+/** v578 — open (draft/completed) sessions freeze movements on their warehouse unless the lock is off/warn. */
+function withLockInfo(db, s) {
+  if (!s) return s;
+  const open = s.status === 'draft' || s.status === 'completed';
+  const mode = lockMode(db);
+  return {
+    ...s,
+    movements_locked: open && mode === 'lock' ? 1 : 0,
+    movement_lock_mode: mode,
+    snapshot_source: s.snapshot_source || 'legacy',
+    adjust_doc_type: STOCKTAKE_DOC_TYPE,
+    adjust_doc_label: STOCKTAKE_DOC_LABEL,
+  };
 }
 
 function qtyFromConfirmed(it, fallback) {
@@ -94,17 +57,26 @@ router.get('/', auth, stView, (req, res) => {
     ${whereSql}
     ORDER BY s.created_at DESC LIMIT 200
   `).all(...params);
-  res.json(rows);
+  res.json(rows.map((r) => withLockInfo(db, r)));
 });
 
-router.get('/:id/tags', auth, stView, (req, res) => {
+/**
+ * BLIND count sheet (v578): what a storekeeper prints / counts from. NO system, snapshot, counted
+ * or per-round qty — not even the pre-filled counted=system defaults — only identity + tag fields.
+ */
+function blindSheet(req, res) {
   const db = getDB();
-  const session = db.prepare('SELECT id, status FROM stocktaking_sessions WHERE id=?').get(req.params.id);
+  const session = db.prepare(`
+    SELECT s.id, s.status, s.date, s.note, s.warehouse_id, w.name AS warehouse_name, u.name AS responsible_name
+    FROM stocktaking_sessions s
+    LEFT JOIN warehouses w ON s.warehouse_id=w.id
+    LEFT JOIN users u ON s.responsible_user_id=u.id
+    WHERE s.id=?
+  `).get(req.params.id);
   if (!session) return res.status(404).json({ error: 'یافت نشد' });
   if (session.status !== 'adjusted') syncSessionVariantLines(db, session.id);
   const items = db.prepare(`
-    SELECT i.id, i.product_id, i.variant_id, i.system_qty, i.counted_qty, i.count1_qty, i.count2_qty, i.count3_qty,
-      i.count_tag, i.confirmed_count, p.code, p.name, p.unit,
+    SELECT i.id, i.product_id, i.variant_id, i.count_tag, p.code, p.name, p.unit,
       pc.name AS color_name, ps.name AS size_name
     FROM stocktaking_items i
     JOIN products p ON i.product_id=p.id
@@ -112,10 +84,12 @@ router.get('/:id/tags', auth, stView, (req, res) => {
     LEFT JOIN product_colors pc ON pc.id=pv.color_id
     LEFT JOIN product_sizes ps ON ps.id=pv.size_id
     WHERE i.session_id=?
-    ORDER BY i.count_tag, p.name, pc.name, ps.name
+    ORDER BY i.count_tag, p.name, pc.name, ps.name, i.id
   `).all(session.id);
-  res.json({ session_id: session.id, items });
-});
+  res.json({ session_id: session.id, blind: true, session, items });
+}
+router.get('/:id/sheet', auth, stView, blindSheet);
+router.get('/:id/tags', auth, stView, blindSheet);
 
 router.get('/:id', auth, stView, (req, res) => {
   const db = getDB();
@@ -140,8 +114,14 @@ router.get('/:id', auth, stView, (req, res) => {
     WHERE i.session_id=?
     ORDER BY p.name, pc.name, ps.name, i.id
   `).all(session.warehouse_id, session.warehouse_id, session.id);
-  items.forEach(it => { it.variance = round3((it.counted_qty || 0) - (it.system_qty || 0)); });
-  res.json({ session, items });
+  // variance = counted − FROZEN kardex snapshot (never live stock).
+  items.forEach((it) => {
+    const snap = it.snapshot_qty != null && it.snapshot_qty !== '' ? Number(it.snapshot_qty) : (Number(it.system_qty) || 0);
+    it.snapshot_qty = round3(snap);
+    it.system_qty = round3(snap);
+    it.variance = round3((it.counted_qty || 0) - snap);
+  });
+  res.json({ session: withLockInfo(db, session), items });
 });
 
 router.post('/', auth, stCreate, (req, res) => {
@@ -149,24 +129,21 @@ router.post('/', auth, stCreate, (req, res) => {
   const whId = parseInt(warehouse_id, 10);
   if (!whId) return res.status(400).json({ error: 'انبار الزامی است' });
   const db = getDB();
-  const wh = db.prepare('SELECT id FROM warehouses WHERE id=?').get(whId);
-  if (!wh) return res.status(404).json({ error: 'انبار یافت نشد' });
-  const result = db.prepare(`
-    INSERT INTO stocktaking_sessions (warehouse_id,date,responsible_user_id,note,status,created_by)
-    VALUES (?,?,?,?,'draft',?)
-  `).run(whId, date || todayJalali(), responsible_user_id ? parseInt(responsible_user_id, 10) : req.user.id, note || '', req.user.id);
-  const sessionId = result.lastInsertRowid;
-  const prods = productsForWarehouse(db, whId);
-  const ins = db.prepare(`
-    INSERT INTO stocktaking_items (session_id,product_id,variant_id,system_qty,counted_qty,count1_qty,confirmed_count)
-    VALUES (?,?,?,?,?,?,1)
-  `);
-  for (const p of prods) {
-    const sys = round3(p.system_qty || 0);
-    ins.run(sessionId, p.product_id, p.variant_id || null, sys, sys, sys);
+  try {
+    // system_qty = kardex snapshot (Σ live ledger) frozen NOW per product × warehouse × variant.
+    const out = createSession(db, {
+      warehouseId: whId,
+      date,
+      responsibleUserId: responsible_user_id ? parseInt(responsible_user_id, 10) : req.user.id,
+      note,
+      createdBy: req.user.id,
+    });
+    audit(req.user.id, 'create', 'stocktaking', out.id,
+      `شروع انبارگردانی انبار #${whId} — snapshot کاردکس ${out.item_count} قلم`);
+    res.json(out);
+  } catch (e) {
+    res.status(e.status || 400).json({ error: e.message, code: e.code, session_id: e.session_id });
   }
-  audit(req.user.id, 'create', 'stocktaking', sessionId, `شروع انبارگردانی انبار #${whId}`);
-  res.json({ id: sessionId, item_count: prods.length });
 });
 
 router.put('/:id/items', auth, stCreate, (req, res) => {
@@ -217,7 +194,8 @@ router.post('/:id/apply', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
     const result = applyCycleCount(db, +req.params.id, { createdBy: req.user.id });
-    audit(req.user.id, 'approve', 'stocktaking', req.params.id, 'اعمال اصلاحات انبارگردانی');
+    audit(req.user.id, 'approve', 'stocktaking', req.params.id,
+      `اعمال ${STOCKTAKE_DOC_LABEL} (سود ${result.total_gain_rial} / زیان ${result.total_loss_rial} ریال)`);
     res.json(result);
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });

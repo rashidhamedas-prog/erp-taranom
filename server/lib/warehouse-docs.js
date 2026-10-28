@@ -408,6 +408,11 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
   }
   if (fromWh) assertWarehouseActive(db, fromWh, 'انبار مبدأ');
   if (toWh) assertWarehouseActive(db, toWh, 'انبار مقصد');
+  // v578 Phase 5: a warehouse with an open stocktaking (draft/completed) is frozen against its kardex
+  // snapshot — lock (409 E_STOCKTAKE_LOCKED) or warn per setting `stocktake_move_lock`.
+  const stkGuard = require('./inventory/cycle-count').assertWarehouseNotCounting(
+    db, [fromWh, toWh], { label: `ثبت ${typeLabelFa(type)} انبار` },
+  );
 
   const num = isDevice()
     ? ('موقت-WH-' + Date.now().toString(36).toUpperCase())
@@ -759,6 +764,11 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     je_id: jeId,
     type,
     issue_type: issueCtx ? issueCtx.issueType : null,
+    ...(stkGuard.warned ? {
+      stocktake_warning: true,
+      stocktake_sessions: stkGuard.sessions.map((s) => s.id),
+      warning: `انبار در حال انبارگردانی است (${stkGuard.sessions.map((s) => '#' + s.id).join('، ')}) — مغایرت با snapshot شمارش ممکن است`,
+    } : {}),
   };
 }
 
