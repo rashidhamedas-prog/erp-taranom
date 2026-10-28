@@ -312,6 +312,7 @@ function bounceChequeReceivable(db, row, { user, entryDate, clientRequestId, bod
  */
 function runBatchChequeAction(db, {
   action, ids, date, bankId, depositSlipNo, user, todayFn, clientRequestId,
+  protestCertNo, protestDate,
 }) {
   const act = String(action || '').trim();
   if (!BATCH_ACTIONS.has(act)) {
@@ -364,6 +365,10 @@ function runBatchChequeAction(db, {
         user,
         entryDate,
         clientRequestId: perIdKey,
+        body: {
+          protest_cert_no: protestCertNo,
+          protest_date: protestDate,
+        },
       });
     } else {
       // out-clear

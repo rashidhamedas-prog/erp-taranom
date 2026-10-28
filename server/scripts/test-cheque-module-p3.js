@@ -88,6 +88,9 @@ console.log('test-cheque-module-p3');
   const routeSrc = fs.readFileSync(path.join(__dirname, '../routes/cheque-records.js'), 'utf8');
   ok(/\/:id\/out-clear/.test(routeSrc), 'route POST /:id/out-clear');
   ok(/\/batch-action/.test(routeSrc), 'route POST /batch-action');
+  ok(/protestCertNo:\s*body\.protest_cert_no/.test(routeSrc)
+    && /protestDate:\s*body\.protest_date/.test(routeSrc),
+    'batch-action forwards protest_cert_no and protest_date');
   ok(/\/:id\/protest/.test(routeSrc) && /transfer-to-customer/.test(routeSrc),
     'routes protest + transfer-to-customer');
 
@@ -178,9 +181,11 @@ console.log('test-cheque-module-p3');
     }).token;
 
     const chequeRecords = require('../routes/cheque-records');
+    const trustChecks = require('../routes/trust-checks');
     const app = express();
     app.use(express.json({ limit: '2mb' }));
     app.use('/api/cheque-records', chequeRecords);
+    app.use('/api/trust-checks', trustChecks);
 
     server = await new Promise((resolve) => {
       const s = http.createServer(app);
@@ -188,13 +193,13 @@ console.log('test-cheque-module-p3');
     });
     const { port } = server.address();
 
-    function req(method, urlPath, bodyObj) {
+    function req(method, urlPath, bodyObj, basePath) {
       const body = bodyObj == null ? null : JSON.stringify(bodyObj);
       return new Promise((resolve, reject) => {
         const r = http.request({
           hostname: '127.0.0.1',
           port,
-          path: '/api/cheque-records' + urlPath,
+          path: (basePath || '/api/cheque-records') + urlPath,
           method,
           headers: {
             Authorization: `Bearer ${token}`,
@@ -350,6 +355,8 @@ console.log('test-cheque-module-p3');
         `protest endpoint — HTTP ${protest.status} ${JSON.stringify(protest.body).slice(0, 100)}`
       );
       if (protest.status === 200) {
+        ok(typeof protest.body.warning === 'string' && /۶ماهه|6ماهه|مهلت/.test(protest.body.warning),
+          'protest response includes 6-month warning', protest.body.warning);
         const row = db.prepare('SELECT protest_cert_no, protest_date, lifecycle_status FROM cheque_records WHERE id=?').get(id);
         ok(row && row.protest_cert_no === 'CERT-P3-99', 'protest_cert_no stored');
         const lines = jeLines(protest.body.journal_entry_id);
@@ -549,6 +556,87 @@ console.log('test-cheque-module-p3');
       ok(jeCount === 1, `only one out-clear JE (got ${jeCount})`);
     }
 
+    /* ---- batch bounce stores protest cert + warning ---- */
+    {
+      const c1 = await createIn({ cheque_number: 'P3-BB-1', due_date: '1404/01/01' });
+      const c2 = await createIn({ cheque_number: 'P3-BB-2', due_date: '1404/01/01' });
+      const sent = await req('POST', '/batch-action', {
+        action: 'send-to-bank',
+        ids: [c1.id, c2.id],
+        date: TODAY,
+        bank_id: bankId,
+        deposit_slip_no: 'BATCH-BB',
+        client_request_id: `batch-bb-send-${c1.id}`,
+      });
+      ok(sent.status === 200, 'batch send before bounce', JSON.stringify(sent.body).slice(0, 120));
+      const bounced = await req('POST', '/batch-action', {
+        action: 'bounce',
+        ids: [c1.id, c2.id],
+        date: TODAY,
+        protest_cert_no: 'CERT-BATCH-7',
+        protest_date: TODAY,
+        client_request_id: `batch-bb-${c1.id}`,
+      });
+      ok(bounced.status === 200 && (bounced.body.results || []).length === 2,
+        'batch bounce 2 cheques', JSON.stringify(bounced.body).slice(0, 160));
+      const stored = db.prepare(`
+        SELECT protest_cert_no, protest_date FROM cheque_records WHERE id IN (?,?)
+      `).all(c1.id, c2.id);
+      ok(stored.length === 2 && stored.every((r) => r.protest_cert_no === 'CERT-BATCH-7' && r.protest_date === TODAY),
+        'batch bounce stores protest_cert_no and protest_date');
+      ok((bounced.body.results || []).every((r) => typeof r.warning === 'string' && r.warning.length > 0),
+        'batch bounce returns 6-month warning per cheque');
+    }
+
+    /* ---- trust-check soft-delete keeps the row ---- */
+    {
+      const created = await req('POST', '', {
+        direction: 'in',
+        party_id: partyId,
+        amount: 500000,
+        sayadi: sayadi(70),
+        cheque_number: 'P3-TRUST-1',
+        due_date: '1405/10/01',
+        guarantee_expiry: '1406/01/01',
+        contract_ref: 'CNT-P3',
+      }, '/api/trust-checks');
+      ok(created.status === 200 || created.status === 201, 'trust-check create',
+        JSON.stringify(created.body).slice(0, 160));
+      const tid = created.body && (created.body.id || (created.body.row && created.body.row.id));
+      ok(!!tid, 'trust-check id');
+      if (tid) {
+        const del = await req('DELETE', `/${tid}`, { date: TODAY }, '/api/trust-checks');
+        ok(del.status === 200, 'trust-check soft-delete HTTP', JSON.stringify(del.body).slice(0, 120));
+        const still = db.prepare('SELECT id, deleted_at FROM trust_checks WHERE id=?').get(tid);
+        ok(still && Number(still.deleted_at) > 0, 'trust-check row kept with deleted_at');
+      }
+    }
+
+    /* ---- high-value approve gate (non-admin; admin/accounting bypass) ---- */
+    {
+      db.prepare(`
+        INSERT INTO settings (key, value) VALUES ('cheque_approve_threshold_rial', '1000')
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value
+      `).run();
+      const { requireChequeHighValueApprove } = require('../middleware/auth');
+      let denied = null;
+      let passedGate = false;
+      requireChequeHighValueApprove(
+        { user: { id: admin.id, role: 'field_sales' }, params: {}, body: { amount: 5_000_000 } },
+        { status(c) { this.code = c; return this; }, json(b) { denied = b; } },
+        () => { passedGate = true; }
+      );
+      ok(!passedGate && denied && denied.code === 'E_CHEQUE_APPROVE_REQUIRED',
+        'field_sales above threshold needs cheque.approve');
+      let adminPassed = false;
+      requireChequeHighValueApprove(
+        { user: { id: admin.id, role: 'admin' }, params: {}, body: { amount: 9_000_000_000 } },
+        { status() { return this; }, json() {} },
+        () => { adminPassed = true; }
+      );
+      ok(adminPassed, 'admin bypasses cheque approve threshold');
+    }
+
     /* ---- recon variance 0 when possible ---- */
     {
       const { recon, max } = reconVarianceMax();
@@ -561,6 +649,33 @@ console.log('test-cheque-module-p3');
       ok(coreMax === 0,
         `buildChequeReconciliation core variance 0 (max=${coreMax})`,
         JSON.stringify(core.map((a) => ({ code: a.code, v: a.variance_rial }))));
+    }
+
+    /* ---- out-bounce: open period soft-voids the clear JE (no second voucher) ---- */
+    {
+      const ch = await createOutOpening({ cheque_number: 'P3-OB-1', amount: 1_800_000 });
+      const id = ch.id;
+      const clear = await req('POST', `/${id}/out-clear`, {
+        date: TODAY, bank_id: bankId, client_request_id: `ob-clear-${id}`,
+      });
+      ok(clear.status === 200 && clear.body.journal_entry_id, 'out-clear before out-bounce');
+      const clearJe = Number(clear.body.journal_entry_id);
+      const ob = await req('POST', `/${id}/out-bounce`, {
+        date: TODAY, client_request_id: `ob-bounce-${id}`,
+      });
+      ok(ob.status === 200 && ob.body.lifecycle_status === 'bounced_out',
+        'out-bounce → bounced_out', JSON.stringify(ob.body).slice(0, 120));
+      const ev = db.prepare(`
+        SELECT journal_entry_id FROM cheque_events
+        WHERE cheque_id=? AND to_status='bounced_out' ORDER BY id DESC LIMIT 1
+      `).get(id);
+      const link = db.prepare('SELECT reversed_by_je_id, deleted_at, status FROM journal_entries WHERE id=?').get(clearJe);
+      const eventJe = Number(ev && ev.journal_entry_id);
+      const counter = Number(link && link.reversed_by_je_id) || 0;
+      ok(!!ev && eventJe > 0 && (eventJe === counter || eventJe === clearJe),
+        'out-bounce event points at counter-voucher or the soft-voided clear JE');
+      ok(link && (Number(link.deleted_at) > 0 || counter > 0),
+        'clear JE is soft-voided or linked to a counter-voucher');
     }
 
     server.close();
