@@ -20,7 +20,7 @@
 - **اصلاح:** (۱) ریشه فقط `#nestedModalRoot`/`#nestedActiveModal` (هرگز `#modalRoot`)؛ `openWhSkuMatrixModal` توکن `data-wh-matrix` روی جدول می‌گذارد و confirm دقیقاً همان جدول را query می‌کند (نبود جدول → خطای صریح). (۲) تابع خالص `whParseQtyInput` (ارقام فارسی/عربی، `٫`/`,`→`.`، حذف `٬`/فاصله، نامعتبر→۰)؛ inputها `type=text inputmode=decimal`. (۳) موفقیت: splice خطوط → `closeNestedModal` → `renderWhDocLines`. (۴) کنترل «بیش از موجودی» برای issue/transfer بدون مجوز منفی حفظ شد. (۵) بدون انبار انتخاب‌شده ماتریس باز نمی‌شود — توست «ابتدا انبار را انتخاب کنید».
 - **تست:** جدید `test:wh-sku-matrix-confirm` (۴۲ assertion، داخل `npm test`).
 - **Help:** `renderAdminGuide()` ← بند «ماتریس رنگ×سایز رسید/حواله/انتقال (v580)».
-- **فایل‌ها:** `public/{app.js,index.html,sw.js}`، `scripts/test-wh-sku-matrix-confirm.js`، `package.json`، CHANGE-LOG. بدون تغییر بک‌اند/داده. **Deploy:** ⏳
+- **فایل‌ها:** `public/{app.js,index.html,sw.js}`، `scripts/test-wh-sku-matrix-confirm.js`، `package.json`، CHANGE-LOG. بدون تغییر بک‌اند/داده. **Deploy:** ✅ merge bf481248 (PR #90) — بکاپ /home/taranom/backups/crm.db.20261028-121031؛ overlay؛ health=200؛ SW erp-taranom-v580؛ test:wh-sku-matrix-confirm ۴۲/۰؛ encoding OK.
 
 ### ۱۴۰۵/۰۸/۰۷ — v579: اصلاح دادهٔ انبار — گزارش، بازسازی مقدار از کاردکس، پر کردن شناسه، پیش‌نویس سند (SW v579)
 - **منبع:** `warehouse-data-correction-cursor` (فازهای A تا D). حامد رشید اصلاح داده را تأیید کرده است. سند ثبت‌شده و ردیف کاردکس حذف نمی‌شوند.
