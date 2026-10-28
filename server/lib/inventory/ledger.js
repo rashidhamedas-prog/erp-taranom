@@ -692,38 +692,211 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
   return rev;
 }
 
-function getKardex(db, productId, { warehouseId, limit = 500 } = {}) {
+/** Truthy query flag: 1 / true / yes / on. */
+function parseKardexFlag(v) {
+  if (v === true || v === 1) return true;
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+/**
+ * Cancelled (void) ledger row — STRUCTURAL only (status / reversed_of / event_type).
+ * No note/description regex: a note is free text and never decides a balance.
+ */
+function isCancelledLedgerRow(r) {
+  if (!r) return false;
+  if (String(r.status || '') === 'reversed') return true;
+  if (r.reversed_of != null && r.reversed_of !== '' && Number(r.reversed_of) !== 0) return true;
+  const et = String(r.event_type || '');
+  return et === 'reversal' || et.endsWith('_reversal');
+}
+
+/** value effect of one ledger row on the stock value (same sign rule as layer-reconcile Σ). */
+function ledgerValueDelta(r) {
+  const qIn = Number(r.qty_in) || 0;
+  const qOut = Number(r.qty_out) || 0;
+  const amt = Math.round(Number(r.amount_rial) || 0);
+  if (qIn > 0) return amt;
+  if (qOut > 0) return -amt;
+  return amt;
+}
+
+/**
+ * Kardex (fallback for /inventory/kardex/:productId).
+ * Same rules as buildStockLedger: ORDER BY COALESCE(date,''), id; running qty AND running value
+ * computed for the SAME filter; opening for the period; optional pagination with page opening.
+ *
+ * @param {object} [opts]
+ * @param {number} [opts.warehouseId]
+ * @param {number} [opts.variantId]     filter by inventory_ledger.variant_id (only when the column exists)
+ * @param {string} [opts.from] [opts.to] Jalali YYYY/MM/DD
+ * @param {number} [opts.page] [opts.pageSize]  pagination only when one of them is given; pageSize ≤ 500
+ * @param {boolean} [opts.showWip] [opts.showWarehouseOnly] [opts.showCancelled]
+ * @param {number} [opts.limit]  legacy explicit cap on returned rows (no default — never silently truncates)
+ */
+function getKardex(db, productId, opts = {}) {
+  const {
+    warehouseId, variantId, from, to, page, pageSize, limit,
+  } = opts;
+  const showWip = parseKardexFlag(opts.showWip);
+  const showWarehouseOnly = parseKardexFlag(opts.showWarehouseOnly);
+  const showCancelled = parseKardexFlag(opts.showCancelled);
+  const { reportDateKey } = require('../report-order');
   const product = getProduct(db, productId);
-  const where = ['product_id=?'];
+  const where = ['l.product_id=?'];
   const params = [productId];
-  if (warehouseId) { where.push('warehouse_id=?'); params.push(warehouseId); }
+  if (warehouseId) { where.push('l.warehouse_id=?'); params.push(warehouseId); }
+  let variantApplied = false;
+  if (variantId != null && variantId !== '' && Number(variantId) > 0 && ledgerHasVariantColumn(db)) {
+    where.push('l.variant_id=?');
+    params.push(Number(variantId));
+    variantApplied = true;
+  }
   const rows = db.prepare(`
     SELECT l.*, u.name as user_name, w.name as warehouse_name
     FROM inventory_ledger l
     LEFT JOIN users u ON l.created_by=u.id
     LEFT JOIN warehouses w ON l.warehouse_id=w.id
-    WHERE ${where.join(' AND ')}
-    ORDER BY l.id ASC
-    LIMIT ?
-  `).all(...params, limit);
+    WHERE ${where.join(' AND ')} AND l.status IN ('posted','reversed')
+    ORDER BY COALESCE(l.date,''), l.id
+  `).all(...params);
   let wipIds = new Set();
   try {
     wipIds = new Set(db.prepare(
       "SELECT id FROM warehouses WHERE kind='wip' OR warehouse_type='wip'"
     ).all().map((w) => Number(w.id)));
   } catch (_) { wipIds = new Set(); }
-  const wipView = warehouseId && wipIds.has(Number(warehouseId));
-  return { product, rows: rows.filter((r) => {
-    if (!wipView && (isWarehouseOnlyRow(r) || wipIds.has(Number(r.warehouse_id)))) return false;
-    if (!(Number(r.qty_in) || 0) && !(Number(r.qty_out) || 0)) return false;
-    if (String(r.status || '') === 'reversed') return false;
-    const et = String(r.event_type || '');
-    if (et === 'reversal' || et.endsWith('_reversal')) return false;
-    if (r.reversed_of) return false;
-    const note = String(r.note || '').trim();
-    if (/^\[?ابطال/.test(note)) return false;
-    return true;
-  }) };
+  const wipView = !!warehouseId && wipIds.has(Number(warehouseId));
+  const wipOk = showWip || wipView;
+  const woOk = showWarehouseOnly || wipView;
+  const fromK = from ? reportDateKey(from) : null;
+  const toK = to ? reportDateKey(to) : null;
+
+  const reversedByOf = new Map();
+  for (const r of rows) if (r.reversed_of) reversedByOf.set(Number(r.reversed_of), r.id);
+
+  // pass 1 — which rows exist in the stream
+  const stream = [];
+  for (const r of rows) {
+    if (isZeroQtyValueGhost(r)) continue;
+    if (!woOk && isWarehouseOnlyRow(r)) continue;
+    if (!wipOk && wipIds.has(Number(r.warehouse_id))) continue;
+    const cancelled = isCancelledLedgerRow(r);
+    if (cancelled && !showCancelled) continue;
+    stream.push({ r, cancelled });
+  }
+
+  let openingQty = 0;
+  let openingValue = 0;
+  let periodIn = 0;
+  let periodOut = 0;
+  let periodValue = 0;
+  let valueOnlyRial = 0;
+  let runQty = 0;
+  let runVal = 0;
+  const out = [];
+  // pass 2 — opening (rows before «from») then period rows with running qty + value
+  for (const phase of ['opening', 'period']) {
+    if (phase === 'period') { runQty = openingQty; runVal = openingValue; }
+    for (const { r, cancelled } of stream) {
+      const dk = reportDateKey(r.date);
+      const before = fromK && dk < fromK;
+      if (phase === 'opening') {
+        if (!before || cancelled) continue;
+        openingQty += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+        openingValue += ledgerValueDelta(r);
+        continue;
+      }
+      if (before) continue;
+      if (toK && dk > toK) continue;
+      const qIn = Number(r.qty_in) || 0;
+      const qOut = Number(r.qty_out) || 0;
+      const vd = ledgerValueDelta(r);
+      const valueOnly = !qIn && !qOut;
+      if (!cancelled) {
+        runQty += qIn - qOut;
+        runVal += vd;
+        periodIn += qIn;
+        periodOut += qOut;
+        periodValue += vd;
+        if (valueOnly) valueOnlyRial += vd;
+      }
+      if (valueOnly) continue; // value-only revaluations move the value, not the kardex table
+      out.push({
+        ...r,
+        is_reversed: cancelled,
+        reversed_by: reversedByOf.get(Number(r.id)) || null,
+        reversal_of: r.reversed_of || null,
+        value_delta_rial: cancelled ? 0 : vd,
+        running_qty: runQty,
+        running_value_rial: runVal,
+      });
+    }
+  }
+
+  const closingQty = openingQty + periodIn - periodOut;
+  const closingValue = openingValue + periodValue;
+  const totalRows = out.length;
+
+  let pageRows = out;
+  let pg = 1;
+  let size = totalRows;
+  let totalPages = 1;
+  let paginated = false;
+  let pageOpeningQty = openingQty;
+  let pageOpeningValue = openingValue;
+  const wantPage = page != null && page !== '';
+  const wantSize = pageSize != null && pageSize !== '';
+  if (wantPage || wantSize) {
+    paginated = true;
+    size = Math.min(500, Math.max(1, parseInt(pageSize, 10) || 200));
+    totalPages = Math.max(1, Math.ceil(totalRows / size));
+    pg = Math.max(1, parseInt(page, 10) || 1);
+    const start = (pg - 1) * size;
+    pageRows = out.slice(start, start + size);
+    if (pageRows.length) {
+      const f = pageRows[0];
+      const effQ = f.is_reversed ? 0 : (Number(f.qty_in) || 0) - (Number(f.qty_out) || 0);
+      pageOpeningQty = f.running_qty - effQ;
+      pageOpeningValue = f.running_value_rial - f.value_delta_rial;
+    } else if (start > 0) {
+      pageOpeningQty = closingQty;
+      pageOpeningValue = closingValue;
+    }
+  } else if (Number(limit) > 0) {
+    pageRows = out.slice(0, Math.floor(Number(limit)));
+  }
+  const last = pageRows[pageRows.length - 1];
+
+  return {
+    product,
+    rows: pageRows,
+    warehouse_id: warehouseId || null,
+    variant_id: variantApplied ? Number(variantId) : null,
+    variant_filter_applied: variantApplied,
+    from: from || null,
+    to: to || null,
+    toggles: { show_wip: showWip, show_warehouse_only: showWarehouseOnly, show_cancelled: showCancelled },
+    period_opening_qty: openingQty,
+    period_opening_value_rial: openingValue,
+    opening_qty: pageOpeningQty,
+    opening_value_rial: pageOpeningValue,
+    period_qty_in: periodIn,
+    period_qty_out: periodOut,
+    period_net_qty: periodIn - periodOut,
+    period_value_delta_rial: periodValue,
+    value_only_rial: valueOnlyRial,
+    closing_qty: closingQty,
+    closing_value_rial: closingValue,
+    page_closing_qty: last ? last.running_qty : pageOpeningQty,
+    page_closing_value_rial: last ? last.running_value_rial : pageOpeningValue,
+    paginated,
+    page: pg,
+    page_size: size,
+    total_rows: totalRows,
+    total_pages: totalPages,
+    has_more: paginated ? pg < totalPages : false,
+  };
 }
 
 /** True when a posted row has no qty and no value — amend ghost / noop. */
@@ -920,6 +1093,9 @@ module.exports = {
   ledgerHasVariantColumn,
   reverseInventoryMovement,
   getKardex,
+  parseKardexFlag,
+  isCancelledLedgerRow,
+  ledgerValueDelta,
   isZeroQtyValueGhost,
   softRetireLedgerRow,
   retireZeroQtyLedgerGhosts,

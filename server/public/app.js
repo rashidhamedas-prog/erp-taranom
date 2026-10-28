@@ -14718,7 +14718,53 @@ async function voidInvoiceDoc(id,num){
    ITEM KARDEX (کاردکس کالا) — professional stock ledger (v364/v400)
    Operational value rows only by default; void+align hidden; optional audit.
 ============================================================ */
-let _kardexState={ productId:'', warehouse_id:'', from:'', to:'', event_type:'' };
+/* v576 فاز ۳: variant_id، صفحه‌بندی (page/page_size) و پرچم‌های include_wip / include_warehouse_only / show_cancelled */
+let _kardexState={ productId:'', warehouse_id:'', variant_id:'', from:'', to:'', event_type:'',
+  include_wip:false, include_warehouse_only:false, show_cancelled:false, page:1, page_size:100 };
+let _kardexVariantsFor=null;
+function _kardexQuery(withPaging){
+  const s=_kardexState;
+  const q=new URLSearchParams({ product_id:String(s.productId) });
+  if(s.warehouse_id) q.set('warehouse_id',s.warehouse_id);
+  if(s.variant_id) q.set('variant_id',s.variant_id);
+  if(s.from) q.set('from',s.from);
+  if(s.to) q.set('to',s.to);
+  if(s.event_type) q.set('event_type',s.event_type);
+  if(s.include_wip) q.set('show_wip','1');
+  if(s.include_warehouse_only) q.set('show_warehouse_only','1');
+  if(s.show_cancelled) q.set('show_cancelled','1');
+  if(withPaging){
+    q.set('page',String(Math.max(1,Number(s.page)||1)));
+    q.set('page_size',String(Math.min(500,Math.max(10,Number(s.page_size)||100))));
+  }
+  return q;
+}
+/** انتخاب‌گر واریانت فقط وقتی کالا ماتریس رنگ×سایز (واریانت غیرپیش‌فرض) دارد. */
+async function kardexLoadVariants(productId){
+  const wrap=el('kardexVarWrap'); if(!wrap) return;
+  _kardexVariantsFor=productId||null;
+  if(!productId){ wrap.innerHTML=''; return; }
+  let rows=[];
+  try{ rows=(await api('GET','/product-variants?product_id='+encodeURIComponent(productId)+'&include_default=0')||[]).filter(v=>!v.is_default); }
+  catch(_){ rows=[]; }
+  if(String(_kardexVariantsFor)!==String(productId)) return;
+  if(!rows.length){ wrap.innerHTML=''; _kardexState.variant_id=''; return; }
+  const keep=rows.some(v=>String(v.id)===String(_kardexState.variant_id));
+  if(!keep) _kardexState.variant_id='';
+  wrap.innerHTML=`<label data-csp-style="${CSP.style(`font-size:11px`)}">رنگ / سایز</label>
+    <select id="kardexVariant" data-csp-style="${CSP.style(`padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;width:100%`)}">
+      <option value="">همه واریانت‌ها</option>
+      ${rows.map(v=>{
+        const lbl=[v.color_name,(typeof displaySizeName==='function'?displaySizeName(v.size_name):v.size_name)].filter(Boolean).join(' / ')||v.sku||('#'+v.id);
+        return `<option value="${esc(String(v.id))}" ${String(_kardexState.variant_id)===String(v.id)?'selected':''}>${esc(lbl)}</option>`;
+      }).join('')}
+    </select>`;
+  el('kardexVariant')?.addEventListener('change',function(){
+    _kardexState.variant_id=this.value||'';
+    _kardexState.page=1;
+    loadItemKardex(_kardexState.productId);
+  });
+}
 let _frkState={ batch_id:'', product_id:'', q:'', from:'', to:'' };
 
 async function renderItemKardexTab(body){
@@ -14753,39 +14799,120 @@ async function renderItemKardexTab(body){
             `<option value="${e}" ${String(_kardexState.event_type)===e?'selected':''}>${e}</option>`).join('')}
         </select>
       </div>
+      <div class="fg" id="kardexVarWrap" data-csp-style="${CSP.style(`min-width:150px`)}"></div>
+      <div class="kardex-flags" data-csp-style="${CSP.style(`display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:6px;font-size:12px`)}">
+        <label><input type="checkbox" id="kardexWip" ${_kardexState.include_wip?'checked':''}> نمایش WIP</label>
+        <label><input type="checkbox" id="kardexWhOnly" ${_kardexState.include_warehouse_only?'checked':''}> ردیف‌های فقط-انباری</label>
+        <label><input type="checkbox" id="kardexCancelled" ${_kardexState.show_cancelled?'checked':''}> نمایش ابطال‌شده</label>
+      </div>
       <button type="button" class="btn" id="kardexReload" data-csp-style="${CSP.style(`margin-bottom:2px`)}">نمایش</button>
-      <a class="btn btn-ghost" id="kardexCsv" href="#" data-csp-style="${CSP.style(`margin-bottom:2px`)}">CSV</a>
+      <button type="button" class="btn ghost" id="kardexPrint" data-csp-style="${CSP.style(`margin-bottom:2px`)}">🖨 چاپ</button>
+      <a class="btn btn-ghost" id="kardexCsv" href="#" data-csp-style="${CSP.style(`margin-bottom:2px`)}" title="خروجی Excel/CSV با همین فیلترها">⬇ Excel/CSV</a>
     </div>
     <div id="kardexBody">${products.length?'<div class="muted">کالا را انتخاب کنید</div>':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
   initCustSearches(body);
-  const reload=()=>{
-    _kardexState.productId=el('kardexProduct')?.value||'';
+  const readFilters=()=>{
     _kardexState.warehouse_id=el('kardexWh')?.value||'';
     _kardexState.from=el('kardexFrom')?.value?.trim()||'';
     _kardexState.to=el('kardexTo')?.value?.trim()||'';
     _kardexState.event_type=el('kardexEvt')?.value||'';
+    _kardexState.include_wip=!!el('kardexWip')?.checked;
+    _kardexState.include_warehouse_only=!!el('kardexWhOnly')?.checked;
+    _kardexState.show_cancelled=!!el('kardexCancelled')?.checked;
+  };
+  const reload=()=>{
+    readFilters();
+    _kardexState.page=1;
     loadItemKardex(_kardexState.productId);
   };
-  el('kardexProduct')?.addEventListener('change',reload);
+  el('kardexProduct')?.addEventListener('change',async function(){
+    _kardexState.productId=el('kardexProduct')?.value||'';
+    _kardexState.variant_id='';
+    readFilters();
+    _kardexState.page=1;
+    await kardexLoadVariants(_kardexState.productId);
+    loadItemKardex(_kardexState.productId);
+  });
   el('kardexReload')?.addEventListener('click',reload);
+  ['kardexWh','kardexEvt','kardexWip','kardexWhOnly','kardexCancelled'].forEach(id=>el(id)?.addEventListener('change',reload));
+  el('kardexPrint')?.addEventListener('click',kardexPrint);
   el('kardexCsv')?.addEventListener('click',function(ev){
     ev.preventDefault();
-    const pid=el('kardexProduct')?.value;
+    readFilters();
+    const pid=_kardexState.productId||el('kardexProduct')?.value;
     if(!pid){ toast('ابتدا کالا را انتخاب کنید','err'); return; }
-    const q=new URLSearchParams({ product_id:pid, format:'csv' });
-    if(el('kardexWh')?.value) q.set('warehouse_id',el('kardexWh').value);
-    if(el('kardexFrom')?.value?.trim()) q.set('from',el('kardexFrom').value.trim());
-    if(el('kardexTo')?.value?.trim()) q.set('to',el('kardexTo').value.trim());
-    if(el('kardexEvt')?.value) q.set('event_type',el('kardexEvt').value);
-    window.open('/api/ledgers/stock?'+q.toString(),'_blank');
+    _kardexState.productId=pid;
+    const q=_kardexQuery(false);
+    q.set('format','csv');
+    downloadAuth('/ledgers/stock?'+q.toString(),'kardex-'+pid+'.csv');
   });
-  if(_kardexState.productId) loadItemKardex(_kardexState.productId);
+  if(_kardexState.productId){
+    kardexLoadVariants(_kardexState.productId).then(()=>loadItemKardex(_kardexState.productId));
+  }
+}
+
+/** چاپ کاردکس — فقط #kardexBody (قاعدهٔ @media print در app.css)؛ صفحهٔ جاری چاپ می‌شود. */
+function kardexPrint(){
+  if(!_kardexState.productId || !el('kardexBody')?.querySelector('.panel')){ toast('ابتدا کاردکس را نمایش دهید','err'); return; }
+  const cleanup=()=>document.body.classList.remove('kardex-print-active');
+  document.body.classList.add('kardex-print-active');
+  window.addEventListener('afterprint',cleanup,{once:true});
+  window.print();
+  setTimeout(cleanup,1500);
+}
+
+/** خلاصهٔ فیلترها برای سربرگ چاپ */
+function _kardexFilterSummary(d){
+  const s=_kardexState;
+  const parts=[];
+  const whSel=el('kardexWh');
+  parts.push('انبار: '+(s.warehouse_id?(whSel?.selectedOptions?.[0]?.textContent||('#'+s.warehouse_id)):'همه'));
+  const vSel=el('kardexVariant');
+  if(s.variant_id) parts.push('واریانت: '+(vSel?.selectedOptions?.[0]?.textContent||('#'+s.variant_id)));
+  if(s.from||s.to) parts.push('از '+(s.from||'—')+' تا '+(s.to||'—'));
+  if(s.event_type) parts.push('رویداد: '+s.event_type);
+  if(s.include_wip) parts.push('با WIP');
+  if(s.include_warehouse_only) parts.push('با ردیف‌های فقط-انباری');
+  if(s.show_cancelled) parts.push('با ابطال‌شده');
+  if(d&&d.paged) parts.push('صفحه '+d.page+' از '+(d.total_pages||d.page));
+  return parts.join(' · ');
+}
+/** مقصد لینک سند منبع ردیف کاردکس: فاکتور/خرید/سند انبار/تولید/شمارش/تعدیل. */
+function _kardexSourceRef(l){
+  const st=String(l.source_type||'');
+  const rt=String(l.ref_type||'');
+  if(/^production/.test(st) || /^production/.test(rt)){
+    const id=l.production_order_id||(/^production/.test(rt)?l.ref_id:null)||l.source_id;
+    return id?{type:'production',id}:null;
+  }
+  if(/^warehouse_(doc|transfer|move|receipt|issue)/.test(st) && (l.wh_doc_id||l.source_id)){
+    return { type:'warehouse_doc', id:l.wh_doc_id||l.ref_id||l.source_id };
+  }
+  if(/^stock(taking|take)/.test(st) || rt==='stocktaking'){
+    return { type:'stocktaking', id:l.ref_id||l.source_id||0 };
+  }
+  if(l.ref_type && l.ref_id) return { type:l.ref_type, id:l.ref_id };
+  if((st==='invoice'||st==='sale'||/^sales?_return/.test(st)) && l.source_id) return { type:'invoice', id:l.source_id };
+  if((st==='purchase'||/^purchase_return/.test(st)) && l.source_id) return { type:'purchase', id:l.source_id };
+  return null;
+}
+function _kardexJumpToRow(id){
+  const tr=document.getElementById('kardex-row-'+id);
+  if(!tr){ toast('ردیف #'+id+' در این صفحه نیست — صفحهٔ دیگر یا «نمایش ابطال‌شده» را بررسی کنید','err'); return; }
+  tr.scrollIntoView({block:'center',behavior:'smooth'});
+  tr.classList.add('kardex-row-flash');
+  setTimeout(()=>tr.classList.remove('kardex-row-flash'),1800);
 }
 
 function _kardexOpenSource(refType, refId){
   if(!refType || !refId) return;
   if(refType==='invoice'){ openInvBuilder(refId); return; }
   if(refType==='purchase'){ if(typeof printPurchase==='function') printPurchase(refId); else toast('فاکتور خرید #'+refId); return; }
+  if(refType==='production'){
+    if(typeof prodOrderOpenFromKanban==='function') prodOrderOpenFromKanban(refId); else go('acc-production-orders');
+    return;
+  }
+  if(refType==='stocktaking'){ go('acc-stocktaking'); return; }
   if(refType==='warehouse_doc' || refType==='warehouse_transfer'){
     if(typeof viewWarehouseDoc==='function'){ viewWarehouseDoc(refId); return; }
   }
@@ -14808,16 +14935,23 @@ async function loadItemKardex(productId){
   const box=el('kardexBody'); if(!box) return;
   if(!productId){ box.innerHTML=''; return; }
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
-  const q=new URLSearchParams({ product_id:String(productId) });
-  if(_kardexState.warehouse_id) q.set('warehouse_id',_kardexState.warehouse_id);
-  if(_kardexState.from) q.set('from',_kardexState.from);
-  if(_kardexState.to) q.set('to',_kardexState.to);
-  if(_kardexState.event_type) q.set('event_type',_kardexState.event_type);
+  _kardexState.productId=String(productId);
+  const q=_kardexQuery(true);
   let raw=await api('GET','/ledgers/stock?'+q.toString()).catch(()=>null);
   let d=null;
   if(raw && raw.lines){
+    const pgSize=Number(raw.page_size)||Number(_kardexState.page_size)||100;
+    const pgNo=Number(raw.page)||Number(_kardexState.page)||1;
+    const totalRows=raw.total_lines!=null?Number(raw.total_lines):(raw.total_rows!=null?Number(raw.total_rows):null);
+    const totalPages=raw.total_pages!=null?Number(raw.total_pages)
+      :(totalRows!=null?Math.max(1,Math.ceil(totalRows/pgSize)):(raw.has_more?pgNo+1:pgNo));
     d={
       product:raw.product,
+      page:pgNo, page_size:pgSize, total_rows:totalRows, total_pages:totalPages,
+      has_more:raw.pagination&&raw.pagination.has_more!=null?!!raw.pagination.has_more:(raw.has_more!=null?!!raw.has_more:(pgNo<totalPages)),
+      paged:raw.pagination?!!raw.pagination.paginated:(raw.page!=null&&raw.total_pages!=null),
+      opening_value_rial:raw.opening_value_rial,
+      closing_value_rial:raw.closing_value_rial,
       opening_qty:raw.opening_qty,
       period_qty_in:raw.period_qty_in,
       period_qty_out:raw.period_qty_out,
@@ -14830,10 +14964,14 @@ async function loadItemKardex(productId){
         warehouse_name:l.warehouse_name, qty_in:l.qty_in, qty_out:l.qty_out,
         running_balance:l.running_qty, warehouse_running_qty:l.warehouse_running_qty,
         unit_cost_rial:l.unit_cost_rial, amount_rial:l.amount_rial,
-        user_name:l.user_name||'', status:l.status||'posted', is_opening:!!l.is_opening,
+        user_name:l.user_name||'', status:l.is_reversed?'reversed':(l.status||'posted'), is_opening:!!l.is_opening,
         ref_type:l.ref_type, ref_id:l.ref_id, source_type:l.source_type, source_id:l.source_id,
         warehouse_only:!!l.warehouse_only, warehouse_id:l.warehouse_id||null,
-        is_group:!!l.is_group, detail_count:l.detail_count||0, details:l.details||null
+        is_group:!!l.is_group, detail_count:l.detail_count||0, details:l.details||null,
+        wh_doc_id:l.wh_doc_id||null, production_order_id:l.production_order_id||null,
+        reversal_of:l.reversal_of||null, reversed_by:l.reversed_by||l.reversal_id||null,
+        variant_id:l.variant_id||null, color_name:l.color_name||null, size_name:l.size_name||null,
+        is_wip:!!l.is_wip, running_value_rial:l.running_value_rial
       })),
       source:'inventory_ledger'
     };
@@ -14843,6 +14981,26 @@ async function loadItemKardex(productId){
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت کاردکس</div>'; return; }
   const logs=d.logs||[];
   const unit=esc(d.product.unit||'عدد');
+  const canCost=!!window.__canSeeCost;
+  /* ابطال: ردیف اصلی ← ردیف معکوس از روی reversal_of (بدون regex روی note) */
+  const reversedByMap={};
+  logs.forEach(x=>{ if(x.reversal_of) reversedByMap[String(x.reversal_of)]=x; });
+  const nCostCols=canCost?2:0;
+  const totalCols=8+nCostCols;
+  const pagerHtml=d.paged?`<div class="kardex-pager">
+      <button type="button" class="btn sm ghost" id="kardexPrev" ${d.page<=1?'disabled':''}>◀ قبلی</button>
+      <span>صفحه <b>${fmtQtyFa(d.page)}</b> از <b>${fmtQtyFa(d.total_pages||d.page)}</b>${d.total_rows!=null?` · ${fmtQtyFa(d.total_rows)} ردیف`:''}</span>
+      <button type="button" class="btn sm ghost" id="kardexNext" ${(d.page>=(d.total_pages||d.page)&&!d.has_more)?'disabled':''}>بعدی ▶</button>
+      <label>تعداد در صفحه
+        <select id="kardexPageSize">${[50,100,200,500].map(n=>`<option value="${n}" ${Number(d.page_size)===n?'selected':''}>${n}</option>`).join('')}</select>
+      </label>
+    </div>`:'';
+  const openingRow=(d.paged && (d.page>1 || Math.abs(Number(d.opening_qty)||0)>1e-9))?`<tr class="kardex-opening-row">
+      <td colspan="6">${d.page>1?'مانده ابتدای این صفحه (انتقالی از صفحهٔ قبل)':'مانده ابتدای دوره'}</td>
+      <td class="mono">${fmtQtyFa(d.opening_qty||0)}</td>
+      ${canCost?`<td></td><td class="mono" title="ارزش ریالی مانده ابتدای صفحه">${d.opening_value_rial!=null?fmt(d.opening_value_rial):'-'}</td>`:''}
+      <td></td>
+    </tr>`:'';
   const kpi=(label,val,tone)=>`<div data-csp-style="${CSP.style(`flex:1;min-width:110px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card,var(--bg))`)}">
     <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${label}</div>
     <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${fmtQtyFa(val||0)}</div>
@@ -14861,6 +15019,10 @@ async function loadItemKardex(productId){
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🧾 تعدیل‌ها</button>
         </span>`:''}
       </div>
+      <div class="kardex-print-head">
+        <h3>کاردکس کالا — ${esc(d.product.name)} (${esc(d.product.code||'-')})</h3>
+        <div>${esc(_kardexFilterSummary(d))}</div>
+      </div>
       <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
         ${kpi('اول دوره', d.opening_qty)}
         ${kpi('ورود دوره', d.period_qty_in, 'var(--green)')}
@@ -14868,23 +15030,34 @@ async function loadItemKardex(productId){
         ${kpi('پایان دوره', d.closing_qty)}
       </div>
       ${Math.abs(Number(d.book_gap_qty)||0)>1e-6?`<div data-csp-style="${CSP.style(`margin:8px 14px 0;padding:8px 12px;border:1px solid var(--red);border-radius:8px;font-size:12px;line-height:1.8`)}">⚠ ماندهٔ کاردکس ${fmtQtyFa(d.closing_qty||0)} با موجودی انبار ${fmtQtyFa(d.warehouse_qty||0)} ${fmtQtyFa(Math.abs(d.book_gap_qty))} ${unit} اختلاف دارد. این اختلاف خودکار پوشانده نمی‌شود؛ با شمارش انبار (انبارگردانی) و ثبت سند تعدیل رفع کنید.</div>`:''}
-      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:4px 14px 0;line-height:1.7`)}">کاردکس فقط گردش کالای انبارهای فیزیکی است: اسناد ابطال‌شده، مراحل کار در جریان (بسته برش/WIP) و تعدیل‌های فقط-بهایی در گزارش‌های تولید و بهای تمام‌شده‌اند. پایان دوره = اول دوره + ورود − خروج.</div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px;padding:4px 14px 0;line-height:1.7`)}">پیش‌فرض: فقط گردش کالای انبارهای فیزیکی؛ با تیک‌های بالا می‌توانید ردیف‌های WIP، فقط-انباری و ابطال‌شده (خاکستری، با لینک به ردیف معکوس) را هم ببینید. پایان دوره = اول دوره + ورود − خروج. «مانده ابتدای صفحه» از خود سرور می‌آید، نه از جمع ردیف‌های همین صفحه.</div>
+      ${pagerHtml}
       <div class="panel-body tbl-wrap">
         <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
           <th>تاریخ</th><th>شماره/نوع</th><th>شرح</th><th>انبار</th><th>ورود</th><th>خروج</th><th>مانده</th>
-          ${window.__canSeeCost?'<th>بهای واحد</th><th>مبلغ</th>':''}
+          ${canCost?'<th>بهای واحد</th><th>مبلغ</th>':''}
           <th>ثبت‌کننده</th>
         </tr></thead><tbody>
+        ${openingRow}
         ${logs.map(l=>{
           const dt=l.date||(l.created_at?new Date((l.created_at||0)*1000).toLocaleDateString('fa-IR'):'-');
           const qIn=Number(l.qty_in)||0;
           const qOut=Number(l.qty_out)||0;
           const isOpening=!!l.is_opening;
           const isGroup=!!l.is_group && Array.isArray(l.details) && l.details.length>1;
-          const canDrill=l.ref_type && l.ref_id;
-          const noteHtml=canDrill
-            ? `<a href="#" data-kardex-ref="${esc(l.ref_type)}" data-kardex-id="${esc(String(l.ref_id))}" data-csp-style="${CSP.style(`color:var(--accent,var(--purple));text-decoration:underline`)}">${esc(l.note||'-')}</a>`
-            : esc(l.note||'-');
+          const src=_kardexSourceRef(l);
+          const lnkStyle=`color:var(--accent,var(--purple));text-decoration:underline`;
+          const varLbl=[l.color_name,(typeof displaySizeName==='function'?displaySizeName(l.size_name):l.size_name)].filter(Boolean).join(' / ');
+          const noteBase=esc(l.note||'-')+(varLbl?` <span class="muted">· ${esc(varLbl)}</span>`:'');
+          const isRev=['reversed','cancelled','canceled','void'].includes(String(l.status||''));
+          const revRow=reversedByMap[String(l.id)];
+          const revId=revRow?revRow.id:l.reversed_by;
+          const noteHtml=(src && src.id)
+            ? `<a href="#" data-kardex-ref="${esc(String(src.type))}" data-kardex-id="${esc(String(src.id))}" data-csp-style="${CSP.style(lnkStyle)}">${noteBase}</a>`
+            : noteBase;
+          const revNote=(l.reversal_of?` <a href="#" class="kardex-rev-link" data-kardex-jump="${esc(String(l.reversal_of))}" data-csp-style="${CSP.style(lnkStyle)}">↩ برگشت ردیف #${esc(String(l.reversal_of))}</a>`:'')
+            +(isRev?(revId?` <a href="#" class="kardex-rev-link" data-kardex-jump="${esc(String(revId))}" data-csp-style="${CSP.style(lnkStyle)}">⛔ ابطال‌شده — ردیف معکوس #${esc(String(revId))}</a>`:' <span class="kardex-badge-rev">ابطال‌شده</span>'):'');
+          const stageBadge=(l.is_wip?' <span class="kardex-badge-wip">WIP</span>':'')+(l.warehouse_only?' <span class="kardex-badge-wip">فقط انباری</span>':'');
           const badge=isOpening?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">اول دوره</span>`:'';
           const groupBadge=isGroup?` <button type="button" class="btn sm ghost kardex-tog" data-kid="${esc(String(l.id))}" aria-expanded="false" data-csp-style="${CSP.style(`font-size:10px;padding:0 6px;min-height:24px`)}">▾ ${fmt(l.detail_count||l.details.length)} جزئیات</button>`:'';
           const colSpan=window.__canSeeCost?10:8;
@@ -14900,10 +15073,10 @@ async function loadItemKardex(productId){
               <td colspan="${window.__canSeeCost?4:2}" class="muted">جزئیات رنگ/سایز</td>
             </tr>`;
           }).join(''):'';
-          return `<tr>
+          return `<tr id="kardex-row-${esc(String(l.id))}" class="${isRev?'kardex-row-reversed':''}${l.reversal_of?' kardex-row-reversal':''}">
           <td class="mono">${esc(dt)}</td>
-          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.doc_num||l.tx_no||l.event_type||'-')}${badge}${groupBadge}</td>
-          <td>${noteHtml}</td>
+          <td class="mono" data-csp-style="${CSP.style(`font-size:11px`)}">${esc(l.doc_num||l.tx_no||l.event_type||'-')}${badge}${stageBadge}${groupBadge}</td>
+          <td>${noteHtml}${revNote}</td>
           <td class="muted">${esc(l.warehouse_name||'-')}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(qIn)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyOrDash(qOut)}</td>
@@ -14912,7 +15085,7 @@ async function loadItemKardex(productId){
           <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}${kardexAdjustRowActions(l, productId)}</td>
         </tr>${detailRows}`;
-        }).join('')||`<tr><td colspan="10" class="empty">${
+        }).join('')||`<tr><td colspan="${totalCols}" class="empty">${
           Number(d.product?.stock||0)>0
             ? 'ردیفی در دفتر موجودی نیست — موجودی را با سند اول دوره یا شمارش انبار ثبت کنید'
             : 'تراکنشی ثبت نشده'
@@ -14938,6 +15111,23 @@ async function loadItemKardex(productId){
       ev.preventDefault();
       _kardexOpenSource(this.getAttribute('data-kardex-ref'), this.getAttribute('data-kardex-id'));
     });
+  });
+  box.querySelectorAll('[data-kardex-jump]').forEach(a=>{
+    a.addEventListener('click',function(ev){
+      ev.preventDefault();
+      _kardexJumpToRow(this.getAttribute('data-kardex-jump'));
+    });
+  });
+  el('kardexPrev')?.addEventListener('click',()=>{
+    if(_kardexState.page>1){ _kardexState.page=d.page-1; loadItemKardex(productId); }
+  });
+  el('kardexNext')?.addEventListener('click',()=>{
+    _kardexState.page=d.page+1; loadItemKardex(productId);
+  });
+  el('kardexPageSize')?.addEventListener('change',function(){
+    _kardexState.page_size=Number(this.value)||100;
+    _kardexState.page=1;
+    loadItemKardex(productId);
   });
   box.querySelectorAll('.kardex-tog').forEach(btn=>{
     btn.addEventListener('click',function(ev){
@@ -25917,7 +26107,6 @@ async function pdLoadVariants(){
   catch(e){ rows=[]; }
   rows=(rows||[]).filter(v=>!v.is_default);
   if(!rows.length){ wrap.hidden=true; sel.innerHTML=''; if(matrixWrap){ matrixWrap.hidden=true; matrixWrap.innerHTML=''; } return; }
-  wrap.hidden=false;
   sel.innerHTML='<option value="">— یک ترکیب (یا ماتریس پایین) —</option>'+rows.map(v=>`<option value="${v.id}">${esc(v.color_name||'')} / ${esc(displaySizeName(v.size_name)||'')}</option>`).join('');
   if(matrixWrap){
     matrixWrap.hidden=false;
@@ -38961,6 +39150,17 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📋','کاردکس کالا — فیلتر واریانت، صفحه‌بندی، ابطال‌شده و چاپ (v576 / فاز ۳ انبار)',`
+      <p>منو: <b>انبار ← کاردکس کالا</b> (مدیر و حسابدار). ردیف‌ها به ترتیب <b>تاریخ، سپس شناسهٔ ردیف</b> مرتب‌اند و «مانده» از ماندهٔ ابتدای دوره برای <b>همان فیلتر</b> (کالا، انبار، واریانت و بازهٔ تاریخ) شروع می‌شود، نه از سرستون کالا. اگر یک کالا در یک انبار دو سند «موجودی اول دوره» دارد، ماندهٔ جاری ردیف‌ها به‌ترتیب جمع می‌شود (مثلاً ۱ و بعد ۶).</p>
+      <ul>
+        <li><b>رنگ / سایز:</b> وقتی کالا ماتریس رنگ×سایز دارد، فهرست «رنگ / سایز» ظاهر می‌شود؛ انتخاب یک واریانت فقط ردیف‌های همان SKU و ماندهٔ همان را نشان می‌دهد («همه واریانت‌ها» = کل کالا).</li>
+        <li><b>صفحه‌بندی:</b> محدودیت ثابت ۵۰۰ ردیف برداشته شده؛ با «قبلی/بعدی» و «تعداد در صفحه» (۵۰ تا ۵۰۰) صفحه عوض کنید. «مانده ابتدای این صفحه» (و ارزش ریالی آن برای کاربر مجاز) را سرور از مجموع تمام ردیف‌های قبل می‌دهد؛ مانده پایان صفحهٔ آخر با پایان دوره و جمع دفتر برابر است.</li>
+        <li><b>نمایش WIP / ردیف‌های فقط-انباری:</b> به‌صورت پیش‌فرض خاموش‌اند تا کاردکس فقط گردش انبار فیزیکی باشد. با تیک زدن، ردیف‌های کار در جریان (بسته برش و …) و ردیف‌های فقط-انباری بدون اثر مالی هم با برچسب نشان داده می‌شوند.</li>
+        <li><b>نمایش ابطال‌شده:</b> خاموش = ردیف‌های ابطال‌شده دیده نمی‌شوند. روشن = ردیف اصلی <b>خاکستری و خط‌خورده</b> است و لینک «ابطال‌شده — ردیف معکوس #…» شما را به ردیف برگشت می‌برد؛ ردیف معکوس هم لینک «برگشت ردیف #…» به ردیف اصلی دارد (بر اساس <span dir="ltr">status</span> و <span dir="ltr">reversal_of</span> است، نه متن شرح). اگر ردیف در صفحهٔ دیگری باشد پیام می‌دهد.</li>
+        <li><b>لینک سند منبع:</b> روی شرح هر ردیف بزنید تا فاکتور فروش/خرید، سند انبار (رسید/حواله/انتقال)، سفارش تولید، شمارش انبار یا تعدیل باز شود.</li>
+        <li><b>چاپ:</b> دکمهٔ «🖨 چاپ» همان صفحهٔ جاری جدول را با سربرگ کالا و فیلترها چاپ می‌کند (دکمه‌ها و صفحه‌بندی چاپ نمی‌شوند). <b>Excel/CSV:</b> «⬇ Excel/CSV» با همان فیلترها (کالا، انبار، واریانت، تاریخ، رویداد و تیک‌ها) فایل می‌دهد و در Excel باز می‌شود.</li>
+      </ul>
+      <p>اگر ماندهٔ کاردکس با موجودی انبار فرق کند، کادر قرمز مقدار اختلاف را نشان می‌دهد و فقط با شمارش انبار و سند تعدیل رفع می‌شود (هیچ هم‌ترازی خودکار انجام نمی‌شود).</p>`),
     helpSec('⬆️','حواله انبار — نوع حواله (v575 / فاز ۲ عملیات)',`
       <p>در فرم <b>حواله انبار</b> انتخاب <b>نوع حواله</b> الزامی است. هر نوع برای سند حسابداری به حساب طرف متناظر (<span dir="ltr">coa_issue_&lt;نوع&gt;</span> در تنظیمات) و یک <b>مرکز هزینه</b> یا <b>گیرنده</b> نیاز دارد:</p>
       <ul>

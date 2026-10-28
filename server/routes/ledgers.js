@@ -31,7 +31,8 @@ function financialQuery(req) {
   });
 }
 
-function stockQuery(req) {
+/** csv=true → never paginate (export is the full filtered kardex). */
+function stockQuery(req, { csv = false } = {}) {
   const { from, to } = assertJalaliQuery(req.query.from, req.query.to);
   return buildStockLedger(getDB(), {
     product_id: req.query.product_id || req.query.entity_id,
@@ -39,6 +40,13 @@ function stockQuery(req) {
     from,
     to,
     event_type: req.query.event_type,
+    // Phase 3 (v576)
+    variant_id: req.query.variant_id,
+    page: csv ? undefined : req.query.page,
+    page_size: csv ? undefined : req.query.page_size,
+    show_wip: req.query.show_wip,
+    show_warehouse_only: req.query.show_warehouse_only,
+    show_cancelled: req.query.show_cancelled,
   }, { stripCost: req.user?.role === 'field_sales' });
 }
 
@@ -69,7 +77,7 @@ router.get('/financial/export', auth, adminOrAccounting, (req, res) => {
 router.get('/stock', auth, adminOrAccounting, (req, res) => {
   try {
     if (String(req.query.format || '').toLowerCase() === 'csv') {
-      const data = stockQuery(req);
+      const data = stockQuery(req, { csv: true });
       res.setHeader('Content-Disposition', 'attachment; filename=stock-ledger.csv');
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       return res.send('\uFEFF' + stockToCsv(data));
@@ -80,7 +88,7 @@ router.get('/stock', auth, adminOrAccounting, (req, res) => {
 
 router.get('/stock/export', auth, adminOrAccounting, (req, res) => {
   try {
-    const data = stockQuery(req);
+    const data = stockQuery(req, { csv: true });
     if (String(req.query.format || 'csv').toLowerCase() !== 'csv') {
       return res.status(400).json({ error: 'فقط format=csv پشتیبانی می‌شود' });
     }

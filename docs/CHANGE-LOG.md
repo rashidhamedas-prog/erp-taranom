@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۷ — v576: فاز ۳ انبار — کاردکس استاندارد (صفحه‌بندی، واریانت، ابطال، چاپ) (SW v576)
+- **منبع:** `.tmp-warehouse-spec/04-phase3-kardex.md`؛ شاخهٔ `wh/phase-3-kardex`؛ بک‌اند [Backend](e4ec0e26-0c4d-47d7-b3e3-055bae57f7d5) + فرانت [Frontend](b890f9ad-417d-4161-ab10-3154d6c2b56e).
+- **API:** `buildStockLedger` + `getKardex` — `ORDER BY date,id`؛ فیلتر warehouse/variant/from/to؛ ماندهٔ qty+ریال برای فیلتر؛ صفحه‌بندی با `opening_*` ابتدای صفحه؛ تیک WIP / warehouse-only / cancelled بدون regex روی note.
+- **UI:** انتخاب واریانت؛ pager؛ تیک‌ها؛ ردیف ابطال خاکستری؛ لینک سند (فاکتور/انبار/تولید/شمارش)؛ چاپ + CSV با `downloadAuth`.
+- **Help:** کاردکس کالا (v576).
+- **تست:** `test:wh-kardex-p3` (۹۳) داخل `npm test`.
+- **فایل‌ها:** `lib/{ledgers,inventory/ledger}.js`، `routes/{ledgers,inventory}.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
+- **Deploy:** ⏳ pending
 ### ۱۴۰۵/۰۸/۰۷ — v575: فاز ۲ عملیات انبار — نوع حواله، انتقال، RBAC، ledger.variant_id (SW v575)
 - **منبع:** `.tmp-warehouse-spec/03-phase2-operations.md`؛ شاخهٔ `wh/phase-2-operations`؛ [Schema+RBAC](6e6de869-5814-41d5-8c5c-11950457f256) + [Ops](a0f72ee6-d3f4-42c4-81b6-d82a70e108fa) + [UI](9b43a8da-59ce-45d3-b63d-a8a9d5b9553d).
 - **اسکیما:** `warehouse_docs.issue_type`؛ `inventory_ledger.variant_id` (nullable، بدون backfill).
