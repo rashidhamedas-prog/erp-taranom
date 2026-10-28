@@ -38645,7 +38645,14 @@ ROUTES.settings = async function(){
       <div class="form-grid">
         ${coaMapFieldsHtml(s, coaKeyCatalog)}
       </div>
-      <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود')}</div>
+      <div class="fg" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <label>تفصیلی کالا (<span dir="ltr">coa_product_tafsili_mode</span>) ${hlp('legacy_leaf = برگ ۱۲رقمی زیر موجودی (رفتار فعلی). detail_account = فقط تفصیلی شناور بدون ساخت حساب دفتر؛ حساب ثبت موجودی از نگاشت انبار می‌آید.')}</label>
+        <select id="s-coa_product_tafsili_mode">
+          <option value="legacy_leaf" ${s.coa_product_tafsili_mode!=='detail_account'?'selected':''}>legacy_leaf — برگ کالایی (پیش‌فرض)</option>
+          <option value="detail_account" ${s.coa_product_tafsili_mode==='detail_account'?'selected':''}>detail_account — تفصیلی شناور (بدون برگ COA)</option>
+        </select>
+      </div>
+      <div data-csp-style="${CSP.style(`margin-top:12px`)}">${settToggle('s-feature_cogs_voucher', s.feature_cogs_voucher==='1', 'سند بهای تمام‌شده خودکار در فاکتور رسمی', 'پس از صدور فاکتور نهایی، سند بهای تمام‌شده ثبت شود. مسیر قدیمی postCogsVoucher فقط با این پرچم=1 فعال است و از products.coa_code استفاده می‌کند؛ در حالت عادی (۰) سند بهای تمام‌شده از نگاشت انبار می‌آید.')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-require_cc_on_expense', s.require_cc_on_expense==='1', 'الزام مرکز هزینه روی همهٔ هزینه‌ها', 'وقتی روشن باشد، فقط اگر مبلغ هزینهٔ دوره پر باشد (بدهکار حساب هزینه ۶xxx / type=expense در پرداخت هزینه، سند دستی، خرج چک، انگیزه، …) مرکز هزینه الزامی است. بهای تمام‌شدهٔ فروش (۵۱۰۱/COGS) و سطر با مبلغ صفر بلاک نمی‌شوند — در صورت وجود از مرکز انبار stamp می‌شوند. سربار تولید حتی با خاموش بودن همیشه مرکز می‌خواهد. اسناد قدیمی تغییر نمی‌کنند.')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_reverse_vat', s.returns_reverse_vat!=='0', 'برگشت VAT روی برگشتِ لینک‌شده به فاکتور', 'فقط وقتی فاکتور مرجع انتخاب شده؛ سهم مالیات برگشتی متناسب با همان فاکتور در سند حسابداری معکوس می‌شود')}</div>
       <div data-csp-style="${CSP.style(`margin-top:8px`)}">${settToggle('s-returns_allow_open', s.returns_allow_open==='1', 'اجازه برگشت بدون فاکتور (غیر از مدیر/حسابداری)', 'مدیر و حسابداری همیشه می‌توانند؛ با روشن بودن این گزینه سایر نقش‌های مجاز هم حالت «بدون فاکتور» را می‌بینند')}</div>
@@ -39103,6 +39110,10 @@ async function saveSettings(){
     if(k && k.startsWith('coa_') && k !== 'coa_mode') data[k]=String(inp.value||'').trim();
   });
   if(el('s-feature_cogs_voucher')) data.feature_cogs_voucher = el('s-feature_cogs_voucher').checked ? '1' : '0';
+  if(el('s-coa_product_tafsili_mode')) {
+    const m = String(el('s-coa_product_tafsili_mode').value || '').trim();
+    data.coa_product_tafsili_mode = m === 'detail_account' ? 'detail_account' : 'legacy_leaf';
+  }
   if(el('s-require_cc_on_expense')) data.require_cc_on_expense = el('s-require_cc_on_expense').checked ? '1' : '0';
   if(el('s-returns_reverse_vat')) data.returns_reverse_vat = el('s-returns_reverse_vat').checked ? '1' : '0';
   if(el('s-returns_allow_open')) data.returns_allow_open = el('s-returns_allow_open').checked ? '1' : '0';
@@ -39718,6 +39729,14 @@ function renderAdminGuide(){
         <li>حساب غیرکنترلی باید در دفتر کل <b>فعال و برگ</b> (بدون زیرمجموعه) باشد و با گروه کلید سازگار باشد؛ وگرنه ذخیره با خطای فارسی <span dir="ltr">E_COA_NOT_FOUND / E_COA_NOT_LEAF / E_COA_TYPE_MISMATCH</span> رد می‌شود.</li>
         <li>کلیدهای <b>کنترلی</b> (دریافتنی، پرداختنی، موجودی کالا، صندوق، بانک، اشخاص، WIP، سربار/دستمزد، و مرجوعی به تأمین‌کننده) می‌توانند معین غیربرگ باشند.</li>
         <li>پیش‌فرض‌های سیستم عوض نمی‌شوند؛ برای زیان واگذاری دارایی فقط کد پیشنهادی <span dir="ltr">6119</span> در راهنما آمده است. انتخاب برگ نهایی با مدیر/حسابدار است.</li>
+      </ul>`),
+    helpSec('📦','تفصیلی کالا و حساب ثبت موجودی از انبار (v587)',`
+      <p>ساخت برگ ۱۲رقمی کالایی زیر حساب موجودی با تنظیم <span dir="ltr">coa_product_tafsili_mode</span> در «تنظیمات ← نگاشت کدینگ» کنترل می‌شود. پیش‌فرض <b>legacy_leaf</b> است (رفتار قبلی). با <b>detail_account</b> کالای جدید حساب دفتر نمی‌سازد؛ فقط تفصیلی شناور (دسته کالا، پیوند به products) ساخته می‌شود و <span dir="ltr">products.coa_code</span> خالی می‌ماند. برگ‌های قدیمی غیرفعال یا بازنویسی نمی‌شوند.</p>
+      <ul>
+        <li><b>حساب ثبت موجودی:</b> در فروش/بهای تمام‌شده، برگشت، رسید/حواله/انتقال، تولید، تعدیل، برش و تطبیق فقط از <span dir="ltr">inventory_coa_code</span> انبار (تابع <span dir="ltr">inventoryAccountForWarehouse</span>) می‌آید — نه از <span dir="ltr">products.coa_code</span> و نه مستقیم از کلید <span dir="ltr">coa_inventory</span> به‌عنوان سطر کالا.</li>
+        <li><b>محافظ:</b> اگر کلید کنترلی (مثل موجودی یا WIP) برابر نگاشت موجودی/بهای تمام‌شدهٔ یک انبار باشد، زیر آن تفصیلی ساخته نمی‌شود (<span dir="ltr">E_COA_LEAF_IS_WAREHOUSE_MAP</span>)؛ ساخت کالا شکست نمی‌خورد.</li>
+        <li><b>مسیر قدیمی:</b> <span dir="ltr">postCogsVoucher</span> فقط وقتی <span dir="ltr">feature_cogs_voucher=1</span> است اجرا می‌شود و دست‌نخورده مانده؛ در حالت عادی (۰) سند بهای تمام‌شده از نگاشت انبار است.</li>
+        <li>تغییر حالت به <span dir="ltr">detail_account</span> و پر کردن نگاشت انبارها کار دستی مدیر است؛ این نسخه هیچ سندی نمی‌سازد و ۳۳۸ برگ legacy را دست نمی‌زند.</li>
       </ul>`),
     helpSec('🔗','نگاشت اجباری حساب برگ انبار و بهای تمام‌شده (v585)',`
       <p>هر انبار <b>دائمی (Perpetual)</b> باید دو حساب <b>برگ</b> (بدون زیرمجموعه) داشته باشد: <b>حساب موجودی</b> (زیر گروه ۱۱) و <b>حساب بهای تمام‌شده</b> (زیر گروه ۵). در «اطلاعات پایه ← انبارها ← ✏️» هر دو را وارد کنید؛ هیچ حسابی خودکار انتخاب یا پر نمی‌شود. انبار <b>ادواری</b> از این اجبار معاف است.</p>

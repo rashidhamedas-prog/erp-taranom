@@ -57,6 +57,8 @@ const NON_COA_ALLOWED_KEYS = [
   'cheque_approve_threshold_rial',
   // v585 Phase 1 — leaf-account enforcement: warn (default) | enforce
   'ledger_leaf_enforcement',
+  // v586 Phase 2 — product tafsili: legacy_leaf (default) | detail_account
+  'coa_product_tafsili_mode',
 ];
 
 /** SSOT: every LEGACY coa_* key is persistable (no hand-maintained coa allow-list). */
@@ -213,6 +215,16 @@ router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
       return res.status(400).json({ error: 'مقدار ledger_leaf_enforcement فقط warn یا enforce است', code: 'E_LEAF_FLAG' });
     }
     body.ledger_leaf_enforcement = v;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'coa_product_tafsili_mode')) {
+    const v = String(body.coa_product_tafsili_mode || '').trim().toLowerCase();
+    if (v !== 'legacy_leaf' && v !== 'detail_account') {
+      return res.status(400).json({
+        error: 'مقدار coa_product_tafsili_mode فقط legacy_leaf یا detail_account است',
+        code: 'E_PRODUCT_TAFSILI_MODE',
+      });
+    }
+    body.coa_product_tafsili_mode = v;
   }
   const dbForPolicy = getDB();
   const policyCheck = validateStaffPolicyBody(body, dbForPolicy);

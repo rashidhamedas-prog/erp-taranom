@@ -24,6 +24,7 @@ function cancelTitleForRole(role) {
   return 'فاکتور لغو شده توسط کاربر';
 }
 
+// LEGACY (v586): same as routes/invoices.postCogsVoucher — behind feature_cogs_voucher=1 only; untouched.
 function postCogsVoucher(db, invId, num, date, rows, userId, reverse) {
   const on = db.prepare("SELECT value FROM settings WHERE key='feature_cogs_voucher'").get();
   if (!on || on.value !== '1') return;

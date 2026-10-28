@@ -109,37 +109,71 @@ function warehouseQty(db, productId, warehouseId) {
 }
 
 /**
- * Resolve inventory control account for a warehouse.
- * Priority: warehouses.inventory_coa_code (valid COA) → warehouse_type map → coa_inventory.
- * ADR-001: valuation stays at product header; this only picks the GL control account.
+ * Resolve inventory GL account for a warehouse (sole source for inventory JE lines).
+ * Priority: warehouses.inventory_coa_code when it is a postable leaf → else type-map /
+ * coa_inventory fallback. Never uses products.coa_code.
+ *
+ * Empty / non-leaf inventory_coa_code (perpetual):
+ *   warn    → structured log E_WAREHOUSE_COA_UNMAPPED + current type-map fallback
+ *   enforce → 422 E_WAREHOUSE_COA_UNMAPPED (reuse v585)
+ * readOnly skips throw (reports).
  */
 function inventoryAccountForWarehouse(db, warehouseId, opts = {}) {
   if (!warehouseId) return acct(db, 'coa_inventory');
   let wh;
   try {
-    wh = db.prepare('SELECT warehouse_type, inventory_coa_code FROM warehouses WHERE id=?').get(warehouseId);
+    wh = db.prepare(
+      'SELECT warehouse_type, inventory_coa_code, inventory_system FROM warehouses WHERE id=?'
+    ).get(warehouseId);
   } catch (_) {
-    wh = db.prepare('SELECT warehouse_type FROM warehouses WHERE id=?').get(warehouseId);
+    try {
+      wh = db.prepare('SELECT warehouse_type, inventory_coa_code FROM warehouses WHERE id=?').get(warehouseId);
+    } catch (__) {
+      wh = db.prepare('SELECT warehouse_type FROM warehouses WHERE id=?').get(warehouseId);
+    }
   }
+  const policy = require('../coa-leaf-policy');
+  const t = wh?.warehouse_type || '';
+  const fixedAsset = policy.isFixedAssetWarehouseType(t);
   const override = String(wh?.inventory_coa_code || '').trim();
-  if (override) {
+  const invCheck = policy.checkMappedAccount(db, override, 'inventory', { fixedAsset });
+
+  if (invCheck.ok) {
     const row = db.prepare(
       'SELECT code, name FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1'
     ).get(override);
     if (row) return { code: row.code, name: row.name };
   }
-  const t = wh?.warehouse_type || '';
+
   // v585: non-standard type «دارایی_ثابت» (warehouse 36) must carry an explicit inventory map.
-  // Never silently fall through to finished_goods/1104; readOnly callers (reports) get the
-  // legacy account flagged `unmapped_fixed_asset` instead of an exception.
-  if (require('../coa-leaf-policy').isFixedAssetWarehouseType(t)) {
+  if (fixedAsset) {
     if (opts && opts.readOnly) return { ...acct(db, 'coa_finished_goods'), unmapped_fixed_asset: true };
-    throw require('../coa-leaf-policy').leafErr(
+    throw policy.leafErr(
       'E_WAREHOUSE_TYPE_UNSUPPORTED', 422,
       'انبار از نوع «دارایی ثابت» است و حساب موجودی ندارد — ابتدا در اطلاعات پایه ← انبارها حساب برگ موجودی را تعیین کنید (E_WAREHOUSE_TYPE_UNSUPPORTED)',
       { warehouse_id: Number(warehouseId) },
     );
   }
+
+  // v586: empty/non-leaf map on perpetual warehouse
+  const perpetual = policy.isPerpetualSystem(wh && wh.inventory_system != null ? wh.inventory_system : 'perpetual');
+  if (perpetual && !(opts && opts.readOnly) && !invCheck.ok) {
+    const mode = policy.leafEnforcementMode(db);
+    if (mode === 'enforce') {
+      throw policy.leafErr(
+        policy.E_UNMAPPED, 422,
+        `انبار #${warehouseId} نگاشت حساب برگ موجودی ندارد (${policy.reasonFa(invCheck.reason)}) — در اطلاعات پایه ← انبارها تکمیل کنید (E_WAREHOUSE_COA_UNMAPPED)`,
+        { warehouse_id: Number(warehouseId), inventory_reason: invCheck.reason },
+      );
+    }
+    policy.logLeafIssue(policy.E_UNMAPPED, {
+      warehouse_id: Number(warehouseId),
+      inventory_reason: invCheck.reason,
+      mode,
+      source: 'inventoryAccountForWarehouse',
+    });
+  }
+
   if (t === 'raw_material') return acct(db, 'coa_raw_materials');
   if (t === 'packaging') return acct(db, 'coa_packaging_materials');
   if (t === 'wip') return acct(db, 'coa_wip');

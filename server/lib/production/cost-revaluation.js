@@ -36,13 +36,11 @@ function productOnHand(db, productId) {
   return Number(row?.q) || 0;
 }
 
+/** Inventory GL for cost reval — warehouse map only (never products.coa_code). */
 function inventoryAccountForProduct(db, product) {
-  const code = String(product.coa_code || '').trim();
-  if (code) {
-    const row = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1').get(code);
-    if (row) return row;
-  }
-  return acct(db, 'coa_finished_goods');
+  const { inventoryAccountForWarehouse } = require('../inventory/ledger');
+  const whId = product && product.warehouse_id != null ? parseInt(product.warehouse_id, 10) : null;
+  return inventoryAccountForWarehouse(db, Number.isFinite(whId) && whId > 0 ? whId : null);
 }
 
 function computeNewUnitCost(db, product, periodLabel) {

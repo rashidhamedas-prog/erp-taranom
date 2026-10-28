@@ -48,7 +48,9 @@ function amountRial(row) {
 function inventoryAcct(db, warehouseId) {
   try {
     return inventoryAccountForWarehouse(db, warehouseId);
-  } catch (_) {
+  } catch (e) {
+    // Propagate leaf/map enforcement; only swallow unexpected errors
+    if (e && (e.code === 'E_WAREHOUSE_COA_UNMAPPED' || e.code === 'E_WAREHOUSE_TYPE_UNSUPPORTED')) throw e;
     return acct(db, 'coa_inventory');
   }
 }

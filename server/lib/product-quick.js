@@ -4,7 +4,7 @@
  * Product master-data writes used by POST /products/quick and Excel commit.
  * Domain rules stay here — routes only adapt HTTP.
  */
-const { allocTafsili } = require('./coa-map');
+const { assignProductTafsili } = require('./product-tafsili');
 const { parseQty } = require('./round3');
 
 function nextProductCode(db) {
@@ -101,10 +101,7 @@ function createQuickProduct(db, user, body) {
       db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
         .run(productId, defaultWarehouse, openingStock);
     }
-    try {
-      const cc = allocTafsili(db, 'product', name);
-      if (cc) db.prepare('UPDATE products SET coa_code=? WHERE id=?').run(cc, productId);
-    } catch (_) { /* optional in legacy mode */ }
+    try { assignProductTafsili(db, productId, name); } catch (_) { /* optional */ }
     if (openingStock > 0 && unitCostForOpening > 0) {
       const { postProductOpeningInventory } = require('./opening-post');
       postProductOpeningInventory(db, {

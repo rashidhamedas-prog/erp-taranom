@@ -779,9 +779,8 @@ function postProductOpeningInventory(db, {
 
   const totalRial = Math.round(q * unit);
   const { inventoryAccountForWarehouse } = require('./inventory/ledger');
-  const inventory = product.warehouse_id
-    ? inventoryAccountForWarehouse(db, product.warehouse_id)
-    : acct(db, 'coa_inventory');
+  // v586: inventory JE line only via inventoryAccountForWarehouse (never products.coa_code)
+  const inventory = inventoryAccountForWarehouse(db, product.warehouse_id || null);
   const opening = acct(db, 'coa_opening_balance');
   const amtToman = rialToLedger(totalRial);
   const openingDate = date || fiscalOpeningDate(db);

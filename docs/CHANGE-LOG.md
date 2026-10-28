@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۸/۰۷ — v587: فاز ۲ تفصیلی کالا (`coa_product_tafsili_mode`) + حساب ثبت موجودی فقط از نگاشت انبار (SW v587)
+- **شاخه:** `feat/product-tafsili-warehouse-posting`؛ منبع: `.tmp-coa-keys-fix/phase-2-product-tafsili-and-warehouse-posting.md`. **بدون merge/deploy در این نوبت.**
+- **تنظیم جدید:** `coa_product_tafsili_mode` = `legacy_leaf` (پیش‌فرض migration با INSERT OR IGNORE) | `detail_account`. در UI «تنظیمات ← نگاشت کدینگ».
+  - `detail_account`: ساخت کالا / ورود گروهی هیچ ردیف `chart_of_accounts` نمی‌سازد؛ `detail_accounts` با دستهٔ `product` و `linked_table=products` (idempotent روی product_id)؛ `products.coa_code` برای کالای جدید NULL می‌ماند.
+  - `legacy_leaf`: رفتار فعلی (برگ ۱۲رقمی سطح ۴ زیر 110401).
+- **۳۳۸ برگ legacy:** حذف/غیرفعال/بازنویسی `products.coa_code` انجام نشد.
+- **محافظ `ensureControlParents` / `allocTafsili`:** اگر حساب مقصد (کد نگاشت یا معین حل‌شده) برابر `inventory_coa_code` یا `cogs_coa_code` هر انباری باشد → هیچ برگی ساخته نمی‌شود؛ `E_COA_LEAF_IS_WAREHOUSE_MAP`؛ `allocTafsili` → null + warn؛ ساخت کالا شکست نمی‌خورد. شامل `production_order`→`coa_wip`.
+- **حساب ثبت موجودی:** همهٔ مسیرهای فعال از `inventoryAccountForWarehouse`؛ خالی/غیربرگ روی انبار دائمی: warn=fallback+لاگ، enforce=422 `E_WAREHOUSE_COA_UNMAPPED`. اصلاح مسیرهایی که `products.coa_code` را برای سطر موجودی می‌خواندند (`amend-invoice` legacy، `cost-revaluation`، `opening-post`). **`postCogsVoucher` پشت `feature_cogs_voucher` دست‌نخورده ماند و مستند شد.**
+- **تست:** `test:product-tafsili` (داخل `npm test`).
+- **Help / SW:** `renderAdminGuide` بند v586؛ `sw.js` → `erp-taranom-v586`؛ `app.js?v=586`.
+- **فایل‌ها:** `lib/{coa-map,product-tafsili,amend-invoice,opening-post,consignments}.js`، `lib/inventory/{ledger,periodic-close}.js`، `lib/production/cost-revaluation.js`، `lib/void-invoice.js`، `routes/{products,settings,invoices}.js`، `lib/product-quick.js`، `scripts/test-product-tafsili-v586.js`، `public/{app.js,index.html,sw.js}`، `package.json`، CHANGE-LOG.
+- **Deploy:** ⏳ (فاز ۲ — فقط commit روی branch؛ merge/deploy جدا)
+
 ### ۱۴۰۵/۰۸/۰۷ — v586: فاز ۱ کلیدهای coa_* قابل‌تنظیم + اعتبارسنجی برگ/نوع هنگام ذخیره (SW v586)
 - **شاخه:** `feat/configurable-coa-keys`؛ منبع: `.tmp-coa-keys-fix/phase-1-configurable-coa-keys.md`. **Deploy:** ⏳ (بدون merge/deploy در این نوبت).
 - **SSOT:** `ALLOWED_KEYS` در `routes/settings.js` = کلیدهای غیر-coa + `Object.keys(LEGACY)` (۹۳ کلید). فهرست UI از `GET /api/settings/coa-keys` (کلید، نام، گروه، کنترلی بودن، default، suggested).
