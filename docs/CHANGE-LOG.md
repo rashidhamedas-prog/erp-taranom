@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۷ — v582 (بک‌اند): فاز ۱ نمایش موجودی فاکتور — API واحد موجودی قابل‌فروش (SW v582)
+- **شاخه/PR:** `fix/stock-line-availability-api` (rebase روی main پس از v581)؛ منبع: `.tmp-invoice-stock-display/phase-1-server-line-availability.md`.
+- **تابع:** `server/lib/inventory/line-availability.js` → `on_hand` (vws/ws همان لایهٔ کمبود)، `reserved`، `own_doc_qty` (add-back فاکتور کسرشده)، `available`، `drift`/`kardex_qty`/`movements_qty` فقط‌خواندنی.
+- **API:** `POST /api/inventory/line-availability/batch` (gate گزارش انبار؛ max ۱۰۰؛ `exclude_invoice_id` فقط با مجوز دیدن فاکتور). `buildStockByWarehouse` از همین تابع می‌خواند (`qty=on_hand`).
+- **سینک:** مسیر فقط‌خواندنی در blocklist capture.
+- **تست:** `test:line-availability` (۶۳ assertion، fixture کالای ۱۳۱).
+- **Help:** بند راهنمای ادمین دربارهٔ منبع واحد موجودی قابل‌فروش.
+- **فایل‌ها:** `lib/inventory/line-availability.js`، `routes/inventory.js`، `sync/capture.js`، `scripts/test-line-availability.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG. **Deploy:** ⏳
 ### ۱۴۰۵/۰۸/۰۷ — v581: اصلاح دادهٔ انبار — لایهٔ منفی وقتی انبار منفی را ممنوع کرده دست نمی‌خورد (SW v581)
 - **علت:** فاز B روی کپی تولید با تریگر `trg_ws_no_negative` قطع شد (`E_NEGATIVE_STOCK`). کاردکس منفی را نباید با شکستن تریگر روی انباری که `allow_negative` ندارد نوشت.
 - **رفتار:** اگر جمع کاردکس منفی است و انبار (یا تنظیم سراسری) موجودی منفی را اجازه نمی‌دهد، `warehouse_stock` و رنگ/سایز همان جفت عوض نمی‌شود، کالا مبهم می‌ماند، و در `ambiguous.csv` با قاعدهٔ `ws_negative_blocked` می‌آید. سند ثبت‌شده و ردیف کاردکس همچنان حذف نمی‌شوند.

@@ -36,6 +36,7 @@ const BLOCKLIST = [
   '/api/admin/restore-product-stock-wipe',
   '/api/crm/automations',
   '/api/inventory/adjust/preview', // v525 read-only POST
+  '/api/inventory/line-availability', // v580 read-only POST (sellable qty) — never replay
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 
