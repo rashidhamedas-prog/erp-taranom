@@ -13,7 +13,7 @@ const { validateStaffPolicyBody, normalizeTwofaRoles } = require('../lib/staff-s
 
 const ALLOWED_KEYS = [
   'currency_base','currency_display',
-  'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_bank_fee','coa_bank_interest','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense','feature_cogs_voucher','returns_reverse_vat','returns_allow_open','returns_auto_allocate_credit',
+  'coa_mode','coa_receivable','coa_payable','coa_sales','coa_sales_discount','coa_sales_return','coa_sales_expense','coa_other_income','coa_cogs','coa_inventory','coa_cash_default','coa_bank_default','coa_cheques_receivable','coa_cheques_in_collection','coa_card_in_transit','coa_card_fee','coa_bank_fee','coa_bank_interest','coa_adjustment','coa_payroll_expense','coa_payroll_payable','coa_misc_persons','coa_vat_payable','coa_vat_receivable','coa_depreciation_expense','coa_issue_internal_consume','coa_issue_sample_gift','coa_issue_scrap','coa_issue_consignment','coa_issue_return_to_supplier','coa_issue_other','feature_cogs_voucher','returns_reverse_vat','returns_allow_open','returns_auto_allocate_credit',
   'telegram_bot_token', 'telegram_chat_id',
   'sms_provider', 'sms_api_key', 'sms_from', 'sms_otp_template',
   'niksms_api_key', 'smsir_api_key', 'smsir_line',

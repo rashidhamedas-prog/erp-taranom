@@ -4,7 +4,10 @@ const {
   ACC_CAPABILITY_RESOURCES, capabilityDefault, resourceForNav,
 } = require('./accounting-access');
 
-const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'operate'];
+// APPEND-ONLY. `operate` = cheque lifecycle. `negative` (Warehouse Phase 2) = may post stock below zero
+// (only meaningful on acc_warehouse_ops; the warehouse must also allow negative).
+// acc_warehouse_ops mapping: view=view · create=create · void=delete (v525 convention) · negative=negative.
+const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'operate', 'negative'];
 
 const RESOURCES = [
   'customers', 'parties', 'products', 'invoices', 'followups', 'accounting', 'reports',
@@ -37,8 +40,8 @@ const CLOSED_DEFAULT_NONE = new Set([
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
-const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false, operate: false };
-const SALES_CRUD = { view: true, create: true, edit: true, delete: false, approve: false, export: true, operate: false };
+const VIEW_ONLY = { view: true, create: false, edit: false, delete: false, approve: false, export: false, operate: false, negative: false };
+const SALES_CRUD = { view: true, create: true, edit: true, delete: false, approve: false, export: true, operate: false, negative: false };
 const ACC_FULL = { ...ALL };
 const PROD_MGR = {
   production: { view: true, create: true, edit: true, delete: false, approve: true, export: true },
@@ -47,7 +50,7 @@ const PROD_MGR = {
   production_close: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
   production_reports: { view: true, create: false, edit: false, delete: false, approve: false, export: true },
 };
-const NONE = { view: false, create: false, edit: false, delete: false, approve: false, export: false, operate: false };
+const NONE = { view: false, create: false, edit: false, delete: false, approve: false, export: false, operate: false, negative: false };
 const CHEQUE_OPERATE = {
   view: true, create: true, edit: true, delete: false, approve: true, export: true, operate: true,
 };

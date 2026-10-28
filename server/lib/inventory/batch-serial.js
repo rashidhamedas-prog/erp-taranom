@@ -53,6 +53,102 @@ function adjustBatchQty(db, batchId, delta) {
   return next;
 }
 
+const SPLIT_SKIP_COLS = new Set([
+  'id', 'batch_no', 'warehouse_id', 'qty_on_hand', 'status', 'created_at', 'idempotency_key',
+  'ledger_id', 'journal_id', 'reversed_at', 'reversed_by', 'reversal_journal_id',
+  'source_type', 'source_id', 'qty_received', 'entry_qty',
+]);
+
+/**
+ * Warehouse-to-warehouse transfer of a lot (Phase 2, v575).
+ * - qty >= on-hand  → whole lot moves (warehouse_id UPDATE, same row, no split).
+ * - qty <  on-hand  → SPLIT: source keeps (on-hand − qty); destination gets a NEW lot row
+ *   (copy of the source attributes, batch_no `<src>-W<destWh>`), or tops up an existing
+ *   destination lot created by an earlier split of the same source.
+ * Must run inside the caller's transaction. Returns { sourceBatchId, destBatchId, split }.
+ */
+function splitBatchForTransfer(db, {
+  batchId, productId, qty, fromWarehouseId, toWarehouseId, createdBy = null,
+}) {
+  const b = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(batchId);
+  if (!b) throw invErr('E_BATCH_NOT_FOUND', 404);
+  const q = Number(qty) || 0;
+  if (q <= 0) throw invErr('E_INV_QTY', 400);
+  if (productId && Number(b.product_id) !== Number(productId)) {
+    throw invErr('E_BATCH_PRODUCT_MISMATCH', 400, { message: 'بچ انتخاب‌شده متعلق به این کالا نیست' });
+  }
+  if (b.warehouse_id != null && fromWarehouseId && Number(b.warehouse_id) !== Number(fromWarehouseId)) {
+    throw invErr('E_BATCH_WAREHOUSE_MISMATCH', 400, { message: 'بچ انتخاب‌شده در انبار مبدأ نیست' });
+  }
+  const onHand = Number(b.qty_on_hand) || 0;
+  if (q > onHand + 1e-9) {
+    throw invErr('E_BATCH_QTY_SHORT', 400, {
+      message: `موجودی بچ ${b.batch_no} کافی نیست (موجود: ${onHand})`,
+    });
+  }
+
+  if (q >= onHand - 1e-9) {
+    db.prepare('UPDATE inventory_batches SET warehouse_id=? WHERE id=?').run(toWarehouseId, batchId);
+    return { sourceBatchId: batchId, destBatchId: batchId, split: false };
+  }
+
+  // Reuse a destination lot from an earlier split of the same source, else create one.
+  const destNo = `${b.batch_no}-W${toWarehouseId}`;
+  let dest = db.prepare(
+    'SELECT * FROM inventory_batches WHERE product_id=? AND batch_no=?'
+  ).get(b.product_id, destNo);
+  if (dest && Number(dest.warehouse_id) !== Number(toWarehouseId)) {
+    // Same name but elsewhere (unusual): fall through to a uniquely suffixed new lot.
+    dest = null;
+  }
+  let destId;
+  if (dest) {
+    adjustBatchQty(db, dest.id, q);
+    destId = dest.id;
+  } else {
+    let no = destNo;
+    for (let i = 2; db.prepare('SELECT 1 FROM inventory_batches WHERE product_id=? AND batch_no=?').get(b.product_id, no); i++) {
+      no = `${destNo}-${i}`;
+    }
+    const cols = db.prepare('PRAGMA table_info(inventory_batches)').all().map((c) => c.name);
+    const copy = cols.filter((c) => !SPLIT_SKIP_COLS.has(c));
+    const names = [...copy, 'batch_no', 'warehouse_id', 'qty_on_hand', 'status'];
+    const vals = [...copy.map((c) => b[c]), no, toWarehouseId, q, 'active'];
+    if (cols.includes('qty_received')) { names.push('qty_received'); vals.push(q); }
+    if (cols.includes('source_type')) { names.push('source_type'); vals.push('batch_split'); }
+    if (cols.includes('source_id')) { names.push('source_id'); vals.push(b.id); }
+    if (cols.includes('created_by') && createdBy != null) {
+      const i = names.indexOf('created_by');
+      if (i >= 0) vals[i] = createdBy;
+    }
+    const r = db.prepare(
+      `INSERT INTO inventory_batches (${names.join(',')}) VALUES (${names.map(() => '?').join(',')})`
+    ).run(...vals);
+    destId = r.lastInsertRowid;
+  }
+  adjustBatchQty(db, batchId, -q);
+  return { sourceBatchId: batchId, destBatchId: destId, split: true };
+}
+
+/**
+ * Undo splitBatchForTransfer (void of a transfer line). `destBatchId` is the lot that
+ * received the stock (taken from the transfer_in ledger row).
+ */
+function unsplitBatchForTransfer(db, {
+  sourceBatchId, destBatchId, qty, fromWarehouseId,
+}) {
+  if (!sourceBatchId) return;
+  if (!destBatchId || Number(destBatchId) === Number(sourceBatchId)) {
+    if (fromWarehouseId) {
+      db.prepare('UPDATE inventory_batches SET warehouse_id=? WHERE id=?').run(fromWarehouseId, sourceBatchId);
+    }
+    return;
+  }
+  const q = Number(qty) || 0;
+  adjustBatchQty(db, destBatchId, -q);
+  adjustBatchQty(db, sourceBatchId, q);
+}
+
 /** FEFO: earliest expiry first; null expiry last. */
 function pickBatchesFefo(db, productId, warehouseId, qtyNeeded) {
   const rows = db.prepare(`
@@ -130,5 +226,6 @@ function listSerials(db, { productId, warehouseId, status } = {}) {
 
 module.exports = {
   createBatch, adjustBatchQty, pickBatchesFefo, listBatches,
+  splitBatchForTransfer, unsplitBatchForTransfer,
   createSerial, setSerialStatus, listSerials,
 };

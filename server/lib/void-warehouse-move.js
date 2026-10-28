@@ -36,8 +36,20 @@ function reverseBatchSideEffects(db, move) {
     if (move.type === 'receipt') adjustBatchQty(db, batchId, -qty);
     else if (move.type === 'issue') adjustBatchQty(db, batchId, qty);
     else if (move.type === 'transfer' && move.from_warehouse_id) {
-      db.prepare('UPDATE inventory_batches SET warehouse_id=? WHERE id=?')
-        .run(move.from_warehouse_id, batchId);
+      // v575: destination lot = batch_id of the ORIGINAL transfer_in ledger row (split lot or same lot).
+      const inRow = db.prepare(`
+        SELECT batch_id FROM inventory_ledger
+        WHERE source_type='warehouse_transfer' AND source_id=? AND event_type='transfer_in'
+          AND reversed_of IS NULL
+        ORDER BY id ASC LIMIT 1
+      `).get(move.id);
+      const { unsplitBatchForTransfer } = require('./inventory/batch-serial');
+      unsplitBatchForTransfer(db, {
+        sourceBatchId: batchId,
+        destBatchId: inRow && inRow.batch_id ? inRow.batch_id : batchId,
+        qty: Number(move.qty) || 0,
+        fromWarehouseId: move.from_warehouse_id,
+      });
     }
   } catch (e) {
     if (e && e.code === 'E_BATCH_NOT_FOUND') return;

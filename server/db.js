@@ -3719,6 +3719,15 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'warehouse_docs', 'receipt_class', "TEXT DEFAULT 'adjustment'");
   ensureColumn(db, 'warehouse_docs', 'supplier_id', 'INTEGER');
   ensureColumn(db, 'warehouse_docs', 'purchase_invoice_id', 'INTEGER');
+  // Warehouse Phase 2 (additive, nullable, NO backfill — old rows stay NULL):
+  //   issue_type: internal_consume|sample_gift|scrap|consignment|return_to_supplier|other (issue docs only)
+  //   inventory_ledger.variant_id: filled only by new movements
+  ensureColumn(db, 'warehouse_docs', 'issue_type', 'TEXT');
+  try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
+      ensureColumn(db, 'inventory_ledger', 'variant_id', 'INTEGER');
+    }
+  } catch (e) { console.warn('⚠️ inventory_ledger.variant_id:', e.message); }
   ensureColumn(db, 'purchase_invoices', 'warehouse_doc_id', 'INTEGER');
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_warehouse_moves_doc_id ON warehouse_moves(doc_id)'); }
   catch (e) { console.warn('⚠️ idx_warehouse_moves_doc_id:', e.message); }

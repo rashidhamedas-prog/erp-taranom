@@ -11,9 +11,13 @@
  * The accounting role stays on the existing role gate so unmapped routes keep working.
  */
 
-const ALL_FLAGS = { view: true, create: true, edit: true, delete: true, approve: true, export: true };
-const NONE_FLAGS = { view: false, create: false, edit: false, delete: false, approve: false, export: false };
-const MANAGER_FLAGS = { view: true, create: false, edit: false, delete: false, approve: true, export: true };
+// `negative` is only meaningful on acc_warehouse_ops (Warehouse Phase 2: may post stock below zero);
+// it never authorizes an HTTP method (see flagsAllowMethod). It is OFF by default for EVERY role
+// except admin (Phase 0 rule «negative = admin only» is preserved; admin grants it explicitly
+// via role-defaults / per-user matrix).
+const ALL_FLAGS = { view: true, create: true, edit: true, delete: true, approve: true, export: true, negative: false };
+const NONE_FLAGS = { view: false, create: false, edit: false, delete: false, approve: false, export: false, negative: false };
+const MANAGER_FLAGS = { view: true, create: false, edit: false, delete: false, approve: true, export: true, negative: false };
 
 /** Pages a sales manager already reaches inside the accounting shell. Dashboard included because the shell opens there. */
 const SALES_MANAGER_ACC_NAVIDS = new Set([
@@ -47,7 +51,10 @@ const ACC_ITEMS = {
   'acc-product-sizes': { apis: ['/api/product-variants'] },
   'acc-units': { apis: ['/api/units'] },
   'acc-warehouses': { apis: ['/api/warehouses'] },
-  // moves prefix is longer than /api/warehouses — ops delegates can receipt/issue without full WH admin
+  // moves prefix is longer than /api/warehouses — ops delegates can receipt/issue without full WH admin.
+  // Warehouse Phase 2: /api/warehouses/moves/* routes are additionally gated per action by
+  // requireWarehouseOps (view | create | delete=void | negative) — the generic method mapping here
+  // would let a create-only user POST a void, so the route-level gate is authoritative.
   'acc-warehouse-ops': { apis: ['/api/warehouses/moves', '/api/inventory'] },
   'acc-stocktaking': { apis: ['/api/stocktaking'] },
   'acc-inv-batches': { apis: ['/api/inventory'] },

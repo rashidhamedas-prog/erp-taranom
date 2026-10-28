@@ -12239,7 +12239,7 @@ async function userModal(id){
     }
   }catch(_){ const box=el('u-cat-access'); if(box) box.innerHTML='<span class="muted">خطا در بارگذاری گروه‌ها</span>'; }
 }
-const RBAC_ACT_FA={ view:'مشاهده', create:'ایجاد', edit:'ویرایش', delete:'حذف', approve:'تأیید', export:'خروجی' };
+const RBAC_ACT_FA={ view:'مشاهده', create:'ایجاد', edit:'ویرایش', delete:'حذف', approve:'تأیید', export:'خروجی', operate:'عملیات', negative:'موجودی منفی' };
 const RBAC_RES_FA={
   customers:'مشتریان', parties:'اشخاص', products:'کالاها', invoices:'فاکتورها',
   followups:'پیگیری‌ها', accounting:'حسابداری', reports:'گزارش‌ها', ai:'دستیار هوشمند',
@@ -17877,6 +17877,7 @@ async function viewWarehouseDoc(id){
           ${doc.from_warehouse_name?` · از: <b>${esc(doc.from_warehouse_name)}</b>`:''}
           ${doc.to_warehouse_name?` · به: <b>${esc(doc.to_warehouse_name)}</b>`:''}
           ${doc.note?` · یادداشت: ${esc(doc.note)}`:''}
+          ${doc.type==='issue'&&doc.issue_type?` · نوع حواله: <b>${esc(whIssueTypeLabel(doc.issue_type))}</b>`:''}
           · خطوط: <b>${fmt(doc.line_count||lines.length)}</b>
           · جمع: <b class="mono">${fmtQtyFa(doc.qty_total||0)}</b>
           ${doc.recorder?` · ثبت‌کننده: ${esc(doc.recorder)}`:''}
@@ -17922,8 +17923,10 @@ async function editWarehouseDoc(id){
         <div class="fg"><label>تاریخ</label><input id="wr-date" data-jdate value="${esc(doc.date||todayJalali())}"></div>
         <div class="fg full"><label>یادداشت</label><input id="wr-note" value="${esc(doc.note||'')}"></div>`;
     }else if(doc.type==='issue'){
+      await whEnsureIssueModalCaches();
       bodyHtml=`<div class="fg"><label>انبار مبدأ *</label><select id="wi-warehouse" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${whOpts}</select></div>
         <div class="fg"><label>تاریخ</label><input id="wi-date" data-jdate value="${esc(doc.date||todayJalali())}"></div>
+        ${whIssueFormExtraHtml(doc)}
         <div class="fg full"><label>یادداشت</label><input id="wi-note" value="${esc(doc.note||'')}"></div>`;
     }else{
       bodyHtml=`<div class="fg"><label>انبار مبدأ *</label><select id="wt-from" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${whOpts}</select></div>
@@ -17949,6 +17952,10 @@ async function editWarehouseDoc(id){
       if(doc.to_warehouse_id) el('wt-to').value=String(doc.to_warehouse_id);
     }
     attachDatepickers(el('modalRoot'));
+    if(doc.type==='issue'){
+      whOnIssueTypeChange();
+      try{ initSupplierSearches(el('modalRoot')); }catch(_){}
+    }
     try{ bindNumFit(el('whDocLines')); }catch(_){}
   }catch(e){}
 }
@@ -17968,6 +17975,9 @@ async function saveWarehouseDocRevise(docId, type){
     body.date=el('wi-date').value;
     body.note=el('wi-note').value;
     if(!body.warehouse_id){ showToast('انبار مبدأ الزامی است','error'); return; }
+    const issueExtra=whIssuePayloadFromForm();
+    if(!issueExtra) return;
+    Object.assign(body,issueExtra);
   }else{
     body.from_warehouse_id=+el('wt-from').value;
     body.to_warehouse_id=+el('wt-to').value;
@@ -18006,6 +18016,80 @@ async function voidWarehouseMove(id){
 }
 let whDocLines=[{product_id:'',qty:1}];
 let whDocType='receipt'; // receipt | issue | transfer — drives picker matrix rules
+/** Phase 2 warehouse issue types — ids must match future `warehouse_docs.issue_type` / `coa_issue_*`. */
+const WH_ISSUE_TYPES=[
+  // ids must match server/lib/coa-map.js ISSUE_TYPE_COA_KEYS / warehouse_docs.issue_type
+  {id:'internal_consume',label:'مصرف داخلی',need:'cc'},
+  {id:'sample_gift',label:'نمونه/هدیه',need:'cc_or_person'},
+  {id:'scrap',label:'ضایعات',need:'cc'},
+  {id:'consignment',label:'امانی',need:'person'},
+  {id:'return_to_supplier',label:'مرجوعی به تأمین‌کننده',need:'supplier'},
+  {id:'other',label:'سایر',need:'cc_or_person'},
+];
+function whIssueTypeMeta(id){ return WH_ISSUE_TYPES.find(t=>t.id===String(id||''))||null; }
+function whIssueTypeLabel(id){ const m=whIssueTypeMeta(id); return m?m.label:(id||'—'); }
+async function whEnsureIssueModalCaches(){
+  try{
+    if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers').catch(()=>[])||[];
+    if(!CACHE.persons) CACHE.persons=listRows(await api('GET','/persons'))||[];
+    if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=await api('GET','/suppliers')||[];
+  }catch(_){}
+}
+function whIssueFormExtraHtml(doc){
+  doc=doc||{};
+  const sel=String(doc.issue_type||'');
+  const ccRows=(CACHE.costCenters||[]).filter(c=>c.active!==0);
+  const ccOpts=ccRows.map(c=>`<option value="${c.id}" ${String(doc.cost_center_id||'')===String(c.id)?'selected':''}>${esc(c.code?c.code+' — ':'')}${esc(c.name)}</option>`).join('');
+  const personId=doc.person_id||doc.recipient_person_id||'';
+  const supId=doc.supplier_id||doc.recipient_supplier_id||'';
+  return `<div class="fg full wh-issue-meta">
+      <label>نوع حواله * ${hlp('دستهٔ حواله برای انتخاب حساب طرف (تنظیم coa_issue_<نوع>) و گزارش مصرف/ضایعات/امانی لازم است.')}</label>
+      <select id="wi-issue-type" data-csp-change="${CSP.bind('change',function(){whOnIssueTypeChange()})}">
+        <option value="">— انتخاب نوع —</option>
+        ${WH_ISSUE_TYPES.map(t=>`<option value="${t.id}" ${sel===t.id?'selected':''}>${esc(t.label)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="fg full" id="wi-cc-wrap" data-csp-style="${CSP.style('display:none')}"><label>${expenseCcFieldLabel('برای مصرف داخلی، ضایعات، و انواعی که گیرندهٔ شخص ندارند.')}</label>
+      <select id="wi-cc"><option value="">— انتخاب مرکز هزینه —</option>${ccOpts}</select></div>
+    <div class="fg full" id="wi-person-wrap" data-csp-style="${CSP.style('display:none')}"><label>گیرنده (شخص) ${hlp('برای امانی الزامی است؛ در نمونه/هدیه و سایر می‌تواند به‌جای مرکز هزینه باشد.')}</label>
+      ${personSelect('wi-person',personId)}</div>
+    <div class="fg full" id="wi-sup-wrap" data-csp-style="${CSP.style('display:none')}"><label>تأمین‌کننده *</label>${supplierSelect('wi-supplier',supId)}</div>`;
+}
+function whOnIssueTypeChange(){
+  const meta=whIssueTypeMeta(el('wi-issue-type')?.value);
+  const ccW=el('wi-cc-wrap'), pW=el('wi-person-wrap'), sW=el('wi-sup-wrap');
+  if(!ccW) return;
+  if(!meta){
+    ccW.style.display='none';
+    if(pW) pW.style.display='none';
+    if(sW) sW.style.display='none';
+    return;
+  }
+  const need=meta.need;
+  ccW.style.display=(need==='cc'||need==='cc_or_person')?'':'none';
+  if(pW) pW.style.display=(need==='person'||need==='cc_or_person')?'':'none';
+  if(sW) sW.style.display=need==='supplier'?'':'none';
+}
+function whIssuePayloadFromForm(){
+  const issue_type=String(el('wi-issue-type')?.value||'').trim();
+  if(!issue_type){ showToast('نوع حواله الزامی است','error'); return null; }
+  const meta=whIssueTypeMeta(issue_type);
+  if(!meta){ showToast('نوع حواله نامعتبر است','error'); return null; }
+  const cost_center_id=+el('wi-cc')?.value||null;
+  const person_id=+el('wi-person')?.value||null;
+  const supplier_id=+el('wi-supplier')?.value||null;
+  if(meta.need==='supplier'&&!supplier_id){ showToast('تأمین‌کننده برای مرجوعی الزامی است','error'); return null; }
+  if(meta.need==='person'&&!person_id){ showToast('گیرنده (شخص) برای این نوع حواله الزامی است','error'); return null; }
+  if(meta.need==='cc'&&!cost_center_id){ showToast('مرکز هزینه الزامی است','error'); return null; }
+  if(meta.need==='cc_or_person'&&!cost_center_id&&!person_id){
+    showToast('مرکز هزینه یا گیرنده (شخص) الزامی است','error'); return null;
+  }
+  const out={issue_type};
+  if(cost_center_id) out.cost_center_id=cost_center_id;
+  if(person_id) out.person_id=person_id;
+  if(supplier_id) out.supplier_id=supplier_id;
+  return out;
+}
 let _whSearchTimer=null;
 function whLineWarehouseId(){
   return Number(el('wi-warehouse')?.value||el('wt-from')?.value||el('wr-warehouse')?.value||0)||0;
@@ -18252,20 +18336,24 @@ async function saveWarehouseReceipt(){
     closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف رسید ثبت شد'); whDriftCapture(r); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
-function warehouseIssueModal(){
+async function warehouseIssueModal(){
   whDocType='issue';
   whDocLines=[{product_id:'',qty:1}];
+  await whEnsureIssueModalCaches();
   openModal(`
     <div class="modal-head"><h3>⬆️ حواله انبار (چند کالا)</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
       <div class="fg"><label>انبار مبدأ *</label><select id="wi-warehouse" data-csp-change="${CSP.bind('change',function(){whOnSourceWarehouseChange()})}">${(CACHE.warehouses||[]).filter(w=>w.active).map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
       <div class="fg"><label>تاریخ</label><input id="wi-date" data-jdate value="${todayJalali()}"></div>
+      ${whIssueFormExtraHtml()}
       <div class="fg full"><label>یادداشت</label><input id="wi-note"></div>
       <div class="fg full" id="whDocLines">${whDocLinesHtml()}</div>
     </div></div>
     <div class="modal-foot"><button class="btn orange" data-csp-click="${CSP.bind('click',function(event){saveWarehouseIssue()})}">💾 ثبت حواله</button>
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
+  whOnIssueTypeChange();
+  try{ initSupplierSearches(el('modalRoot')); }catch(_){}
   try{ bindNumFit(el('whDocLines')); }catch(_){}
 }
 async function saveWarehouseIssue(){
@@ -18273,8 +18361,10 @@ async function saveWarehouseIssue(){
   const lines=whDocLinesPayload();
   if(lines==null) return;
   if(!warehouse_id||!lines.length){ showToast('انبار و حداقل یک کالا الزامی است','error'); return; }
+  const issueExtra=whIssuePayloadFromForm();
+  if(!issueExtra) return;
   try{
-    const r=await api('POST','/warehouses/moves/docs',{type:'issue',warehouse_id,lines,date:el('wi-date').value,note:el('wi-note').value});
+    const r=await api('POST','/warehouses/moves/docs',{type:'issue',warehouse_id,lines,date:el('wi-date').value,note:el('wi-note').value,...issueExtra});
     closeModal(); showToast('سند '+(r.num||'')+' — '+(r.count||lines.length)+' ردیف حواله ثبت شد'); whDriftCapture(r); CACHE.allProducts=await api('GET','/products')||[]; loadAccTab('warehouse-ops');
   }catch(e){}
 }
@@ -38871,6 +38961,16 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('⬆️','حواله انبار — نوع حواله (v575 / فاز ۲ عملیات)',`
+      <p>در فرم <b>حواله انبار</b> انتخاب <b>نوع حواله</b> الزامی است. هر نوع برای سند حسابداری به حساب طرف متناظر (<span dir="ltr">coa_issue_&lt;نوع&gt;</span> در تنظیمات) و یک <b>مرکز هزینه</b> یا <b>گیرنده</b> نیاز دارد:</p>
+      <ul>
+        <li><b>مصرف داخلی، ضایعات:</b> مرکز هزینه الزامی.</li>
+        <li><b>نمونه/هدیه، سایر:</b> مرکز هزینه <b>یا</b> شخص گیرنده (حداقل یکی).</li>
+        <li><b>امانی:</b> شخص گیرنده الزامی (جدا از ماژول «کالای امانی» — اینجا خروج از انبار خودمان با طبقه‌بندی امانی است).</li>
+        <li><b>مرجوعی به تأمین‌کننده:</b> تأمین‌کننده الزامی.</li>
+        <li>پیش‌فرض قدیمی «همه به ضایعات موجودی» (<span dir="ltr">coa_inventory_loss</span>) در بک‌اند فاز ۲ حذف می‌شود؛ تا deploy کامل بک‌اند، ثبت ممکن است هنوز نوع را نپذیرد یا حساب قدیمی بزند.</li>
+        <li>ویرایش حواله (R13) همان فیلدهای نوع/مرکز/گیرنده را دوباره می‌پرسد.</li>
+      </ul>`),
     helpSec('🧮','تطبیق موجودی — گزارش فقط‌خواندنی لایه‌ها (v574 / فاز ۱ انبار)',`
       <p>منو: <b>انبار ← گزارشات ← تطبیق موجودی</b> (فقط مدیر و حسابدار). این صفحه برای هر <b>کالا×انبار</b> لایه‌های موجودی را کنار هم می‌گذارد تا اختلاف‌ها دیده شود: سرستون کالا، موجودی انبار (<span dir="ltr">ws</span>)، رنگ/سایزِ انبار (<span dir="ltr">vws</span>)، موجودی واریانت (<span dir="ltr">pv</span>)، کاردکس و حرکات، به‌همراه ارزش کاردکس و «موجودی×میانگین».</p>
       <ul>
