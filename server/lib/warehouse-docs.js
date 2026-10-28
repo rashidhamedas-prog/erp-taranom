@@ -638,7 +638,8 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
   }
 
   let jeId = null;
-  const amountToman = totalAmountRial / 10;
+  // postToLedger expects TOMAN in debit/credit and stores debit_rial = round(toman*10). Source = Σ kardex amount_rial (RIAL).
+  const ledgerAmountToman = totalAmountRial / 10;
   const whCc = (warehouseId) => {
     const id = parseInt(warehouseId, 10);
     if (!id) return null;
@@ -657,8 +658,8 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         createdBy: user.id,
         voucherType: 'auto',
         lines: [
-          { code: toAcct.code, name: toAcct.name, debit: amountToman, credit: 0, cost_center_id: whCc(toWh) },
-          { code: fromAcct.code, name: fromAcct.name, debit: 0, credit: amountToman, cost_center_id: whCc(fromWh) },
+          { code: toAcct.code, name: toAcct.name, debit_toman: ledgerAmountToman, credit_toman: 0, cost_center_id: whCc(toWh) },
+          { code: fromAcct.code, name: fromAcct.name, debit_toman: 0, credit_toman: ledgerAmountToman, cost_center_id: whCc(fromWh) },
         ],
       });
     }
@@ -711,12 +712,12 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
         costCenterId: lineCc,
         lines: type === 'receipt'
           ? [
-            { code: inventory.code, name: inventory.name, debit: amountToman, credit: 0, cost_center_id: lineCc },
-            { code: counterpart.code, name: counterpart.name, debit: 0, credit: amountToman, cost_center_id: lineCc },
+            { code: inventory.code, name: inventory.name, debit_toman: ledgerAmountToman, credit_toman: 0, cost_center_id: lineCc },
+            { code: counterpart.code, name: counterpart.name, debit_toman: 0, credit_toman: ledgerAmountToman, cost_center_id: lineCc },
           ]
           : [
-            { code: counterpart.code, name: counterpart.name, debit: amountToman, credit: 0, cost_center_id: counterpartCc, detail_account_id: counterpartDetailId },
-            { code: inventory.code, name: inventory.name, debit: 0, credit: amountToman, cost_center_id: lineCc },
+            { code: counterpart.code, name: counterpart.name, debit_toman: ledgerAmountToman, credit_toman: 0, cost_center_id: counterpartCc, detail_account_id: counterpartDetailId },
+            { code: inventory.code, name: inventory.name, debit_toman: 0, credit_toman: ledgerAmountToman, cost_center_id: lineCc },
           ],
       });
     }

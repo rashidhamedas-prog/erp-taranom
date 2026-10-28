@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۷ — فاز ۰ واحد مبلغ سند انتقال انبار (`ledgerAmountToman`) — بدون تغییر رفتار
+- **شاخه:** `fix/coa-transfer-amount-unit`؛ منبع: `.tmp-coa-keys-fix/phase-0-transfer-amount-unit.md`.
+- **یافته:** `amountToman = Σ kardex amount_rial / 10` درست بود (ورودی `postToLedger` تومان است و `debit_rial = round(toman×۱۰)`). باگ ریالی نبود؛ فقط نام متغیر گمراه‌کننده بود.
+- **تغییر:** در `server/lib/warehouse-docs.js` نام به `ledgerAmountToman` + توضیح واحد؛ سطرهای JE با `debit_toman`/`credit_toman` صریح. رفتار و مبالغ بدون تغییر.
+- **تست:** جدید `test:wh-transfer-unit` — انتقال بین دو انبار با leaf متفاوت و ارزش فرد ۱٬۲۳۴٬۵۶۷ ریال ⇒ JE `warehouse_transfer_batch` با debit_rial=credit_rial=Σ کاردکس؛ رسید ۷۱٬۲۳۲٬۰۰۰؛ انتقال همحساب بدون JE.
+- **SW / Help:** بدون تغییر (فقط بک‌اند + تست؛ رفتار کاربر همان).
+- **فایل‌ها:** `lib/warehouse-docs.js`، `scripts/test-warehouse-transfer-unit.js`، `package.json`، CHANGE-LOG.
+- **Deploy:** ⏳ (فاز ۰ — بدون merge/deploy تا تأیید orchestrator).
+
 ### ۱۴۰۵/۰۸/۰۷ — v585: فاز ۱ نگاشت اجباری حساب برگ انبار/بهای تمام‌شده + نگهبان سطر غیربرگ در postToLedger (SW v585)
 - **شاخه/PR:** `feat/warehouse-leaf-coa-mapping` (#100)؛ منبع: `.tmp-cogs-reconcile/phase-1-mandatory-leaf-mapping.md`. پیش‌فرض flag = `warn` ⇒ production قبل از نگاشت حامد نمی‌شکند.
 - **Deploy:** ✅ 048ed811 — بکاپ `/home/taranom/backups/crm.db.20261028-131611` — overlay — health 200 — title ERP ترنم — SW erp-taranom-v585 — `test:coa-leaf-mapping` ۶۲/۰ — sms ۲۲/۰ — encoding OK — flag=`warn` — ستون `cogs_coa_code` موجود. گزارش: `/home/taranom/backups/reports/coa-leaf-mapping-20261028-131714.{md,csv}` — انبار دائمی بی‌نگاشت **۵/۵**؛ ۱۹ کلید coa_* غیربرگ؛ ۵ حساب غیربرگ با سطر دفتر (از جمله 1104: ۲۰۳ سطر، مانده ≈۱۰٫۳B ریال).
