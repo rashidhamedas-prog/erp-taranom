@@ -8,7 +8,7 @@
 - **UI:** مودال حواله + Help؛ برچسب‌های RBAC operate/negative.
 - **تست:** `test:wh-ops-p2` (۷۷) داخل `npm test`.
 - **فایل‌ها:** `db.js`، `lib/{coa-map,warehouse-docs,rbac,accounting-access,void-warehouse-move}.js`، `lib/inventory/{ledger,batch-serial}.js`، `middleware/auth.js`، `routes/{warehouses,stocktaking,settings}.js`، `public/{app.js,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ merge d3316e7 (PR #81) — بکاپ /home/taranom/backups/crm.db.20261028-102250؛ overlay؛ health/ready=200؛ SW erp-taranom-v575؛ test:wh-ops-p2 ۷۷/۰؛ picker ۲۱/۰؛ reconcile ۴۳/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۷ — v574: فاز ۱ ماژول انبار — تطبیق لایه‌های موجودی فقط‌خواندنی (SW v574)
 - **منبع:** `.tmp-warehouse-spec/02-phase1-reconciliation.md`؛ شاخهٔ `wh/phase-1-layer-reconcile`؛ بک‌اند [Backend](ccdb05a5-fefe-4f81-966e-3029b4f26b9b) + فرانت [Frontend](cc7bdf7f-8d73-4146-82d1-e8a24e33f7c9).
