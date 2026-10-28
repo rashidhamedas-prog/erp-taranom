@@ -319,6 +319,7 @@ function rebuildQuantities(ctx, onlyProductIds) {
     }
   }
 
+  const ready = new Map();
   for (const pair of ledgerPairs.values()) {
     const k = `${pair.product_id}:${pair.warehouse_id}`;
     if (ambiguousPairs.has(k)) continue;
@@ -331,26 +332,79 @@ function rebuildQuantities(ctx, onlyProductIds) {
       });
       continue;
     }
-    const wrote = setWs(ctx, pair.product_id, pair.warehouse_id, Math.round(pair.qty));
-    if (wrote === 'blocked') {
+    const target = Math.round(pair.qty);
+    const curRow = tableExists(db, 'warehouse_stock')
+      ? db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pair.product_id, pair.warehouse_id)
+      : null;
+    const curQty = curRow ? n(curRow.qty) : 0;
+    if (target < 0 && curQty >= 0) {
+      ambiguousPairs.add(k);
+      ambiguousProducts.add(pair.product_id);
+      ctx.ambiguous.push({
+        rule: 'ws_negative_kardex', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k,
+        detail: `کاردکس ${target} منفی است و لایهٔ فعلی ${curQty} منفی نیست؛ لایهٔ منفی تازه ساخته نشد`,
+      });
+      ctx.negativeAfter.push({
+        product_id: pair.product_id, warehouse_id: pair.warehouse_id, qty: target,
+        detail: 'کاردکس منفی است؛ لایهٔ منفی تازه ساخته نشد و برای شمارش انبار ماند',
+      });
+      continue;
+    }
+    if (target < 0 && !allowsNegative(db, pair.warehouse_id)) {
       ambiguousPairs.add(k);
       ambiguousProducts.add(pair.product_id);
       ctx.ambiguous.push({
         rule: 'ws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k,
-        detail: `کاردکس ${Math.round(pair.qty)} منفی است و تریگر انبار اجازهٔ ثبت منفی نمی‌دهد؛ دست نخورد`,
+        detail: `کاردکس ${target} منفی است و تریگر انبار اجازهٔ ثبت منفی نمی‌دهد؛ دست نخورد`,
       });
-    }
-    if (pair.qty < -QTY_EPS) {
       ctx.negativeAfter.push({
-        product_id: pair.product_id, warehouse_id: pair.warehouse_id, qty: Math.round(pair.qty),
-        detail: wrote === 'blocked'
-          ? 'کاردکس منفی است؛ تریگر انبار اجازهٔ نوشتن منفی نداد و لایه دست نخورد'
-          : 'کاردکس منفی است؛ مقدار منفی ماند',
+        product_id: pair.product_id, warehouse_id: pair.warehouse_id, qty: target,
+        detail: 'کاردکس منفی است؛ تریگر انبار اجازهٔ نوشتن منفی نداد و لایه دست نخورد',
+      });
+      continue;
+    }
+    const vwsPlan = planVws(ctx, pair, target);
+    if (!vwsPlan.ok) {
+      ambiguousPairs.add(k);
+      ambiguousProducts.add(pair.product_id);
+      ctx.ambiguous.push({
+        rule: vwsPlan.rule, product_id: pair.product_id, warehouse_id: pair.warehouse_id,
+        row_key: k, detail: vwsPlan.detail,
+      });
+      if (vwsPlan.extra) ctx.ambiguous.push(Object.assign({ product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k }, vwsPlan.extra));
+      continue;
+    }
+    ready.set(k, { pair, target, vwsPlan });
+  }
+
+  const frozen = new Set(ambiguousProducts);
+  for (const pid of pending) {
+    if (allow(pid)) frozen.add(pid);
+  }
+  for (const [k, plan] of ready) {
+    if (!frozen.has(plan.pair.product_id)) continue;
+    ambiguousPairs.add(k);
+    ambiguousProducts.add(plan.pair.product_id);
+    ctx.ambiguous.push({
+      rule: pending.has(plan.pair.product_id) ? 'pending_phase_C' : 'held_for_ambiguous_sibling',
+      product_id: plan.pair.product_id, warehouse_id: plan.pair.warehouse_id, row_key: k,
+      detail: pending.has(plan.pair.product_id)
+        ? 'کاردکس بدون انبار دارد؛ تا پر شدن شناسه هیچ لایه‌ای عوض نشد'
+        : 'انبار دیگری از همین کالا مبهم است؛ برای ثابت ماندن سرستون این انبار هم دست نخورد',
+    });
+  }
+
+  for (const [k, plan] of ready) {
+    if (ambiguousPairs.has(k) || frozen.has(plan.pair.product_id)) continue;
+    setWs(ctx, plan.pair.product_id, plan.pair.warehouse_id, plan.target);
+    applyVwsPlan(ctx, plan.pair, plan.vwsPlan);
+    if (plan.target < 0) {
+      ctx.negativeAfter.push({
+        product_id: plan.pair.product_id, warehouse_id: plan.pair.warehouse_id, qty: plan.target,
+        detail: 'کاردکس منفی است و لایه از قبل منفی بود؛ مقدار منفی ماند',
       });
     }
   }
-
-  applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow);
   listDefaultVariantOnMatrix(ctx, allow);
   applyVariantStock(ctx, ambiguousPairs, allow);
   applyHeaderStock(ctx, pending, ambiguousProducts, allow);
@@ -485,6 +539,73 @@ function applyTargets(ctx, warehouseId, byVariant, current, rule, reason) {
     if (!seen.has(vid) && Math.abs(qty) > QTY_EPS) setVws(ctx, vid, warehouseId, 0, rule, reason);
   }
   return 'updated';
+}
+
+function planVws(ctx, pair, target) {
+  const db = ctx.db;
+  if (!tableExists(db, 'variant_warehouse_stock')) return { ok: true, kind: 'none' };
+  const meta = variantMeta(db, pair.product_id);
+  const current = vwsQtyMap(db, pair.product_id, pair.warehouse_id);
+  const split = ledgerVariantSplit(db, pair.product_id, pair.warehouse_id);
+  const negativeBlocked = (byVariant) => {
+    if (allowsNegative(db, pair.warehouse_id)) return false;
+    for (const qty of byVariant.values()) if (qty < -QTY_EPS) return true;
+    return false;
+  };
+  const integerSplit = (byVariant) => {
+    for (const qty of byVariant.values()) {
+      if (!nearInt(qty)) return false;
+    }
+    return true;
+  };
+  if (split.complete) {
+    if (negativeBlocked(split.byVariant)) {
+      return { ok: false, rule: 'vws_negative_blocked', detail: 'واریانت منفی و تریگر انبار مانع ثبت است' };
+    }
+    if (!integerSplit(split.byVariant)) {
+      return { ok: false, rule: 'non_integer_vws', detail: 'تفکیک واریانت کاردکس عدد صحیح نیست' };
+    }
+    return { ok: true, kind: 'targets', byVariant: split.byVariant, rule: 'vws_from_ledger_variant', reason: 'تفکیک واریانت از کاردکس کامل است' };
+  }
+  if (!meta.matrix) {
+    if (!meta.defaultId) {
+      if (current.size) return { ok: false, rule: 'vws_no_default_variant', detail: 'کالای غیرماتریسی واریانت پیش‌فرض یکتا ندارد' };
+      return { ok: true, kind: 'none' };
+    }
+    const others = [...current.entries()].filter(([vid, qty]) => vid !== meta.defaultId && Math.abs(qty) > QTY_EPS);
+    if (others.length) return { ok: false, rule: 'vws_extra_variant', detail: 'واریانت غیرپیش‌فرض موجودی دارد' };
+    if (target < 0 && !allowsNegative(db, pair.warehouse_id)) {
+      return { ok: false, rule: 'vws_negative_blocked', detail: 'واریانت پیش‌فرض منفی و تریگر انبار مانع ثبت است' };
+    }
+    return { ok: true, kind: 'default', variantId: meta.defaultId, qty: target, rule: 'vws_default_variant', reason: 'کالای غیرماتریسی: واریانت پیش‌فرض = کاردکس' };
+  }
+  let curSum = 0;
+  for (const q of current.values()) curSum += q;
+  if (near(curSum, target)) return { ok: true, kind: 'none' };
+  const mov = movementSplit(db, pair.product_id, pair.warehouse_id);
+  if (mov && near(mov.sum, target)) {
+    if (negativeBlocked(mov.byVariant)) {
+      return { ok: false, rule: 'vws_negative_blocked', detail: 'حرکت واریانت منفی و تریگر انبار مانع ثبت است' };
+    }
+    if (!integerSplit(mov.byVariant)) {
+      return { ok: false, rule: 'non_integer_vws', detail: 'تفکیک حرکت واریانت عدد صحیح نیست' };
+    }
+    return { ok: true, kind: 'targets', byVariant: mov.byVariant, rule: 'vws_from_movements', reason: 'جمع حرکات واریانت با کاردکس برابر است' };
+  }
+  const extra = (meta.defaultIds && meta.defaultIds.length)
+    ? { rule: 'default_variant_with_stock', detail: 'انتقال موجودی واریانت پیش‌فرض روی کالای ماتریسی حدس زده نشد' }
+    : null;
+  return { ok: false, rule: 'vws_ambiguous', detail: `ws کاردکس=${target} جمع vws=${curSum}؛ تفکیک قطعی نیست`, extra };
+}
+
+function applyVwsPlan(ctx, pair, plan) {
+  if (!plan || plan.kind === 'none') return;
+  const current = vwsQtyMap(ctx.db, pair.product_id, pair.warehouse_id);
+  if (plan.kind === 'targets') {
+    applyTargets(ctx, pair.warehouse_id, plan.byVariant, current, plan.rule, plan.reason);
+    return;
+  }
+  if (plan.kind === 'default') setVws(ctx, plan.variantId, pair.warehouse_id, plan.qty, plan.rule, plan.reason);
 }
 
 function applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow) {
