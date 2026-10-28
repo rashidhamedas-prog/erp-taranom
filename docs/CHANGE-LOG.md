@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۷ — v586: فاز ۱ کلیدهای coa_* قابل‌تنظیم + اعتبارسنجی برگ/نوع هنگام ذخیره (SW v586)
+- **شاخه:** `feat/configurable-coa-keys`؛ منبع: `.tmp-coa-keys-fix/phase-1-configurable-coa-keys.md`. **Deploy:** ⏳ (بدون merge/deploy در این نوبت).
+- **SSOT:** `ALLOWED_KEYS` در `routes/settings.js` = کلیدهای غیر-coa + `Object.keys(LEGACY)` (۹۳ کلید). فهرست UI از `GET /api/settings/coa-keys` (کلید، نام، گروه، کنترلی بودن، default، suggested).
+- **UI:** تنظیمات ← نگاشت کدینگ — گروه‌های درآمد / هزینه / موجودی / حواله‌ها / کنترلی؛ شامل کلیدهای غایب قبلی (`coa_admin_expense`، `coa_rep_commission_expense`، `coa_finished_goods`، `coa_inventory_loss`، `coa_asset_disposal_loss`، `coa_issue_*`).
+- **اعتبارسنجی PUT:** برای هر `coa_*` تغییرکرده → وجود+فعال (`E_COA_NOT_FOUND`)؛ برگ بودن (`E_COA_NOT_LEAF`) مگر کلید کنترلی (`KIND_KEY` + `coa_issue_return_to_supplier`)؛ سازگاری پیشوند/نوع (`E_COA_TYPE_MISMATCH`). پیام فارسی با نام کلید. بدون migration مقدار settings.
+- **acct():** برای کلید غیرکنترلی غیربرگ → هشدار `E_COA_KEY_NOT_LEAF` در `coa-leaf-policy.recentLeafIssues`؛ **بدون** `resolvePostableLeaf`. پیش‌فرض LEGACY عوض نشد؛ فقط `suggested:'6119'` برای `coa_asset_disposal_loss`. `ensureMissingBaseCoa`/`rebuildBaseCoa` زیر حساب نگاشت‌شده فرزند نمی‌سازند. `clearCoaCache()` بعد از ذخیره (تست‌شده).
+- **تست:** `test:configurable-coa-keys`؛ Help ادمین به‌روز؛ SW `erp-taranom-v586`.
+- **فایل‌ها:** `lib/coa-map.js`، `routes/settings.js`، `scripts/test-configurable-coa-keys-v586.js`، `public/{app.js,index.html,sw.js}`، `package.json`، CHANGE-LOG.
+- **نکته نسخه:** فاز ۰ هم‌پکیج هنوز SW را روی v585 گذاشته؛ این فاز v586 را می‌گیرد. اگر فاز ۰ جدا merge شود باید به v587 برود.
+
 ### ۱۴۰۵/۰۸/۰۷ — فاز ۰ واحد مبلغ سند انتقال انبار (`ledgerAmountToman`) — بدون تغییر رفتار
 - **شاخه:** `fix/coa-transfer-amount-unit`؛ منبع: `.tmp-coa-keys-fix/phase-0-transfer-amount-unit.md`.
 - **یافته:** `amountToman = Σ kardex amount_rial / 10` درست بود (ورودی `postToLedger` تومان است و `debit_rial = round(toman×۱۰)`). باگ ریالی نبود؛ فقط نام متغیر گمراه‌کننده بود.
@@ -5,7 +15,8 @@
 - **تست:** جدید `test:wh-transfer-unit` — انتقال بین دو انبار با leaf متفاوت و ارزش فرد ۱٬۲۳۴٬۵۶۷ ریال ⇒ JE `warehouse_transfer_batch` با debit_rial=credit_rial=Σ کاردکس؛ رسید ۷۱٬۲۳۲٬۰۰۰؛ انتقال همحساب بدون JE.
 - **SW / Help:** بدون تغییر (فقط بک‌اند + تست؛ رفتار کاربر همان).
 - **فایل‌ها:** `lib/warehouse-docs.js`، `scripts/test-warehouse-transfer-unit.js`، `package.json`، CHANGE-LOG.
-- **Deploy:** ⏳ (فاز ۰ — بدون merge/deploy تا تأیید orchestrator).
+- **Deploy:** ✅ squash-merge #102 (69e329fb).
+
 
 ### ۱۴۰۵/۰۸/۰۷ — v585: فاز ۱ نگاشت اجباری حساب برگ انبار/بهای تمام‌شده + نگهبان سطر غیربرگ در postToLedger (SW v585)
 - **شاخه/PR:** `feat/warehouse-leaf-coa-mapping` (#100)؛ منبع: `.tmp-cogs-reconcile/phase-1-mandatory-leaf-mapping.md`. پیش‌فرض flag = `warn` ⇒ production قبل از نگاشت حامد نمی‌شکند.
