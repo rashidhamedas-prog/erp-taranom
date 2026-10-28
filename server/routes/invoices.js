@@ -18,6 +18,7 @@ const {
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse,
   assertLineWarehousesAllowed, listCrossWarehouseLines,
   postSaleStockMovements, postCogsFromMovements, perpetualDocsEnabled, warehouseUsesPerpetualValuation,
+  saleUsesPerpetualValuation,
   autoApproveNormalInvoice, allocateFreight, applyFreightToDocTotals,
   isFabricRollLine,
 } = require('../lib/sales-document');
@@ -806,7 +807,8 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           forceAllowNegative: forceNeg,
         });
         if (fulfillment.mode === 'deduct') {
-          if (warehouseUsesPerpetualValuation(db, whId)) {
+          // Per-line: if any line WH is perpetual, post ledger+COGS split even when header is periodic.
+          if (saleUsesPerpetualValuation(db, built.rows, whId)) {
             // Sale context: only this customer's own order reservations are consumed by the posting.
             const stocked = runWithSaleContext({ custId: cust_id }, () => postSaleStockMovements(db, {
               rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
@@ -1328,7 +1330,7 @@ router.post('/:id/convert', auth, (req, res) => {
           forceAllowNegative: forceNegC,
         });
         if (convertFulfillment.mode === 'deduct') {
-          if (warehouseUsesPerpetualValuation(db, convertWhId)) {
+          if (saleUsesPerpetualValuation(db, rows, convertWhId)) {
             const stocked = runWithSaleContext({ custId: inv.cust_id }, () => postSaleStockMovements(db, {
               rows, warehouseId: convertWhId, sourceType: 'invoice', sourceId: inv.id,
               userId: req.user.id, date: inv.date || '', note: `تبدیل به ${invoiceTypeLabel(targetType)} ${inv.num}`,

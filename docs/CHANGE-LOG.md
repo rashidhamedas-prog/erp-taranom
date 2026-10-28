@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۶ — v572: فروش چندانباری — COGS با هدر ادواری + گزارش فایل + تست p2 در npm test (SW v572)
+- **منبع:** شکاف‌های [ممیزی فاز ۰](f5669813-7700-45a2-b973-bfab9d575751)، [فاز ۱](14bc849c-c30d-416b-b27d-7b8a890e4731)، [فاز ۲](cf176c18-381e-435a-8da0-afa3ec1aa240) نسبت به `invoice-cross-warehouse-cursor` (فازهای ۰–۲ قبلاً با v565/v567/v569 روی main بودند).
+- **سرور:** `saleUsesPerpetualValuation` — اگر هر ردیف انبار دائمی داشته باشد، حتی با هدر ادواری مسیر `postSaleStockMovements` + COGS تفکیکی می‌رود (create و convert).
+- **گزارش:** `report-cross-warehouse-sales.js` خروجی را در `--out=` یا پیش‌فرض `~/backups/reports/xwh-p2-<TS>.txt` می‌نویسد.
+- **تست:** ATP per-line در p1؛ سناریوی هدر ادواری + خط دائمی و `--out` در p2؛ `test:sales-cross-wh-p2` داخل `npm test`.
+- **UI:** برچسب پیکر «موجودی این انبار»؛ Help ادمین/فروش.
+- **فایل‌ها:** `lib/sales-document.js`، `routes/invoices.js`، `scripts/{report-cross-warehouse-sales,test-sales-cross-warehouse,test-sales-cross-warehouse-posting}.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
+- **Deploy:** ⏳ pending
+
 ### ۱۴۰۵/۰۸/۰۶ — v571: توالی برگ در گزارش دسته و جمع مبلغ فیلتر دفتر چک (SW v571)
 - **منبع:** شکاف [ممیزی فاز ۴](fea0cad1-aa70-4367-bc1e-4047c1782b06) و [ممیزی فاز ۱](c9e2a77f-8bfc-4e7c-9078-bdb046305bc1).
 - **گزارش دسته:** جدول «توالی برگ‌ها» از `leaves_sequence` هر دسته (سریال، وضعیت، شماره چک، صیاد؛ تا ۸۰ برگ). راهنمای ادمین همان بخش را می‌گوید.

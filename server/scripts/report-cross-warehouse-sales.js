@@ -6,6 +6,7 @@
  * Never writes to the DB.
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const Database = require('better-sqlite3');
 const { listCrossWarehouseLines } = require('../lib/sales-document');
@@ -14,10 +15,14 @@ const { jlCreditRial } = require('../lib/money');
 const { acct } = require('../lib/coa-map');
 
 const args = process.argv.slice(2);
-const dbArg = args.find((a) => a.startsWith('--db='));
-const dbPath = dbArg ? dbArg.slice(5) : '';
+function argValue(prefix) {
+  const hit = args.find((a) => a.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : '';
+}
+const dbPath = argValue('--db=');
+const outExplicit = argValue('--out=');
 if (!dbPath) {
-  console.error('Usage: node scripts/report-cross-warehouse-sales.js --db=/path/to/crm.db');
+  console.error('Usage: node scripts/report-cross-warehouse-sales.js --db=/path/to/crm.db [--out=path]');
   process.exit(2);
 }
 if (!fs.existsSync(dbPath)) {
@@ -110,8 +115,10 @@ function actualInventoryCredits(invoiceId) {
   if (!je) return { lines: [], missingJe: true };
   const jlCols = db.prepare('PRAGMA table_info(journal_lines)').all().map((c) => c.name);
   const acctCol = jlCols.includes('account_code') ? 'account_code' : 'code';
+  const nameCol = jlCols.includes('account_name') ? 'account_name'
+    : (jlCols.includes('name') ? 'name' : "''");
   const rows = db.prepare(`
-    SELECT ${acctCol} AS account_code, debit, credit, debit_rial, credit_rial, name
+    SELECT ${acctCol} AS account_code, debit, credit, debit_rial, credit_rial, ${nameCol} AS name
     FROM journal_lines WHERE entry_id=?
   `).all(je.id);
   const invCredits = [];
@@ -214,56 +221,62 @@ for (const inv of invoices) {
   });
 }
 
-console.log('=== Cross-warehouse invoice lines ===');
+const linesOut = [];
+function emit(s) {
+  linesOut.push(s);
+  console.log(s);
+}
+
+emit('=== Cross-warehouse invoice lines ===');
 if (!crossLineRows.length) {
-  console.log('(none)');
+  emit('(none)');
 } else {
   for (const r of crossLineRows) {
-    console.log(
+    emit(
       `#${r.invoice_id} ${r.num} (${r.date}) header=${r.header_wh_name} line[${r.line_index}]`
       + ` product=${r.product_id} from=${r.from_wh_name} qty=${r.qty}`
     );
   }
 }
 
-console.log('\n=== COGS JE inventory credits vs movement warehouses ===');
+emit('\n=== COGS JE inventory credits vs movement warehouses ===');
 for (const r of cogsReports) {
-  console.log(`\n--- Invoice ${r.num} (#${r.invoice_id}) ---`);
+  emit(`\n--- Invoice ${r.num} (#${r.invoice_id}) ---`);
   if (r.missing_invoice_cogs_je) {
-    console.log('  (no invoice_cogs journal entry)');
+    emit('  (no invoice_cogs journal entry)');
   }
   if (r.movement_by_wh.length) {
-    console.log('  Movements (COGS rial by warehouse):');
+    emit('  Movements (COGS rial by warehouse):');
     for (const m of r.movement_by_wh) {
-      console.log(`    WH ${m.warehouse_name} (#${m.warehouse_id}) → acct ${m.inventory_account} : ${m.cogs_rial} rial`);
+      emit(`    WH ${m.warehouse_name} (#${m.warehouse_id}) → acct ${m.inventory_account} : ${m.cogs_rial} rial`);
     }
   } else {
-    console.log('  (no outbound inventory ledger rows for this invoice)');
+    emit('  (no outbound inventory ledger rows for this invoice)');
   }
   if (r.expected_inventory_credits.length) {
-    console.log('  Expected JE inventory credits:');
+    emit('  Expected JE inventory credits:');
     for (const e of r.expected_inventory_credits) {
-      console.log(`    ${e.code} ${e.name}: ${e.amountRial} rial`);
+      emit(`    ${e.code} ${e.name}: ${e.amountRial} rial`);
     }
   }
   if (r.actual_inventory_credits.length) {
-    console.log('  Actual JE inventory credits:');
+    emit('  Actual JE inventory credits:');
     for (const a of r.actual_inventory_credits) {
-      console.log(`    ${a.code} ${a.name}: ${a.creditRial} rial`);
+      emit(`    ${a.code} ${a.name}: ${a.creditRial} rial`);
     }
   }
   if (r.credit_mismatches.length) {
-    console.log('  ** MISMATCH **');
+    emit('  ** MISMATCH **');
     for (const m of r.credit_mismatches) {
-      console.log(`    ${m.account_code}: expected ${m.expected_credit_rial}, actual ${m.actual_credit_rial}`);
+      emit(`    ${m.account_code}: expected ${m.expected_credit_rial}, actual ${m.actual_credit_rial}`);
     }
   } else if (!r.missing_invoice_cogs_je && r.expected_inventory_credits.length) {
-    console.log('  OK — credits match movement buckets');
+    emit('  OK — credits match movement buckets');
   }
 }
 
-console.log('\n=== Summary JSON ===');
-console.log(JSON.stringify({
+emit('\n=== Summary JSON ===');
+emit(JSON.stringify({
   cross_line_count: crossLineRows.length,
   invoices_with_cross_lines: cogsReports.length,
   invoices_with_credit_mismatch: cogsReports.filter((r) => r.credit_mismatches.length).length,
@@ -272,3 +285,16 @@ console.log(JSON.stringify({
 }, null, 2));
 
 db.close();
+
+function defaultReportPath() {
+  const ts = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+  return path.join(os.homedir(), 'backups', 'reports', `xwh-p2-${ts}.txt`);
+}
+const outPath = outExplicit || defaultReportPath();
+try {
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, linesOut.join('\n') + '\n', 'utf8');
+  console.error('Wrote report:', outPath);
+} catch (e) {
+  console.error('Could not write report file:', e.message);
+}

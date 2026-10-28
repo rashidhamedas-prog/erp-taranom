@@ -25,7 +25,7 @@ function ok(cond, label, extra) {
 
 console.log('\n══ sales cross-warehouse Phase 2 posting ══\n');
 
-// report CLI
+  // report CLI
 {
   const reportScript = path.join(__dirname, 'report-cross-warehouse-sales.js');
   const noDb = spawnSync(NODE, [reportScript], { encoding: 'utf8' });
@@ -250,6 +250,47 @@ async function main() {
     rows: [{ product_id: prodA, name: 'کالای A', qty: 1, price: 100000, warehouse_id: whA }],
   }, 'acct');
   ok(negWh.status === 200, 'warehouse allow_negative=1 → 200 without override perm', negWh.status);
+
+  // Header periodic + line perpetual → still posts COGS for the perpetual line warehouse
+  {
+    const { saleUsesPerpetualValuation } = require('../lib/sales-document');
+    const whPeriodic = insert('warehouses', {
+      name: 'انبار ادواری', code: 'PER', active: 1, allow_negative: 0,
+      warehouse_type: 'finished_goods', inventory_system: 'periodic', inventory_coa_code: '1104',
+    });
+    try { db.prepare('UPDATE warehouses SET inventory_system=? WHERE id=?').run('periodic', whPeriodic); } catch (_) {}
+    ok(saleUsesPerpetualValuation(db, [{ product_id: prodB, warehouse_id: whB, qty: 1 }], whPeriodic) === true,
+      'saleUsesPerpetualValuation: header periodic + line perpetual → true');
+    ok(saleUsesPerpetualValuation(db, [{ product_id: prodA, warehouse_id: whPeriodic, qty: 1 }], whPeriodic) === false,
+      'saleUsesPerpetualValuation: all periodic → false');
+
+    db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)').run(prodB, whB, 5);
+    const mixed = await api('POST', '/api/invoices', {
+      cust_id: custId, type: 'normal', date: today, warehouse_id: whPeriodic, pay_type: 'credit', vat_exempt: 1,
+      client_request_id: key('hdr-periodic'),
+      rows: [{ product_id: prodB, name: 'کالای B', qty: 1, price: 80000, warehouse_id: whB }],
+    }, 'acct');
+    ok(mixed.status === 200 && mixed.data && mixed.data.id, 'create with periodic header + perpetual line → 200', mixed);
+    if (mixed.status === 200) {
+      const je = db.prepare("SELECT id FROM journal_entries WHERE ref_type='invoice_cogs' AND ref_id=? AND COALESCE(deleted_at,0)=0").get(mixed.data.id);
+      ok(!!je, 'COGS JE posted when only line WH is perpetual');
+      if (je) {
+        const lines = db.prepare('SELECT account_code, credit, credit_rial FROM journal_lines WHERE entry_id=?').all(je.id);
+        const crB = lines.find((l) => l.account_code === '1104K');
+        const amtB = Math.round(Number(crB && (crB.credit_rial || crB.credit * 10)) || 0);
+        ok(!!crB && amtB === 30000, 'COGS Cr uses perpetual line warehouse account', { amtB, lines });
+      }
+    }
+  }
+
+  // report --out writes a file against the live test DB
+  {
+    const reportScript = path.join(__dirname, 'report-cross-warehouse-sales.js');
+    const outFile = path.join(dir, 'xwh-p2-out.txt');
+    const withOut = spawnSync(NODE, [reportScript, `--db=${process.env.DB_PATH}`, `--out=${outFile}`], { encoding: 'utf8' });
+    ok(withOut.status === 0 && fs.existsSync(outFile) && fs.statSync(outFile).size > 0,
+      'report writes --out file', { status: withOut.status, err: (withOut.stderr || '').slice(0, 200) });
+  }
 
   server.close();
   try { db.close(); } catch (_) {}

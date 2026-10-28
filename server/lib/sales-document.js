@@ -851,6 +851,28 @@ function warehouseUsesPerpetualValuation(db, warehouseId) {
   return true;
 }
 
+/**
+ * True when the sale should post perpetual movements + per-warehouse COGS:
+ * header OR any line warehouse uses perpetual. Cross-WH from a perpetual line
+ * must not fall through to legacy deductStock just because the header is periodic.
+ */
+function saleUsesPerpetualValuation(db, rows, headerWarehouseId) {
+  if (!perpetualDocsEnabled(db)) return false;
+  const headerWh = headerWarehouseId != null ? parseInt(headerWarehouseId, 10) : null;
+  const headerOk = Number.isFinite(headerWh) && headerWh > 0 ? headerWh : null;
+  const seen = new Set();
+  let any = false;
+  for (const r of rows || []) {
+    let wh = r && r.warehouse_id != null ? parseInt(r.warehouse_id, 10) : null;
+    if (!Number.isFinite(wh) || wh <= 0) wh = headerOk;
+    if (!wh || seen.has(wh)) continue;
+    seen.add(wh);
+    if (warehouseUsesPerpetualValuation(db, wh)) any = true;
+  }
+  if (!seen.size) return warehouseUsesPerpetualValuation(db, headerOk);
+  return any;
+}
+
 module.exports = {
   FIRM_TYPES,
   ALL_TYPES,
@@ -880,5 +902,6 @@ module.exports = {
   postCogsFromMovements,
   perpetualDocsEnabled,
   warehouseUsesPerpetualValuation,
+  saleUsesPerpetualValuation,
   reservedQty,
 };
