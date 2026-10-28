@@ -15,21 +15,72 @@ const VSR_COLS = [
     return (typeof displaySizeName === 'function') ? displaySizeName(raw) : raw;
   } },
   { key: 'sku', label: 'SKU', kind: '', pick: function (c) { return c.sku || ''; } },
-  { key: 'qty', label: 'موجودی', kind: 'qty', pick: function (c) { return c.qty || 0; } },
+  { key: 'qty', label: 'موجودی', kind: 'qty', pick: function (c) { return vsrCellQty(c); } },
   { key: 'cost', label: 'بهای واحد', kind: 'avg', pick: function (c) { return c.unit_cost_rial || 0; } },
-  { key: 'value', label: 'ارزش موجودی', kind: 'money', pick: function (c) { return c.amount_rial || 0; } },
+  { key: 'avgrate', label: 'میانگین موزون انبار', kind: 'avg', pick: function (c) { const n = vsrNorm(c); return n && n.avg != null ? n.avg : (c.unit_cost_rial || 0); } },
+  { key: 'value', label: 'ارزش موجودی', kind: 'money', pick: function (c) { const v = c.ledger_value_rial; return v != null && isFinite(Number(v)) ? Number(v) : (c.amount_rial || 0); } },
+  { key: 'drift', label: 'اختلاف با لایهٔ دیگر', kind: '', pick: function (c) { return vsrDriftText(c); }, html: function (c) { return typeof whRepDriftHtml === 'function' ? whRepDriftHtml(vsrNorm(c)) : '—'; } },
+  { key: 'flags', label: 'پرچم', kind: '', pick: function (c) { return typeof whRepFlagText === 'function' ? whRepFlagText(vsrNorm(c)) : ''; }, html: function (c) { return typeof whRepFlagsHtml === 'function' ? whRepFlagsHtml(vsrNorm(c)) : '—'; } },
   { key: 'price', label: 'قیمت فروش', kind: 'avg', pick: function (c) { return c.unit_price_rial || 0; } },
   { key: 'sales', label: 'ارزش فروش', kind: 'money', pick: function (c) { return c.sales_value_rial || 0; } },
 ];
+
+/* v577 فاز ۴: منبع عدد = کاردکس (kardex_qty) اگر سرور بدهد؛ وگرنه qty قدیمی */
+function vsrCellQty(c) {
+  const k = c && c.kardex_qty;
+  if (k != null && k !== '' && isFinite(Number(k))) return Number(k);
+  return Number(c && c.qty) || 0;
+}
+
+/* ردیف رنگ/سایز از vws می‌آید؛ مقایسهٔ کاردکس در سطح کالا×انبار است (data.layers از سرور) */
+function vsrLayerOf(c) {
+  const map = window._vsrLayerMap;
+  return map && c ? map.get(c.product_id + ':' + c.warehouse_id) || null : null;
+}
+
+function vsrNorm(c) {
+  if (typeof whRepNormRow !== 'function' || !c) return null;
+  if (!c._vsrNorm) {
+    const L = vsrLayerOf(c);
+    const src = L ? Object.assign({}, c, {
+      kardex_qty: L.kardex_qty, ledger_value_rial: L.kardex_value_rial, ws_qty: L.ws_qty,
+      drift_qty: L.drift_qty, drift_ws_vws: !!L.ws_vs_vws, layer_drift: !!L.drift,
+    }) : c;
+    c._vsrNorm = whRepNormRow(src);
+  }
+  return c._vsrNorm;
+}
+
+function vsrLayerText(c) {
+  const L = vsrLayerOf(c);
+  if (!L) return '';
+  return 'کالا×انبار — کاردکس ' + vsrQty(L.kardex_qty) + ' · جمع رنگ/سایز ' + vsrQty(L.variant_qty) + ' · ارزش کاردکس ' + vsrMoney(L.kardex_value_rial);
+}
+
+function vsrDriftText(c) {
+  const n = vsrNorm(c);
+  if (!n) return '';
+  const parts = [];
+  if (n.driftQty != null && Math.abs(n.driftQty) > 0.0005) parts.push(n.driftQty + ' عدد');
+  if (n.driftVal != null && Math.abs(n.driftVal) > 1) parts.push(n.driftVal + ' ریال');
+  const ctx = vsrLayerText(c);
+  return parts.join(' ; ') + (ctx ? (parts.length ? ' — ' : '') + ctx : '');
+}
+
+function vsrIsFlagged(c) {
+  const n = vsrNorm(c);
+  return !!(n && n.flags.length);
+}
 
 function vsrDefaultState() {
   return {
     view: 'overview',
     onlyLow: false,
     includeZero: false,
+    onlyFlag: false,
     matrixProduct: '',
     filters: { warehouse_id: '', product_id: '', category: '', color_id: '', size_id: '', q: '', low_qty: '2' },
-    columns: { code: 1, name: 1, category: 1, warehouse: 1, color: 1, size: 1, sku: 0, qty: 1, cost: 1, value: 1, price: 1, sales: 1 },
+    columns: { code: 1, name: 1, category: 1, warehouse: 1, color: 1, size: 1, sku: 0, qty: 1, cost: 1, avgrate: 1, value: 1, drift: 1, flags: 1, price: 1, sales: 1 },
     presets: [],
   };
 }
@@ -47,6 +98,7 @@ function vsrReadStore() {
     if (VSR_VIEWS.indexOf(raw.view) >= 0) next.view = raw.view;
     next.onlyLow = !!raw.onlyLow;
     next.includeZero = !!raw.includeZero;
+    next.onlyFlag = !!raw.onlyFlag;
     next.matrixProduct = raw.matrixProduct ? String(raw.matrixProduct) : '';
     next.filters = Object.assign(next.filters, raw.filters || {});
     next.columns = Object.assign(next.columns, raw.columns || {});
@@ -104,6 +156,7 @@ function vsrReadFilters() {
   if (el('vsrQ')) st.filters.q = el('vsrQ').value;
   if (el('vsrLow')) st.filters.low_qty = el('vsrLow').value;
   if (el('vsrZero')) st.includeZero = !!el('vsrZero').checked;
+  if (el('vsrFlagOnly')) st.onlyFlag = !!el('vsrFlagOnly').checked;
   vsrSave();
   return st.filters;
 }
@@ -142,7 +195,7 @@ function vsrShell(st) {
     return '<label class="vsr-check"><input id="vsrCol-' + col.key + '" type="checkbox" ' + (on ? 'checked' : '') + (col.key === 'qty' ? ' disabled' : '') + ' data-csp-change="' + CSP.bind('change', function () { vsrToggleCol(col.key, this.checked); }) + '"> ' + esc(col.label) + '</label>';
   }).join('');
   return '<div class="vsr" id="vsrApp">'
-    + '<p class="vsr-lead">موجودی همین لحظه است و به بازهٔ تاریخ حسابداری وصل نیست. هر خانه یک رنگ و یک سایز است. اگر کالا هنوز بین انبارها تقسیم نشده باشد، عدد روی انبار خود کالا می‌نشیند.</p>'
+    + '<p class="vsr-lead">موجودی همین لحظه است و به بازهٔ تاریخ حسابداری وصل نیست. هر خانه یک رنگ و یک سایز است. اگر کالا هنوز بین انبارها تقسیم نشده باشد، عدد روی انبار خود کالا می‌نشیند. عدد هر خانهٔ رنگ×سایز از موجودی رنگ/سایزِ انبار است؛ جمع هر کالا×انبار با <b>کاردکس (Σ)</b> مقایسه می‌شود و اختلاف یا «مقدار ۰ با ارزش ≠ ۰» در ستون‌های «اختلاف با لایهٔ دیگر» و «پرچم» (و ردیف قرمز/زرد) نشان داده می‌شود.</p>'
     + '<div class="vsr-filters">'
     + vsrField('انبار', '<select id="vsrWh" data-csp-change="' + CSP.bind('change', function () { vsrReload(); }) + '"><option value="">همه انبارها</option></select>')
     + vsrField('کالا', '<select id="vsrProduct" data-csp-change="' + CSP.bind('change', function () { vsrReload(); }) + '"><option value="">همه کالاها</option></select>')
@@ -152,6 +205,7 @@ function vsrShell(st) {
     + vsrField('جستجو', '<input id="vsrQ" type="search" value="' + esc(f.q || '') + '" placeholder="کد، نام، SKU" autocomplete="off" data-csp-input="' + CSP.bind('input', function () { vsrQueue(); }) + '">')
     + vsrField('آستانه کم‌موجود', '<input id="vsrLow" type="number" min="0" step="1" value="' + esc(f.low_qty == null ? '2' : f.low_qty) + '" data-csp-input="' + CSP.bind('input', function () { vsrQueue(); }) + '">')
     + '<label class="vsr-check vsr-zero"><input id="vsrZero" type="checkbox" ' + (st.includeZero ? 'checked' : '') + ' data-csp-change="' + CSP.bind('change', function () { vsrZeroChanged(); }) + '"> موجودی صفر در جدول</label>'
+    + '<label class="vsr-check vsr-zero"><input id="vsrFlagOnly" type="checkbox" ' + (st.onlyFlag ? 'checked' : '') + ' data-csp-change="' + CSP.bind('change', function () { vsrFlagChanged(); }) + '"> فقط ردیف‌های دارای پرچم</label>'
     + '</div>'
     + '<div class="vsr-tools">'
     + '<div class="vsr-views" role="tablist">'
@@ -242,6 +296,7 @@ async function vsrReload() {
     const data = await api('GET', '/warehouses/stock/variant-report?' + vsrQuery());
     if (seq !== _vsrSeq) return;
     window._vsrData = data || { cells: [], options: { products: [] }, kpis: {}, gaps: [] };
+    window._vsrLayerMap = new Map(((window._vsrData.layers) || []).map(function (L) { return [L.product_id + ':' + L.warehouse_id, L]; }));
     vsrFillOptions(window._vsrData);
     vsrPaint(window._vsrData);
   } catch (e) {
@@ -276,6 +331,12 @@ function vsrZeroChanged() {
   if (window._vsrData) vsrPaint(window._vsrData);
 }
 
+function vsrFlagChanged() {
+  vsrState().onlyFlag = !!(el('vsrFlagOnly') && el('vsrFlagOnly').checked);
+  vsrSave();
+  if (window._vsrData) vsrPaint(window._vsrData);
+}
+
 function vsrClearFilter(key) {
   const map = {
     warehouse_id: 'vsrWh', product_id: 'vsrProduct', category: 'vsrCat',
@@ -303,6 +364,7 @@ function vsrSavePreset() {
     view: st.view,
     onlyLow: st.onlyLow,
     includeZero: st.includeZero,
+    onlyFlag: st.onlyFlag,
     matrixProduct: st.matrixProduct,
     filters: Object.assign({}, st.filters),
     columns: Object.assign({}, st.columns),
@@ -323,6 +385,7 @@ function vsrPresetChanged() {
   st.view = VSR_VIEWS.indexOf(preset.view) >= 0 ? preset.view : 'overview';
   st.onlyLow = !!preset.onlyLow;
   st.includeZero = !!preset.includeZero;
+  st.onlyFlag = !!preset.onlyFlag;
   st.matrixProduct = preset.matrixProduct || '';
   st.filters = Object.assign(vsrDefaultState().filters, preset.filters || {});
   st.columns = Object.assign(vsrDefaultState().columns, preset.columns || {});
@@ -335,6 +398,7 @@ function vsrPresetChanged() {
   if (el('vsrQ')) el('vsrQ').value = st.filters.q || '';
   if (el('vsrLow')) el('vsrLow').value = st.filters.low_qty == null ? '2' : st.filters.low_qty;
   if (el('vsrZero')) el('vsrZero').checked = st.includeZero;
+  if (el('vsrFlagOnly')) el('vsrFlagOnly').checked = st.onlyFlag;
   VSR_COLS.forEach(function (col) {
     const box = el('vsrCol-' + col.key);
     if (box) box.checked = !!st.columns[col.key];
@@ -355,7 +419,8 @@ function vsrDeletePreset() {
 
 function vsrStatusText(data) {
   const k = data.kpis || {};
-  return 'موجودی ' + vsrQty(k.total_qty) + ' · ' + vsrMoney(k.color_count) + ' رنگ · ' + vsrMoney(k.size_count) + ' سایز · ' + vsrMoney(k.gap_count) + ' شکستگی';
+  const flagged = (data.cells || []).filter(vsrIsFlagged).length;
+  return 'موجودی ' + vsrQty(k.total_qty) + ' · ' + vsrMoney(k.color_count) + ' رنگ · ' + vsrMoney(k.size_count) + ' سایز · ' + vsrMoney(k.gap_count) + ' شکستگی' + (flagged ? ' · ' + vsrMoney(flagged) + ' پرچم اختلاف/ارزش' : '');
 }
 
 function vsrChips(data) {
@@ -467,7 +532,7 @@ function vsrGrid(cells) {
     if (!colors.has(cell.color_id)) colors.set(cell.color_id, cell);
     if (!sizes.has(cell.size_id)) sizes.set(cell.size_id, cell);
     const key = cell.color_id + ':' + cell.size_id;
-    qty.set(key, (qty.get(key) || 0) + (Number(cell.qty) || 0));
+    qty.set(key, (qty.get(key) || 0) + vsrCellQty(cell));
   });
   return {
     colors: [...colors.values()].sort(function (a, b) { return a.color_sort - b.color_sort || String(a.color_name).localeCompare(String(b.color_name), 'fa'); }),
@@ -523,14 +588,15 @@ function vsrHtmlMatrix(data) {
       const heat = vsrHeat(q, max);
       const lowCls = q > 0 && q <= low ? ' vsr-low' : '';
       const gapCls = rowHas && !(q > 0) ? ' vsr-gap' : '';
+      const flagCls = (lens.cells || []).some(function (cl) { return cl.color_id === color.color_id && cl.size_id === size.size_id && vsrIsFlagged(cl); }) ? ' vsr-flagged' : '';
       const label = color.color_name + '، سایز ' + size.size_name + '، موجودی ' + vsrQty(q);
       const pid = lens.pick === 'all' ? '' : lens.pick;
-      return '<td><button type="button" class="vsr-cell vsr-h' + heat + lowCls + gapCls + '" aria-label="' + esc(label) + '" data-csp-click="' + CSP.bind('click', function () { vsrDrill(pid, color.color_id, size.size_id); }) + '">' + vsrQty(q) + '</button></td>';
+      return '<td><button type="button" class="vsr-cell vsr-h' + heat + lowCls + gapCls + flagCls + '" aria-label="' + esc(label) + '" data-csp-click="' + CSP.bind('click', function () { vsrDrill(pid, color.color_id, size.size_id); }) + '">' + vsrQty(q) + '</button></td>';
     }).join('');
     return '<tr><th class="vsr-sticky">' + vsrSwatch(color.color_hex, color.color_name) + '<span>' + esc(color.color_name) + '</span></th>' + cells + '<td class="mono vsr-row-total">' + vsrQty(rowQty) + '</td></tr>';
   }).join('');
   return '<div class="vsr-matrix-head">' + select + '</div>' + sizeNote + sumNote
-    + '<p class="vsr-legend">پررنگ‌تر یعنی تعداد بیشتر. خط‌چین یعنی صفر. قاب قرمز یعنی این سایز تمام شده در حالی که همان رنگ سایز دیگری دارد. قاب نارنجی یعنی کم‌موجود. عدد همیشه داخل خانه است.</p>'
+    + '<p class="vsr-legend">پررنگ‌تر یعنی تعداد بیشتر. خط‌چین یعنی صفر. قاب قرمز یعنی این سایز تمام شده در حالی که همان رنگ سایز دیگری دارد. قاب نارنجی یعنی کم‌موجود. نقطه‌چین قرمز یعنی اختلاف کاردکس با لایهٔ دیگر یا ارزش ≠ ۰ با مقدار ۰ (جزئیات در نمای «جدول»). عدد همیشه داخل خانه است.</p>'
     + '<div class="vsr-matrix-wrap"><table class="vsr-matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
 }
 
@@ -575,8 +641,11 @@ function vsrDetailRows(data) {
   const st = vsrState();
   const low = Number((data.filters && data.filters.low_qty) != null ? data.filters.low_qty : 2);
   return (data.cells || []).filter(function (cell) {
-    if (st.onlyLow) return cell.qty > 0 && cell.qty <= low;
-    if (!st.includeZero && !(cell.qty > 0)) return false;
+    const q = vsrCellQty(cell);
+    if (st.onlyFlag && !vsrIsFlagged(cell)) return false;
+    if (st.onlyLow) return q > 0 && q <= low;
+    // ردیف مقدار ۰ با ارزش ≠ ۰ (ghost) همیشه دیده شود
+    if (!st.includeZero && !(q > 0) && !vsrIsFlagged(cell)) return false;
     return true;
   });
 }
@@ -588,7 +657,10 @@ function vsrHtmlDetail(data) {
     return '<th' + (col.kind ? ' data-col-kind="' + col.kind + '"' : '') + '>' + esc(col.label) + '</th>';
   }).join('');
   const body = rows.map(function (cell) {
-    return '<tr>' + cols.map(function (col) {
+    const nrm = vsrNorm(cell);
+    const rowCls = nrm && nrm.ghost ? ' class="whrep-ghost"' : (nrm && nrm.drift ? ' class="whrep-drift"' : '');
+    return '<tr' + rowCls + '>' + cols.map(function (col) {
+      if (col.html) return '<td>' + col.html(cell) + '</td>';
       const raw = col.pick(cell);
       const text = col.key === 'qty' ? vsrQty(raw) : (col.kind === 'money' || col.kind === 'avg' ? vsrMoney(raw) : esc(raw || '—'));
       const color = col.key === 'color' ? vsrSwatch(cell.color_hex, cell.color_name) + ' ' + esc(cell.color_name) : text;

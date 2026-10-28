@@ -19020,16 +19020,34 @@ async function renderSalesByProductReport(box){
 }
 async function renderInventoryValuationReport(box){
   const d=await api('GET','/adv-reports/inventory-valuation')||{rows:[],totals:{}};
+  const norm=(d.rows||[]).map(p=>({p:p,n:whRepNormRow(p),hv:whRepNum(p,['header_value_rial'])}));
+  const onlyFlag=!!window._ivrOnlyFlag;
+  const flagged=norm.filter(x=>x.n.flags.length).length;
+  const shown=onlyFlag?norm.filter(x=>x.n.flags.length):norm;
+  const tot=d.totals||{};
+  const totVal=whRepNum(tot,['ledger_value_rial','value_rial','cost_value']);
+  const totHv=whRepNum(tot,['header_value_rial']);
   box.innerHTML=`
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:8px;gap:10px;align-items:center;flex-wrap:wrap`)}">
+      <label data-csp-style="${CSP.style(`font-size:12px;display:flex;align-items:center;gap:4px`)}"><input type="checkbox" id="ivrOnlyFlag" ${onlyFlag?'checked':''} data-csp-change="${CSP.bind('change',function(){ window._ivrOnlyFlag=!!(el('ivrOnlyFlag')&&el('ivrOnlyFlag').checked); renderInventoryValuationReport(el('advReportBody')); })}"> فقط ردیف‌های دارای پرچم</label>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${flagged?`<b class="whrep-flag-count">${fmt(flagged)} کالا پرچم‌دار</b>`:'پرچمی نیست'}</span>
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px;line-height:1.9`)}">ارزش و موجودی از <b>جمع کاردکس (Σ) هر کالا×انبار</b> می‌آید؛ «ارزش سرستون» (موجودی × میانگین بهای کالا) فقط برای مقایسه است. ردیف قرمز = مقدار ۰ با ارزش ≠ ۰ یا اختلاف با لایهٔ دیگر.</div>
     <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:13px`)}"><thead><tr>
-      <th>کد</th><th>نام کالا</th><th>موجودی</th><th>بهای تمام‌شده واحد</th><th>ارزش به بهای تمام‌شده</th><th>ارزش به قیمت فروش</th>
-    </tr></thead><tbody>${d.rows.map(p=>`<tr>
-      <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="mono">${fmtQtyFa(p.stock)}</td>
-      <td class="mono">${fmt(p.cost)}</td><td class="mono">${fmt(p.cost_value)}</td><td class="mono">${fmt(p.retail_value)}</td>
-    </tr>`).join('')||emptyRow(6)}</tbody>
+      <th>کد</th><th>نام کالا</th><th>موجودی (کاردکس)</th><th>میانگین موزون</th><th>ارزش (کاردکس Σ)</th><th>ارزش سرستون</th><th>اختلاف با لایهٔ دیگر</th><th>ارزش به قیمت فروش</th><th>پرچم</th>
+    </tr></thead><tbody>${shown.map(x=>{ const p=x.p, n=x.n; return `<tr class="${n.ghost?'whrep-ghost':(n.drift?'whrep-drift':'')}">
+      <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="mono${n.drift?' rcn-diff':''}">${fmtQtyFa(n.qty!=null?n.qty:(p.stock||0))}</td>
+      <td class="mono">${fmt(n.avg!=null?n.avg:(p.cost||0))}</td>
+      <td class="mono${n.ghost||(n.value!=null&&n.value<0)?' rcn-diff':''}">${fmt(n.value!=null?n.value:(p.cost_value||0))}</td>
+      <td class="mono muted">${x.hv!=null?fmt(x.hv):'—'}</td>
+      <td class="mono">${whRepDriftHtml(n)}</td>
+      <td class="mono">${fmt(p.retail_value||0)}</td>
+      <td>${whRepFlagsHtml(n)}</td>
+    </tr>`; }).join('')||emptyRow(9)}</tbody>
     <tfoot><tr data-csp-style="${CSP.style(`border-top:2px solid var(--border);background:var(--purple-light);font-weight:700`)}">
-      <td colspan="2">جمع کل (${fmt(d.rows.length)} کالا)</td><td class="mono">${fmtQtyFa(d.totals.stock||0)}</td>
-      <td></td><td class="mono">${fmt(d.totals.cost_value||0)}</td><td class="mono">${fmt(d.totals.retail_value||0)}</td>
+      <td colspan="2">جمع کل (${fmt(norm.length)} کالا)</td><td class="mono">${fmtQtyFa(whRepNum(tot,['kardex_qty','ledger_qty','stock'])||0)}</td>
+      <td></td><td class="mono">${fmt(totVal!=null?totVal:(tot.cost_value||0))}</td><td class="mono">${totHv!=null?fmt(totHv):'—'}</td>
+      <td></td><td class="mono">${fmt(tot.retail_value||0)}</td><td></td>
     </tr></tfoot></table></div>`;
 }
 async function renderInventoryHealthReport(box){
@@ -31629,6 +31647,73 @@ async function deleteProductGroup(id){
 /* ============================================================
    WAREHOUSE COMPREHENSIVE REPORT + SYNC DEVICES ADMIN
 ============================================================ */
+/* ── v577 فاز ۴ انبار: نرمال‌سازی ردیف گزارش‌های موجودی/ارزش (منبع: کاردکس Σ) ──
+   بک‌اند ممکن است فیلدهای kardex_qty / ledger_value_rial / avg_rate_rial / drift_* / ghost_value بدهد؛
+   اگر هنوز نداد، به فیلدهای قدیمی (qty / amount_rial / avg_cost_rial) برمی‌گردیم. */
+const WH_REP_EPS_QTY=0.0005, WH_REP_TOL_RIAL=1;
+function whRepNum(o,keys){
+  if(!o) return null;
+  for(let i=0;i<keys.length;i++){
+    const v=o[keys[i]];
+    if(v!=null&&v!==''&&isFinite(Number(v))) return Number(v);
+  }
+  return null;
+}
+function whRepFlagOn(o,keys){
+  if(!o) return false;
+  const fl=(o.flags&&typeof o.flags==='object'&&!Array.isArray(o.flags))?o.flags:null;
+  const arr=Array.isArray(o.flags)?o.flags.map(String):[];
+  for(let i=0;i<keys.length;i++){
+    const k=keys[i];
+    if(o[k]===true||o[k]===1||o[k]==='1') return true;
+    if(fl&&(fl[k]===true||fl[k]===1)) return true;
+    if(arr.indexOf(k)>=0) return true;
+  }
+  return false;
+}
+function whRepNormRow(p){
+  p=p||{};
+  const hasKardex=p.kardex_qty!=null||p.ledger_qty!=null||p.ledger_value_rial!=null||p.source==='kardex';
+  const qty=whRepNum(p,['kardex_qty','ledger_qty','qty','stock']);
+  const wsQty=whRepNum(p,['ws_qty','warehouse_qty','stock_qty']);
+  const value=whRepNum(p,['ledger_value_rial','value_rial','amount_rial','cost_value']);
+  let avg=whRepNum(p,['avg_rate_rial','weighted_avg_rate_rial','weighted_avg_unit_rial','avg_cost_rial','unit_cost_rial','cost']);
+  if(avg==null&&qty&&Math.abs(qty)>WH_REP_EPS_QTY&&value!=null) avg=Math.round(value/qty);
+  let driftQty=whRepNum(p,['drift_qty','stock_drift_qty','drift_qty_vs_ws','drift_ws_ledger_qty']);
+  if(driftQty==null&&hasKardex&&wsQty!=null&&qty!=null) driftQty=qty-wsQty;
+  let driftVal=whRepNum(p,['drift_value_rial','drift_value','value_diff_rial','header_value_diff_rial','header_diff_rial']);
+  if(driftVal==null){
+    const hv=whRepNum(p,['header_value_rial']);
+    if(hv!=null&&value!=null) driftVal=value-hv;
+  }
+  const qtyDrift=driftQty!=null&&Math.abs(driftQty)>WH_REP_EPS_QTY;
+  const valDrift=driftVal!=null&&Math.abs(driftVal)>WH_REP_TOL_RIAL;
+  const drift=whRepFlagOn(p,['drift_any','drift_ws_ledger','drift_ws_vws','layer_drift','header_drift','warehouse_drift','ws_vs_ledger','ws_vs_vws','header_vs_ws','mismatch','has_drift'])||qtyDrift;
+  const negQty=whRepFlagOn(p,['negative_qty'])||(qty!=null&&qty<-WH_REP_EPS_QTY);
+  const negValFlag=whRepFlagOn(p,['negative_value']);
+  const ghost=whRepFlagOn(p,['ghost_value','zero_qty_nonzero_value','zero_qty_value'])
+    ||(qty!=null&&Math.abs(qty)<WH_REP_EPS_QTY&&value!=null&&Math.abs(value)>WH_REP_TOL_RIAL);
+  const negVal=(negValFlag||(value!=null&&value<-WH_REP_TOL_RIAL))&&!ghost;
+  const flags=[];
+  if(ghost) flags.push({key:'ghost',level:'bad',label:'مقدار ۰ با ارزش ≠ ۰',title:'موجودی صفر است اما ارزش ریالی کاردکس صفر نیست (مثل WIP یا باقی‌ماندهٔ تعدیل)'});
+  if(drift) flags.push({key:'drift',level:'bad',label:'اختلاف با لایهٔ دیگر',title:'جمع کاردکس با موجودی انبار / رنگ‌وسایز نمی‌خواند؛ اختلاف = لایهٔ دیگر − کاردکس (گزارش «تطبیق موجودی»)'});
+  if(negQty&&!ghost) flags.push({key:'negqty',level:'warn',label:'موجودی منفی',title:'جمع کاردکس منفی است'});
+  if(negVal) flags.push({key:'negval',level:'warn',label:'ارزش منفی',title:'ارزش ریالی کاردکس منفی است (مثل کالای 334 / WIP؛ علت را در کاردکس بررسی کنید)'});
+  if(valDrift&&!drift) flags.push({key:'valdrift',level:'warn',label:'ارزش ≠ سرستون',title:'ارزش کاردکس با «موجودی × میانگین سرستون» فرق دارد؛ مبنای گزارش ارزش کاردکس است'});
+  return {qty:qty,wsQty:wsQty,value:value,avg:avg,driftQty:driftQty,driftVal:driftVal,drift:drift,ghost:ghost,flags:flags,fromKardex:hasKardex};
+}
+function whRepFlagsHtml(n){
+  if(!n||!n.flags.length) return '<span class="rcn-ok">✓</span>';
+  return '<div class="rcn-flags">'+n.flags.map(f=>`<span class="rcn-flag ${f.level==='warn'?'warn':''}" title="${esc(f.title||'')}">${esc(f.label)}</span>`).join('')+'</div>';
+}
+function whRepDriftHtml(n){
+  if(!n) return '<span class="muted">—</span>';
+  const parts=[];
+  if(n.driftQty!=null&&Math.abs(n.driftQty)>WH_REP_EPS_QTY) parts.push(`<span class="rcn-diff" title="اختلاف تعداد (لایهٔ دیگر − کاردکس)">${fmtQtyFa(n.driftQty)} عدد</span>`);
+  if(n.driftVal!=null&&Math.abs(n.driftVal)>WH_REP_TOL_RIAL) parts.push(`<span class="whrep-drift-val" title="اختلاف ارزش کاردکس با «موجودی × میانگین سرستون»">${fmt(n.driftVal)} ر</span>`);
+  return parts.length?parts.join('<br>'):'<span class="muted">—</span>';
+}
+function whRepFlagText(n){ return n&&n.flags.length?n.flags.map(f=>f.label).join(' | '):''; }
 async function renderWarehouseReportTab(body){
   const whs=await api('GET','/warehouses')||[];
   body.innerHTML=`
@@ -31639,6 +31724,7 @@ async function renderWarehouseReportTab(body){
       </select>
       <input id="whRepQ" placeholder="جستجو کالا..." data-csp-style="${CSP.style(`padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;min-width:180px`)}">
       <label data-csp-style="${CSP.style(`font-size:12px;display:flex;align-items:center;gap:4px`)}"><input type="checkbox" id="whRepZero"> شامل موجودی صفر</label>
+      <label data-csp-style="${CSP.style(`font-size:12px;display:flex;align-items:center;gap:4px`)}"><input type="checkbox" id="whRepFlagged" data-csp-change="${CSP.bind('change',function(){ if(window._whRepLast) loadWarehouseReport(); })}"> فقط ردیف‌های دارای پرچم</label>
       <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){loadWarehouseReport()})}">اعمال فیلتر</button>
       <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){exportWarehouseReportExcel()})}">خروجی اکسل</button>
     </div>
@@ -31656,33 +31742,55 @@ async function loadWarehouseReport(){
   if(q) qs.push('q='+encodeURIComponent(q));
   const data=await api('GET','/warehouses/stock/report?'+qs.join('&'))||{rows:[]};
   window._whRepLast=data;
+  const onlyFlagged=!!el('whRepFlagged')?.checked;
+  let flagTotal=0, ghostTotal=0, driftTotal=0;
   const blocks=(data.rows||[]).map(r=>{
-    const rows=r.products||[];
+    const all=(r.products||[]).map(p=>({p:p,n:whRepNormRow(p)}));
+    all.forEach(x=>{ if(x.n.flags.length) flagTotal++; if(x.n.ghost) ghostTotal++; if(x.n.drift) driftTotal++; });
+    const rows=onlyFlagged?all.filter(x=>x.n.flags.length):all;
+    // جمع کل از Σ کاردکس (اگر سرور نداد: از جمع ردیف‌ها)
+    const sumQty=whRepNum(r,['kardex_total_qty','ledger_total_qty','total_qty']);
+    const sumVal=whRepNum(r,['ledger_total_value_rial','total_value_rial','total_amount_rial']);
+    let wQty=0,wVal=0;
+    all.forEach(x=>{ if(x.n.qty!=null&&x.n.qty>0&&x.n.value!=null){ wQty+=x.n.qty; wVal+=x.n.value; } });
+    const srvAvg=whRepNum(r,['avg_rate_rial','weighted_avg_rate_rial']);
+    const whAvg=srvAvg!=null?srvAvg:(wQty>0?Math.round(wVal/wQty):(r.avg_unit_cost_rial||0));
+    const flagCnt=all.filter(x=>x.n.flags.length).length;
     return `<div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}"><div class="panel-head"><h4>${esc(r.warehouse_name)} <span class="muted mono">${esc(r.warehouse_code||'')}</span></h4>
-      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(r.product_count)} کالا · موجودی ${fmtQtyFa(r.total_qty)} · ارزش ریالی ${fmt(r.total_amount_rial)} · میانگین بها ${fmt(r.avg_unit_cost_rial)}</span></div>
+      <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${fmt(r.product_count)} کالا · موجودی (کاردکس) ${fmtQtyFa(sumQty!=null?sumQty:r.total_qty)} · ارزش ریالی (کاردکس) ${fmt(sumVal!=null?sumVal:(r.total_amount_rial||0))} · میانگین موزون ${fmt(whAvg)}${flagCnt?` · <b class="whrep-flag-count">${fmt(flagCnt)} پرچم</b>`:''}</span></div>
       <div class="panel-body"><div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>کد</th><th>نام</th><th>گروه</th><th data-col-kind="qty">موجودی</th><th data-col-kind="avg">میانگین بها</th><th data-col-kind="money">ارزش ریالی</th><th data-col-kind="avg">قیمت فروش</th><th data-col-kind="money">ارزش فروش</th>
-      </tr></thead><tbody>${rows.map(p=>`<tr>
+        <th>کد</th><th>نام</th><th>گروه</th><th data-col-kind="qty">موجودی (کاردکس)</th><th data-col-kind="avg">میانگین موزون این انبار</th><th data-col-kind="money">ارزش ریالی (کاردکس)</th><th>اختلاف با لایهٔ دیگر</th><th>پرچم</th><th data-col-kind="avg">قیمت فروش</th><th data-col-kind="money">ارزش فروش</th>
+      </tr></thead><tbody>${rows.map(x=>{ const p=x.p, n=x.n; return `<tr class="${n.ghost?'whrep-ghost':(n.drift?'whrep-drift':'')}">
         <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td><td class="muted">${esc(p.category||'-')}</td>
-        <td class="mono" data-col-kind="qty">${fmtQtyFa(p.qty)}</td>
-        <td class="mono" data-col-kind="avg">${fmt(p.avg_cost_rial||p.unit_cost_rial||0)}</td>
-        <td class="mono" data-col-kind="money">${fmt(p.amount_rial||0)}</td>
+        <td class="mono${n.drift?' rcn-diff':''}" data-col-kind="qty">${fmtQtyFa(n.qty||0)}</td>
+        <td class="mono" data-col-kind="avg">${fmt(n.avg||0)}</td>
+        <td class="mono${n.ghost||(n.value!=null&&n.value<0)?' rcn-diff':''}" data-col-kind="money">${fmt(n.value||0)}</td>
+        <td class="mono">${whRepDriftHtml(n)}</td>
+        <td>${whRepFlagsHtml(n)}</td>
         <td class="mono" data-col-kind="avg">${fmt(p.unit_price_rial||0)}</td>
         <td class="mono" data-col-kind="money">${fmt(p.sales_value_rial||0)}</td>
-      </tr>`).join('')||emptyRow(8)}</tbody></table></div></div></div>`;
+      </tr>`; }).join('')||emptyRow(10)}</tbody></table></div></div></div>`;
   }).join('')||'<div class="empty">داده‌ای نیست</div>';
-  box.innerHTML=blocks;
+  const srcNote=`<div class="muted whrep-src" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:10px;line-height:1.9`)}">منبع عدد و ارزش: <b>جمع کاردکس (Σ) هر کالا×انبار</b> — «میانگین موزون» = ارزش ریالی ÷ موجودی همان انبار. ردیف قرمز: مقدار صفر با ارزش ≠ ۰ یا اختلاف با لایهٔ دیگر (جزئیات و اصلاح: «تطبیق موجودی»).${flagTotal?` <b class="whrep-flag-count">${fmt(flagTotal)} ردیف پرچم‌دار (${fmt(ghostTotal)} مقدار ۰ با ارزش، ${fmt(driftTotal)} اختلاف لایه)</b>`:''}</div>`;
+  box.innerHTML=srcNote+blocks;
   if(typeof enhanceAccTables==='function') enhanceAccTables(box);
 }
 function exportWarehouseReportExcel(){
   const data=window._whRepLast; if(!data||!data.rows){ showToast('ابتدا گزارش را بارگذاری کنید','error'); return; }
   const flat=[];
+  const onlyFlagged=!!el('whRepFlagged')?.checked;
   (data.rows||[]).forEach(r=>{(r.products||[]).forEach(p=>{
+    const n=whRepNormRow(p);
+    if(onlyFlagged&&!n.flags.length) return;
     flat.push({
       'انبار': r.warehouse_name, 'کد انبار': r.warehouse_code||'',
       'کد کالا': p.code||'', 'نام کالا': p.name||'', 'گروه': p.category||'',
-      'موجودی': p.qty||0, 'میانگین بها (ریال)': p.avg_cost_rial||p.unit_cost_rial||0,
-      'ارزش ریالی': p.amount_rial||0, 'قیمت فروش (ریال)': p.unit_price_rial||0,
+      'موجودی (کاردکس)': n.qty||0, 'میانگین موزون انبار (ریال)': n.avg||0,
+      'ارزش ریالی (کاردکس)': n.value||0,
+      'اختلاف تعداد با لایهٔ دیگر': n.driftQty==null?'':n.driftQty,
+      'اختلاف ارزش (ریال)': n.driftVal==null?'':n.driftVal,
+      'پرچم': whRepFlagText(n),
+      'قیمت فروش (ریال)': p.unit_price_rial||0,
       'ارزش فروش': p.sales_value_rial||0,
     });
   });});
@@ -39150,6 +39258,16 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📊','گزارش موجودی و ارزش انبار — منبع کاردکس Σ و پرچم‌ها (v577 / فاز ۴ انبار)',`
+      <p>سه گزارش <b>انبار ← گزارش جامع انبار</b>، <b>انبار ← موجودی رنگ و سایز</b> و <b>حسابداری ← گزارشات پیشرفته ← ارزش‌گذاری موجودی</b> حالا یک منبع اعلام‌شده دارند: <b>جمع کاردکس (Σ ledger)</b> هر کالا×انبار؛ هم برای تعداد و هم برای ارزش ریالی. «ارزش سرستون» (موجودی × میانگین بهای کالا) فقط برای مقایسه می‌ماند و مبنای جمع نیست.</p>
+      <ul>
+        <li><b>میانگین موزون این انبار:</b> ارزش ریالی کاردکس ÷ موجودی همان انبار (نه میانگین ساده بهای کالاها). در تیتر هر انبار هم میانگین موزون کل انبار آمده است.</li>
+        <li><b>اختلاف با لایهٔ دیگر:</b> تفاوت جمع کاردکس با موجودی انبار (<span dir="ltr">warehouse_stock</span>) یا رنگ/سایزِ انبار (همان مقایسهٔ «تطبیق موجودی» فاز ۱)، و در صورت وجود اختلاف ارزش کاردکس با «موجودی × میانگین سرستون». در گزارش رنگ و سایز، مقایسه روی جمع هر کالا×انبار است و زیر ستون توضیح می‌دهد کاردکس چند است و جمع رنگ/سایز چند.</li>
+        <li><b>ردیف قرمز (مقدار ۰ با ارزش ≠ ۰):</b> موجودی صفر است ولی کاردکس هنوز ارزش ریالی دارد (مثلاً باقی‌ماندهٔ WIP یا تعدیل ناقص). این ردیف‌ها حتی با خاموش بودن «شامل موجودی صفر» نمایش داده می‌شوند و پنهان نمی‌مانند.</li>
+        <li><b>ردیف زرد و پرچم «ارزش منفی / موجودی منفی / اختلاف با لایهٔ دیگر»:</b> مثل کالایی که سرستون، رنگ/سایز و کاردکسش سه عدد متفاوت می‌دهند (نمونه کالای ۳۳۴: ۴۰ / ۵۶ / ۴۱) یا ارزش کاردکسش منفی است. گزارش عدد را عوض نمی‌کند، فقط نشان می‌دهد؛ اصلاح با شمارش انبار یا «ثبت سند تعدیل» در صفحهٔ «تطبیق موجودی» (با تأیید انسانی) انجام می‌شود.</li>
+        <li><b>فقط ردیف‌های دارای پرچم:</b> تیک بالای هر گزارش فقط کالاهای مشکل‌دار را نشان می‌دهد؛ خروجی CSV هم همین فیلتر را رعایت می‌کند و ستون «پرچم» و اختلاف‌ها را دارد.</li>
+        <li><b>دسترسی:</b> این گزارش‌ها با مجوز <b>عملیات انبار (مشاهده)</b> یا <b>گزارش‌ها (مشاهده)</b> باز می‌شوند؛ داشتن «مشاهدهٔ فاکتورها» به‌تنهایی دسترسی به موجودی و ارزش انبار نمی‌دهد.</li>
+      </ul>`),
     helpSec('📋','کاردکس کالا — فیلتر واریانت، صفحه‌بندی، ابطال‌شده و چاپ (v576 / فاز ۳ انبار)',`
       <p>منو: <b>انبار ← کاردکس کالا</b> (مدیر و حسابدار). ردیف‌ها به ترتیب <b>تاریخ، سپس شناسهٔ ردیف</b> مرتب‌اند و «مانده» از ماندهٔ ابتدای دوره برای <b>همان فیلتر</b> (کالا، انبار، واریانت و بازهٔ تاریخ) شروع می‌شود، نه از سرستون کالا. اگر یک کالا در یک انبار دو سند «موجودی اول دوره» دارد، ماندهٔ جاری ردیف‌ها به‌ترتیب جمع می‌شود (مثلاً ۱ و بعد ۶).</p>
       <ul>

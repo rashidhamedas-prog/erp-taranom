@@ -2720,6 +2720,12 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
 .rcn-flag.warn{background:var(--amber-bg);color:var(--amber-fg)}
 .rcn-ok{color:var(--green);font-size:12px}
 .rcn-diff{color:var(--red);font-weight:700}
+/* ===== v577 Phase 4 — گزارش موجودی/ارزش از کاردکس Σ + پرچم‌ها ===== */
+.whrep-ghost>td{background:var(--bad-bg)}
+.whrep-drift>td{background:var(--amber-bg)}
+.whrep-drift-val{color:var(--amber-fg);font-weight:700}
+.whrep-flag-count{color:var(--red)}
+.vsr-cell.vsr-flagged{outline:2px dotted var(--red);outline-offset:-2px}
 .rcn-tbl td,.rcn-tbl th{white-space:nowrap}
 .rcn-exc{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 14px;margin-bottom:10px}
 .rcn-exc summary{cursor:pointer;font-weight:700;font-size:13px;display:flex;gap:8px;align-items:center}
