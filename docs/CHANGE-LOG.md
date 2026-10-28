@@ -1,3 +1,12 @@
+### ۱۴۰۵/۰۸/۰۷ — v578 (فرانت): فاز ۵ انبار — UI انبارگردانی (snapshot کاردکس، چاپ کور، قفل انبار، RBAC) (SW v578)
+- **شاخه:** `wh/phase-5-stocktake`؛ بک‌اند (`cycle-count.js` / `routes/stocktaking.js`) را agent بک‌اند نگه می‌دارد؛ این ورودی فقط UI است.
+- **snapshot:** ستون «موجودی snapshot» (نام فیلد defensive: `snapshot_qty` → `system_qty_frozen` → `frozen_qty` → `system_qty`)؛ مغایرت = شمارش تأییدشده − snapshot؛ ردیف‌های ماتریس رنگ×سایز جدا + بنر جمع snapshot/شمارش/مغایرت؛ موجودی زندهٔ سربرگ فقط مقایسه.
+- **چاپ کور:** دکمهٔ «🖨️ چاپ برگهٔ شمارش (کور)» (`stkPrintBlind` ← `GET /stocktaking/:id/tags?blind=1`)؛ هیچ ستون موجودی سیستم/مغایرت چاپ نمی‌شود (حتی اگر API فیلد را بفرستد).
+- **قفل/هشدار:** بنر بالای لیست + هشدار هنگام انتخاب انبار در «شروع» + بنر جزئیات برای جلسات `draft/completed`.
+- **RBAC:** شمارش/ذخیره/تکمیل = `acc_warehouse_ops:create`؛ اعمال = admin/accounting؛ ابطال اعمال و حذف جلسهٔ باز = `acc_warehouse_ops:delete`؛ دسترسی مشاهده = `view`.
+- **Help:** `renderAdminGuide()` ← «انبارگردانی (v578)» در فهرست انبار + پاراگراف «انبارگردانی» (snapshot کاردکس، چاپ کور، مغایرت، ابطال R13).
+- **فایل‌ها:** `public/{app.js,index.html,sw.js}`، CHANGE-LOG. **Deploy:** ⏳ منتظر merge/deploy توسط orchestrator.
+
 ### ۱۴۰۵/۰۸/۰۷ — v577 (بک‌اند): فاز ۴ انبار — گزارش موجودی/ارزش از کاردکس Σ، میانگین موزون، RBAC گزارش (SW v577)
 - **منبع:** `.tmp-warehouse-spec/05-phase4-reports-valuation.md` + ممیزی R4/R5؛ شاخهٔ `wh/phase-4-reports-valuation`؛ UI در ورودی «v577 (فرانت)» همین تاریخ.
 - **منبع اعلام‌شده = کاردکس:** `buildLedgerValuationRows` / `buildProductValuationReport` در `lib/inventory/valuation.js` — مقدار و ارزش = Σ ریالی ردیف‌های زندهٔ `inventory_ledger` هر کالا×انبار (همان `LEDGER_LIVE_SQL` فاز ۱: بدون ردیف معکوس/ابطال؛ ردیف `warehouse_id NULL` به‌صورت انبار ۰ حفظ می‌شود). فقط SELECT؛ هیچ heal/backfill.
