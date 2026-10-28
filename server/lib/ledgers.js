@@ -1042,6 +1042,63 @@ function buildStockLedger(db, {
   if (stripCost) payload = stripCostFields(payload);
   return payload;
 }
+/**
+ * v578 Phase 5 — shared kardex snapshot (same source as Phase 3 buildStockLedger closing and
+ * Phase 4 buildLedgerValuationRows: Σ live inventory_ledger rows). Read-only.
+ *
+ * Returns Map<productId, { qty, by_variant: Map<variantId, qty>, unattributed_qty }> for ONE
+ * warehouse. `unattributed_qty` = Σ of live rows whose variant_id is NULL (legacy / header-level
+ * rows). Callers decide whether per-variant attribution is complete (unattributed ≈ 0).
+ *
+ * @param {{warehouseId:number, productIds?:number[]}} opts
+ */
+function kardexSnapshotByProduct(db, { warehouseId, productIds } = {}) {
+  const out = new Map();
+  const wid = parseInt(warehouseId, 10);
+  if (!Number.isFinite(wid) || wid <= 0) throw LedgerError(400, 'شناسه انبار نامعتبر است');
+  if (!tableExists(db, 'inventory_ledger')) return out;
+  const { LEDGER_LIVE_SQL } = require('./inventory/layer-reconcile');
+  let hasVar = false;
+  try { hasVar = require('./inventory/ledger').ledgerHasVariantColumn(db); } catch (_) { hasVar = false; }
+  const ids = Array.isArray(productIds) ? productIds.map(Number).filter((n) => Number.isFinite(n) && n > 0) : null;
+  const where = [LEDGER_LIVE_SQL, 'COALESCE(warehouse_id,0)=?'];
+  const params = [wid];
+  if (ids && ids.length && ids.length <= 900) {
+    where.push(`product_id IN (${ids.map(() => '?').join(',')})`);
+    params.push(...ids);
+  }
+  const rows = db.prepare(`
+    SELECT product_id, ${hasVar ? 'variant_id' : 'NULL AS variant_id'} AS variant_id,
+      SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
+    FROM inventory_ledger
+    WHERE ${where.join(' AND ')}
+    GROUP BY product_id, ${hasVar ? 'variant_id' : '2'}
+  `).all(...params);
+  const r6 = (n) => Math.round((Number(n) || 0) * 1e6) / 1e6;
+  for (const r of rows) {
+    let a = out.get(r.product_id);
+    if (!a) { a = { qty: 0, by_variant: new Map(), unattributed_qty: 0 }; out.set(r.product_id, a); }
+    const q = Number(r.qty) || 0;
+    a.qty = r6(a.qty + q);
+    if (r.variant_id != null && Number(r.variant_id) > 0) {
+      a.by_variant.set(Number(r.variant_id), r6((a.by_variant.get(Number(r.variant_id)) || 0) + q));
+    } else {
+      a.unattributed_qty = r6(a.unattributed_qty + q);
+    }
+  }
+  return out;
+}
+
+/** Single product×warehouse kardex snapshot (convenience over kardexSnapshotByProduct). */
+function kardexSnapshotQty(db, { productId, warehouseId, variantId } = {}) {
+  const pid = parseInt(productId, 10);
+  const snap = kardexSnapshotByProduct(db, { warehouseId, productIds: [pid] }).get(pid)
+    || { qty: 0, by_variant: new Map(), unattributed_qty: 0 };
+  const vid = variantId != null && String(variantId) !== '' ? parseInt(variantId, 10) : null;
+  if (vid) return { qty: snap.by_variant.get(vid) || 0, total_qty: snap.qty, unattributed_qty: snap.unattributed_qty };
+  return { qty: snap.qty, total_qty: snap.qty, unattributed_qty: snap.unattributed_qty };
+}
+
 function csvEsc(v) {
   return `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
 }
@@ -1128,6 +1185,8 @@ module.exports = {
   buildAccountLedger,
   buildFinancialLedger,
   buildStockLedger,
+  kardexSnapshotByProduct,
+  kardexSnapshotQty,
   aggregateStockLedgerLines,
   stockLineGroupKey,
   financialToCsv,

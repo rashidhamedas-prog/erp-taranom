@@ -203,6 +203,10 @@ function postAdjust(db, body, user, opts = {}) {
   db.transaction(() => {
     const plan = planAdjust(db, body, user, { peek: false });
     const delta = plan.delta_qty;
+    // v578 Phase 5: warehouse under an open stocktaking is frozen against its kardex snapshot.
+    if (plan.warehouse_id) {
+      require('./cycle-count').assertWarehouseNotCounting(db, [plan.warehouse_id], { label: 'تعدیل موجودی' });
+    }
     if (!delta) throw adjErr('E_ADJUST_NO_CHANGE', 400, 'موجودی شمارش‌شده با موجودی فعلی برابر است؛ تعدیلی ثبت نشد');
     if (plan.integer && Math.abs(delta - Math.round(delta)) > 1e-9) {
       throw adjErr('E_QTY_NOT_INTEGER', 400, 'موجودی کالای قطعه‌ای باید عدد صحیح باشد');

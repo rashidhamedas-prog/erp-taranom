@@ -101,6 +101,9 @@ const LEGACY = {
   coa_issue_consignment:      { code: '1114', name: 'امانی — موجودی نزد دیگران' },
   coa_issue_return_to_supplier: { code: '2101', name: 'مرجوعی به تأمین‌کننده — حساب‌های پرداختنی' },
   coa_issue_other:            { code: '6108', name: 'سایر حواله‌ها — کسری و ضایعات انبار' },
+  // Warehouse Phase 5 (v578) — مغایرت انبارگردانی: حساب جدا از ضایعات (6108). APPEND keys only.
+  coa_stocktake_loss:         { code: '6120', name: 'کسری انبارگردانی' },
+  coa_stocktake_gain:         { code: '4205', name: 'اضافی انبارگردانی' },
 };
 
 /** Warehouse issue types (warehouse_docs.issue_type) → logical COA key. */
@@ -347,6 +350,7 @@ function baseCoaTree() {
     ['6114', 'کارمزد کارتخوان', 'expense', '6000', 2],
     ['6115', 'کارمزد خدمات بانکی', 'expense', '6000', 2],
     ['6116', 'هزینه مرخصی استحقاقی', 'expense', '6000', 2],
+    ['6120', 'کسری انبارگردانی', 'expense', '6000', 2],
     ['4115', 'سود سپرده بانکی', 'revenue', '4000', 2],
     ['9999', 'اصلاحات و تعدیلات', 'equity', null, 1],
   ];
