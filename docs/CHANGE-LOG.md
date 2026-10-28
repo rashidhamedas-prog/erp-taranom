@@ -5,7 +5,7 @@
 - **Help:** کاردکس کالا (v576).
 - **تست:** `test:wh-kardex-p3` (۹۳) داخل `npm test`.
 - **فایل‌ها:** `lib/{ledgers,inventory/ledger}.js`، `routes/{ledgers,inventory}.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ merge 9081eb9f (PR #83) — بکاپ /home/taranom/backups/crm.db.20261028-104748؛ overlay؛ health/ready=200؛ SW erp-taranom-v576؛ test:wh-kardex-p3 ۹۳/۰؛ ops ۷۷/۰؛ encoding OK؛ sms ۲۲/۰.
 ### ۱۴۰۵/۰۸/۰۷ — v575: فاز ۲ عملیات انبار — نوع حواله، انتقال، RBAC، ledger.variant_id (SW v575)
 - **منبع:** `.tmp-warehouse-spec/03-phase2-operations.md`؛ شاخهٔ `wh/phase-2-operations`؛ [Schema+RBAC](6e6de869-5814-41d5-8c5c-11950457f256) + [Ops](a0f72ee6-d3f4-42c4-81b6-d82a70e108fa) + [UI](9b43a8da-59ce-45d3-b63d-a8a9d5b9553d).
 - **اسکیما:** `warehouse_docs.issue_type`؛ `inventory_ledger.variant_id` (nullable، بدون backfill).
