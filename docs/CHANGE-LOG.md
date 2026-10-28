@@ -6,7 +6,7 @@
 - **تست:** `test:cogs-reconcile-fix` (cogs+fix، fix-only، reversal، اختلاف واقعی، void، الگوی T-0015).
 - **Help:** بند تطبیق بهای تمام‌شده در «اصلاح دادهٔ انبار… (v584)».
 - **فایل‌ها:** `lib/inventory/{cogs-per-invoice,wh-data-correction}.js`، `lib/subledger-recon.js`، `scripts/{report-cogs-reconcile,report-cross-warehouse-sales,test-cogs-reconcile-fix-vouchers}.js`، `public/{app.js,sw.js}`، `package.json`، CHANGE-LOG.
-- **Deploy:** ⏳
+- **Deploy:** ✅ 237881d8 (+ cache-bust #98) — بکاپ `/home/taranom/backups/crm.db.20261028-125928` — overlay — health 200 — title ERP ترنم — SW erp-taranom-v584 — test:cogs-reconcile-fix PASS — sms ۲۲/۰ — encoding OK. گزارش production: `/home/taranom/backups/reports/cogs-reconcile-20261028-125954.{md,csv}` — **mismatches=0**؛ هر ۱۳ فاکتور (T-0001…T-0035) اختلاف ۰ (از جمله T-0015: کاردکس=COGS=۸۹۹٬۹۱۱٬۵۰۶).
 
 ### ۱۴۰۵/۰۸/۰۷ — v583 (فرانت): فاز ۲ نمایش موجودی فاکتور — یکپارچه‌سازی پاپ‌اور، برچسب ردیف، کارت پیکر، هشدار و ماتریس انبار (SW v583)
 - **شاخه/PR:** `fix/invoice-stock-display-unify` (روی main پس از v582)؛ منبع: `.tmp-invoice-stock-display/phase-2-client-unified-stock-display.md`. فقط فرانت + تست — بدون تغییر بک‌اند/داده.
