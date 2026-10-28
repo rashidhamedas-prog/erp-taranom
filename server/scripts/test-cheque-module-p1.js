@@ -34,6 +34,11 @@ ok(appJs.includes('lifecycle-labels'), 'lifecycle-labels fetched in register UI'
 ok(!appJs.includes('>تغییر وضعیت<') && !appJs.includes('updateChequeStatus('), 'no free-text status dropdown in UI');
 ok(!appJs.includes("/cheque-records/'+id+'/status") && !appJs.includes('/cheque-records/"+id+"/status'), 'no PATCH cheque-records status from UI');
 ok(!appJs.includes("PATCH','/accounting/cheques/") && !appJs.includes('PATCH","/accounting/cheques/'), 'no PATCH legacy accounting cheques status from UI');
+ok(appJs.includes('function chqExportXlsx') && appJs.includes('/cheque-records/export.xlsx'), 'register export uses filtered xlsx route');
+ok(appJs.includes('title="واگذاری به بانک"') && appJs.includes('title="عملیات بیشتر"'), 'row actions have title as well as aria-label');
+ok(appJs.includes('جمع کل فیلتر') && appJs.includes('tin.amount') && appJs.includes('tout.amount'), 'filter footer shows amount not only count');
+const routeJs = fs.readFileSync(path.join(__dirname, '../routes/cheque-records.js'), 'utf8');
+ok(routeJs.includes('/export.xlsx'), 'export.xlsx route exists');
 
 const q = buildChequeRegisterQuery({
   direction: 'out',

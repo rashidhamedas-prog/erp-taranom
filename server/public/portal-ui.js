@@ -2541,6 +2541,21 @@
           </div>
         </div>
       </div>
+      <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
+        <div class="panel-head"><h4>📋 توالی برگ‌ها</h4></div>
+        <div class="panel-body tbl-wrap">
+          <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+            <th>دسته</th><th>سریال</th><th>وضعیت</th><th>شماره چک</th><th>صیاد</th>
+          </tr></thead><tbody>${(d.books || []).flatMap((b) => (b.leaves_sequence || []).map((l) => `<tr>
+            <td>${esc(b.name || '—')}</td>
+            <td class="mono">${esc(l.serial || '—')}</td>
+            <td>${esc(leafStatusFa(l.status))}</td>
+            <td class="mono">${esc(l.cheque_number || '—')}</td>
+            <td class="mono muted">${esc(l.sayadi || '—')}</td>
+          </tr>`)).join('') || emptyRow(5)}</tbody></table>
+          <p class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:6px`)}">تا ۸۰ برگ اول هر دسته، به ترتیب سریال.</p>
+        </div>
+      </div>
       ${(d.serial_gaps || []).length ? `
       <div class="panel" data-csp-style="${CSP.style(`margin-top:12px`)}">
         <div class="panel-head"><h4>🔢 گسست توالی سریال</h4></div>
