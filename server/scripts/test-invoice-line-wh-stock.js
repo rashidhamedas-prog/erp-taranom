@@ -82,8 +82,12 @@ async function main() {
   const noPermId = insert('users', {
     name: 'بدون دسترسی', username: 'xwh_none', password: 'x', role: 'sales', active: 1, must_change_password: 0,
   });
-  db.prepare('INSERT OR REPLACE INTO user_permissions (user_id,resource,action,allowed) VALUES (?,?,?,0)')
-    .run(noPermId, 'invoices', 'view');
+  // v577 Phase 4: gate = acc_warehouse_ops:view | reports:view | invoices:create (NOT invoices:view)
+  const denyPerm = db.prepare('INSERT OR REPLACE INTO user_permissions (user_id,resource,action,allowed) VALUES (?,?,?,0)');
+  denyPerm.run(noPermId, 'invoices', 'view');
+  denyPerm.run(noPermId, 'invoices', 'create');
+  denyPerm.run(noPermId, 'reports', 'view');
+  denyPerm.run(noPermId, 'acc_warehouse_ops', 'view');
 
   const whA = Number(insert('warehouses', {
     name: 'انبار محصول', code: 'XFG', active: 1, allow_negative: 1, is_default: 1, warehouse_type: 'finished_goods',
@@ -219,9 +223,9 @@ async function main() {
     const anon = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${prodId}`, null, null);
     ok(anon.status === 401, 'GET without token → 401', anon.status);
     const denied = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${prodId}`, null, 'none');
-    ok(denied.status === 403, 'GET without invoices.view → 403', denied.status);
+    ok(denied.status === 403, 'GET without ops/reports/invoice-create view → 403', denied.status);
     const deniedB = await api('POST', '/api/inventory/stock-by-warehouse/batch', { items: [{ product_id: prodId }] }, 'none');
-    ok(deniedB.status === 403, 'batch without invoices.view → 403', deniedB.status);
+    ok(deniedB.status === 403, 'batch without ops/reports/invoice-create view → 403', deniedB.status);
 
     // ── no side effects ──
     console.log('\n— read-only —');

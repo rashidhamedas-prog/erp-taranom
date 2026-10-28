@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۰۷ — v577 (بک‌اند): فاز ۴ انبار — گزارش موجودی/ارزش از کاردکس Σ، میانگین موزون، RBAC گزارش (SW v577)
+- **منبع:** `.tmp-warehouse-spec/05-phase4-reports-valuation.md` + ممیزی R4/R5؛ شاخهٔ `wh/phase-4-reports-valuation`؛ UI در ورودی «v577 (فرانت)» همین تاریخ.
+- **منبع اعلام‌شده = کاردکس:** `buildLedgerValuationRows` / `buildProductValuationReport` در `lib/inventory/valuation.js` — مقدار و ارزش = Σ ریالی ردیف‌های زندهٔ `inventory_ledger` هر کالا×انبار (همان `LEDGER_LIVE_SQL` فاز ۱: بدون ردیف معکوس/ابطال؛ ردیف `warehouse_id NULL` به‌صورت انبار ۰ حفظ می‌شود). فقط SELECT؛ هیچ heal/backfill.
+- **فقط مقایسه:** `header_value_rial` (ws×average_cost_rial)، `ws_qty`، `vws_sum`، `bucket_*` (جدول `inventory_valuation_buckets`) و `drift_qty` / `flags.drift_*` از ریکانسایل فاز ۱.
+- **پرچم‌ها:** `zero_qty_nonzero_value` (مثل کالای ۶ با ‎−۱۷٬۰۰۰٬۰۰۰ و WIP کالای ۳۳۴)، `negative_value`، `negative_qty`، `drift_ws_ledger`، `drift_ws_vws`، `bucket_drift`. ردیف پرچم‌دار حتی بدون `include_zero` دیده می‌شود.
+- **میانگین موزون هر انبار:** Σارزش ÷ Σتعداد روی ردیف‌های qty>0 (`weightedAvgRial`) — جایگزین میانگین سادهٔ قبلی در `routes/warehouses.js`.
+- **API:** `GET /warehouses/stock/report|overview` (+ بلوک «بدون انبار (کاردکس)»)، `/warehouses/stock/variant-report` (فیلد `layers` کالا×انبار: variant_qty ↔ kardex_qty + `layer_drift` روی خانه‌ها)، `/warehouses/:id/stock` (+ kardex_qty/drift)، `/adv-reports/inventory-valuation` (cost_value = Σledger؛ `header_*` مقایسه)، `/inventory/stock-by-warehouse[/batch]` (`qty` همان عدد قابل‌اجرای ws/vws می‌ماند؛ `kardex_qty`، `kardex_value_rial`، `drift`؛ `source=kardex` برای عدد کاردکس).
+- **RBAC:** `requireWarehouseReportView` در `middleware/auth.js` — `acc_warehouse_ops:view` **یا** `reports:view` (نه `invoices:view`)؛ picker فاکتور علاوه بر آن `invoices:create` را می‌پذیرد؛ مسیرهای انبار/adv-reports نمایندگان بخش‌های حسابداری را هم نگه می‌دارند.
+- **تست:** `test:wh-reports-p4` (۸۵ assertion، داخل `npm test`)؛ `test-invoice-line-wh-stock` و `test-warehouse-audit-v305` با قرارداد جدید هم‌راستا شدند.
+- **فایل‌ها:** `lib/inventory/{valuation,variant-report}.js`، `routes/{warehouses,inventory,adv-reports}.js`، `middleware/auth.js`، `scripts/test-warehouse-reports-v577.js`، `package.json`، CHANGE-LOG.
+- **Deploy:** ⏳ منتظر merge/deploy فاز ۴ (بک‌اند + فرانت).
+
 ### ۱۴۰۵/۰۸/۰۷ — v577 (فرانت): فاز ۴ انبار — گزارش موجودی/ارزش از کاردکس Σ + ستون‌ها و پرچم‌ها (SW v577)
 - **شاخه:** `wh/phase-4-reports-valuation`؛ بک‌اند (valuation/variant-report/routes) را agent بک‌اند نگه می‌دارد؛ این ورودی فقط UI است.
 - **گزارش جامع انبار** (`renderWarehouseReportTab`): ستون‌های «موجودی (کاردکس)»، «میانگین موزون این انبار»، «ارزش ریالی (کاردکس)»، «اختلاف با لایهٔ دیگر»، «پرچم»؛ تیک «فقط ردیف‌های دارای پرچم»؛ ردیف قرمز = مقدار ۰ با ارزش ≠ ۰، زرد = اختلاف لایه؛ CSV با همان ستون‌ها.

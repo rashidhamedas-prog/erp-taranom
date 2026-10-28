@@ -1,10 +1,12 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting, requireWarehouseOps } = require('../middleware/auth');
+const { auth, adminOrAccounting, requireWarehouseOps, requireWarehouseReportView } = require('../middleware/auth');
 
 // Warehouse Phase 2 — /moves/* gated by acc_warehouse_ops: view | create | delete (=void).
 // `negative` is enforced inside createWarehouseDoc (userMayWhNegative).
 const opsView = requireWarehouseOps('view');
+// v577 Phase 4: reports need acc_warehouse_ops:view OR reports:view (NOT invoices:view); accounting delegates keep access.
+const reportView = requireWarehouseReportView({ orDelegatedAccounting: true });
 const opsCreate = requireWarehouseOps('create');
 const opsVoid = requireWarehouseOps('delete');
 const opsRevise = requireWarehouseOps(['create', 'delete']); // revise = void + re-post
@@ -24,64 +26,126 @@ function unitCostRialOf(p) {
   return productUnitCostRial(p);
 }
 
+/**
+ * v577 Phase 4 — per-warehouse stock report.
+ * Declared source = kardex (Σ inventory_ledger): qty + rial value per product × warehouse.
+ * warehouse_stock / vws / header avg are comparison layers (ws_qty, drift_*, header_value_rial).
+ * Rows with qty=0 but value≠0 (ghosts), negative qty/value or layer drift are always listed + flagged.
+ * avg_unit_cost_rial per warehouse is WEIGHTED (Σvalue/Σqty over qty>0 rows), never a simple mean.
+ */
 function buildWarehouseStockRows(db, {
   warehouseId = null, q = '', category = '', includeZero = false, asOverview = false,
 } = {}) {
-  const warehouses = db.prepare('SELECT * FROM warehouses WHERE active=1 ORDER BY name').all()
-    .filter((w) => !warehouseId || w.id === warehouseId);
-  // Pure warehouse_stock — never fall back to products.stock (cross-WH double-count).
-  const stockRows = db.prepare(`
+  const { buildLedgerValuationRows, weightedAvgRial } = require('../lib/inventory/valuation');
+  const allWh = db.prepare('SELECT * FROM warehouses ORDER BY name').all();
+  const prodMeta = new Map();
+  for (const p of db.prepare(`
     SELECT p.id, p.code, p.name, p.unit, p.cost, p.price, p.category, p.average_cost_rial,
-      pc.name as category_name, ws.warehouse_id as ws_wh, ws.qty as ws_qty
-    FROM warehouse_stock ws
-    JOIN products p ON p.id=ws.product_id
+      pc.name AS category_name
+    FROM products p
     LEFT JOIN product_categories pc ON pc.id=p.category_id
-    ORDER BY p.name
-  `).all();
-  return warehouses.map((w) => {
+  `).all()) prodMeta.set(p.id, p);
+
+  const val = buildLedgerValuationRows(db, { warehouseId: warehouseId || undefined });
+  const byWh = new Map();
+  for (const r of val.rows) {
+    if (!byWh.has(r.warehouse_id)) byWh.set(r.warehouse_id, []);
+    byWh.get(r.warehouse_id).push(r);
+  }
+  const hasLedgerWeight = (wid) => (byWh.get(wid) || []).some(
+    (r) => r.ledger_qty !== 0 || r.ledger_value_rial !== 0,
+  );
+  // active warehouses, plus inactive ones that still carry kardex qty/value (nothing may vanish)
+  const warehouses = allWh
+    .filter((w) => (Number(w.active) === 1 || hasLedgerWeight(w.id)))
+    .filter((w) => !warehouseId || w.id === warehouseId);
+  const blocks = warehouses.map((w) => ({
+    id: w.id, name: w.name, code: w.code, meta: w, rows: byWh.get(w.id) || [],
+  }));
+  // kardex rows without a warehouse (warehouse_id NULL) — never dropped silently
+  if (!warehouseId && (byWh.get(0) || []).some((r) => r.ledger_qty !== 0 || r.ledger_value_rial !== 0)) {
+    blocks.push({
+      id: 0, name: 'بدون انبار (کاردکس)', code: null,
+      meta: { id: 0, name: 'بدون انبار (کاردکس)', code: null, active: 1 }, rows: byWh.get(0),
+    });
+  }
+
+  return blocks.map((w) => {
     const products = [];
-    for (const p of stockRows) {
-      if (p.ws_wh !== w.id) continue;
-      const qty = Number(p.ws_qty) || 0;
-      if (!includeZero && !(qty > 0)) continue;
+    for (const r of w.rows) {
+      const p = prodMeta.get(r.product_id);
+      if (!p) continue;
+      const qty = r.ledger_qty;
+      const visible = includeZero || qty > 0 || r.flags.exception_any || r.flags.drift_any;
+      if (!visible) continue;
       const cat = p.category_name || p.category || '';
       if (category && cat !== category) continue;
       if (q) {
         const hay = `${p.code || ''} ${p.name || ''} ${p.unit || ''}`.toLowerCase();
         if (!hay.includes(q.toLowerCase())) continue;
       }
-      const unitCost = unitCostRialOf(p);
+      const headerUnit = unitCostRialOf(p);
       const unitPriceRial = Math.round(Number(p.price) || 0);
       products.push({
         id: p.id, code: p.code, name: p.name, unit: p.unit, category: cat,
-        qty, unit_cost_rial: unitCost, unit_price_rial: unitPriceRial,
-        avg_cost_rial: unitCost,
-        amount_rial: Math.round(qty * unitCost),
+        source: 'kardex',
+        qty,
+        kardex_qty: qty,
+        avg_rate_rial: r.weighted_avg_unit_rial,
+        // unit cost = Σledger value / qty when qty>0 (weighted); header cost only as fallback / comparison
+        unit_cost_rial: qty > 0 && r.ledger_value_rial !== 0 ? r.weighted_avg_unit_rial : headerUnit,
+        unit_price_rial: unitPriceRial,
+        avg_cost_rial: r.weighted_avg_unit_rial,
+        weighted_avg_unit_rial: r.weighted_avg_unit_rial,
+        header_unit_cost_rial: headerUnit,
+        amount_rial: r.ledger_value_rial,
+        ledger_value_rial: r.ledger_value_rial,
+        header_value_rial: r.header_value_rial,
+        header_value_diff_rial: r.header_value_diff_rial,
         sales_value_rial: Math.round(qty * unitPriceRial),
+        ws_qty: r.ws_qty,
+        vws_sum: r.vws_sum,
+        drift_qty: r.drift_qty,
+        bucket_qty: r.bucket_qty,
+        bucket_value_rial: r.bucket_value_rial,
+        flags: r.flags,
+        flagged: r.flagged,
       });
     }
+    const weighted = weightedAvgRial(products, 'qty', 'amount_rial');
+    const flagged = products.filter((x) => x.flagged);
+    const ghosts = products.filter((x) => x.flags.zero_qty_nonzero_value);
     const base = {
       warehouse_id: w.id, warehouse_name: w.name, warehouse_code: w.code,
+      source: 'kardex',
       product_count: products.length,
       total_qty: products.reduce((a, x) => a + x.qty, 0),
       total_amount_rial: products.reduce((a, x) => a + x.amount_rial, 0),
       total_sales_value_rial: products.reduce((a, x) => a + x.sales_value_rial, 0),
-      avg_unit_cost_rial: products.length
-        ? Math.round(products.reduce((a, x) => a + x.unit_cost_rial, 0) / products.length) : 0,
+      total_header_value_rial: products.reduce((a, x) => a + x.header_value_rial, 0),
+      kardex_total_qty: products.reduce((a, x) => a + x.qty, 0),
+      ledger_total_value_rial: products.reduce((a, x) => a + x.amount_rial, 0),
+      avg_unit_cost_rial: weighted,
+      weighted_avg_unit_cost_rial: weighted,
+      avg_rate_rial: weighted,
+      flagged_count: flagged.length,
+      ghost_count: ghosts.length,
+      ghost_value_rial: ghosts.reduce((a, x) => a + x.amount_rial, 0),
+      drift_count: products.filter((x) => x.flags.drift_any).length,
       products,
     };
-    return asOverview ? { ...w, ...base } : base;
+    return asOverview ? { ...w.meta, ...base } : base;
   });
 }
 
-// Stock overview — all warehouses with product quantities
-router.get('/stock/overview', auth, adminOrAccounting, (req, res) => {
+// Stock overview — all warehouses with product quantities (Phase 4: kardex source)
+router.get('/stock/overview', auth, reportView, (req, res) => {
   const db = getDB();
   res.json(buildWarehouseStockRows(db, { includeZero: true, asOverview: true }));
 });
 
-/** Comprehensive per-warehouse stock report with filters */
-router.get('/stock/report', auth, adminOrAccounting, (req, res) => {
+/** Comprehensive per-warehouse stock report with filters (kardex Σ qty / Σ rial) */
+router.get('/stock/report', auth, reportView, (req, res) => {
   const db = getDB();
   const warehouseId = req.query.warehouse_id ? parseInt(req.query.warehouse_id, 10) : null;
   const q = String(req.query.q || '').trim();
@@ -89,12 +153,14 @@ router.get('/stock/report', auth, adminOrAccounting, (req, res) => {
   const includeZero = req.query.include_zero === '1';
   res.json({
     filters: { warehouse_id: warehouseId, q, category, include_zero: includeZero },
+    source: 'kardex',
+    value_basis: 'sum_ledger_rial',
     rows: buildWarehouseStockRows(db, { warehouseId, q, category, includeZero }),
   });
 });
 
 /** Color × size stock dashboard. Snapshot, not a date-ranged ledger. */
-router.get('/stock/variant-report', auth, adminOrAccounting, (req, res) => {
+router.get('/stock/variant-report', auth, reportView, (req, res) => {
   try {
     res.json(buildVariantStockReport(getDB(), req.query));
   } catch (e) {
@@ -304,6 +370,20 @@ router.get('/:id/stock', auth, opsViewOrWh, (req, res) => {
     WHERE ws.warehouse_id=?
     ORDER BY p.name
   `).all(req.params.id);
+  // v577: `stock` stays the operational warehouse_stock qty; kardex (Σ ledger) is the declared
+  // report source and is added next to it together with the drift flag.
+  try {
+    const { buildLedgerValuationRows } = require('../lib/inventory/valuation');
+    const k = new Map(buildLedgerValuationRows(db, { warehouseId: Number(req.params.id), skipDrift: true })
+      .rows.map((r) => [r.product_id, r]));
+    for (const row of rows) {
+      const r = k.get(row.id);
+      row.kardex_qty = r ? r.ledger_qty : 0;
+      row.kardex_value_rial = r ? r.ledger_value_rial : 0;
+      row.weighted_avg_unit_rial = r ? r.weighted_avg_unit_rial : 0;
+      row.drift = Math.abs((Number(row.stock) || 0) - row.kardex_qty) > 1e-6;
+    }
+  } catch (_) { /* kardex columns optional */ }
   res.json(rows);
 });
 

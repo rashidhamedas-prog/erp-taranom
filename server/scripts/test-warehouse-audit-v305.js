@@ -52,7 +52,8 @@ ok(whDocs.includes('allowNegative(db, fromWh)'), 'issue/transfer respect allow_n
 
 // WH-06/07 report
 ok(whRoutes.includes('buildWarehouseStockRows'), 'pure warehouse_stock report helper');
-ok(whRoutes.includes('FROM warehouse_stock ws'), 'report query starts from warehouse_stock');
+// v577 Phase 4: report is built from kardex (Σ inventory_ledger); warehouse_stock is a comparison layer
+ok(whRoutes.includes('buildLedgerValuationRows'), 'report rows built from kardex (Σ ledger); ws = comparison layer');
 ok(whRoutes.includes('unitCostRialOf'), 'valuation from average_cost_rial');
 ok(whRoutes.includes("UPDATE warehouses SET is_default=0"), 'unique default warehouse');
 

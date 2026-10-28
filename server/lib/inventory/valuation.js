@@ -1266,7 +1266,273 @@ function explainEffective(db, { productId, warehouseId = null } = {}) {
   };
 }
 
+/* ─────────────────── v577: report valuation = Σ ledger (read-only) ─────────────────── */
+
+const REPORT_QTY_EPS = 1e-6;
+
+function reportNum(v) { return Number(v) || 0; }
+function reportR6(v) { return Math.round(reportNum(v) * 1e6) / 1e6; }
+
+/**
+ * Weighted-average unit cost (rial) over a set of rows: Σvalue / Σqty on rows with qty>0.
+ * NOT the simple mean of per-row unit costs.
+ */
+function weightedAvgRial(rows, qtyKey = 'ledger_qty', valueKey = 'ledger_value_rial') {
+  let q = 0;
+  let v = 0;
+  for (const r of rows || []) {
+    const rq = reportNum(r[qtyKey]);
+    if (rq > REPORT_QTY_EPS) { q += rq; v += reportNum(r[valueKey]); }
+  }
+  return q > REPORT_QTY_EPS ? Math.round(v / q) : 0;
+}
+
+/** Row-level exception flags shared by every report built on Σledger. */
+function ledgerValueFlags({ qty, value, wsQty, wsKnown, vwsDrift, bucketQty, bucketValue, bucketKnown }) {
+  const v = Math.round(reportNum(value));
+  const q = reportNum(qty);
+  const zeroQty = Math.abs(q) < REPORT_QTY_EPS;
+  const flags = {
+    zero_qty_nonzero_value: zeroQty && v !== 0,
+    negative_qty: q < -REPORT_QTY_EPS,
+    negative_value: v < 0,
+    drift_ws_ledger: !!wsKnown && Math.abs(reportNum(wsQty) - q) > REPORT_QTY_EPS,
+    drift_ws_vws: !!vwsDrift,
+    bucket_drift: !!bucketKnown && (Math.abs(reportNum(bucketQty) - q) > REPORT_QTY_EPS
+      || Math.abs(Math.round(reportNum(bucketValue)) - v) > 1000),
+  };
+  flags.drift_any = flags.drift_ws_ledger || flags.drift_ws_vws;
+  flags.exception_any = flags.zero_qty_nonzero_value || flags.negative_qty || flags.negative_value;
+  return flags;
+}
+
+/**
+ * Declared source for stock/valuation reports: kardex = Σ inventory_ledger (live rows) per
+ * product × warehouse. value = Σ rial (in: +amount, out: −amount, value-only rows: signed amount).
+ * warehouse_stock / vws / products header / valuation buckets are comparison layers only.
+ * Strictly SELECT — never seeds, heals or rebuilds anything.
+ *
+ * @param {object} [opts] { productId, warehouseId } optional filters.
+ * @returns {{rows:object[], by_product:Map<number,object>, drift_available:boolean}}
+ */
+function buildLedgerValuationRows(db, opts = {}) {
+  const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
+  const pid = opts.productId ? Number(opts.productId) : null;
+  const wid = opts.warehouseId != null && opts.warehouseId !== '' ? Number(opts.warehouseId) : null;
+  const where = [LEDGER_LIVE_SQL];
+  const params = [];
+  if (pid) { where.push('product_id=?'); params.push(pid); }
+  if (wid != null && Number.isFinite(wid)) { where.push('COALESCE(warehouse_id,0)=?'); params.push(wid); }
+
+  const ledRows = tableExists(db, 'inventory_ledger') ? db.prepare(`
+    SELECT product_id, COALESCE(warehouse_id,0) AS warehouse_id,
+      SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty,
+      SUM(CASE WHEN COALESCE(qty_in,0)>0 THEN COALESCE(amount_rial,0)
+               WHEN COALESCE(qty_out,0)>0 THEN -COALESCE(amount_rial,0)
+               ELSE COALESCE(amount_rial,0) END) AS value_rial,
+      COUNT(*) AS n
+    FROM inventory_ledger
+    WHERE ${where.join(' AND ')}
+    GROUP BY product_id, COALESCE(warehouse_id,0)
+  `).all(...params) : [];
+
+  // comparison layers
+  const ws = new Map();
+  if (tableExists(db, 'warehouse_stock')) {
+    const wsSql = 'SELECT product_id, warehouse_id, qty FROM warehouse_stock' + (pid ? ' WHERE product_id=?' : '');
+    for (const r of db.prepare(wsSql).all(...(pid ? [pid] : []))) {
+      if (wid != null && Number.isFinite(wid) && Number(r.warehouse_id) !== wid) continue;
+      ws.set(`${r.product_id}:${r.warehouse_id}`, reportNum(r.qty));
+    }
+  }
+  const buckets = new Map();
+  const bucketsAvailable = tableExists(db, 'inventory_valuation_buckets');
+  if (bucketsAvailable) {
+    const bSql = 'SELECT product_id, warehouse_id, qty, value_rial FROM inventory_valuation_buckets' + (pid ? ' WHERE product_id=?' : '');
+    for (const b of db.prepare(bSql).all(...(pid ? [pid] : []))) {
+      buckets.set(`${b.product_id}:${Number(b.warehouse_id) || 0}`, { qty: reportNum(b.qty), value: reportNum(b.value_rial) });
+    }
+  }
+  let driftAvailable = !opts.skipDrift;
+  const recon = new Map();
+  if (!opts.skipDrift) {
+    try {
+      const { computeLayerReconcile } = require('./layer-reconcile');
+      const rec = computeLayerReconcile(db, {
+        productId: pid || undefined,
+        warehouseId: wid || undefined,
+      });
+      for (const r of rec.rows) recon.set(`${r.product_id}:${r.warehouse_id}`, r);
+    } catch (_) { driftAvailable = false; }
+  }
+
+  const prodRows = db.prepare(
+    'SELECT id, code, name, unit, price, cost, category, stock, average_cost_rial FROM products'
+    + (pid ? ' WHERE id=?' : '')
+  ).all(...(pid ? [pid] : []));
+  const prods = new Map(prodRows.map((p) => [p.id, p]));
+  const whNames = new Map();
+  const whActive = new Map();
+  if (tableExists(db, 'warehouses')) {
+    for (const w of db.prepare('SELECT id, name, active FROM warehouses').all()) {
+      whNames.set(Number(w.id), w.name);
+      whActive.set(Number(w.id), w.active == null ? 1 : Number(w.active));
+    }
+  }
+
+  // keys: ledger rows ∪ ws rows that carry qty (so a ws-only layer shows up as drift)
+  const keys = new Map();
+  for (const r of ledRows) keys.set(`${r.product_id}:${r.warehouse_id}`, r);
+  for (const [k, q] of ws) {
+    if (!keys.has(k) && Math.abs(q) > REPORT_QTY_EPS) {
+      const [p, w] = k.split(':').map(Number);
+      keys.set(k, { product_id: p, warehouse_id: w, qty: 0, value_rial: 0, n: 0 });
+    }
+  }
+
+  const rows = [];
+  for (const [k, r] of keys) {
+    const p = prods.get(r.product_id);
+    if (!p) continue;
+    const qty = reportR6(r.qty);
+    const value = Math.round(reportNum(r.value_rial));
+    const wsKnown = ws.has(k);
+    const wsQty = wsKnown ? ws.get(k) : null;
+    const rc = recon.get(k) || null;
+    const b = buckets.get(k) || null;
+    const headerAvg = Math.round(reportNum(p.average_cost_rial));
+    const headerValue = Math.round(reportNum(wsQty) * headerAvg);
+    const flags = ledgerValueFlags({
+      qty, value, wsQty, wsKnown,
+      vwsDrift: !!(rc && rc.flags && rc.flags.ws_vs_vws),
+      bucketQty: b && b.qty, bucketValue: b && b.value, bucketKnown: !!b,
+    });
+    // ws "unknown" and ledger has qty → treat ws as 0 so a missing projection is visible drift
+    if (!wsKnown && Math.abs(qty) > REPORT_QTY_EPS) {
+      flags.drift_ws_ledger = true;
+      flags.drift_any = true;
+    }
+    rows.push({
+      product_id: r.product_id,
+      product_code: p.code || null,
+      product_name: p.name || null,
+      warehouse_id: Number(r.warehouse_id) || 0,
+      warehouse_name: Number(r.warehouse_id) ? (whNames.get(Number(r.warehouse_id)) || null) : null,
+      warehouse_active: Number(r.warehouse_id) ? (whActive.has(Number(r.warehouse_id)) ? whActive.get(Number(r.warehouse_id)) : 1) : 1,
+      source: 'kardex',
+      ledger_qty: qty,
+      ledger_value_rial: value,
+      ledger_rows: Number(r.n) || 0,
+      // weighted (value/qty) — only meaningful when qty>0
+      weighted_avg_unit_rial: qty > REPORT_QTY_EPS ? Math.round(value / qty) : 0,
+      // comparison layers
+      ws_qty: wsQty == null ? null : reportR6(wsQty),
+      vws_sum: rc ? rc.vws_sum : null,
+      drift_qty: wsKnown ? reportR6(wsQty - qty) : (Math.abs(qty) > REPORT_QTY_EPS ? reportR6(-qty) : 0),
+      header_avg_rial: headerAvg,
+      header_value_rial: headerValue,
+      header_value_diff_rial: value - headerValue,
+      bucket_qty: b ? reportR6(b.qty) : null,
+      bucket_value_rial: b ? Math.round(b.value) : null,
+      flags,
+      flagged: flags.exception_any || flags.drift_any,
+    });
+  }
+  rows.sort((a, b) => (a.product_id - b.product_id) || (a.warehouse_id - b.warehouse_id));
+
+  const byProduct = new Map();
+  for (const r of rows) {
+    let a = byProduct.get(r.product_id);
+    if (!a) {
+      a = { product_id: r.product_id, ledger_qty: 0, ledger_value_rial: 0, rows: [], any_flagged: false };
+      byProduct.set(r.product_id, a);
+    }
+    a.ledger_qty = reportR6(a.ledger_qty + r.ledger_qty);
+    a.ledger_value_rial += r.ledger_value_rial;
+    a.rows.push(r);
+    if (r.flagged) a.any_flagged = true;
+  }
+  for (const a of byProduct.values()) {
+    a.zero_qty_nonzero_value = Math.abs(a.ledger_qty) < REPORT_QTY_EPS && a.ledger_value_rial !== 0;
+    a.negative_value = a.ledger_value_rial < 0;
+    a.weighted_avg_unit_rial = weightedAvgRial(a.rows);
+    if (a.zero_qty_nonzero_value || a.negative_value) a.any_flagged = true;
+  }
+  return { rows, by_product: byProduct, drift_available: driftAvailable, buckets_available: bucketsAvailable };
+}
+
+/**
+ * Per-product valuation report (adv-reports/inventory-valuation).
+ * qty/value = Σ ledger; header (products.stock × average_cost_rial) only for comparison.
+ */
+function buildProductValuationReport(db, opts = {}) {
+  const { by_product: byProduct, drift_available: driftAvailable } = buildLedgerValuationRows(db, opts);
+  const prods = db.prepare(`
+    SELECT id, code, name, stock,
+      COALESCE(NULLIF(average_cost_rial,0), ROUND(cost), 0) AS cost,
+      COALESCE(NULLIF(price_rial,0), ROUND(price), 0) AS price,
+      COALESCE(average_cost_rial,0) AS header_avg
+    FROM products ORDER BY name
+  `).all();
+  const only = opts.productId ? Number(opts.productId) : null;
+  const rows = [];
+  for (const p of prods) {
+    if (only && p.id !== only) continue;
+    const a = byProduct.get(p.id) || null;
+    const qty = a ? a.ledger_qty : 0;
+    const value = a ? a.ledger_value_rial : 0;
+    const headerStock = reportNum(p.stock);
+    const headerValue = Math.round(headerStock * reportNum(p.header_avg));
+    const unit = a && a.weighted_avg_unit_rial > 0 ? a.weighted_avg_unit_rial : Math.round(reportNum(p.cost));
+    const ghost = !!(a && a.zero_qty_nonzero_value);
+    rows.push({
+      id: p.id, code: p.code, name: p.name,
+      source: 'kardex',
+      stock: qty,
+      kardex_qty: qty,
+      ledger_value_rial: value,
+      avg_rate_rial: a ? a.weighted_avg_unit_rial : 0,
+      cost: unit,
+      price: Math.round(reportNum(p.price)),
+      cost_value: value,
+      retail_value: Math.round(qty * reportNum(p.price)),
+      weighted_avg_unit_rial: a ? a.weighted_avg_unit_rial : 0,
+      header_stock: reportR6(headerStock),
+      header_value_rial: headerValue,
+      header_diff_rial: value - headerValue,
+      stock_drift_qty: reportR6(headerStock - qty),
+      ledger_rows: a ? a.rows.reduce((s, r) => s + r.ledger_rows, 0) : 0,
+      flags: {
+        zero_qty_nonzero_value: ghost,
+        negative_value: !!(a && a.negative_value),
+        negative_qty: qty < -REPORT_QTY_EPS,
+        header_drift: Math.abs(headerStock - qty) > REPORT_QTY_EPS,
+        warehouse_drift: !!(a && a.rows.some((r) => r.flags.drift_any)),
+      },
+      flagged: !!(a && a.any_flagged) || Math.abs(headerStock - qty) > REPORT_QTY_EPS,
+    });
+  }
+  const totals = rows.reduce((t, r) => ({
+    stock: reportR6(t.stock + r.stock),
+    kardex_qty: reportR6(t.kardex_qty + r.stock),
+    ledger_value_rial: t.ledger_value_rial + r.cost_value,
+    cost_value: t.cost_value + r.cost_value,
+    retail_value: t.retail_value + r.retail_value,
+    header_value_rial: t.header_value_rial + r.header_value_rial,
+    ghost_value_rial: t.ghost_value_rial + (r.flags.zero_qty_nonzero_value ? r.cost_value : 0),
+    flagged_count: t.flagged_count + (r.flagged ? 1 : 0),
+  }), { stock: 0, kardex_qty: 0, ledger_value_rial: 0, cost_value: 0, retail_value: 0, header_value_rial: 0, ghost_value_rial: 0, flagged_count: 0 });
+  return {
+    rows, totals,
+    source: 'kardex', value_basis: 'sum_ledger_rial', drift_available: driftAvailable,
+  };
+}
+
 module.exports = {
+  buildLedgerValuationRows,
+  buildProductValuationReport,
+  weightedAvgRial,
+  ledgerValueFlags,
   ensureValuationSchema,
   ready,
   migratePolicyV521,

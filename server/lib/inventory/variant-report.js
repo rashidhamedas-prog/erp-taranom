@@ -469,6 +469,49 @@ function findGaps(cells) {
   return gaps;
 }
 
+/**
+ * v577 Phase 4 — product × warehouse layer comparison for the variant report.
+ * Declared source for the product-warehouse total = kardex (Σ inventory_ledger);
+ * the variant grid itself stays vws (ledger.variant_id is not complete yet).
+ * Never writes. Returns no layers when ledger data is unavailable.
+ */
+function buildLayerDrift(db, cellsAll, cellsShown, warehouseId) {
+  let val;
+  try {
+    val = require('./valuation').buildLedgerValuationRows(db, { warehouseId: warehouseId || undefined });
+  } catch (_) {
+    return { layers: [], available: false };
+  }
+  const shown = new Set(cellsShown.map((c) => c.product_id + ':' + c.warehouse_id));
+  const variantQty = new Map();
+  for (const cell of cellsAll) {
+    const k = cell.product_id + ':' + cell.warehouse_id;
+    if (!shown.has(k)) continue;
+    variantQty.set(k, n3((variantQty.get(k) || 0) + (Number(cell.qty) || 0)));
+  }
+  const ledgerByKey = new Map(val.rows.map((r) => [r.product_id + ':' + r.warehouse_id, r]));
+  const layers = [];
+  for (const [k, vq] of variantQty) {
+    const [pid, wid] = k.split(':').map(Number);
+    const r = ledgerByKey.get(k) || null;
+    const kardexQty = r ? r.ledger_qty : 0;
+    const diff = n3(vq - kardexQty);
+    layers.push({
+      product_id: pid,
+      warehouse_id: wid,
+      variant_qty: vq,
+      kardex_qty: n3(kardexQty),
+      kardex_value_rial: r ? r.ledger_value_rial : 0,
+      ws_qty: r ? r.ws_qty : null,
+      drift_qty: diff,
+      drift: Math.abs(diff) > 1e-6,
+      ws_vs_vws: !!(r && r.flags.drift_ws_vws),
+    });
+  }
+  layers.sort((a, b) => (a.product_id - b.product_id) || (a.warehouse_id - b.warehouse_id));
+  return { layers, available: true };
+}
+
 function buildVariantStockReport(db, query) {
   const src = query || {};
   const filters = {
@@ -487,6 +530,10 @@ function buildVariantStockReport(db, query) {
   const cells = applyFilters(cellsAll, filters);
   const summary = summarize(cells, filters.lowQty);
   const gaps = findGaps(forGaps);
+  const layerInfo = buildLayerDrift(db, cellsAll, cells, filters.warehouseId);
+  const driftKeys = new Set(layerInfo.layers.filter((l) => l.drift).map((l) => l.product_id + ':' + l.warehouse_id));
+  for (const cell of cells) cell.layer_drift = driftKeys.has(cell.product_id + ':' + cell.warehouse_id);
+  summary.kpis.layer_drift_count = driftKeys.size;
   const gapByProduct = new Map();
   for (const gap of gaps) gapByProduct.set(gap.product_id, (gapByProduct.get(gap.product_id) || 0) + 1);
   summary.by_product.forEach((row) => {
@@ -508,7 +555,11 @@ function buildVariantStockReport(db, query) {
     notes: {
       as_of: 'live',
       size_filter_ignored_for: ['matrix', 'gaps'],
+      source: 'vws',
+      warehouse_total_source: 'kardex',
+      drift_available: layerInfo.available,
     },
+    layers: layerInfo.layers,
     options,
     kpis: summary.kpis,
     by_color: summary.by_color,
