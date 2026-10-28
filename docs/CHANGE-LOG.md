@@ -5,7 +5,7 @@
 - **سینک:** مسیر فقط‌خواندنی در blocklist capture.
 - **تست:** `test:line-availability` (۶۳ assertion، fixture کالای ۱۳۱).
 - **Help:** بند راهنمای ادمین دربارهٔ منبع واحد موجودی قابل‌فروش.
-- **فایل‌ها:** `lib/inventory/line-availability.js`، `routes/inventory.js`، `sync/capture.js`، `scripts/test-line-availability.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG. **Deploy:** ⏳
+- **فایل‌ها:** `lib/inventory/line-availability.js`، `routes/inventory.js`، `sync/capture.js`، `scripts/test-line-availability.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG. **Deploy:** ✅ merge 459f4141 (PR #91) — بکاپ /home/taranom/backups/crm.db.20261028-121805 (۹٬۶۳۳٬۷۹۲ بایت)؛ overlay؛ pm2 restart بدون --update-env؛ health=200؛ SW erp-taranom-v582؛ test:line-availability ۶۳/۰؛ encoding OK؛ title ERP ترنم.
 ### ۱۴۰۵/۰۸/۰۷ — v581: اصلاح دادهٔ انبار — لایهٔ منفی وقتی انبار منفی را ممنوع کرده دست نمی‌خورد (SW v581)
 - **علت:** فاز B روی کپی تولید با تریگر `trg_ws_no_negative` قطع شد (`E_NEGATIVE_STOCK`). کاردکس منفی را نباید با شکستن تریگر روی انباری که `allow_negative` ندارد نوشت.
 - **رفتار:** اگر جمع کاردکس منفی است و انبار (یا تنظیم سراسری) موجودی منفی را اجازه نمی‌دهد، `warehouse_stock` و رنگ/سایز همان جفت عوض نمی‌شود، کالا مبهم می‌ماند، و در `ambiguous.csv` با قاعدهٔ `ws_negative_blocked` می‌آید. سند ثبت‌شده و ردیف کاردکس همچنان حذف نمی‌شوند.
