@@ -71,6 +71,9 @@ const vExact = insert('product_variants', { product_id: pExact, stock: 4, active
 insert('warehouse_stock', { product_id: pExact, warehouse_id: wh, qty: 4 });
 insert('warehouse_stock', { product_id: pAmb, warehouse_id: wh, qty: 6 });
 insert('warehouse_stock', { product_id: pDrift, warehouse_id: wh, qty: 9 });
+const whNeg = insert('warehouses', { name: 'انبار بدون منفی', code: 'WHFIX-N', active: 1, allow_negative: 0, warehouse_type: 'finished_goods' });
+const pNeg = insert('products', { user_id: svc, name: 'کالای منفی', code: 'NEG', price: 1000, stock: 4, average_cost_rial: 1000, unit: 'عدد', warehouse_id: whNeg });
+insert('warehouse_stock', { product_id: pNeg, warehouse_id: whNeg, qty: 4 });
 insert('variant_warehouse_stock', { variant_id: vExact, warehouse_id: wh, qty: 4 });
 
 let tx = 1;
@@ -92,6 +95,7 @@ const openB = led({ event_type: 'opening', product_id: pExact, warehouse_id: wh,
 led({ event_type: 'opening', product_id: pAmb, warehouse_id: wh, qty_in: 1, unit_cost_rial: 6700000, amount_rial: 6700000, source_type: 'opening_inventory', je_id: jeOpen });
 led({ event_type: 'opening', product_id: pAmb, warehouse_id: wh, qty_in: 5, unit_cost_rial: 6700000, amount_rial: 33500000, source_type: 'opening_inventory', je_id: jeOpen });
 led({ event_type: 'receipt', product_id: pDrift, warehouse_id: wh, qty_in: 3, unit_cost_rial: 1000, amount_rial: 3000, source_type: 'wh_receipt' });
+led({ event_type: 'issue', product_id: pNeg, warehouse_id: whNeg, qty_in: 0, qty_out: 2, unit_cost_rial: 1000, amount_rial: 2000, source_type: 'wh_issue' });
 
 const inv = insert('invoices', {
   user_id: svc, cust_id: cust, num: 'T-0099', type: 'final', date: '1405/07/19', rows: '[]', final: 1000, warehouse_id: wh, stock_deducted: 1,
@@ -167,6 +171,8 @@ const ambCsv = fs.readFileSync(path.join(outDir, 'b-ambiguous.csv'), 'utf8');
 ok(ambCsv.includes('dup_opening_nonidentical'), 'non-identical opening listed');
 ok(live.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pDrift, wh).qty === 2, 'ws rebuilt from kardex (3 in − 1 out)');
 ok(live.prepare('SELECT stock FROM products WHERE id=?').get(pDrift).stock === 2, 'header rebuilt from ws');
+ok(live.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pNeg, whNeg).qty === 4, 'negative kardex on a no-negative warehouse is left untouched');
+ok(ambCsv.includes('ws_negative_blocked'), 'blocked negative is listed, not forced');
 ok(live.prepare('SELECT warehouse_id FROM inventory_ledger WHERE id=?').get(retLed).warehouse_id == null, 'phase B does not fill null warehouse');
 const idsAfter = new Set(live.prepare('SELECT id FROM inventory_ledger').all().map((r) => r.id));
 ok([...ledgerIds].every((id) => idsAfter.has(id)), 'no ledger id deleted');

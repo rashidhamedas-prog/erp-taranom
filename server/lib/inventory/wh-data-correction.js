@@ -331,11 +331,21 @@ function rebuildQuantities(ctx, onlyProductIds) {
       });
       continue;
     }
-    setWs(ctx, pair.product_id, pair.warehouse_id, Math.round(pair.qty));
+    const wrote = setWs(ctx, pair.product_id, pair.warehouse_id, Math.round(pair.qty));
+    if (wrote === 'blocked') {
+      ambiguousPairs.add(k);
+      ambiguousProducts.add(pair.product_id);
+      ctx.ambiguous.push({
+        rule: 'ws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k,
+        detail: `کاردکس ${Math.round(pair.qty)} منفی است و تریگر انبار اجازهٔ ثبت منفی نمی‌دهد؛ دست نخورد`,
+      });
+    }
     if (pair.qty < -QTY_EPS) {
       ctx.negativeAfter.push({
         product_id: pair.product_id, warehouse_id: pair.warehouse_id, qty: Math.round(pair.qty),
-        detail: 'کاردکس منفی است؛ مقدار منفی ماند',
+        detail: wrote === 'blocked'
+          ? 'کاردکس منفی است؛ تریگر انبار اجازهٔ نوشتن منفی نداد و لایه دست نخورد'
+          : 'کاردکس منفی است؛ مقدار منفی ماند',
       });
     }
   }
@@ -346,8 +356,18 @@ function rebuildQuantities(ctx, onlyProductIds) {
   applyHeaderStock(ctx, pending, ambiguousProducts, allow);
 }
 
+function allowsNegative(db, warehouseId) {
+  try {
+    const w = db.prepare('SELECT COALESCE(allow_negative,0) AS n FROM warehouses WHERE id=?').get(warehouseId);
+    if (w && Number(w.n) === 1) return true;
+    const s = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
+    return !!(s && String(s.value) === '1');
+  } catch (_) { return false; }
+}
+
 function setWs(ctx, productId, warehouseId, qty) {
   const db = ctx.db;
+  if (qty < 0 && !allowsNegative(db, warehouseId)) return 'blocked';
   const row = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(productId, warehouseId);
   const old = row ? n(row.qty) : null;
   if (old != null && near(old, qty)) return;
@@ -356,8 +376,9 @@ function setWs(ctx, productId, warehouseId, qty) {
   else db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(productId, warehouseId, qty);
   logChange(ctx, {
     rule: 'ws_from_ledger', tbl: 'warehouse_stock', row_key: `${productId}:${warehouseId}`, col: 'qty',
-    old_value: old, new_value: qty, reason: 'موجودی انبار = جمع کاردکس زنده',
+    old_value: old, new_value: qty,     reason: 'موجودی انبار = جمع کاردکس زنده',
   });
+  return 'updated';
 }
 
 function variantMeta(db, productId) {
@@ -393,6 +414,7 @@ function vwsQtyMap(db, productId, warehouseId) {
 
 function setVws(ctx, variantId, warehouseId, qty, rule, reason) {
   const db = ctx.db;
+  if (qty < 0 && !allowsNegative(db, warehouseId)) return 'blocked';
   const row = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(variantId, warehouseId);
   const old = row ? n(row.qty) : null;
   if (old != null && near(old, qty)) return;
@@ -410,6 +432,7 @@ function setVws(ctx, variantId, warehouseId, qty, rule, reason) {
     rule, tbl: 'variant_warehouse_stock', row_key: `${variantId}:${warehouseId}`, col: 'qty',
     old_value: old, new_value: q, reason,
   });
+  return 'updated';
 }
 
 function ledgerVariantSplit(db, productId, warehouseId) {
@@ -448,6 +471,11 @@ function movementSplit(db, productId, warehouseId) {
 }
 
 function applyTargets(ctx, warehouseId, byVariant, current, rule, reason) {
+  if (!allowsNegative(ctx.db, warehouseId)) {
+    for (const qty of byVariant.values()) {
+      if (qty < -QTY_EPS) return 'blocked';
+    }
+  }
   const seen = new Set();
   for (const [vid, qty] of byVariant) {
     seen.add(vid);
@@ -456,6 +484,7 @@ function applyTargets(ctx, warehouseId, byVariant, current, rule, reason) {
   for (const [vid, qty] of current) {
     if (!seen.has(vid) && Math.abs(qty) > QTY_EPS) setVws(ctx, vid, warehouseId, 0, rule, reason);
   }
+  return 'updated';
 }
 
 function applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow) {
@@ -469,7 +498,12 @@ function applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow) {
     const current = vwsQtyMap(db, pair.product_id, pair.warehouse_id);
     const split = ledgerVariantSplit(db, pair.product_id, pair.warehouse_id);
     if (split.complete) {
-      applyTargets(ctx, pair.warehouse_id, split.byVariant, current, 'vws_from_ledger_variant', 'تفکیک واریانت از کاردکس کامل است');
+      const applied = applyTargets(ctx, pair.warehouse_id, split.byVariant, current, 'vws_from_ledger_variant', 'تفکیک واریانت از کاردکس کامل است');
+      if (applied === 'blocked') {
+        ambiguousPairs.add(k);
+        ambiguousProducts.add(pair.product_id);
+        ctx.ambiguous.push({ rule: 'vws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'واریانت منفی و تریگر انبار مانع ثبت است' });
+      }
       continue;
     }
     if (!meta.matrix) {
@@ -488,7 +522,12 @@ function applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow) {
         ctx.ambiguous.push({ rule: 'vws_extra_variant', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'واریانت غیرپیش‌فرض موجودی دارد' });
         continue;
       }
-      setVws(ctx, meta.defaultId, pair.warehouse_id, pair.qty, 'vws_default_variant', 'کالای غیرماتریسی: واریانت پیش‌فرض = کاردکس');
+      const applied = setVws(ctx, meta.defaultId, pair.warehouse_id, pair.qty, 'vws_default_variant', 'کالای غیرماتریسی: واریانت پیش‌فرض = کاردکس');
+      if (applied === 'blocked') {
+        ambiguousPairs.add(k);
+        ambiguousProducts.add(pair.product_id);
+        ctx.ambiguous.push({ rule: 'vws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'واریانت پیش‌فرض منفی و تریگر انبار مانع ثبت است' });
+      }
       continue;
     }
     let curSum = 0;
@@ -496,7 +535,12 @@ function applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow) {
     if (near(curSum, pair.qty)) continue;
     const mov = movementSplit(db, pair.product_id, pair.warehouse_id);
     if (mov && near(mov.sum, pair.qty)) {
-      applyTargets(ctx, pair.warehouse_id, mov.byVariant, current, 'vws_from_movements', 'جمع حرکات واریانت با کاردکس برابر است');
+      const applied = applyTargets(ctx, pair.warehouse_id, mov.byVariant, current, 'vws_from_movements', 'جمع حرکات واریانت با کاردکس برابر است');
+      if (applied === 'blocked') {
+        ambiguousPairs.add(k);
+        ambiguousProducts.add(pair.product_id);
+        ctx.ambiguous.push({ rule: 'vws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'حرکت واریانت منفی و تریگر انبار مانع ثبت است' });
+      }
       continue;
     }
     ambiguousPairs.add(k);
