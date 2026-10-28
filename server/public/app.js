@@ -11837,13 +11837,47 @@ function attachExcelTools(tab,body){
 /* ============================================================
    STOCKTAKING (انبارگردانی)
 ============================================================ */
-const STK_STATUS = { draft:'پیش‌نویس', completed:'تکمیل‌شده', adjusted:'اعمال‌شده' };
+const STK_STATUS = { draft:'پیش‌نویس', completed:'تکمیل‌شده', adjusted:'اعمال‌شده', voided:'ابطال‌شده', cancelled:'ابطال‌شده' };
 let stkFilter = { warehouse_id:'', user_id:'', date_from:'', date_to:'', status:'' };
 let _stkDetailId = null;
+/* v578 — RBAC هم‌راستا با acc_warehouse_ops (فاز ۲): شمارش=create | ابطال/حذف=delete | اعمال=admin/accounting */
+function stkCanView(){ return !!ME && (ME.role==='admin' || ME.role==='accounting' || canPerm('acc_warehouse_ops','view') || canPerm('acc_stocktaking','view')); }
+function stkCanCount(){ return !!ME && (ME.role==='admin' || canPerm('acc_warehouse_ops','create') || canPerm('acc_stocktaking','create')); }
+function stkCanApply(){ return !!ME && (ME.role==='admin' || ME.role==='accounting'); }
+function stkCanVoid(){ return !!ME && (ME.role==='admin' || canPerm('acc_warehouse_ops','delete') || canPerm('acc_stocktaking','delete')); }
+/** وضعیت بازِ انبارگردانی (هنوز اعمال/ابطال نشده) */
+function stkIsOpenStatus(st){ return st==='draft' || st==='completed'; }
+/** موجودی snapshot کاردکس در لحظهٔ شروع — نام فیلد بک‌اند defensive */
+function stkSnapQty(it){
+  const v=[it.snapshot_qty, it.system_qty_frozen, it.frozen_qty, it.system_qty].find(x=>x!=null && x!=='');
+  return +v||0;
+}
+function stkCountedQty(it){
+  const conf=parseInt(it.confirmed_count,10)||1;
+  const c1=it.count1_qty!=null?it.count1_qty:(it.counted_qty||0);
+  const c2=it.count2_qty!=null && it.count2_qty!==''?+it.count2_qty:null;
+  const c3=it.count3_qty!=null && it.count3_qty!==''?+it.count3_qty:null;
+  return conf===3&&c3!=null?c3:conf===2&&c2!=null?c2:+c1||0;
+}
+function stkRound3(n){ return Math.round((+n||0)*1000)/1000; }
+function stkSessionSnapAt(s){ return s.snapshot_at||s.frozen_at||s.snapshot_frozen_at||s.snapshot_date||''; }
+function stkSessionLocksMoves(s){
+  if(!stkIsOpenStatus(s.status)) return false;
+  return !(s.movements_locked===0 || s.lock_movements===0 || s.warehouse_locked===0);
+}
+/** هشدار انبار در حال شمارش — HTML (خالی اگر انبار آزاد است) */
+function stkOpenWarningHtml(rows, whId){
+  const open=(rows||[]).filter(r=>stkIsOpenStatus(r.status) && (!whId || String(r.warehouse_id)===String(whId)));
+  if(!open.length) return '';
+  const byWh={};
+  open.forEach(r=>{ (byWh[r.warehouse_name||('#'+r.warehouse_id)]=byWh[r.warehouse_name||('#'+r.warehouse_id)]||[]).push('#'+r.id); });
+  const txt=Object.entries(byWh).map(([w,ids])=>`<b>${esc(w)}</b> (انبارگردانی ${ids.join('، ')})`).join(' — ');
+  return `<div class="stk-warn" data-csp-style="${CSP.style(`margin:0 0 12px;padding:10px 14px;border:1.5px solid var(--orange,#b86e00);border-radius:8px;background:rgba(184,110,0,.08);font-size:12.5px;line-height:1.9`)}">🔒 انبار در حال انبارگردانی: ${txt}. تا اعمال یا ابطال شمارش، حرکت موجودی (رسید/حواله/انتقال/تعدیل) روی این انبار ممکن است <b>قفل یا با هشدار</b> همراه باشد؛ موجودی مبنا همان snapshot کاردکس لحظهٔ شروع است.</div>`;
+}
 /** Render stocktaking into a container (accBody or #view). Never call go('stocktaking') from loadAccTab — that breaks MDI windows. */
 async function renderStocktakingTab(body){
   if(!body) return;
-  if(ME.role!=='admin' && ME.role!=='accounting'){ body.innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
+  if(!stkCanView()){ body.innerHTML='<div class="empty">دسترسی محدود</div>'; return; }
   await ensureWarehouses();
   if(!CACHE.users?.length) CACHE.users=await apiCached('GET','/auth/users',60000)||[];
   body.innerHTML=`<div class="toolbar" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
@@ -11859,7 +11893,7 @@ async function renderStocktakingTab(body){
       ${Object.entries(STK_STATUS).map(([k,l])=>`<option value="${k}" ${stkFilter.status===k?'selected':''}>${l}</option>`).join('')}
     </select>
     <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){loadStocktakingList()})}">🔍 اعمال</button>
-    <button class="btn green" data-csp-click="${CSP.bind('click',function(event){stkNewModal()})}">➕ شروع انبارگردانی</button>
+    ${stkCanCount()?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){stkNewModal()})}">➕ شروع انبارگردانی</button>`:`<span class="muted" title="نیاز به مجوز «انبار: ایجاد»">فقط مشاهده</span>`}
   </div>
   <div id="stkBody"><div class="muted">در حال بارگذاری...</div></div>`;
   attachDatepickers(body);
@@ -11891,7 +11925,8 @@ async function loadStocktakingList(){
     if(found) return stkOpenDetail(_stkDetailId);
     _stkDetailId=null;
   }
-  box.innerHTML=`<div class="panel"><div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+  const allRows=stkQuery()?(await api('GET','/stocktaking')||rows):rows;
+  box.innerHTML=stkOpenWarningHtml(allRows)+`<div class="panel"><div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
     <th>#</th><th>تاریخ</th><th>انبار</th><th>مسئول</th><th>وضعیت</th><th>ثبت‌کننده</th><th>عملیات</th>
   </tr></thead><tbody>${rows.map(r=>`<tr>
     <td class="mono">${r.id}</td>
@@ -11902,7 +11937,7 @@ async function loadStocktakingList(){
     <td class="muted">${esc(r.creator_name||'-')}</td>
     <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
       <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){stkOpenDetail((r.id))})}">📋 جزئیات</button>
-      ${r.status!=='adjusted'?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){stkDelete((r.id))})}">🗑️</button>`:''}
+      ${stkIsOpenStatus(r.status)&&stkCanVoid()?`<button class="btn sm red" title="ابطال / حذف جلسهٔ باز (R13)" data-csp-click="${CSP.bind('click',function(event){stkDelete((r.id))})}">🗑️</button>`:''}
     </td>
   </tr>`).join('')||emptyRow(7)}</tbody></table></div></div>`;
 }
@@ -11913,29 +11948,35 @@ async function stkOpenDetail(id){
   const d=await api('GET','/stocktaking/'+id);
   if(!d?.session){ box.innerHTML='<div class="empty">یافت نشد</div>'; return; }
   const s=d.session, items=d.items||[];
-  const editable=s.status!=='adjusted';
-  const varianceTotal=items.reduce((a,it)=>{
-    const counted=it.counted_qty!=null?it.counted_qty:(it.count1_qty||0);
-    return a+(counted-(it.system_qty||0));
-  },0);
+  const open=stkIsOpenStatus(s.status);
+  const editable=open && stkCanCount();
+  const varianceTotal=stkRound3(items.reduce((a,it)=>a+(stkCountedQty(it)-stkSnapQty(it)),0));
+  const snapAt=stkSessionSnapAt(s);
+  const snapNote=`<div class="muted" data-csp-style="${CSP.style(`margin:0 0 10px;font-size:12px;line-height:1.9`)}">📸 موجودی مبنا = <b>snapshot کاردکس</b> لحظهٔ شروع${snapAt?` (${esc(String(snapAt))})`:''}؛ اختلاف = شمارش تأییدشده − snapshot. حرکت‌های بعد از شروع روی این ستون اثر نمی‌گذارد.</div>`;
+  const lockNote=stkSessionLocksMoves(s)?`<div data-csp-style="${CSP.style(`margin:0 0 10px;padding:8px 12px;border:1.5px solid var(--orange,#b86e00);border-radius:8px;background:rgba(184,110,0,.08);font-size:12.5px`)}">🔒 انبار «${esc(s.warehouse_name||'-')}» تا اعمال/ابطال این انبارگردانی در حالت شمارش است؛ حرکت موجودی روی آن ممکن است قفل یا با هشدار همراه باشد.</div>`:'';
+  const applyBtn=open&&stkCanApply()?`<button class="btn sm green" title="فقط مدیر/حسابداری — سند «مغایرت انبارگردانی» می‌سازد" data-csp-click="${CSP.bind('click',function(event){stkApply((s.id))})}">📦 تأیید و اعمال اصلاحات</button>`
+    :(open?`<span class="muted" title="اعمال سند تعدیل فقط مدیر/حسابداری">اعمال: فقط مدیر/حسابداری</span>`:'');
+  const voidBtn=s.status==='adjusted'&&stkCanVoid()?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){stkVoidApply((s.id))})}">⛔ ابطال اعمال (R13)</button>`
+    :(s.status==='adjusted'?`<span class="muted" title="نیاز به مجوز انبار: حذف/ابطال">ابطال: نیاز به مجوز حذف/ابطال انبار</span>`:'');
   box.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px;gap:8px;flex-wrap:wrap`)}">
       <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(event){_stkDetailId=null;loadStocktakingList()})}">← لیست</button>
       <span class="tag t-new">انبار: ${esc(s.warehouse_name||'-')}</span>
       <span class="tag">${STK_STATUS[s.status]||s.status}</span>
       <span class="muted">تاریخ: ${escDate(s.date)} — مسئول: ${esc(s.responsible_name||'-')}</span>
+      <button class="btn sm" title="چاپ برگهٔ شمارش بدون موجودی سیستم" data-csp-click="${CSP.bind('click',function(event){stkPrintBlind((s.id))})}">🖨️ چاپ برگهٔ شمارش (کور)</button>
       ${editable?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){stkSaveItems((s.id))})}">💾 ذخیره شمارش</button>
-        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){stkComplete((s.id))})}">✅ تکمیل</button>
-        <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){stkApply((s.id))})}">📦 تأیید و اعمال اصلاحات</button>`:
-        `<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(event){stkVoidApply((s.id))})}">⛔ ابطال اعمال</button>`}
+        <button class="btn sm blue" data-csp-click="${CSP.bind('click',function(event){stkComplete((s.id))})}">✅ تکمیل</button>`:''}
+      ${applyBtn}${voidBtn}
     </div>
+    ${lockNote}${snapNote}
     <div class="panel"><div class="panel-head"><h4>اقلام انبارگردانی #${s.id} (${items.length} قلم) — سه شمارش + تگ</h4>
-      <span class="muted">جمع اختلاف (بر اساس شمارش تأییدشده): <b data-csp-style="${CSP.style(`color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}`)}">${varianceTotal>0?'+':''}${fmtQtyFa(varianceTotal)}</b></span>
+      <span class="muted">جمع مغایرت (شمارش − snapshot): <b data-csp-style="${CSP.style(`color:${varianceTotal>0?'var(--green)':varianceTotal<0?'var(--red)':'inherit'}`)}">${varianceTotal>0?'+':''}${fmtQtyFa(varianceTotal)}</b></span>
     </div>
     <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>کد</th><th>کالا</th><th>رنگ</th><th>سایز</th><th>واحد</th><th>سیستم</th>
+      <th>کد</th><th>کالا</th><th>رنگ</th><th>سایز</th><th>واحد</th><th title="snapshot کاردکس لحظهٔ شروع">موجودی snapshot</th>
       <th>شمارش ۱</th><th>شمارش ۲</th><th>شمارش ۳</th>
-      <th>تگ</th><th>تأیید</th><th>اختلاف</th>
+      <th>تگ</th><th>تأیید</th><th title="شمارش تأییدشده − snapshot">مغایرت</th>
     </tr></thead><tbody>${stkDetailRows(items, editable)||emptyRow(12)}</tbody></table></div></div>
     ${s.note?`<div class="muted" data-csp-style="${CSP.style(`margin-top:8px`)}">یادداشت: ${esc(s.note)}</div>`:''}`;
   if(typeof bindNumFit==='function') bindNumFit(box);
@@ -11953,23 +11994,25 @@ function stkDetailRows(items, editable){
   });
   return groups.map(g=>{
     const matrix=g.items.some(it=>it.variant_id);
-    const sysSum=g.items.reduce((a,it)=>a+(+it.system_qty||0),0);
+    const sysSum=g.items.reduce((a,it)=>a+stkSnapQty(it),0);
+    const cntSum=g.items.reduce((a,it)=>a+stkCountedQty(it),0);
     const gap=Math.round((g.header-sysSum)*1000)/1000;
-    const banner=matrix?`<tr><td colspan="12" data-csp-style="${CSP.style(`background:var(--surface);font-size:12px`)}"><b>${esc(g.name||'-')}</b> <span class="muted">${esc(g.code||'')}</span> — موجودی سربرگ ${fmtQtyFa(g.header)} — جمع سیستم رنگ×سایز ${fmtQtyFa(sysSum)}${Math.abs(gap)>0.001?` — <span data-csp-style="${CSP.style(`color:var(--orange,#b86e00)`)}">تخصیص‌نیافته ${fmtQtyFa(gap)}</span>`:''}</td></tr>`:'';
+    const banner=matrix?`<tr><td colspan="12" data-csp-style="${CSP.style(`background:var(--surface);font-size:12px`)}"><b>${esc(g.name||'-')}</b> <span class="muted">${esc(g.code||'')}</span> — هر رنگ×سایز جداگانه — جمع snapshot ${fmtQtyFa(sysSum)} — جمع شمارش ${fmtQtyFa(cntSum)} — مغایرت ${fmtQtyFa(stkRound3(cntSum-sysSum))}${open&&Math.abs(gap)>0.001?` — <span data-csp-style="${CSP.style(`color:var(--orange,#b86e00)`)}">موجودی زندهٔ سربرگ ${fmtQtyFa(g.header)} (تفاوت با snapshot ${fmtQtyFa(gap)})</span>`:''}</td></tr>`:'';
     return banner+g.items.map(it=>{
       const conf=parseInt(it.confirmed_count,10)||1;
       const c1=it.count1_qty!=null?it.count1_qty:(it.counted_qty||0);
       const c2=it.count2_qty!=null?it.count2_qty:'';
       const c3=it.count3_qty!=null?it.count3_qty:'';
       const counted=conf===3&&c3!==''?+c3:conf===2&&c2!==''?+c2:+c1;
-      const v=counted-(it.system_qty||0);
+      const snap=stkSnapQty(it);
+      const v=stkRound3(counted-snap);
       return `<tr data-stk-id="${it.id}">
         <td class="mono">${esc(it.code||'-')}</td>
         <td>${esc(it.name||'-')}</td>
         <td>${esc(it.color_name||'—')}</td>
         <td>${esc(displaySizeName(it.size_name)||'—')}</td>
         <td>${esc(it.unit||'-')}</td>
-        <td class="mono">${fmtQtyFa(it.system_qty||0)}</td>
+        <td class="mono">${fmtQtyFa(snap)}</td>
         <td>${editable?`<input type="number" min="0" step="0.001" class="stk-c1 num-fit" value="${c1}">`:`<span class="mono">${fmtQtyFa(c1)}</span>`}</td>
         <td>${editable?`<input type="number" min="0" step="0.001" class="stk-c2 num-fit" value="${c2}">`:`<span class="mono">${c2===''?'—':fmtQtyFa(c2)}</span>`}</td>
         <td>${editable?`<input type="number" min="0" step="0.001" class="stk-c3 num-fit" value="${c3}">`:`<span class="mono">${c3===''?'—':fmtQtyFa(c3)}</span>`}</td>
@@ -11989,7 +12032,8 @@ function stkNewModal(){
   openModal(`
     <div class="modal-head"><h3>📋 شروع انبارگردانی جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>انبار *</label><select id="stk-new-wh"><option value="">— انتخاب —</option>
+      <div class="fg full" id="stk-new-warn"></div>
+      <div class="fg"><label>انبار *</label><select id="stk-new-wh" data-csp-change="${CSP.bind('change',function(event){stkNewWhChanged()})}"><option value="">— انتخاب —</option>
         ${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}
       </select></div>
       <div class="fg"><label>تاریخ</label><input id="stk-new-date" data-jdate value="${todayJalali()}"></div>
@@ -12002,7 +12046,49 @@ function stkNewModal(){
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   attachDatepickers(el('modalRoot'));
 }
+async function stkNewWhChanged(){
+  const box=el('stk-new-warn'); if(!box) return;
+  const whId=+el('stk-new-wh')?.value||0;
+  if(!whId){ box.innerHTML=''; return; }
+  try{
+    const rows=await api('GET','/stocktaking?warehouse_id='+whId)||[];
+    const html=stkOpenWarningHtml(rows, whId);
+    box.innerHTML=html||`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}">📸 با شروع، موجودی سیستم از کاردکس همین لحظه snapshot می‌شود و تا اعمال/ابطال ثابت می‌ماند.</div>`;
+  }catch(e){ box.innerHTML=''; }
+}
+/** برگهٔ شمارش چاپی کور: هرگز موجودی سیستم/snapshot/مغایرت چاپ نمی‌شود */
+async function stkPrintBlind(id){
+  try{
+    const d=await api('GET','/stocktaking/'+id+'/tags?blind=1');
+    const items=(d&&d.items)||[];
+    const ses=await api('GET','/stocktaking/'+id);
+    const s=(ses&&ses.session)||{};
+    const w=window.open('','_blank');
+    if(!w){ showToast('پنجره چاپ مسدود شد','error'); return; }
+    let lastTag=null;
+    const rows=items.map((it,i)=>{
+      const tag=it.count_tag||'';
+      const head=tag!==lastTag?`<tr class="grp"><td colspan="9">تگ / محل: ${esc(tag||'بدون تگ')}</td></tr>`:'';
+      lastTag=tag;
+      return head+`<tr><td>${i+1}</td><td class="m">${esc(it.code||'-')}</td><td>${esc(it.name||'-')}</td><td>${esc(it.color_name||'—')}</td><td>${esc(displaySizeName(it.size_name)||'—')}</td><td>${esc(it.unit||'-')}</td><td class="b"></td><td class="b"></td><td class="b"></td></tr>`;
+    }).join('');
+    w.document.write('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><title>برگهٔ شمارش انبار #'+esc(String(id))+'</title>'
+      +'<style>body{font-family:Tahoma,sans-serif;padding:16px;font-size:12px} h2{font-size:16px;margin:0 0 6px} table{width:100%;border-collapse:collapse;margin-top:10px}'
+      +'th,td{border:1px solid #333;padding:6px;text-align:right} .m{font-family:monospace} .b{min-width:70px;height:26px} tr.grp td{background:#eee;font-weight:bold}'
+      +'.sig{margin-top:24px;display:flex;gap:40px}</style></head><body>'
+      +'<h2>برگهٔ شمارش انبار (کور) — انبارگردانی #'+esc(String(id))+'</h2>'
+      +'<div>انبار: '+esc(s.warehouse_name||'-')+' — تاریخ: '+esc(String(s.date||''))+' — مسئول: '+esc(s.responsible_name||'-')+'</div>'
+      +'<div>موجودی سیستم در این برگه چاپ نشده است. مقدار شمارش‌شده را در ستون‌ها بنویسید.</div>'
+      +'<table><thead><tr><th>#</th><th>کد</th><th>کالا</th><th>رنگ</th><th>سایز</th><th>واحد</th><th>شمارش ۱</th><th>شمارش ۲</th><th>شمارش ۳</th></tr></thead><tbody>'
+      +(rows||'<tr><td colspan="9">ردیفی نیست</td></tr>')+'</tbody></table>'
+      +'<div class="sig"><span>شمارنده: ........</span><span>تأییدکننده: ........</span></div></body></html>');
+    w.document.close();
+    w.focus();
+    setTimeout(function(){ try{ w.print(); }catch(e){} },400);
+  }catch(e){}
+}
 async function stkCreate(){
+  if(!stkCanCount()){ showToast('مجوز «انبار: ایجاد» لازم است','error'); return; }
   const whId=+el('stk-new-wh').value;
   if(!whId){ showToast('انبار را انتخاب کنید','error'); return; }
   try{
@@ -12032,21 +12118,21 @@ async function stkComplete(id){
   try{ await api('POST','/stocktaking/'+id+'/complete'); showToast('تکمیل شد'); stkOpenDetail(id); }catch(e){}
 }
 async function stkApply(id){
-  if(!confirm('اصلاحات موجودی اعمال شود؟ در صورت نیاز بعداً می‌توانید ابطال کنید.')) return;
+  if(!confirm('اصلاحات موجودی اعمال شود؟ مغایرت = شمارش − snapshot کاردکس لحظهٔ شروع، با سند «مغایرت انبارگردانی» ثبت می‌شود و در صورت نیاز قابل ابطال (R13) است.')) return;
   try{
     await api('POST','/stocktaking/'+id+'/apply');
     showToast('اصلاحات اعمال شد'); CACHE.allProducts=[]; CACHE.products=[]; _stkDetailId=id; stkOpenDetail(id);
   }catch(e){}
 }
 async function stkVoidApply(id){
-  if(!confirm('اعمال انبارگردانی ابطال شود؟ موجودی و سند حسابداری معکوس می‌شوند.')) return;
+  if(!confirm('اعمال انبارگردانی ابطال شود؟ کاردکس، موجودی و سند حسابداری مغایرت کاملاً معکوس می‌شوند (R13).')) return;
   try{
     await api('POST','/stocktaking/'+id+'/void');
     showToast('اعمال ابطال شد'); CACHE.allProducts=[]; CACHE.products=[]; _stkDetailId=id; stkOpenDetail(id);
   }catch(e){}
 }
 async function stkDelete(id){
-  if(!confirm('این انبارگردانی حذف شود؟')) return;
+  if(!confirm('این انبارگردانی باز ابطال/حذف شود؟ (اثر موجودی ندارد؛ قفل انبار آزاد می‌شود)')) return;
   try{ await api('DELETE','/stocktaking/'+id); showToast('حذف شد'); _stkDetailId=null; loadStocktakingList(); }catch(e){}
 }
 
@@ -39936,7 +40022,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دفتر چک</b>: فقط برگ‌های <b>pay_type=چک</b> را نشان می‌دهد — کارتخوان/نقد/واریز اینجا نمی‌آیند. برچسب «قسط N» در شرح قدیمی یعنی <b>مرحلهٔ دریافت</b> (مثلاً چک+کارتخوان)، نه لزوماً دو فقره چک. هر فقره چک <b>مبلغ خودش</b> را دارد؛ جمع چند چک روی یک صیاد نیست. چک فاکتور فروش با وضعیت <b>نزد صندوق</b> (<code>registered</code>) ثبت می‌شود و همان لحظه دکمه‌های واگذاری/خرج فعال‌اند. واگذاری به بانک و وصول فقط جابه‌جایی اسناد/بانک است. <b>برگشت</b> مبلغ را به بدهی صورت‌حساب برمی‌گرداند. <b>ابطال کامل</b> در دفتر چک (R13) تسویهٔ مرتبط را معکوس می‌کند و <b>ردیف تسویه/صورت‌حساب</b> را از دفتر عملیاتی برمی‌دارد. خرج/ظهرنویسی + ابطال کامل</li>
         <li><b>دارایی ثابت</b>: ثبت/ویرایش، اجرای استهلاک ماهانه، ابطال استهلاک دوره، غیرفعال‌سازی، و <b>ورودی/خروجی/قالب اکسل</b></li>
         <li><b>کالای امانی</b>: سند تجمعی CS. <b>ارسالی</b> حواله عملیاتی + سند جابه‌جایی به موجودی امانی (۱۱۱۴) می‌زند؛ فروش/کسری ارسالی از همان حساب امانی COGS/هزینه می‌گیرد. خرید/کسری دریافتی با تفصیلی شخص (حساب پرداختنی شخص). <b>فروش قطعی دریافتی</b> = خرید از امانت‌گذار + فاکتور خریدار + بهای تمام‌شده. برگشت/ابطال ارسالی سند ارسال را هم معکوس می‌کند (R13)</li>
-        <li><b>انبارگردانی</b>: هنگام اعمال اصلاحات، موجودی سیستم دوباره از دفتر زنده خوانده می‌شود (نه فقط عدد شروع جلسه) تا اختلاف واقعی ثبت شود</li>
+        <li><b>انبارگردانی (v578)</b>: موجودی سیستم هر ردیف (هر رنگ×سایز جدا) از <b>snapshot کاردکس</b> لحظهٔ شروع ثابت می‌شود؛ مغایرت = شمارش تأییدشده − snapshot. برگهٔ چاپ کور موجودی سیستم ندارد. اعمال، سند «مغایرت انبارگردانی» می‌سازد و با ابطال (R13) کاملاً برمی‌گردد. شروع/شمارش/تکمیل: مجوز «انبار: ایجاد»؛ اعمال: مدیر/حسابداری؛ ابطال/حذف: مجوز «انبار: حذف/ابطال».</li>
         <li><b>اسناد حسابداری (دستی)</b>: ثبت سند دوطرفه آزاد با چند ردیف بدهکار/بستانکار — <b>سیستم اجازه ثبت سند نامتوازن را نمی‌دهد</b>. اگر ردیف به شخصِ مشتری یا به کد تفصیلی مشتری بخورد، همان مبلغ در گردش مشتری هم می‌نشیند و با ابطال برداشته می‌شود. پیام ثبت، شماره سند را نشان می‌دهد. تکرار همان درخواست، سند ابطال‌شده را به‌جای سند جدید برنمی‌گرداند. <b>قالب سند</b> و <b>پیوست</b> مثل قبل است و دکمهٔ <b>ابطال</b> سند را معکوس می‌کند</li>
         <li><b>ابطال کامل (R13 / v373–v374 / v446)</b>: ابطال اثر سند را برمی‌گرداند اما <b>سند ابطالی جدا و ردیف «ابطال/اصلاح» پوچ در گزارش‌ها ساخته نمی‌شود</b>. سند حسابداری اصلی soft-void می‌شود؛ ردیف‌های زیردفتر طرف‌حساب (از جمله ابطال پرداخت حقوق) بازنشسته می‌شوند تا در گردش مشتری/تأمین‌کننده/شخص فقط وضعیت نهایی دیده شود. همین قانون برای <b>پرداخت انگیزه فروش، دفتر بازاریاب و نماینده فروش</b> است: جفت «پرداخت انگیزه + ابطال» از گردش شخص و صورت‌حساب نماینده حذف می‌شود و در مانده فقط اسناد زنده می‌ماند. ابطال رکورد حقوق ردیف را حذف فیزیکی نمی‌کند.</li>
         <li><b>دفتر کل حساب‌ها</b>: در «داشبورد و دفتر کل» — انتخاب هر حساب با جستجوی کد/نام و مشاهده گردش با مانده لحظه‌ای</li>
@@ -40257,7 +40343,7 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>اقدامات در انتظار و اعلان‌ها</h5><p>داشبورد مدیر ویجت «اقدامات در انتظار» دارد؛ آیکن 🔔 اعلان‌های فاکتور و پیگیری جدید را نشان می‌دهد.</p>
       <h5>حذف نرم فاکتور و سند</h5><p>حذف فاکتور و اسناد دستی «نرم» است (در audit_log ثبت می‌شود) — فقط نقش‌های دارای دسترسی Delete.</p>
       <h5>گردش حساب مشتریان</h5><p>صفحه «دفتر معین» (گردش حساب) حذف شد — از <b>صورت‌حساب مشتری</b> در حسابداری استفاده کنید.</p>
-      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. کالای رنگ و سایز برای هر رنگ و هر سایز یک ردیف شمارش دارد (ستون‌های رنگ و سایز). شمارش بازِ قدیمی هم با باز شدن جزئیات به همین ردیف‌ها شکسته می‌شود. اگر موجودی سربرگ هنوز روی رنگ×سایز ننشسته باشد، بالای کالا «تخصیص‌نیافته» دیده می‌شود و تا وقتی شمارش را عوض نکنید موجودی سربرگ صفر نمی‌شود. اعمال اصلاحات سند حسابداری را فقط به اندازه اختلاف جمع شمارش با موجودی سربرگ می‌سازد. رسید تولید، اجرای تولید ساده و کالای امانی هم بدون انتخاب رنگ و سایز ثبت نمی‌شوند. ابطال اجرای تولید ردیف را حذف نمی‌کند.</p>
+      <h5>انبارگردانی</h5><p>از منوی حسابداری → انبار و کالا → انبارگردانی. کالای رنگ و سایز برای هر رنگ و هر سایز یک ردیف شمارش دارد (ستون‌های رنگ و سایز). شمارش بازِ قدیمی هم با باز شدن جزئیات به همین ردیف‌ها شکسته می‌شود. اگر موجودی سربرگ هنوز روی رنگ×سایز ننشسته باشد، بالای کالا «تخصیص‌نیافته» دیده می‌شود و تا وقتی شمارش را عوض نکنید موجودی سربرگ صفر نمی‌شود. <br><b>snapshot کاردکس (v578):</b> با شروع انبارگردانی، موجودی سیستم هر ردیف از کاردکس همان لحظه ثابت (snapshot) می‌شود و ستون «موجودی snapshot» را می‌بینید؛ «مغایرت» = شمارش تأییدشده − snapshot و برای کالای ماتریسی هر رنگ×سایز جدا حساب می‌شود (بالای کالا جمع snapshot، جمع شمارش و مغایرت دیده می‌شود). <b>چاپ کور:</b> دکمهٔ «🖨️ چاپ برگهٔ شمارش (کور)» برگه را بدون موجودی سیستم و مغایرت، بر اساس تگ/محل چاپ می‌کند تا شمارنده تحت تأثیر عدد سیستم قرار نگیرد. <b>قفل انبار:</b> تا وقتی انبارگردانی باز (پیش‌نویس/تکمیل‌شده) است، بالای لیست و هنگام انتخاب انبار در «شروع» هشدار می‌گیرید و حرکت موجودی آن انبار ممکن است قفل یا با هشدار همراه باشد. <b>مجوزها:</b> شروع، ذخیرهٔ شمارش و تکمیل با «انبار: ایجاد»؛ «تأیید و اعمال اصلاحات» فقط مدیر/حسابداری؛ «ابطال اعمال» و حذف جلسهٔ باز با «انبار: حذف/ابطال». <b>اعمال و ابطال (R13):</b> اعمال یک سند تعدیل با نوع «مغایرت انبارگردانی» (طرف حساب جدا از ضایعات) و ردیف کاردکس می‌سازد؛ ابطال اعمال، کاردکس، موجودی و سند حسابداری را کامل معکوس می‌کند و حذف فیزیکی نداریم. <br>اعمال اصلاحات سند حسابداری را فقط به اندازه مغایرت (شمارش − snapshot) می‌سازد. رسید تولید، اجرای تولید ساده و کالای امانی هم بدون انتخاب رنگ و سایز ثبت نمی‌شوند. ابطال اجرای تولید ردیف را حذف نمی‌کند.</p>
       <h5>چندشرکتی و سال مالی</h5>
       <p>از <b>تنظیمات → عمومی</b> چند شرکت بسازید؛ هر شرکت فایل پایگاه جدا دارد. «ایجاد شرکت (خام)» فاکتور و سند شرکت جدید را صفر می‌کند و کالا/مشتری شرکت فعلی را کپی نمی‌کند. تا وقتی «انتخاب» نزنید روی شرکت قبلی می‌مانید. پس از تعویض شرکت باید دوباره وارد شوید.</p>
       <p>از <b>تنظیمات → حسابداری</b> یا <b>حسابداری → عملیات سال مالی</b>:</p>
