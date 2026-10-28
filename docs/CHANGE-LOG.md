@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۰۷ — stamp: پکیج coa-keys فاز ۰→۴ روی ایران (SW v589)
-- **Merge:** #102→#106 روی main (d9f8458).
+- **Merge:** #102→#106 روی main (fd9f8458).
 - **Deploy:** ✅ overlay — بکاپ /home/taranom/backups/crm.db.20261028-142244 — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v589 — flag=warn — coa_product_tafsili_mode=legacy_leaf.
 - **GREEN GATE روی سرور:** transfer-unit ۱۳/۰ · configurable-coa-keys ۴۴/۰ · product-tafsili ۳۲/۰ · leaf-report-p3 ۱۹/۰ · inventory-gl-gap ۲۲/۰ · coa-leaf-mapping ۶۶/۰ · sms ۲۲/۰ · encoding OK.
 - **گزارش برگ بعد از استقرار:** /home/taranom/backups/reports/coa-leaf-mapping-20261028-142423.{md,csv} — settings_nonleaf=10 · settings_control=7 · settings_not_found=1 · warehouses_perpetual_unmapped=3/5 · inactive_unmapped=0 · 
@@ -14,7 +14,7 @@ onleaf_accounts_with_lines=5 (۲۳۱ سطر؛ کنترلی ۲ / غیرکنترل
 - **تست:** `test:inventory-gl-gap` — fixture انتقال ورودصفر + NULL wh + تعدیل بی‌سند ⇒ residual=0 و مبالغ a/b/c درست؛ assert بدون نوشتن.
 - **Help:** بند ادمین «تطبیق حساب موجودی با کاردکس — گزارش فقط‌خواندنی (v586)».
 - **فایل‌ها:** `lib/inventory-gl-gap-report.js`، `scripts/{report-inventory-gl-gap,test-inventory-gl-gap-report}.js`، `routes/warehouses.js`، `public/{app.js,sw.js}`، `package.json`، CHANGE-LOG.
-- **Deploy:** ✅ #106 → d9f8458 — Iran overlay SW v589 — گزارش برگ 20261028-142423
+- **Deploy:** ✅ #106 → fd9f8458 — Iran overlay SW v589 — گزارش برگ 20261028-142423
 
 ### ۱۴۰۵/۰۸/۰۷ — v588: فاز ۳ گزارش نگاشت برگ (دسته‌ها + کنترلی) و اعتبارسنجی انبار دارایی ثابت (SW v588)
 - **شاخه:** `feat/coa-leaf-report-wh36`؛ منبع: `.tmp-coa-keys-fix/phase-3-leaf-report-and-wh36.md`. **بدون merge/deploy در این تسک** (orchestrator).
@@ -24,7 +24,7 @@ onleaf_accounts_with_lines=5 (۲۳۱ سطر؛ کنترلی ۲ / غیرکنترل
 - **تست:** `test:coa-leaf-report-p3` + به‌روزرسانی `test:coa-leaf-mapping` (۱۲xx برای دارایی ثابت).
 - **Help / SW:** راهنمای ادمین v586؛ `sw.js` erp-taranom-v588؛ `app.js?v=586`.
 - **فایل‌ها:** `lib/{coa-leaf-report,coa-leaf-policy,coa-map}.js`, `lib/inventory/ledger.js`, `routes/warehouses.js`, `scripts/{report-coa-leaf-mapping,test-coa-leaf-mapping-v585,test-coa-leaf-report-p3}.js`, `public/{app.js,app.css,index.html,sw.js}`, `package.json`, CHANGE-LOG.
-- **Deploy:** ✅ #105 → daabbc13 (+ tip d9f8458 SW v589).
+- **Deploy:** ✅ #105 → daabbc13 (+ tip fd9f8458 SW v589).
 
 ### ۱۴۰۵/۰۸/۰۷ — v587: فاز ۲ تفصیلی کالا (`coa_product_tafsili_mode`) + حساب ثبت موجودی فقط از نگاشت انبار (SW v587)
 - **شاخه:** `feat/product-tafsili-warehouse-posting`؛ منبع: `.tmp-coa-keys-fix/phase-2-product-tafsili-and-warehouse-posting.md`. **بدون merge/deploy در این نوبت.**
@@ -37,10 +37,10 @@ onleaf_accounts_with_lines=5 (۲۳۱ سطر؛ کنترلی ۲ / غیرکنترل
 - **تست:** `test:product-tafsili` (داخل `npm test`).
 - **Help / SW:** `renderAdminGuide` بند v586؛ `sw.js` → `erp-taranom-v586`؛ `app.js?v=586`.
 - **فایل‌ها:** `lib/{coa-map,product-tafsili,amend-invoice,opening-post,consignments}.js`، `lib/inventory/{ledger,periodic-close}.js`، `lib/production/cost-revaluation.js`، `lib/void-invoice.js`، `routes/{products,settings,invoices}.js`، `lib/product-quick.js`، `scripts/test-product-tafsili-v586.js`، `public/{app.js,index.html,sw.js}`، `package.json`، CHANGE-LOG.
-- **Deploy:** ✅ #104 → 5649c9fe (+ tip d9f8458 SW v589).
+- **Deploy:** ✅ #104 → 5649c9fe (+ tip fd9f8458 SW v589).
 
 ### ۱۴۰۵/۰۸/۰۷ — v586: فاز ۱ کلیدهای coa_* قابل‌تنظیم + اعتبارسنجی برگ/نوع هنگام ذخیره (SW v586)
-- **شاخه:** `feat/configurable-coa-keys`؛ منبع: `.tmp-coa-keys-fix/phase-1-configurable-coa-keys.md`. **Deploy:** ⏳ (بدون merge/deploy در این نوبت).
+- **شاخه:** `feat/configurable-coa-keys`؛ منبع: `.tmp-coa-keys-fix/phase-1-configurable-coa-keys.md`. **Deploy:** ✅ #103 → c69d0ffd (+ tip fd9f8458 SW v589).
 - **SSOT:** `ALLOWED_KEYS` در `routes/settings.js` = کلیدهای غیر-coa + `Object.keys(LEGACY)` (۹۳ کلید). فهرست UI از `GET /api/settings/coa-keys` (کلید، نام، گروه، کنترلی بودن، default، suggested).
 - **UI:** تنظیمات ← نگاشت کدینگ — گروه‌های درآمد / هزینه / موجودی / حواله‌ها / کنترلی؛ شامل کلیدهای غایب قبلی (`coa_admin_expense`، `coa_rep_commission_expense`، `coa_finished_goods`، `coa_inventory_loss`، `coa_asset_disposal_loss`، `coa_issue_*`).
 - **اعتبارسنجی PUT:** برای هر `coa_*` تغییرکرده → وجود+فعال (`E_COA_NOT_FOUND`)؛ برگ بودن (`E_COA_NOT_LEAF`) مگر کلید کنترلی (`KIND_KEY` + `coa_issue_return_to_supplier`)؛ سازگاری پیشوند/نوع (`E_COA_TYPE_MISMATCH`). پیام فارسی با نام کلید. بدون migration مقدار settings.
@@ -56,7 +56,7 @@ onleaf_accounts_with_lines=5 (۲۳۱ سطر؛ کنترلی ۲ / غیرکنترل
 - **تست:** جدید `test:wh-transfer-unit` — انتقال بین دو انبار با leaf متفاوت و ارزش فرد ۱٬۲۳۴٬۵۶۷ ریال ⇒ JE `warehouse_transfer_batch` با debit_rial=credit_rial=Σ کاردکس؛ رسید ۷۱٬۲۳۲٬۰۰۰؛ انتقال همحساب بدون JE.
 - **SW / Help:** بدون تغییر (فقط بک‌اند + تست؛ رفتار کاربر همان).
 - **فایل‌ها:** `lib/warehouse-docs.js`، `scripts/test-warehouse-transfer-unit.js`، `package.json`، CHANGE-LOG.
-- **Deploy:** ✅ #102 → 69e329fb (+ tip d9f8458 SW v589 Iran).
+- **Deploy:** ✅ #102 → 69e329fb (+ tip fd9f8458 SW v589 Iran).
 
 
 ### ۱۴۰۵/۰۸/۰۷ — v585: فاز ۱ نگاشت اجباری حساب برگ انبار/بهای تمام‌شده + نگهبان سطر غیربرگ در postToLedger (SW v585)
@@ -1290,7 +1290,7 @@ esolveServerModalPack → همیشه mode=defined (فقط SKU فعال واقع�
 - **اصلاح:** `expandLivePack` منبع حقیقت شد (`mode=live|defined`)؛ `pack_size_auto` = تعداد خطوط واقعی؛ برداشتن تیک رنگ/سایز حتی با موجودی صفر SKU را غیرفعال می‌کند؛ حرکت موجودی واریانت غیرفعال را رد می‌کند؛ فاکتور/بازاریاب/خرید/انبار/امانی از `resolveServerAutoPack` می‌خوانند؛ meta استایل با انبار هم‌تراز شد؛ راهنما به‌روز.
 - **فایل‌ها:** `lib/inventory/movement.js`, `lib/product-variants/service.js`, `routes/product-variants.js`, `public/{app.js,marketer-ui.js,sw.js,index.html}`, `scripts/test-live-pack-sot-v439.js`, تست‌های v183/v201/variant-stock، CHANGE-LOG.
 - **تست:** محلی `test-live-pack-sot-v439` قرارداد کلاینت سبز (sqlite روی ویندوز SKIP)؛ `test-sms` ۲۲/۰؛ `node --check` روی فایل‌های دست‌خورده. ایران: `test-live-pack-sot-v439` کامل.
-- **Deploy:** ✅ 5bcf225 / tip 95321aa6 — overlay ایران؛ pm2 restart بدون --update-env؛ ready=200 و sharp 0.33.5. آزمون ایران 	est-live-pack-sot-v439 ۱۱/۰ و 	est-sms ۲۲/۰. SW erp-taranom-v443.
+- **Deploy:** ✅ f5bcf225 / tip 95321aa6 — overlay ایران؛ pm2 restart بدون --update-env؛ ready=200 و sharp 0.33.5. آزمون ایران 	est-live-pack-sot-v439 ۱۱/۰ و 	est-sms ۲۲/۰. SW erp-taranom-v443.
 
 ### ۱۴۰۵/۰۷/۲۶ — گردش شخص = ماندهٔ کنترل حساب (party-books SoT — SW v442)
 - **علائم:** داشبورد کنترل حساب اشخاص برای تأمین‌کننده (مثلاً کاظم صادقی) ماندهٔ ~۱٫۴۸B− نشان می‌داد؛ مودال «گردش» فقط یک پرداخت ۳۳۰M با ماندهٔ ۳۳۰M می‌آورد. جمع صفحه ستون مانده را خالی می‌گذاشت.
@@ -5961,7 +5961,7 @@ outes/ledgers.js, lib/accounting-access.js, db.js, public/{app.js,sw.js,index.ht
 - **Commit:** c43f066
 - **╪«┘ä╪º╪╡┘ç:** ╪¡╪▒█î┘à ╪º╪╖┘ä╪º╪╣╪º╪¬ ╪┤╪«╪╡ ┌⌐╪º╪▒╪¿╪▒╪¢ ┘ü█î┘ä╪¬╪▒ ┌»╪▒┘ê┘ç/┘à┘ê╪¼┘ê╪»█î ┘ê ┘╛┌⌐ ╪»╪▒ ┘ü╪▒┘ê╪┤ ╪¿╪º╪▓╪º╪▒█î╪º╪¿╪¢ ╪º┘å╪¬┘é╪º┘ä ╪│╪¿╪» ╪¿┘ç ╪º┘é┘ä╪º┘à ┘ü╪º┌⌐╪¬┘ê╪▒╪¢ ┘à╪«┘ü█îΓÇî╪│╪º╪▓█î ┘ü█î┘ä╪»┘ç╪º█î ┘╛█î╪┤╪▒┘ü╪¬┘ç ┘ü╪º┌⌐╪¬┘ê╪▒ ╪¿╪▒╪º█î ┌⌐╪º╪▒╪┤┘å╪º╪│ ┘à█î╪»╪º┘å█î/╪»╪º╪«┘ä█î╪¢ ╪º┘å╪¿╪º╪▒ ┘à╪¿╪»╪ú ┘╛█î╪┤ΓÇî┘ü╪▒╪╢ ╪»╪▒ ╪¬╪╣╪▒█î┘ü ┌⌐╪º╪▒╪¿╪▒╪¢ ╪¡╪░┘ü ┌⌐╪º╪¬╪º┘ä┘ê┌»/┘ü╪▒┘ê╪┤ ╪¿╪º╪▓╪º╪▒█î╪º╪¿ ╪º╪▓ ┘à┘å┘ê█î ┘à╪»█î╪▒ ╪│█î╪│╪¬┘à ┘ê ╪¡╪│╪º╪¿╪»╪º╪▒█î
 - **┘ü╪º█î┘äΓÇî┘ç╪º█î ┌⌐┘ä█î╪»█î:** server/public/index.html, server/public/marketer-ui.js, server/routes/parties.js, server/routes/admin.js, server/routes/invoices.js, server/routes/auth.js, server/db.js, server/public/sw.js
-- **Deploy:** Γ£à 7e6585 Iran health 200 ΓÇö SW erp-taranom-v69
+- **Deploy:** Γ£à f7e6585 Iran health 200 ΓÇö SW erp-taranom-v69
 - **SW:** erp-taranom-v69
 
 ### 2026-07-22 - ╪▒┘ü╪╣ ┌⌐╪┤ ┘ü╪▒┘ê╪┤ ╪¿╪º╪▓╪º╪▒█î╪º╪¿ (┘ü█î┘ä╪¬╪▒/┘╛┌⌐/╪│╪¿╪»ΓåÆ┘ü╪º┌⌐╪¬┘ê╪▒)
