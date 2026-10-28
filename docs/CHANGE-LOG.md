@@ -8,6 +8,13 @@
 - **فایل‌ها:** `lib/inventory/wh-data-correction.js`، `scripts/{inv-reconcile-report,wh-data-correction,test-wh-data-correction}.js`، `db.js`، `routes/accounting.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
 - **Deploy:** ⏳
 
+### ۱۴۰۵/۰۸/۰۷ — v580 (فرانت): فاز ۰ نمایش موجودی فاکتور/انبار — رفع «هیچ تعدادی وارد نشده» در ماتریس رنگ×سایز رسید/حواله/انتقال (SW v580)
+- **شاخه/PR:** `fix/wh-matrix-confirm` (rebase روی main پس از v579 اصلاح داده)؛ منبع: `.tmp-invoice-stock-display/phase-0-wh-matrix-confirm.md` + ممیزی باگ #۲.
+- **ریشه:** `whConfirmSkuMatrix` از `el('nestedModal')||el('modalRoot')` ریشه می‌گرفت؛ مودال تو در تو در `#nestedModalRoot` / `#nestedActiveModal` است، پس fallback به فرم والد می‌رفت → صفر input → توست «هیچ تعدادی وارد نشده» و مودال باز می‌ماند (هر سه سند رسید/حواله/انتقال).
+- **اصلاح:** (۱) ریشه فقط `#nestedModalRoot`/`#nestedActiveModal` (هرگز `#modalRoot`)؛ `openWhSkuMatrixModal` توکن `data-wh-matrix` روی جدول می‌گذارد و confirm دقیقاً همان جدول را query می‌کند (نبود جدول → خطای صریح). (۲) تابع خالص `whParseQtyInput` (ارقام فارسی/عربی، `٫`/`,`→`.`، حذف `٬`/فاصله، نامعتبر→۰)؛ inputها `type=text inputmode=decimal`. (۳) موفقیت: splice خطوط → `closeNestedModal` → `renderWhDocLines`. (۴) کنترل «بیش از موجودی» برای issue/transfer بدون مجوز منفی حفظ شد. (۵) بدون انبار انتخاب‌شده ماتریس باز نمی‌شود — توست «ابتدا انبار را انتخاب کنید».
+- **تست:** جدید `test:wh-sku-matrix-confirm` (۴۲ assertion، داخل `npm test`).
+- **Help:** `renderAdminGuide()` ← بند «ماتریس رنگ×سایز رسید/حواله/انتقال (v580)».
+- **فایل‌ها:** `public/{app.js,index.html,sw.js}`، `scripts/test-wh-sku-matrix-confirm.js`، `package.json`، CHANGE-LOG. بدون تغییر بک‌اند/داده. **Deploy:** ⏳
 ### ۱۴۰۵/۰۸/۰۷ — v578 (بک‌اند): فاز ۵ انبار — انبارگردانی با snapshot کاردکس، قفل حرکت، برگهٔ کور، سند «مغایرت انبارگردانی» (SW v578)
 - **منبع:** `.tmp-warehouse-spec/06-phase5-stocktake.md` + ممیزی O8؛ شاخهٔ `wh/phase-5-stocktake`؛ UI در ورودی «v578 (فرانت)» همین تاریخ.
 - **O8 — snapshot کاردکس:** `system_qty` هر ردیف = Σ ردیف‌های زندهٔ `inventory_ledger` (همان `LEDGER_LIVE_SQL` فاز ۱/۴ و همان closing فاز ۳) در **لحظهٔ شروع** برای کالا×انبار×واریانت؛ helper مشترک `kardexSnapshotByProduct` / `kardexSnapshotQty` در `lib/ledgers.js`. ستون‌های جدید `stocktaking_sessions.snapshot_at/snapshot_source` و `stocktaking_items.snapshot_qty/snapshot_source` (ensureColumn). **apply دیگر از موجودی زنده re-snap نمی‌کند**: مغایرت = شمارش − snapshot ثابت؛ حرکت پس از snapshot اثرش را حفظ می‌کند و فقط اختلاف ثبت می‌شود (`moved_since_snapshot` فقط اطلاع‌رسانی).
