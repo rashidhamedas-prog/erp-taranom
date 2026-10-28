@@ -354,7 +354,7 @@
 - **اصلاح:** seed تست P1 برای FG/semi کد یکتا + واحد؛ seed `product_sizes` برای کلیدهای ماتریس سایز. Help: پیش‌نیاز کد کالا و سایز برای فعال‌سازی BOM دارای ماتریس.
 - **فایل‌ها:** `scripts/test-production-bom.js`, `public/{app.js,index.html,sw.js}`, CHANGE-LOG.
 - **تست (ایران):** `test-production-bom` همه پاس؛ sms/sync پس از deploy.
-- **Deploy:** ⏳
+- **Deploy:** ✅ merge 31a4eb25 (PR #87) — بکاپ /home/taranom/backups/crm.db.20261028-112030؛ overlay؛ health/ready=200؛ SW erp-taranom-v578؛ test:wh-stocktake-p5 ۷۶/۰؛ reports ۸۵/۰؛ encoding OK؛ sms ۲۲/۰.
 
 ### ۱۴۰۵/۰۸/۰۲ — v541: P0 schema تست سبز — ایندکس live BOM + INTEGER تخصیص برگشت + Settings پویا (SW v541)
 - **بافت (skill-top / کامل):** اجرای `docs/Production/cursor-prompt.md`؛ ماژول تولید از قبل در `lib/production/schema.js` پیاده بود. روی ایران `test-production-schema` ۱۳/۱۵ — سه شکست شناخته‌شده.
