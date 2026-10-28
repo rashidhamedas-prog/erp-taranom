@@ -725,7 +725,7 @@ function postCogsFromMovements(db, {
   invId, num, date, userId, cogsRial, reverse = false, inventoryCoaCode = null,
   costCenterId = null, warehouseId = null, movements = null,
 }) {
-  const { inventoryAmountLinesByWarehouse, inventoryAccountForWarehouse } = require('./inventory/ledger');
+  const { inventoryAccountForWarehouse } = require('./inventory/ledger');
 
   if (reverse) {
     const orig = db.prepare(
@@ -779,22 +779,27 @@ function postCogsFromMovements(db, {
       }
     }
   }
-  const invParts = inventoryAmountLinesByWarehouse(db, items);
+  // v585 Phase 1: per-warehouse leaf mapping. enforce → 422 E_WAREHOUSE_COA_UNMAPPED (whole tx rolls back);
+  // warn → previous accounts + structured log. Never resolvePostableLeaf / never auto-fill.
+  const { cogsPartsByWarehouse } = require('./coa-leaf-policy');
+  const mapped = cogsPartsByWarehouse(db, items, { ref: { source: 'invoice_cogs', id: invId || null } });
+  let parts = mapped.invParts;
+  let cogsParts = mapped.cogsParts;
   // Fallback single-account if helper empty but legacy inventoryCoaCode given
-  let parts = invParts;
   if ((!parts || !parts.length) && inventoryCoaCode) {
     const amt = items.reduce((a, it) => a + it.amountRial, 0) || Math.round(Number(cogsRial) || 0);
     if (amt > 0) {
       const row = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(inventoryCoaCode)
         || inventoryAccountForWarehouse(db, warehouseId);
       parts = [{ code: row.code, name: row.name, amountRial: amt }];
+      const legacyCogs = acct(db, 'coa_cogs');
+      cogsParts = [{ code: legacyCogs.code, name: legacyCogs.name, amountRial: amt }];
     }
   }
   const totalRial = (parts || []).reduce((a, p) => a + Math.round(Number(p.amountRial) || 0), 0);
   if (totalRial <= 0) return null;
   assertJournalIdempotent(db, 'invoice_cogs', invId);
 
-  const cogs = acct(db, 'coa_cogs');
   let ccId = costCenterId ? parseInt(costCenterId, 10) : null;
   if (!ccId && warehouseId) {
     try {
@@ -814,7 +819,13 @@ function postCogsFromMovements(db, {
   }
 
   const lines = [
-    { code: cogs.code, name: cogs.name, debit: rialToLedger(totalRial), credit: 0, cost_center_id: ccId || null },
+    ...cogsParts.map((c) => ({
+      code: c.code,
+      name: c.name,
+      debit: rialToLedger(Math.round(Number(c.amountRial) || 0)),
+      credit: 0,
+      cost_center_id: ccId || null,
+    })),
     ...parts.map((p) => ({
       code: p.code,
       name: p.name,

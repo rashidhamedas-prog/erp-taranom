@@ -249,10 +249,11 @@ async function seedDemoV2(dbPathOrOpts, maybeOpts) {
     if (warehouses.length < 1) {
       warehouses.push(await api('POST', '/api/warehouses', {
         name: 'انبار مرکزی نمایش', code: 'WH-DEMO-1', is_default: 1,
+        inventory_coa_code: '1104', cogs_coa_code: '5101',
       }));
     }
     if (warehouses.length < 2) {
-      const extra = await tryApi('POST', '/api/warehouses', { name: 'انبار نمایشگاه', code: 'WH-DEMO-2' });
+      const extra = await tryApi('POST', '/api/warehouses', { name: 'انبار نمایشگاه', code: 'WH-DEMO-2', inventory_coa_code: '1104', cogs_coa_code: '5101' });
       if (extra.ok) warehouses.push(extra.data);
     }
     const fgWh = warehouses.find((w) => w.is_default || w.warehouse_type === 'finished_goods') || warehouses[0];

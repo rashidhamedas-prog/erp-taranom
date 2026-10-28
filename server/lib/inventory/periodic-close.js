@@ -15,6 +15,14 @@ function initWarehouseInventorySystem(db) {
   ensureColumn(db, 'warehouses', 'allow_negative', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'warehouses', 'costing_method', 'TEXT');
   ensureColumn(db, 'warehouses', 'inventory_coa_code', 'TEXT');
+  // v585 Phase 1 — leaf COGS account per warehouse (additive, NULL by default; no data UPDATE).
+  ensureColumn(db, 'warehouses', 'cogs_coa_code', 'TEXT');
+  // v585 — leaf enforcement flag: warn (default) | enforce. INSERT OR IGNORE only.
+  try {
+    db.prepare("INSERT OR IGNORE INTO settings (key,value) VALUES ('ledger_leaf_enforcement','warn')").run();
+  } catch (e) {
+    console.error('ledger_leaf_enforcement default', e.message);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS warehouse_period_closes (

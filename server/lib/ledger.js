@@ -79,6 +79,17 @@ function stampCostCenter(lines, costCenterId) {
   }));
 }
 
+/** Leaf guard — never swallows E_ACCOUNT_NOT_LEAF; tolerates a missing chart table on stub DBs. */
+function assertLeafLines(db, lines, ctx) {
+  try {
+    require('./coa-leaf-policy').assertLinesPostable(db, lines, ctx);
+  } catch (e) {
+    if (e && e.code === 'E_ACCOUNT_NOT_LEAF') throw e;
+    if (/no such table|no such column/i.test(String(e && e.message))) return;
+    throw e;
+  }
+}
+
 function postToLedger(db, opts) {
   const {
     sourceType, sourceId, date, description, createdBy, lines,
@@ -138,6 +149,9 @@ function postToLedger(db, opts) {
     err.status = 409;
     throw err;
   }
+
+  // v585 Phase 1: every line must be a postable leaf. warn → log + banner; enforce → throw (rollback).
+  assertLeafLines(db, normalized, { sourceType, sourceId });
 
   const fiscalYearId = resolveFiscalYearForDate(db, date);
   let voucherNumber = null;
@@ -259,6 +273,8 @@ function rewriteJournalEntry(db, opts) {
     err.status = 409;
     throw err;
   }
+
+  assertLeafLines(db, normalized, { sourceType, sourceId });
 
   db.prepare('DELETE FROM journal_lines WHERE entry_id=?').run(existing.id);
 

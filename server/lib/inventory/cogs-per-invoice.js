@@ -44,6 +44,14 @@ function cogsAccountCodes(db) {
     for (const r of db.prepare('SELECT code FROM chart_of_accounts WHERE parent_code=?').all(root.code)) {
       codes.add(String(r.code));
     }
+    // v585: per-warehouse leaf COGS accounts (warehouses.cogs_coa_code) count as COGS too.
+    if (colSet(db, 'warehouses').has('cogs_coa_code')) {
+      for (const r of db.prepare(
+        "SELECT DISTINCT TRIM(cogs_coa_code) AS code FROM warehouses WHERE TRIM(COALESCE(cogs_coa_code,''))<>''",
+      ).all()) {
+        codes.add(String(r.code));
+      }
+    }
   }
   return { root, codes };
 }

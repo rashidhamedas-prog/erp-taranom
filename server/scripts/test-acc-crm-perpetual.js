@@ -121,7 +121,7 @@ async function login() {
     ok(r.status === 200 && r.data.id, 'create customer', r.data?.error);
     const custId = r.data.id;
 
-    r = await j('POST', '/api/warehouses', { name: 'انبار تست unify', code: 'WH-U1', active: 1 }, token);
+    r = await j('POST', '/api/warehouses', { name: 'انبار تست unify', code: 'WH-U1', active: 1, inventory_coa_code: '1104', cogs_coa_code: '5101' }, token);
     let whId = r.data?.id;
     if (!whId) {
       const wh = db.prepare('SELECT id FROM warehouses WHERE active=1 ORDER BY id LIMIT 1').get();
