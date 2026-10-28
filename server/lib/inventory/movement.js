@@ -210,7 +210,7 @@ function ensureProductWhRow(db, productId, warehouseId, _seedQtyIgnored) {
  * @param {number|null} [opts.docLine]
  * @param {number|null} [opts.userId]
  * @param {string} [opts.note]
- * @param {boolean} [opts.allowNegative=true]  firm sales keep warning-only (allow neg)
+ * @param {boolean} [opts.allowNegative=false]  fail-closed; callers that need neg must pass true
  * @param {boolean} [opts.applyHeaderStock=true]  when false, only variant projections + movement row
  * @param {boolean} [opts.writeStockLog=true]
  */
@@ -245,7 +245,7 @@ function postStockMovement(db, opts) {
   const docLine = opts.docLine != null ? parseInt(opts.docLine, 10) : null;
   const userId = opts.userId != null ? parseInt(opts.userId, 10) : null;
   const note = opts.note != null ? String(opts.note) : '';
-  const allowNegative = opts.allowNegative !== false;
+  const allowNegative = opts.allowNegative === true;
   const applyHeaderStock = opts.applyHeaderStock !== false;
   const writeStockLog = opts.writeStockLog !== false;
 
@@ -408,7 +408,7 @@ function postVariantLayer(db, opts) {
     docLine: opts.docLine,
     userId: opts.userId,
     note: opts.note,
-    allowNegative: opts.allowNegative !== false,
+    allowNegative: opts.allowNegative === true,
     applyHeaderStock: false,
     writeStockLog: false,
   });

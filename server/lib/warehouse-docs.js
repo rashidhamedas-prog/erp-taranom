@@ -37,11 +37,41 @@ function availableForIssue(db, productId, warehouseId, variantId) {
   return warehouseQty(db, productId, warehouseId);
 }
 
+function userMayWhNegative(db, user) {
+  if (!user) return false;
+  // Phase 0 interim (spec 0.1): dedicated `negative` action not shipped yet → admin only.
+  if (user.role === 'admin') return true;
+  try {
+    const { hasPermission } = require('./rbac');
+    if (typeof hasPermission === 'function'
+      && hasPermission(db, user, 'acc_warehouse_ops', 'negative')) {
+      return true;
+    }
+  } catch (_) { /* action may not exist yet */ }
+  return false;
+}
+
+function assertIssueQtyAllowed(db, user, {
+  product, product_id, variantId, warehouseId, available, needed,
+}) {
+  if (available + 1e-9 >= needed) return;
+  const whAllows = allowNegative(db, warehouseId, { context: 'warehouse' });
+  const userAllows = userMayWhNegative(db, user);
+  if (whAllows && userAllows) return;
+  const e = Object.assign(
+    new Error(`موجودی «${product.name}» کافی نیست و ثبت منفی مجاز نیست (موجود: ${available})`),
+    { status: 400, code: 'NEGATIVE_NOT_ALLOWED' }
+  );
+  throw require('./inventory/shortage-error').attach(e, db, [{
+    product_id, variant_id: variantId, warehouse_id: warehouseId, available, needed,
+  }]);
+}
+
 function postWhVariantMovement(db, {
   productId, variantId, warehouseId, qtyDelta, docType, docId, docLine, userId, note, batchId,
 }) {
   if (batchId) return null;
-  const negOk = allowNegative(db, warehouseId);
+  const negOk = allowNegative(db, warehouseId, { context: 'warehouse' });
   if (hasActiveMatrixVariants(db, productId) && !variantId) {
     throw Object.assign(new Error('برای کالای ماتریسی انتخاب واریانت الزامی است'), {
       code: 'E_VARIANT_REQUIRED', status: 400,
@@ -240,8 +270,8 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
   let supplierId = null;
   if (type === 'receipt') {
     const rawClass = String(body.receipt_class || body.counterpart || '').toLowerCase().trim();
-    const isOpening = !!(body.opening || rawClass === 'opening'
-      || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
+    // Only explicit receipt_class/opening flag — never infer from free-text note.
+    const isOpening = !!(body.opening || rawClass === 'opening');
     const isGrni = !isOpening && (rawClass === 'grni' || rawClass === 'supplier'
       || rawClass === 'supplier_receipt');
     receiptClass = isOpening ? 'opening' : (isGrni ? 'grni' : 'adjustment');
@@ -326,9 +356,9 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       totalAmountRial += Math.round(Number(led.amount_rial) || 0);
     } else if (type === 'issue') {
       const available = availableForIssue(db, product_id, fromWh, variantId);
-      if (available < qty && !allowNegative(db, fromWh)) {
-        throw whShortage(db, product, { product_id, variant_id: variantId, warehouse_id: fromWh, available, needed: qty });
-      }
+      assertIssueQtyAllowed(db, user, {
+        product, product_id, variantId, warehouseId: fromWh, available, needed: qty,
+      });
       // Auto FEFO: if no batch chosen but one generic lot covers the qty, use earliest expiry.
       let issueBatchId = batchId;
       if (!issueBatchId && !variantId) {
@@ -364,9 +394,9 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       totalAmountRial += Math.round(Number(led.amount_rial) || 0);
     } else {
       const available = availableForIssue(db, product_id, fromWh, variantId);
-      if (available < qty && !allowNegative(db, fromWh)) {
-        throw whShortage(db, product, { product_id, variant_id: variantId, warehouse_id: fromWh, available, needed: qty });
-      }
+      assertIssueQtyAllowed(db, user, {
+        product, product_id, variantId, warehouseId: fromWh, available, needed: qty,
+      });
       const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toWh);
       const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
       const unit = Math.round(Number(product.average_cost_rial) || 0);
@@ -457,8 +487,7 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
     if (!isPeriodicWarehouse(db, valuationWh)) {
       const inventory = inventoryAccountForWarehouse(db, valuationWh);
       const receiptClass = String(body.receipt_class || body.counterpart || '').toLowerCase().trim();
-      const isOpening = !!(body.opening || receiptClass === 'opening'
-        || /اول\s*دوره|افتتاحیه|موجودی\s*اول/i.test(String(note || '')));
+      const isOpening = !!(body.opening || receiptClass === 'opening');
       const isGrni = !isOpening && (receiptClass === 'grni' || receiptClass === 'supplier'
         || receiptClass === 'supplier_receipt');
       // Purchase with invoice must use /purchases or /procurement GR — not this path with 9999.
@@ -524,8 +553,18 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
 }
 
 function createWarehouseDoc(db, body, user, opts = {}) {
-  if (opts.outerTx) return createWarehouseDocInTx(db, body, user, opts);
-  return db.transaction(() => createWarehouseDocInTx(db, body, user, opts))();
+  // Receiving one matrix SKU must not retire sibling zero-stock colors (Phase 0 picker).
+  const run = () => {
+    const { holdColorRetire, releaseColorRetire } = require('./product-variants/service');
+    holdColorRetire(db);
+    try {
+      return createWarehouseDocInTx(db, body, user, opts);
+    } finally {
+      releaseColorRetire(db);
+    }
+  };
+  if (opts.outerTx) return run();
+  return db.transaction(run)();
 }
 
 function voidWarehouseDocInTx(db, docId, user, { reason } = {}) {

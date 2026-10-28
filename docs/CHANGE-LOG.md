@@ -1,3 +1,11 @@
+### ۱۴۰۵/۰۸/۰۶ — v573: فاز ۰ ماژول انبار — انتخاب‌گر defined + منفی تفکیک‌شده (SW v573)
+- **منبع:** `warehouse-module-cursor` Phase 0؛ ممیزی موازی [فاز ۰](2d034fc3-d932-43b9-a3f4-0ac5bb73a108).
+- **انتخاب‌گر:** `whPickProduct` فقط `resolveServerModalPack` (mode=defined)؛ ماتریس رنگ×سایز؛ رسید بدون وابستگی به موجودی؛ حواله/انتقال خانه‌های صفر را قفل می‌کند مگر انبار+مجوز منفی (فعلاً فقط admin تا اکشن `negative`).
+- **سرور:** `NEGATIVE_NOT_ALLOWED`؛ `allowNegative(..., {context:'warehouse'})` بدون اثر `production_allow_negative_stock`؛ پیش‌فرض `postStockMovement` fail-closed؛ افتتاحیه فقط با `receipt_class`؛ حذف انبار با سابقهٔ ledger/vws/اسناد → فقط `active=0`؛ `holdColorRetire` هنگام create سند انبار تا رسید یک SKU رنگ‌های صفر خواهر را خاموش نکند.
+- **تست:** `test:wh-picker-p0` داخل `npm test` (۲۱ assertion).
+- **فایل‌ها:** `lib/inventory/{ledger,movement}.js`، `lib/warehouse-docs.js`، `routes/warehouses.js`، `public/{app.js,app.css,index.html,sw.js}`، scripts، package.json، CHANGE-LOG.
+- **Deploy:** ⏳ pending
+
 ### ۱۴۰۵/۰۸/۰۶ — v572: فروش چندانباری — COGS با هدر ادواری + گزارش فایل + تست p2 در npm test (SW v572)
 - **منبع:** شکاف‌های [ممیزی فاز ۰](f5669813-7700-45a2-b973-bfab9d575751)، [فاز ۱](14bc849c-c30d-416b-b27d-7b8a890e4731)، [فاز ۲](cf176c18-381e-435a-8da0-afa3ec1aa240) نسبت به `invoice-cross-warehouse-cursor` (فازهای ۰–۲ قبلاً با v565/v567/v569 روی main بودند).
 - **سرور:** `saleUsesPerpetualValuation` — اگر هر ردیف انبار دائمی داشته باشد، حتی با هدر ادواری مسیر `postSaleStockMovements` + COGS تفکیکی می‌رود (create و convert).

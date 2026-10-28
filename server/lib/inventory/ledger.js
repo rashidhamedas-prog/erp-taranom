@@ -11,13 +11,23 @@ function setting(db, key, fallback = '') {
   return r?.value != null ? r.value : fallback;
 }
 
-function allowNegative(db, warehouseId) {
+/**
+ * May physical stock go below zero for this warehouse?
+ * @param {{context?: 'warehouse'|'production'|'sales'|string}} [opts]
+ * - warehouse / sales / default: only warehouses.allow_negative or inventory_allow_negative
+ * - production: also honors production_allow_negative_stock
+ */
+function allowNegative(db, warehouseId, opts) {
   if (warehouseId) {
     const wh = db.prepare('SELECT allow_negative FROM warehouses WHERE id=?').get(warehouseId);
     if (wh && wh.allow_negative) return true;
   }
-  return setting(db, 'inventory_allow_negative', '0') === '1'
-    || setting(db, 'production_allow_negative_stock', '0') === '1';
+  if (setting(db, 'inventory_allow_negative', '0') === '1') return true;
+  const ctx = opts && opts.context != null ? String(opts.context) : '';
+  if (ctx === 'production' || ctx === 'prod') {
+    return setting(db, 'production_allow_negative_stock', '0') === '1';
+  }
+  return false;
 }
 
 /** Effective costing method (v521: delegates to valuation policy — product > warehouse > global by precedence). */
