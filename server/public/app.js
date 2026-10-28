@@ -681,6 +681,71 @@ async function hydrateInvVarSum(ids, warehouseId){
 }
 window._invLineStock = window._invLineStock || {};
 window._invLineStockSeq = window._invLineStockSeq || 0;
+/* v583: availability cache — {key:{wh:{on_hand,reserved,own,available,drift,note}}} with per-key TTL */
+window._invLineStockAt = window._invLineStockAt || {};
+window._invLineStockErrAt = window._invLineStockErrAt || 0;
+const INV_LINE_STOCK_TTL_MS = 60000;
+function invLineStockFresh(key){
+  const t=window._invLineStockAt && window._invLineStockAt[key];
+  return !!(window._invLineStock && window._invLineStock[key] && t && (Date.now()-t)<INV_LINE_STOCK_TTL_MS);
+}
+/** باز شدن فاکتور / بعد از ذخیره / تبدیل: کل کش موجودی خط و برچسب‌های «انبار دیگر» پاک می‌شود. */
+function invLineStockClear(){
+  window._invLineStock={};
+  window._invLineStockAt={};
+  window._invOtherWhTried={};
+  window._invLineStockErrAt=0;
+  window._invLineStockPaint=false;
+  window._invLineStockSeq=(window._invLineStockSeq||0)+1;
+  window._invLineStockGen=(window._invLineStockGen||0)+1;
+}
+/** POST /inventory/line-availability/batch (≤۱۰۰ قلم در هر درخواست) با exclude_invoice_id = فاکتور در حال ویرایش. */
+async function invFetchLineAvailability(items, excludeInvoiceId){
+  const out=[];
+  const exclude=Number(excludeInvoiceId!=null?excludeInvoiceId:window._invBuilderId)||0;
+  for(let i=0;i<items.length;i+=100){
+    const body={items:items.slice(i,i+100)};
+    if(exclude>0) body.exclude_invoice_id=exclude;
+    let data=null;
+    try{
+      data=await api('POST','/inventory/line-availability/batch',body,false,true);
+    }catch(e){
+      // فاکتور روی این دستگاه/کاربر قابل‌خواندن نبود → همان اعداد بدون add-back (بهتر از صفحهٔ بدون عدد)
+      if(exclude>0){
+        delete body.exclude_invoice_id;
+        data=await api('POST','/inventory/line-availability/batch',body,false,true);
+      } else throw e;
+    }
+    ((data&&data.results)||[]).forEach(function(r){ out.push(r); });
+  }
+  return out;
+}
+function invLineStockStore(results, requested){
+  if(!window._invLineStock) window._invLineStock={};
+  if(!window._invLineStockAt) window._invLineStockAt={};
+  const now=Date.now();
+  (results||[]).forEach(function(res){
+    const key=invLineStockKey(res.product_id, res.variant_id);
+    const map={};
+    (res.warehouses||[]).forEach(function(w){
+      map[w.warehouse_id]={
+        on_hand:Number(w.on_hand)||0,
+        reserved:Number(w.reserved)||0,
+        own:Number(w.own_doc_qty)||0,
+        available:Number(w.available)||0,
+        drift:!!w.drift,
+        note:String(w.layer_note||''),
+      };
+    });
+    window._invLineStock[key]=map;
+    window._invLineStockAt[key]=now;
+  });
+  // قلمی که سرور برنگرداند (کالای حذف‌شده…) با نقشهٔ خالی «تازه» می‌شود تا رندر حلقه نزند.
+  (requested||[]).forEach(function(it){
+    const key=invLineStockKey(it.product_id, it.variant_id);
+    if(!window._invLineStock[key]){ window._invLineStock[key]={}; window._invLineStockAt[key]=now; }
+  });
+}
 /* XWH-SHARED:invLineStockKey */
 function invLineStockKey(pid, vid) {
   const p = Number(pid);
@@ -701,17 +766,130 @@ function invEffectiveLineWh(row, headerWh) {
   return null;
 }
 /* /XWH-SHARED */
+/* XWH-SHARED:invLineStockEntry */
+function invLineStockEntry(row, headerWh, stockCache) {
+  if (!row) return null;
+  const wh = invEffectiveLineWh(row, headerWh);
+  if (!wh) return null;
+  const cache = stockCache || {};
+  const map = cache[invLineStockKey(row.product_id, row.variant_id)];
+  if (!map) return null;
+  const e = map[wh] != null ? map[wh] : map[String(wh)];
+  if (e == null) return null;
+  if (typeof e === 'object') {
+    return {
+      on_hand: Number(e.on_hand) || 0,
+      reserved: Number(e.reserved) || 0,
+      own: Number(e.own) || 0,
+      available: Number(e.available) || 0,
+      drift: !!e.drift,
+      note: String(e.note || ''),
+    };
+  }
+  const n = Number(e) || 0;
+  return { on_hand: n, reserved: 0, own: 0, available: n, drift: false, note: '' };
+}
+/* /XWH-SHARED */
 /* XWH-SHARED:invLineAvail */
 function invLineAvail(row, headerWh, stockCache) {
-  if (!row) return 0;
-  const wh = invEffectiveLineWh(row, headerWh);
-  if (!wh) return 0;
-  const cache = stockCache || {};
-  const key = invLineStockKey(row.product_id, row.variant_id);
-  const map = cache[key];
-  if (map && map[wh] != null) return Number(map[wh]) || 0;
-  if (map && map[String(wh)] != null) return Number(map[String(wh)]) || 0;
-  return 0;
+  const e = invLineStockEntry(row, headerWh, stockCache);
+  return e ? e.available : 0;
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invGroupStockAt */
+function invGroupStockAt(rows, whId, stockCache, variantLabel) {
+  const wh = Number(whId) || 0;
+  const labelFn = typeof variantLabel === 'function' ? variantLabel : function () { return ''; };
+  const order = [];
+  const by = {};
+  (rows || []).forEach(function (r) {
+    if (!r) return;
+    const key = invLineStockKey(r.product_id, r.variant_id);
+    if (!by[key]) {
+      by[key] = {
+        key: key,
+        product_id: Number(r.product_id) || 0,
+        variant_id: Number(r.variant_id) || null,
+        label: labelFn(r.color_name || r.color, r.size_name) || '',
+        need: 0,
+      };
+      order.push(key);
+    }
+    by[key].need += Number(r.qty) || 0;
+  });
+  let shortN = 0;
+  let unknownN = 0;
+  let drift = false;
+  const skus = order.map(function (key) {
+    const g = by[key];
+    const e = wh
+      ? invLineStockEntry({ product_id: g.product_id, variant_id: g.variant_id, warehouse_id: wh }, wh, stockCache)
+      : null;
+    const known = !!e;
+    const short = known && g.need > e.available + 1e-9;
+    if (!known) unknownN += 1;
+    if (short) shortN += 1;
+    if (known && e.drift) drift = true;
+    return {
+      key: g.key,
+      variant_id: g.variant_id,
+      label: g.label,
+      need: g.need,
+      known: known,
+      available: known ? e.available : null,
+      on_hand: known ? e.on_hand : null,
+      reserved: known ? e.reserved : 0,
+      own: known ? e.own : 0,
+      drift: known ? e.drift : false,
+      note: known ? e.note : '',
+      short: short,
+    };
+  });
+  return {
+    warehouse_id: wh,
+    skus: skus,
+    shortN: shortN,
+    unknownN: unknownN,
+    drift: drift,
+    ok: skus.length > 0 && shortN === 0 && unknownN === 0,
+  };
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invGroupStockStatus */
+function invGroupStockStatus(info) {
+  if (!info || !info.skus || !info.skus.length) return { mode: 'unknown', low: false };
+  if (info.skus.length === 1) {
+    const s = info.skus[0];
+    if (!s.known) return { mode: 'unknown', low: false };
+    return { mode: 'num', value: s.available, low: !!s.short };
+  }
+  if (info.shortN > 0) return { mode: 'short', n: info.shortN, low: true };
+  if (info.unknownN > 0) return { mode: 'unknown', low: false };
+  return { mode: 'ok', low: false };
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invCardAvail */
+function invCardAvail(productId, whId, stockCache, fallbackWhQty, heldQty, cartQty) {
+  const e = invLineStockEntry({ product_id: productId, variant_id: null, warehouse_id: whId }, whId, stockCache);
+  const base = e ? e.available : (Number(fallbackWhQty) || 0) + (Number(heldQty) || 0);
+  return {
+    base: base,
+    available: base - (Number(cartQty) || 0),
+    from_cache: !!e,
+    drift: !!(e && e.drift),
+    note: e ? e.note : '',
+  };
+}
+/* /XWH-SHARED */
+/* XWH-SHARED:invOtherWhQty */
+function invOtherWhQty(productId, headerWh, whIds, stockCache) {
+  let sum = 0;
+  (whIds || []).forEach(function (id) {
+    if (Number(id) === Number(headerWh)) return;
+    const e = invLineStockEntry({ product_id: productId, variant_id: null, warehouse_id: id }, id, stockCache);
+    if (e && e.available > 0) sum += e.available;
+  });
+  return sum;
 }
 /* /XWH-SHARED */
 /* XWH-SHARED:collectInvoiceStockWarnings */
@@ -719,6 +897,8 @@ function collectInvoiceStockWarnings(cart, opts) {
   const o = opts || {};
   const headerWh = o.headerWh;
   const stockCache = o.stockCache || {};
+  // v583: heldFn is ONLY a fallback while the server availability (already includes the edited
+  // invoice's own quantity) has not loaded yet — never added on top of a cached `available`.
   const heldFn = typeof o.heldFn === 'function'
     ? o.heldFn
     : function () { return 0; };
@@ -775,14 +955,18 @@ function collectInvoiceStockWarnings(cart, opts) {
   Object.keys(byProd).forEach(function (pk) {
     const g = byProd[pk];
     const sample = { product_id: g.product_id, warehouse_id: g.warehouse_id, variant_id: null };
-    let avail = invLineAvail(sample, headerWh, stockCache);
-    if (!(stockCache[invLineStockKey(g.product_id, null)] || stockCache[invLineStockKey(g.product_id, 0)])) {
+    const pe = invLineStockEntry(sample, headerWh, stockCache);
+    let avail;
+    if (pe) {
+      avail = pe.available;
+    } else {
+      avail = 0;
       const p = findProduct(g.product_id);
       if (p && Number(headerWh) === Number(g.warehouse_id)) {
         avail = Number(p.wh_qty != null ? p.wh_qty : (p.stock || 0)) || 0;
       }
+      avail += Number(heldFn('product', g.product_id, g.warehouse_id)) || 0;
     }
-    avail += Number(heldFn('product', g.product_id, g.warehouse_id)) || 0;
     if (g.qty > avail + 1e-9) {
       const whName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
       const baseName = g.name || (findProduct(g.product_id) && findProduct(g.product_id).name) || 'کالا';
@@ -806,8 +990,13 @@ function collectInvoiceStockWarnings(cart, opts) {
       warehouse_id: g.warehouse_id,
       variant_id: g.variant_id,
     };
-    let avail = invLineAvail(sample, headerWh, stockCache);
-    avail += Number(heldFn('sku', g.variant_id, g.warehouse_id)) || 0;
+    const se = invLineStockEntry(sample, headerWh, stockCache);
+    let avail;
+    if (se) {
+      avail = se.available;
+    } else {
+      avail = Number(heldFn('sku', g.variant_id, g.warehouse_id)) || 0;
+    }
     if (g.qty > avail + 1e-9) {
       const whName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
       issues.push({
@@ -843,8 +1032,22 @@ function invoiceStockWarningsNow(cart){
 function invLineAvailRow(row){
   return invLineAvail(row, typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null, window._invLineStock||{});
 }
-async function ensureInvLineStockForCart(cart){
-  const rows=cart||(typeof invCart!=='undefined'?invCart:[]);
+/** v583: موجودی هر SKU یک گروه ردیف (پک) در یک انبار — از همان کش API (available با add-back سرور). */
+function invGroupStockInfo(indices, whId){
+  const rows=(indices||[]).map(function(i){ return invCart[i]; }).filter(Boolean);
+  const headerWh=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
+  const wh=whId!=null?whId:(rows.length?invEffectiveLineWh(rows[0], headerWh):null);
+  return invGroupStockAt(rows, wh, window._invLineStock||{}, function(c,s){
+    return typeof variantAttrsLabel==='function'?variantAttrsLabel(c,s,' / '):'';
+  });
+}
+const INV_DRIFT_TEXT='⚠ ناهمخوان با کاردکس';
+function invDriftBadgeHtml(note){
+  const t=String(note||'').trim()||'موجودی این انبار با کاردکس/حرکت‌های ثبت‌شده هم‌خوان نیست؛ عدد قطعی نیست.';
+  return '<span class="inv-drift-badge" title="'+esc(t)+'">'+INV_DRIFT_TEXT+'</span>';
+}
+/** قلم‌های سبد که کش تازه (TTL) ندارند: هر SKU + سطح کالا (برای هشدار/کارت پیکر). */
+function invLineStockItemsFor(rows){
   const items=[];
   const seen={};
   (rows||[]).forEach(function(r){
@@ -852,29 +1055,28 @@ async function ensureInvLineStockForCart(cart){
     const pid=Number(r.product_id);
     if(!Number.isFinite(pid) || pid<=0) return;
     const vid=r.variant_id!=null&&r.variant_id!==''?Number(r.variant_id):null;
-    const key=invLineStockKey(pid, vid);
-    if(seen[key]) return;
-    seen[key]=1;
-    if(window._invLineStock && window._invLineStock[key]) return;
-    items.push({ product_id: pid, variant_id: (Number.isFinite(vid)&&vid>0)?vid:null });
+    const v=(Number.isFinite(vid)&&vid>0)?vid:null;
+    [v, null].forEach(function(variantId){
+      const key=invLineStockKey(pid, variantId);
+      if(seen[key]) return;
+      seen[key]=1;
+      if(invLineStockFresh(key)) return;
+      items.push({ product_id: pid, variant_id: variantId });
+    });
   });
+  return items;
+}
+async function ensureInvLineStockForCart(cart){
+  const rows=cart||(typeof invCart!=='undefined'?invCart:[]);
+  const items=invLineStockItemsFor(rows);
   if(!items.length) return;
   const seq=window._invLineStockSeq;
   try{
-    const data=await api('POST','/inventory/stock-by-warehouse/batch',{items:items});
+    const results=await invFetchLineAvailability(items);
     if(seq!==window._invLineStockSeq) return;
-    const results=(data&&data.results)||[];
-    if(!window._invLineStock) window._invLineStock={};
-    results.forEach(function(res){
-      const key=invLineStockKey(res.product_id, res.variant_id);
-      const map={};
-      (res.warehouses||[]).forEach(function(w){
-        map[w.warehouse_id]=Number(w.qty)||0;
-        map[String(w.warehouse_id)]=Number(w.qty)||0;
-      });
-      window._invLineStock[key]=map;
-    });
-  }catch(_){ /* keep prior cache */ }
+    invLineStockStore(results, items);
+    window._invLineStockErrAt=0;
+  }catch(_){ window._invLineStockErrAt=Date.now(); /* keep prior cache */ }
 }
 function renderInvoiceStockWarn(){
   const box=el('invStockWarn'); if(!box) return;
@@ -5429,6 +5631,7 @@ async function _openInvBuilder(id){
   const allowSaveEdit = !isFinalEdit || canAmendFirm;
   const isAmendEdit = !!(inv && (inv.type==='proforma' || inv.type==='normal' || (inv.type==='final' && canAmendFirm)));
   window._invBuilderId = id || 0;
+  invLineStockClear(); // v583: فاکتور دیگر / تازه → کش موجودی خط (و add-back آن فاکتور) از صفر
   captureInvoiceStockBaseline(inv);
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
   let chequeFaceInit = 0;
@@ -5688,50 +5891,37 @@ async function _openInvBuilder(id){
   _bcWedgeHandler = scanBarcodeToCart;
   const hint=el('mobPickHint'); if(hint) hint.style.display=window.matchMedia('(hover:none)').matches?'block':'none';
 }
-/* v567: جمع موجودی انبارهای فعال به‌جز انبار سربرگ (cache محصول-سطح یا هر variant) */
+/* v567/v583: «در انبار دیگر» — فقط از کلید سطح کالا (pid:0)، بدون ترکیب variantها؛ مقدار = available سرور */
 function invOtherWhQtyForProduct(pid, headerWh){
-  const cache=window._invLineStock||{};
   const whs=(CACHE.warehouses||[]).filter(w=>w.active!==0 && Number(w.id)!==Number(headerWh));
   if(!whs.length) return 0;
-  const prefix=String(Number(pid))+':';
-  const keys=Object.keys(cache).filter(k=>k.indexOf(prefix)===0);
-  if(!keys.length) return 0;
-  // اگر کلید محصول-سطح (pid:0) هست فقط همان؛ وگرنه جمع variantهای موجود در cache
-  const useKeys=cache[prefix+'0']?[prefix+'0']:keys;
-  let sum=0;
-  useKeys.forEach(function(k){
-    const m=cache[k]||{};
-    whs.forEach(function(w){ const v=m[w.id]!=null?m[w.id]:m[String(w.id)]; if(v!=null && Number(v)>0) sum+=Number(v); });
-  });
-  return sum;
+  return invOtherWhQty(pid, headerWh, whs.map(w=>w.id), window._invLineStock||{});
 }
-/* v567: fetch اختیاری و یک‌بارهٔ موجودی انبارهای دیگر برای کالاهای صفرِ سربرگ در پیکر (حداکثر ۴۰ قلم) */
+/* v567/v583: fetch اختیاری موجودی سطح کالا برای کارت پیکر (صفرِ سربرگ یا کالای فاکتور کسرشده)؛ حداکثر ۴۰ قلم، TTL ۶۰ث */
 window._invOtherWhTried = window._invOtherWhTried || {};
 function hydrateInvOtherWhStock(shown, whId){
   if(!(CACHE.warehouses||[]).length) return;
   const items=[];
+  const now=Date.now();
   (shown||[]).forEach(function(p){
     if(items.length>=40) return;
     const onHand=p.wh_qty!=null?Number(p.wh_qty):0;
-    if(onHand>0) return;
+    const held=invoiceHeldQty('product', p.id, whId);
+    if(onHand>0 && !(held>0)) return;
     const key=invLineStockKey(p.id,null);
-    if(window._invLineStock && window._invLineStock[key]) return;
+    if(invLineStockFresh(key)) return;
     const tk=key+'@'+whId;
-    if(window._invOtherWhTried[tk]) return;
-    window._invOtherWhTried[tk]=1;
+    const t=window._invOtherWhTried[tk];
+    if(t && (now-t)<INV_LINE_STOCK_TTL_MS) return;
+    window._invOtherWhTried[tk]=now;
     items.push({product_id:Number(p.id), variant_id:null});
   });
   if(!items.length) return;
-  api('POST','/inventory/stock-by-warehouse/batch',{items:items}).then(function(data){
-    if(!window._invLineStock) window._invLineStock={};
-    let any=false;
-    ((data&&data.results)||[]).forEach(function(res){
-      const map={};
-      (res.warehouses||[]).forEach(function(w){ map[w.warehouse_id]=Number(w.qty)||0; map[String(w.warehouse_id)]=Number(w.qty)||0; });
-      window._invLineStock[invLineStockKey(res.product_id,res.variant_id)]=map;
-      any=true;
-    });
-    if(any && el('invPicker') && +(el('inv-warehouse')?.value||0)===Number(whId)) renderInvPicker();
+  const gen=window._invLineStockGen||0;
+  invFetchLineAvailability(items).then(function(results){
+    if(gen!==(window._invLineStockGen||0)) return;
+    invLineStockStore(results, items);
+    if((results||[]).length && el('invPicker') && +(el('inv-warehouse')?.value||0)===Number(whId)) renderInvPicker();
   }).catch(function(){ /* بج اختیاری است */ });
 }
 function renderInvPicker(){
@@ -5756,12 +5946,20 @@ function renderInvPicker(){
       const eff=typeof invEffectiveLineWh==='function'?invEffectiveLineWh(r, whId): (r.warehouse_id||whId);
       return !whId || Number(eff)===Number(whId);
     }).reduce((a,r)=>a+r.qty,0);
-    // When a warehouse is selected, never fall back to company-wide products.stock.
+    // v583: When a warehouse is selected, onHand = server availability (product-level, own-invoice add-back
+    // already included). Fallback (cache not loaded yet): wh_qty + this invoice's baseline. Cart rows are
+    // subtracted ONCE (available − cart qty ≡ on_hand − only the new/increased part) — no double subtract.
+    const cardInfo=whId
+      ?invCardAvail(p.id, whId, window._invLineStock||{}, p.wh_qty!=null?Number(p.wh_qty):0, invoiceHeldQty('product', p.id, whId), reserved)
+      :null;
     const onHand=whId
-      ?(p.wh_qty!=null?Number(p.wh_qty):0)
+      ?cardInfo.base
       :(p.wh_qty!=null?Number(p.wh_qty):(Number(p.stock)||0));
-    const avail=onHand-reserved;
-    // v567: سربرگ صفر ولی انبار دیگر دارد → بج «در انبار دیگر: n» (جمع انبارهای فعال دیگر از cache)
+    const avail=whId?cardInfo.available:(onHand-reserved);
+    const cardDrift=whId && cardInfo.drift
+      ? invDriftBadgeHtml(cardInfo.note)
+      : '';
+    // v567: سربرگ صفر ولی انبار دیگر دارد → بج «در انبار دیگر: n» (فقط کلید سطح کالا از cache)
     const otherWhQty=(whId && onHand<=0)?invOtherWhQtyForProduct(p.id, whId):0;
     const otherWhBadge=otherWhQty>0
       ? `<div class="inv-xwh-badge" title="موجودی این کالا در انبارهای دیگر">در انبار دیگر: ${fmtQtyFa(otherWhQty)}</div>`
@@ -5778,6 +5976,7 @@ function renderInvPicker(){
       <div class="pp">${fmt(p.price)} ریال</div>
       <div class="pst" data-csp-style="${CSP.style(`font-size:11px;font-weight:700;color:${avail<=0?'var(--red)':avail<=(p.stock_alert||5)?'var(--orange)':'var(--green)'}`)}">موجودی${whId?' این انبار':''}: ${fmtQtyFa(avail)}</div>
       ${otherWhBadge}
+      ${cardDrift}
       ${(()=>{ const s=(CACHE._invVarSum&&(CACHE._invVarSum[p.id]||CACHE._invVarSum[String(p.id)]))||null; if(!s||!s.has_matrix) return ''; const n=Number(s.full_packs_count)||0; const m=Number(s.leftover_singles_qty)||0; return '<div class="pick-pack-meta muted" data-csp-style="'+CSP.style('font-size:10px;margin-top:2px')+'">پک کامل: '+fmt(n)+' / تکی موجود: '+fmt(m)+'</div>'; })()}
       ${colorBtn}
     </div>`;
@@ -6585,16 +6784,10 @@ function invXwhRowKeys(indices){
   });
   return keys;
 }
+/** v583: به‌جای جمع SKUها، تفکیک هر SKU (available سرور با add-back). null = هنوز بارگذاری نشده. */
 function invXwhQtyAt(indices, whId){
-  const keys=invXwhRowKeys(indices);
-  const cache=window._invLineStock||{};
-  let sum=0, known=false;
-  keys.forEach(function(k){
-    const m=cache[k]; if(!m) return;
-    const v=m[whId]!=null?m[whId]:m[String(whId)];
-    if(v!=null){ known=true; sum+=Number(v)||0; }
-  });
-  return known?sum:null;
+  const info=invGroupStockInfo(indices, whId);
+  return (info && info.skus.some(function(s){ return s.known; })) ? info : null;
 }
 function invXwhRefresh(){
   const seq=++window._invLineStockSeq;
@@ -6630,14 +6823,33 @@ function invXwhPopHtml(indices, curWh, needQty){
   const ixCopy=indices.slice();
   const canPick=canSalesCrossWarehouse();
   const items=whs.map(function(w){
-    const q=invXwhQtyAt(ixCopy, w.id);
+    const info=invXwhQtyAt(ixCopy, w.id);
     const isCur=Number(curWh)===Number(w.id);
     const isHdr=Number(headerWh)===Number(w.id);
-    const low=q!=null && q<needQty;
+    const isPackList=!!(info && info.skus.length>1);
+    const low=!!(info && info.shortN>0);
     const bind=CSP.bind('click',function(event){ event.stopPropagation(); invXwhPick(ixCopy, w.id); });
+    let qtyHtml;
+    if(!info){
+      qtyHtml='<span class="inv-xwh-pop-qty">…</span>';
+    }else if(isPackList){
+      // پک: هر SKU جدا (رنگ/سایز: موجودی) — هرگز جمع
+      qtyHtml='<span class="inv-xwh-pop-skus">'+info.skus.map(function(s){
+        const tip='موجود '+fmtQtyFa(s.on_hand!=null?s.on_hand:0)+(s.reserved>0?(' · رزرو '+fmtQtyFa(s.reserved)):'')+(s.own>0?(' · سهم همین فاکتور '+fmtQtyFa(s.own)):'');
+        return '<span class="inv-xwh-pop-sku'+(s.short?' inv-xwh-pop-qty--low':'')+'" title="'+esc(tip)+'">'
+          +esc(s.label||'SKU')+': <b>'+(s.known?fmtQtyFa(s.available):'…')+'</b></span>';
+      }).join('')+'</span>';
+    }else{
+      const s=info.skus[0];
+      const sub=(s.known && s.reserved>0)?('<small class="inv-xwh-pop-sub">موجود '+fmtQtyFa(s.on_hand)+' · رزرو '+fmtQtyFa(s.reserved)+'</small>'):'';
+      qtyHtml='<span class="inv-xwh-pop-qty'+(low?' inv-xwh-pop-qty--low':'')+'">'+(s.known?fmtQtyFa(s.available):'…')+sub+'</span>';
+    }
+    const driftHtml=(info && info.drift)
+      ? invDriftBadgeHtml(info.skus.filter(function(s){ return s.drift && s.note; }).map(function(s){ return s.note; })[0]||'')
+      : '';
     return '<button type="button" class="inv-xwh-pop-item'+(isCur?' is-cur':'')+(canPick?'':' is-locked')+'" data-csp-click="'+bind+'">'
-      +'<span class="inv-xwh-pop-name">'+esc(w.name)+(isHdr?' <small>(سربرگ)</small>':'')+'</span>'
-      +'<span class="inv-xwh-pop-qty'+(low?' inv-xwh-pop-qty--low':'')+'">'+(q==null?'…':fmtQtyFa(q))+'</span>'
+      +'<span class="inv-xwh-pop-name">'+esc(w.name)+(isHdr?' <small>(سربرگ)</small>':'')+driftHtml+'</span>'
+      +qtyHtml
       +'</button>';
   }).join('');
   return '<div class="inv-xwh-pop" role="dialog" aria-label="موجودی در انبارها">'
@@ -6734,9 +6946,19 @@ function renderCart(){
         negProdWh.has(String(r.product_id)+'@'+String(lineWhEff))
         || (r.variant_id!=null && negLineKeys.has('sku:'+String(r.product_id)+':'+String(lineWhEff)+':'+String(r.variant_id)))
       );
-      const lineAvailN=(!isIncome && !r.batch_id && !r.is_fabric_roll && typeof invLineAvailRow==='function')?Number(invLineAvailRow(r))||0:null;
-      const lineWhStockHtml=(!isIncome && lineAvailN!=null)
-        ? ('<div class="inv-line-wh-stock'+(lineAvailN<qtySum?' inv-line-wh-stock--low':'')+'">موجودی این انبار: '+fmtQtyFa(lineAvailN)+'</div>')
+      // v583: هر SKU گروه با qty همان SKU مقایسه می‌شود (نه فقط indices[0]) — تک‌SKU عدد، پک «کافی»/«کمبود در n SKU».
+      const lineStockInfo=(!isIncome && !r.batch_id && !r.is_fabric_roll && typeof invGroupStockInfo==='function')?invGroupStockInfo(indices, lineWhEff):null;
+      const lineStockSt=lineStockInfo?invGroupStockStatus(lineStockInfo):null;
+      const lineStockTxt=!lineStockSt?'':(lineStockSt.mode==='num'
+        ? fmtQtyFa(lineStockSt.value)
+        : (lineStockSt.mode==='ok'?'کافی':(lineStockSt.mode==='short'?('کمبود در '+fmtQtyFa(lineStockSt.n)+' SKU'):'…')));
+      const lineStockTip=(lineStockInfo && lineStockInfo.skus.length>1)
+        ? lineStockInfo.skus.map(function(s){ return (s.label||'SKU')+': '+(s.known?fmtQtyFa(s.available):'…')+' / نیاز '+fmtQtyFa(s.need); }).join(' | ')
+        : '';
+      const lineWhStockHtml=(!isIncome && lineStockSt)
+        ? ('<div class="inv-line-wh-stock'+(lineStockSt.low?' inv-line-wh-stock--low':'')+'"'+(lineStockTip?(' title="'+esc(lineStockTip)+'"'):'')+'>موجودی این انبار: '+lineStockTxt
+          +((lineStockInfo&&lineStockInfo.drift)?(' '+invDriftBadgeHtml((lineStockInfo.skus.filter(function(s){return s.drift&&s.note;})[0]||{}).note)):'')
+          +'</div>')
         : '';
       const qtyCell=(isPack
         ? '<span class="mono">'+fmtQty(qtySum)+'</span>'
@@ -6798,13 +7020,8 @@ function renderCart(){
   try{ bindNumFit(el('cartRows')); }catch(_){}
   // Phase 0: hydrate per-line WH stock once when cache misses (then re-render).
   if(!window._invLineStockPaint && invCart && invCart.length && typeof ensureInvLineStockForCart==='function'){
-    let miss=false;
-    for(let i=0;i<invCart.length;i++){
-      const r=invCart[i];
-      if(!r || r.row_type==='income' || r.batch_id || r.is_fabric_roll) continue;
-      const key=invLineStockKey(r.product_id, r.variant_id);
-      if(!(window._invLineStock && window._invLineStock[key])){ miss=true; break; }
-    }
+    // v583: کش منقضی (TTL ۶۰ث) هم «miss» است؛ بعد از خطای شبکه ۱۵ث صبر می‌کنیم تا حلقهٔ رندر نشود.
+    const miss=(Date.now()-(window._invLineStockErrAt||0))>15000 && invLineStockItemsFor(invCart).length>0;
     if(miss){
       window._invLineStockPaint=true;
       const seq=++window._invLineStockSeq;
@@ -7688,6 +7905,8 @@ async function saveInvoice(id){
   try{
     const saved=id?await api('PUT','/invoices/'+id,data):await api('POST','/invoices',data);
     if(!id) window._invIdemKey=null;
+    invLineStockClear(); // v583: کسر/برگشت موجودی انجام شد — کش قدیمی نباید بماند
+    window._invStockBaseline=null;
     CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; closeModal();
     if(el('invTable')) renderInvTable();
     else if(IN_ACC_SHELL && (accTab==='sales-invoices'||accTab==='proforma-invoices')) loadAccTab(accTab);
@@ -7714,6 +7933,7 @@ async function convertProforma(id, targetType){
   if(!confirm('پیش‌فاکتور به '+label+' تبدیل شود؟')) return;
   try{
     await api('POST','/invoices/'+id+'/convert',{ target_type: target });
+    invLineStockClear(); // v583: تبدیل پیش‌فاکتور→فاکتور موجودی را کسر می‌کند
     try{ closeModal(); }catch(_){}
     CACHE.invoices = await api('GET','/invoices'); _invoicesFetched=true;
     if(el('invTable')) renderInvTable();
@@ -18449,7 +18669,7 @@ async function whPickProduct(i,id,label,available,docType){
   catch(_){ pack=null; }
   if(pack && pack.has_matrix && pack.matrix && pack.matrix.length){
     const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
-    openWhSkuMatrixModal({
+    await openWhSkuMatrixModal({
       lineIndex:i, productId:id, productLabel:label, warehouseId:wh, docType:dtype, pack,
     });
     return;
@@ -18466,7 +18686,7 @@ async function whPickProduct(i,id,label,available,docType){
   const dd=el('wh-dd-'+i); if(dd) dd.hidden=true;
   const atp=el('wh-atp-'+i); if(atp) atp.textContent=available!=null?('موجود این انبار: '+fmt(available)):'';
 }
-function openWhSkuMatrixModal(opts){
+async function openWhSkuMatrixModal(opts){
   const pack=opts.pack||{};
   const cells=pack.matrix||[];
   const dtype=opts.docType||'receipt';
@@ -18479,6 +18699,21 @@ function openWhSkuMatrixModal(opts){
   const colors=[];
   const sizes=[];
   const byKey={};
+  // v583: عدد بالای خانه از همان API یکپارچه — رسید: on_hand؛ حواله/انتقال: available. هرگز product_variants.stock.
+  const availByVid={};
+  try{
+    const outB=dtype==='issue'||dtype==='transfer';
+    const reqItems=cells.map(function(v){
+      return {product_id:Number(opts.productId), variant_id:Number(v.variant_id!=null?v.variant_id:v.id)||null};
+    }).filter(function(it){ return it.variant_id; });
+    if(reqItems.length){
+      const results=await invFetchLineAvailability(reqItems, 0);
+      results.forEach(function(res){
+        const w=(res.warehouses||[]).find(function(x){ return Number(x.warehouse_id)===whId; });
+        if(w) availByVid[Number(res.variant_id)]={qty:outB?(Number(w.available)||0):(Number(w.on_hand)||0), drift:!!w.drift, note:String(w.layer_note||'')};
+      });
+    }
+  }catch(_){ /* API در دسترس نبود → همان عدد pack */ }
   cells.forEach(function(v){
     const cid=v.color_id!=null?String(v.color_id):('c:'+(v.color_name||''));
     const sid=v.size_id!=null?String(v.size_id):('s:'+(v.size_name||''));
@@ -18491,14 +18726,15 @@ function openWhSkuMatrixModal(opts){
     const tds=sizes.map(function(s){
       const v=byKey[c.key+'|'+s.key];
       if(!v) return '<td class="muted">—</td>';
-      const stock=Number(v.sku_stock!=null?v.sku_stock:v.stock)||0;
       const vid=Number(v.variant_id!=null?v.variant_id:v.id)||0;
+      const av=availByVid[vid]||null;
+      const stock=av?av.qty:(Number(v.sku_stock!=null?v.sku_stock:v.stock)||0);
       const outBound=dtype==='issue'||dtype==='transfer';
       const disabled=outBound && stock<=0 && !canNeg;
       const warn=outBound && stock<=0 && canNeg;
       const tip=disabled?'ناموجود':(warn?'موجودی منفی می‌شود':'');
       return `<td class="wh-sku-cell${disabled?' is-disabled':''}${warn?' is-neg-warn':''}">
-        <div class="wh-sku-stock mono">${fmtQtyFa(stock)}</div>
+        <div class="wh-sku-stock mono"${av&&av.drift?` title="${esc(av.note||'ناهمخوان با کاردکس')}"`:''}>${fmtQtyFa(stock)}${av&&av.drift?' <span class="inv-drift-mark">⚠</span>':''}</div>
         ${disabled
           ?'<div class="muted wh-sku-na">ناموجود</div>'
           :`<input type="text" inputmode="decimal" autocomplete="off" class="wh-sku-qty" data-vid="${vid}" data-stock="${stock}"
@@ -39421,6 +39657,15 @@ function renderAdminGuide(){
         <li><b>خروجی CSV:</b> «خروجی CSV» ردیف‌های فیلترشدهٔ فعلی و «CSV استثناها» فهرست استثناها را می‌دهد.</li>
         <li><b>اصلاح:</b> دکمهٔ <b>⚖️ ثبت سند تعدیل</b> همان فرم «تعدیل موجودی» (با کالا و انبار پیش‌انتخاب) را باز می‌کند؛ ثبت با تأیید انسانی و سازوکار ابطال/دلیل تعدیل (v525) انجام می‌شود. پس از ثبت، گزارش دوباره خوانده می‌شود.</li>
         <li><b>بنر هشدار:</b> اگر پس از یک سند انبار سرور اختلاف لایه‌ها را هشدار دهد (فقط در audit ثبت می‌شود، اصلاحی انجام نمی‌شود)، در بالای «رسید، حواله و انتقال» بنر زرد با لینک به همین صفحه دیده می‌شود.</li>
+      </ul>`),
+    helpSec('📦','موجودی ردیف فاکتور — نمایش یکپارچه (v583)',`
+      <p>همهٔ اعداد موجودی در سازندهٔ فاکتور/پیش‌فاکتور (پاپ‌اور 📦، برچسب «موجودی این انبار»، کارت پیکر، هشدار منفی و عدد بالای خانهٔ ماتریس رنگ×سایز انبار) از <b>یک API واحد</b> می‌آیند: <span dir="ltr">POST /api/inventory/line-availability/batch</span>. عدد قابل‌فروش = موجودی هر SKU×انبار − رزرو + سهم همین فاکتور (هنگام ویرایش فاکتور کسرشده، تعدادی که خودِ فاکتور برداشته به موجودی برمی‌گردد، فقط یک‌بار).</p>
+      <ul>
+        <li><b>پاپ‌اور 📦:</b> برای ردیف «پک» هر SKU جدا (رنگ / سایز: موجودی) نشان داده می‌شود، نه جمع SKUها؛ اگر رزرو باشد «موجود X · رزرو Y» هم دیده می‌شود.</li>
+        <li><b>برچسب ردیف:</b> تک‌SKU عدد را نشان می‌دهد؛ پک «کافی» یا «کمبود در n SKU» (هر SKU با تعداد همان SKU مقایسه می‌شود).</li>
+        <li><b>کارت پیکر:</b> موجودی سطح کالا؛ رزرو سبد فقط یک‌بار کسر می‌شود (افزایش نسبت به تعداد قبلی فاکتور). «در انبار دیگر» فقط از موجودی سطح کالا می‌آید.</li>
+        <li><b>⚠ ناهمخوان با کاردکس:</b> وقتی موجودی عملیاتی انبار با کاردکس یا حرکت‌های رنگ/سایز نمی‌خواند، کنار عدد نشان داده می‌شود (عدد عوض نمی‌شود؛ فقط قطعی نیست). اصلاح داده با «اصلاح دادهٔ انبار» انجام می‌شود، نه با این صفحه.</li>
+        <li><b>تازگی:</b> کش اعداد ۶۰ ثانیه اعتبار دارد و با باز کردن فاکتور، ذخیره و تبدیل پیش‌فاکتور خالی می‌شود.</li>
       </ul>`),
     helpSec('📦','فروش از انبار دیگر — دسترسی و popover (v567)',`
       <p>در ماتریس دسترسی کاربران منبع جدید <b>«فروش از انبار دیگر»</b> (<span dir="ltr">sales_cross_warehouse</span>، عمل «ایجاد») اضافه شده است. مدیر همیشه مجاز است؛ حسابدار و مدیر فروش فقط با تیک این دسترسی می‌توانند انبار یک ردیف را متفاوت از انبار سربرگ انتخاب کنند. نمایندگان فروش مثل قبل روی انبار خودشان قفل می‌مانند.</p>

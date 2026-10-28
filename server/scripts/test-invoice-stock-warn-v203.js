@@ -37,6 +37,17 @@ ok(appJs.includes('ذخیره مسدود نیست'), 'متن هشدار بدون
 ok(/function invoiceNegativeStockWarn[\s\S]*return true;/.test(appJs)
   && !appJs.includes("confirm('با ثبت این فاکتور موجودی این کالاها منفی می‌شود"),
   'ذخیره دیگر confirm مسدودکننده ندارد');
+// v583 (invoice-stock-display Phase 2): one availability source, no double add-back in warnings
+ok(appJs.includes('/inventory/line-availability/batch') && appJs.includes('exclude_invoice_id'), 'v583: کش موجودی خط از line-availability/batch با exclude_invoice_id');
+{
+  const a = appJs.indexOf('/* XWH-SHARED:collectInvoiceStockWarnings */');
+  const b = appJs.indexOf('/* /XWH-SHARED */', a);
+  const blk = appJs.slice(a, b);
+  ok(/if \(pe\) \{\s*avail = pe\.available;\s*\} else \{[\s\S]*?heldFn\('product'/.test(blk)
+    && /if \(se\) \{\s*avail = se\.available;\s*\} else \{\s*avail = Number\(heldFn\('sku'/.test(blk),
+  'v583: هشدار فقط available سرور را می‌خواند؛ invoiceHeldQty فقط fallback پیش از بارگذاری (بدون دوبار add-back)');
+}
+ok(appJs.includes('function invLineStockClear') && appJs.includes('const INV_LINE_STOCK_TTL_MS = 60000'), 'v583: کش TTL ۶۰ث + پاک‌سازی');
 ok(appJs.includes('id="ifr-live"') && appJs.includes('syncInvoiceFabricRollLive'), 'پنل مانده زنده طاقه');
 ok(appJs.includes('refreshInvoiceFabricRollSelect') && appJs.includes('بروزرسانی مانده زنده'), 'تازه‌سازی مانده طاقه');
 ok(appJs.includes('invoiceFabricSaleRolls()') && !/filter\(b=>b\.qty_available>0\)/.test(appJs.slice(appJs.indexOf('function invoiceFabricSaleRolls'), appJs.indexOf('function syncInvoiceFabricRollLive'))),

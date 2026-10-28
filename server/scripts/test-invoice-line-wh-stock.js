@@ -245,9 +245,12 @@ async function main() {
     ok(XWH.invEffectiveLineWh({ warehouse_id: 0 }, whA) === whA, 'effective wh: row 0 → header');
     ok(XWH.invEffectiveLineWh({}, null) === null, 'effective wh: nothing → null');
 
+    // v583 (Phase 2) cache shape: { key: { wh: { on_hand, reserved, own, available, drift, note } } }
+    // `available` already includes the edited invoice's own qty (server add-back).
+    const E = (n, extra) => Object.assign({ on_hand: n, reserved: 0, own: 0, available: n, drift: false, note: '' }, extra || {});
     const stockCache = {};
-    stockCache[XWH.invLineStockKey(prodId, 0)] = { [whA]: 11, [whB]: 14 };
-    stockCache[XWH.invLineStockKey(prodId, varId)] = { [whA]: 11, [whB]: 14 };
+    stockCache[XWH.invLineStockKey(prodId, 0)] = { [whA]: E(11), [whB]: E(14) };
+    stockCache[XWH.invLineStockKey(prodId, varId)] = { [whA]: E(11), [whB]: E(14) };
     const whName = (id) => {
       if (Number(id) === whA) return 'انبار محصول';
       if (Number(id) === whB) return 'انبار کیمیا';
@@ -305,13 +308,31 @@ async function main() {
     ], opts(noExtra));
     ok(splitOk.length === 0, 'exact-fit split across warehouses → no warning', splitOk);
 
-    const heldOk = XWH.collectInvoiceStockWarnings([
+    // v583: add-back lives in the server `available` — heldFn must NOT be added on top of a cached entry
+    // (that was the double-count). It is only a fallback while the product has no cache entry yet.
+    const heldIgnoredWithCache = XWH.collectInvoiceStockWarnings([
       { product_id: prodId, warehouse_id: whA, qty: 12, name: 'بارونی' },
     ], opts({ heldFn: heldOf({ ['product:' + prodId + '@' + whA]: 2 }) }));
-    ok(heldOk.length === 0, 'held qty 2 in whA offsets need (11+2 ≥ 12)', heldOk);
+    ok(heldIgnoredWithCache.length === 1 && heldIgnoredWithCache[0].avail === 11,
+      'v583: held qty NOT added when cache entry exists (avail stays 11 → still warns)', heldIgnoredWithCache);
+    const ownAddBack = { [XWH.invLineStockKey(prodId, 0)]: { [whA]: E(9, { own: 2, available: 11 }) } };
+    const ownOk = XWH.collectInvoiceStockWarnings([
+      { product_id: prodId, warehouse_id: whA, qty: 11, name: 'بارونی' },
+    ], { headerWh: whA, stockCache: ownAddBack, warehouseName: whName, heldFn: heldOf({ ['product:' + prodId + '@' + whA]: 2 }) });
+    ok(ownOk.length === 0, 'v583: server available (on_hand 9 + own 2 = 11) covers qty 11; held not double-added', ownOk);
+    const heldFallback = XWH.collectInvoiceStockWarnings([
+      { product_id: 777, warehouse_id: whA, qty: 12, name: 'بدون کش' },
+    ], opts({
+      heldFn: heldOf({ ['product:777@' + whA]: 2 }),
+      findProduct: (id) => (id === 777 ? { id: 777, wh_qty: 10 } : null),
+    }));
+    ok(heldFallback.length === 0, 'v583: heldFn is still the fallback when the product has no cache entry (10+2 ≥ 12)', heldFallback);
     const heldOtherWh = XWH.collectInvoiceStockWarnings([
-      { product_id: prodId, warehouse_id: whA, qty: 12, name: 'بارونی' },
-    ], opts({ heldFn: heldOf({ ['product:' + prodId + '@' + whB]: 5 }) }));
+      { product_id: 777, warehouse_id: whA, qty: 12, name: 'بدون کش' },
+    ], opts({
+      heldFn: heldOf({ ['product:777@' + whB]: 5 }),
+      findProduct: (id) => (id === 777 ? { id: 777, wh_qty: 10 } : null),
+    }));
     ok(heldOtherWh.length === 1, 'held qty in a different warehouse does not offset', heldOtherWh);
 
     const varWarn = XWH.collectInvoiceStockWarnings([
@@ -325,7 +346,8 @@ async function main() {
     ], opts({
       heldFn: heldOf({ ['sku:' + varId + '@' + whA]: 2, ['product:' + prodId + '@' + whA]: 2 }),
     }));
-    ok(varHeld.length === 0, 'held sku/product qty offsets variant warning', varHeld);
+    ok(varHeld.length === 2 && varHeld.every((i) => i.avail === 11),
+      'v583: held sku/product qty is NOT added on top of cached available (no double add-back)', varHeld);
     const varOk = XWH.collectInvoiceStockWarnings([
       { product_id: prodId, variant_id: varId, warehouse_id: whB, qty: 12, name: 'بارونی' },
     ], opts(noExtra));
@@ -347,7 +369,11 @@ async function main() {
     console.log('\n— XWH-SHARED parity —');
     const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
     const libSrc = fs.readFileSync(path.join(__dirname, '../lib/invoice-line-wh-stock.js'), 'utf8');
-    const sharedNames = ['invLineStockKey', 'invEffectiveLineWh', 'invLineAvail', 'collectInvoiceStockWarnings'];
+    const sharedNames = [
+      'invLineStockKey', 'invEffectiveLineWh', 'invLineStockEntry', 'invLineAvail',
+      'invGroupStockAt', 'invGroupStockStatus', 'invCardAvail', 'invOtherWhQty',
+      'collectInvoiceStockWarnings',
+    ];
     const missing = sharedNames.filter((n) => extractShared(appSrc, n) == null);
     if (missing.length === sharedNames.length) {
       console.log('  SKIP app.js has no XWH-SHARED blocks yet (parent wires UI) — parity check not run');
