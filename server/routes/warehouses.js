@@ -209,6 +209,27 @@ router.get('/coa-leaf-report', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+// v586 Phase 4 (optional) — read-only inventory GL ↔ kardex gap; never writes / no JE suggestions.
+router.get('/inventory-gl-gap-report', auth, adminOrAccounting, (req, res) => {
+  try {
+    const acct = String(req.query.acct || '1104').trim();
+    const warehouses = String(req.query.warehouses || '').trim();
+    const cutoff = String(req.query.cutoff || '').trim();
+    if (!warehouses || !cutoff) {
+      return res.status(400).json({
+        error: 'پارامترهای warehouses و cutoff الزامی‌اند (مثال: warehouses=34,35&cutoff=1405/08/30)',
+        code: 'E_GAP_PARAMS',
+      });
+    }
+    const rep = require('../lib/inventory-gl-gap-report').buildInventoryGlGapReport(getDB(), {
+      acct, warehouses, cutoff,
+    });
+    res.json(rep);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || String(e), code: e.code });
+  }
+});
+
 router.post('/', auth, adminOrAccounting, (req, res) => {
   const { name, address, code, entity, warehouse_type, cost_center_id, is_default, allow_negative, costing_method, inventory_system, inventory_coa_code } = req.body;
   const cogs_coa_code = req.body.cogs_coa_code;

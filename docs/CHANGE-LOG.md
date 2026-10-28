@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۷ — v589: گزارش فقط‌خواندنی تطبیق حساب موجودی با کاردکس / gap 1104 (SW v589)
+- **شاخه:** `feat/inventory-gl-gap-report`؛ منبع: `.tmp-coa-keys-fix/phase-4-optional-gl-1104-gap-report.md` + پیوست `gl-1104-gap-analysis` در audit. **بدون merge/deploy در این نوبت** (فاز اختیاری فقط‌خواندنی؛ تأیید حامد برای اجرا روی production).
+- **رفتار:** `lib/inventory-gl-gap-report.js` کاردکس علامت‌دار (`sv = qty_out>0 ? -amount : amount`)، جمع دفتر روی حساب، تطبیق per-je، و علل a–g را برمی‌گرداند: نشت انتقال، warehouse_id خالی، کاردکس بدون je_id، تهاتر offset، دفتر بدون منبع کاردکس، fallback انبار دیگر، باقی‌مانده. **هیچ پیشنهاد سند / INSERT/UPDATE/DELETE.**
+- **CLI:** `node server/scripts/report-inventory-gl-gap.js --db=… --acct 1104 --warehouses 34,35 --cutoff 1405/08/30` — DB با `readonly:true`؛ خروجی `~/backups/reports/inventory-gl-gap-….{json,md}`؛ `total_changes` قبل/بعد باید برابر باشد.
+- **API:** `GET /api/warehouses/inventory-gl-gap-report?acct=&warehouses=&cutoff=` (admin/accounting).
+- **تست:** `test:inventory-gl-gap` — fixture انتقال ورودصفر + NULL wh + تعدیل بی‌سند ⇒ residual=0 و مبالغ a/b/c درست؛ assert بدون نوشتن.
+- **Help:** بند ادمین «تطبیق حساب موجودی با کاردکس — گزارش فقط‌خواندنی (v586)».
+- **فایل‌ها:** `lib/inventory-gl-gap-report.js`، `scripts/{report-inventory-gl-gap,test-inventory-gl-gap-report}.js`، `routes/warehouses.js`، `public/{app.js,sw.js}`، `package.json`، CHANGE-LOG.
+- **Deploy:** ⏳ (عمداً نشده — فقط commit روی شاخه)
+
 ### ۱۴۰۵/۰۸/۰۷ — v588: فاز ۳ گزارش نگاشت برگ (دسته‌ها + کنترلی) و اعتبارسنجی انبار دارایی ثابت (SW v588)
 - **شاخه:** `feat/coa-leaf-report-wh36`؛ منبع: `.tmp-coa-keys-fix/phase-3-leaf-report-and-wh36.md`. **بدون merge/deploy در این تسک** (orchestrator).
 - **گزارش (`lib/coa-leaf-report.js`):** کلیدهای LEGACY به `control` / `not_leaf` / `not_found` (+ `default_unused`) تفکیک می‌شوند. کنترلی = مقادیر `KIND_KEY` + `coa_issue_return_to_supplier` (و `coa_inventory` فقط در حالت `legacy_leaf`). `summary.settings_nonleaf` = فقط not_leaf؛ فیلدهای جدید: `settings_keys_total`, `settings_not_found`, `settings_control`, `settings_default_unused`. `needs_attention` = not_leaf + not_found (+ انبار/مانده غیرکنترلی/سطر روی کنترل). بخش `control_accounts` (کد، تفصیلی فعال، سطر روی خود کنترل). `nonleaf_balances_split.control|non_control`. انبار `active=0` از `warehouses_perpetual_unmapped` خارج و در `warehouses_inactive_unmapped`.
