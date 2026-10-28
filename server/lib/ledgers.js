@@ -10,7 +10,7 @@ const { DELETED_FILTER } = require('./ledger');
 const { jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { stripCostFields } = require('./production/access');
 const { personLedgerLineRial } = require('./person-ledger-money');
-const { sortReportRows } = require('./report-order');
+const { sortReportRows, reportDateKey } = require('./report-order');
 
 const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
 
@@ -23,6 +23,8 @@ const SAFE_REF_TYPES = new Set([
   'warehouse_move', 'transfer', 'expense', 'opening',
   'opening_balance', 'person',
   'warehouse_doc', 'warehouse_transfer',
+  // Phase 3 (v576) kardex source links
+  'production', 'adjust', 'sales_return', 'purchase_return',
 ]);
 
 /** Source types that may collapse multi-SKU lines into one parent row. */
@@ -518,12 +520,14 @@ function stockLineGroupKey(line) {
   const dir = (Number(line.qty_in) || 0) > 0 ? 'in'
     : ((Number(line.qty_out) || 0) > 0 ? 'out' : 'zero');
   const wh = line.warehouse_id != null ? String(line.warehouse_id) : '';
+  // cancelled rows never merge with live ones (they carry no balance effect)
+  const rv = line.is_reversed ? ':rv' : '';
   if (line.wh_doc_id) {
-    return `wd:${line.wh_doc_id}:${wh}:${dir}`;
+    return `wd:${line.wh_doc_id}:${wh}:${dir}${rv}`;
   }
   const st = String(line.source_type || '');
   if (STOCK_AGGREGATE_SOURCES.has(st) && line.source_id != null && line.source_id !== '') {
-    return `src:${st}:${line.source_id}:${wh}:${dir}`;
+    return `src:${st}:${line.source_id}:${wh}:${dir}${rv}`;
   }
   return `id:${line.id}`;
 }
@@ -617,7 +621,9 @@ function aggregateStockLedgerLines(db, lines, productId) {
     let qtyIn = 0;
     let qtyOut = 0;
     let amount = 0;
+    let valueDelta = 0;
     const details = group.map((g) => {
+      valueDelta += Number(g.value_delta_rial) || 0;
       qtyIn += Number(g.qty_in) || 0;
       qtyOut += Number(g.qty_out) || 0;
       amount += Number(g.amount_rial) || 0;
@@ -644,6 +650,8 @@ function aggregateStockLedgerLines(db, lines, productId) {
         ? Math.round(amount / (qtyIn || qtyOut))
         : first.unit_cost_rial,
       running_qty: last.running_qty,
+      running_value_rial: last.running_value_rial,
+      value_delta_rial: valueDelta,
       warehouse_running_qty: last.warehouse_running_qty,
       tx_no: docNum || first.tx_no,
       doc_num: docNum,
@@ -660,8 +668,63 @@ function aggregateStockLedgerLines(db, lines, productId) {
   return out;
 }
 
+/** Truthy query flag: 1 / true / yes / on. */
+function kardexFlag(v) {
+  if (v === true || v === 1) return true;
+  const s = String(v == null ? '' : v).trim().toLowerCase();
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+/**
+ * Cancelled (void) row — STRUCTURAL only: status / reversed_of / event_type.
+ * No note/description regex (a note is free text and never decides a balance).
+ */
+function isReversedStockRow(r) {
+  if (!r) return false;
+  if (String(r.status || '') === 'reversed') return true;
+  if (r.reversed_of != null && r.reversed_of !== '' && Number(r.reversed_of) !== 0) return true;
+  const et = String(r.event_type || '');
+  return et === 'reversal' || et.endsWith('_reversal');
+}
+
+/** Value effect of a ledger row — same sign rule as Phase 1 layer-reconcile Σledger value. */
+function stockValueDelta(r) {
+  const qIn = Number(r.qty_in) || 0;
+  const qOut = Number(r.qty_out) || 0;
+  const amt = Math.round(Number(r.amount_rial) || 0);
+  if (qIn > 0) return amt;
+  if (qOut > 0) return -amt;
+  return amt;
+}
+
+/**
+ * Source document link for a kardex row. Canonical ref_type values the UI can route:
+ * warehouse_doc, invoice, purchase, production, stocktaking, adjust, sales_return, purchase_return,
+ * warehouse_move / warehouse_transfer (when no WH doc). Raw source_type stays on the row.
+ */
+function kardexSourceLink(r, whDocId) {
+  const raw = String(r.source_type || '').trim();
+  const base = raw.replace(/_(reversal|void)$/, '');
+  const sid = r.source_id != null && r.source_id !== '' ? Number(r.source_id) : null;
+  const hasDoc = Number.isFinite(whDocId) && whDocId > 0;
+  let refType = null;
+  let refId = sid;
+  if (hasDoc) { refType = 'warehouse_doc'; refId = whDocId; }
+  else if (base === 'warehouse_doc') refType = 'warehouse_doc';
+  else if (base === 'invoice' || base === 'invoice_cogs') refType = 'invoice';
+  else if (base === 'purchase' || base === 'purchase_amend_reval') refType = 'purchase';
+  else if (base === 'sales_return') refType = 'sales_return';
+  else if (base === 'purchase_return') refType = 'purchase_return';
+  else if (base === 'stocktaking' || base === 'stocktake') refType = 'stocktaking';
+  else if (base === 'inventory_adjust' || base === 'stock_adjust' || base === 'inventory_recon_adjust') refType = 'adjust';
+  else if (/^production_/.test(base) || base === 'production') refType = 'production';
+  else refType = raw || String(r.event_type || '') || null;
+  return safeSourceLink({ ref_type: refType, ref_id: refId, journal_id: r.je_id });
+}
+
 function buildStockLedger(db, {
-  product_id, warehouse_id, from, to, event_type,
+  product_id, warehouse_id, variant_id, from, to, event_type,
+  page, page_size, show_wip, show_warehouse_only, show_cancelled,
 } = {}, { stripCost = false } = {}) {
   const pid = parseInt(product_id, 10);
   if (!Number.isFinite(pid) || pid <= 0) throw LedgerError(400, 'شناسه کالا الزامی است');
@@ -673,6 +736,10 @@ function buildStockLedger(db, {
   if (warehouse_id != null && String(warehouse_id) !== '' && (!Number.isFinite(whId) || whId <= 0)) {
     throw LedgerError(400, 'شناسه انبار نامعتبر است');
   }
+  const varId = variant_id != null && String(variant_id) !== '' ? parseInt(variant_id, 10) : null;
+  if (variant_id != null && String(variant_id) !== '' && (!Number.isFinite(varId) || varId <= 0)) {
+    throw LedgerError(400, 'شناسه واریانت نامعتبر است');
+  }
 
   if (!tableExists(db, 'inventory_ledger')) {
     throw LedgerError(404, 'دفتر موجودی یافت نشد');
@@ -681,6 +748,9 @@ function buildStockLedger(db, {
   const eventFilter = event_type != null && String(event_type).trim() !== ''
     ? String(event_type).trim()
     : null;
+  const showWip = kardexFlag(show_wip);
+  const showWarehouseOnly = kardexFlag(show_warehouse_only);
+  const showCancelled = kardexFlag(show_cancelled);
 
   const where = ["l.product_id=?", "l.status IN ('posted','reversed')"];
   const params = [pid];
@@ -689,6 +759,15 @@ function buildStockLedger(db, {
   const hasWhMoves = tableExists(db, 'warehouse_moves');
   const hasWhDocs = tableExists(db, 'warehouse_docs');
   const hasVariants = tableExists(db, 'product_variants');
+  // Variant filter: inventory_ledger.variant_id (Phase 2, NEW rows) — only when the column exists.
+  let variantFilterApplied = false;
+  let ledHasVariantCol = false;
+  try { ledHasVariantCol = require('./inventory/ledger').ledgerHasVariantColumn(db); } catch (_) { ledHasVariantCol = false; }
+  if (varId && ledHasVariantCol) {
+    where.push('l.variant_id=?');
+    params.push(varId);
+    variantFilterApplied = true;
+  }
   // source_id on WH docs = warehouse_moves.id (both in/out of a transfer share it).
   const moveJoin = hasWhMoves
     ? `LEFT JOIN warehouse_moves wm ON (
@@ -716,7 +795,7 @@ function buildStockLedger(db, {
     ${docJoin}
     ${variantJoin}
     WHERE ${where.join(' AND ')}
-    ORDER BY l.date ASC, l.id ASC
+    ORDER BY COALESCE(l.date,''), l.id
   `).all(...params);
   sortReportRows(rows, { date: 'date', dir: 'asc' });
 
@@ -730,10 +809,11 @@ function buildStockLedger(db, {
     }
   } catch (_) { /* optional */ }
 
+  // Legacy pre-v402 void pairs (no reversed_of linkage) — heuristic, default view only.
   const legacyVoidHideIds = collectLegacyVoidedReceiptIds(rows, db);
 
   // WIP (کار در جریان) is a production stage, not goods on hand: its rows
-  // belong to production reports. Only an explicit WIP-warehouse filter shows them.
+  // belong to production reports. Shown only via show_wip / an explicit WIP-warehouse filter.
   let wipWarehouseIds = new Set();
   try {
     wipWarehouseIds = new Set(db.prepare(
@@ -741,69 +821,84 @@ function buildStockLedger(db, {
     ).all().map((w) => Number(w.id)));
   } catch (_) { wipWarehouseIds = new Set(); }
   const wipView = whId != null && wipWarehouseIds.has(whId);
-  const isProductionStageRow = (r) => !wipView && (
-    isWarehouseOnlyRow(r) || wipWarehouseIds.has(Number(r.warehouse_id))
-  );
-  // Kardex is quantity-based: value-only revaluations (qty 0) live in costing reports.
-  const isValueOnlyRow = (r) => !(Number(r.qty_in) || 0) && !(Number(r.qty_out) || 0);
+  const wipOk = showWip || wipView;
+  const warehouseOnlyOk = showWarehouseOnly || wipView;
+  const isWipRow = (r) => !wipOk && wipWarehouseIds.has(Number(r.warehouse_id));
+  const isWarehouseOnlyHidden = (r) => !warehouseOnlyOk && isWarehouseOnlyRow(r);
+  const isCancelled = (r) => isReversedStockRow(r) || legacyVoidHideIds.has(r.id);
+  const reversedByOf = new Map();
+  for (const r of rows) if (r.reversed_of) reversedByOf.set(Number(r.reversed_of), r.id);
 
-  // One live stream: every posted movement except void pairs, production-stage
-  // rows and value-only revaluations. No hidden rows feed the balance.
-  const economic = rows.filter((r) => (
-    r.status === 'posted'
-    && !isZeroQtyValueGhost(r)
-    && !isValueOnlyRow(r)
-    && !isProductionStageRow(r)
-    && !isVoidPairStockRow(r, legacyVoidHideIds)
-    && (!eventFilter || r.event_type === eventFilter)
-  ));
+  // Stream = every row that may appear. Cancelled rows stay display-only (never in a balance).
+  const stream = [];
+  for (const r of rows) {
+    if (isZeroQtyValueGhost(r)) continue;
+    if (isWipRow(r) || isWarehouseOnlyHidden(r)) continue;
+    if (eventFilter && r.event_type !== eventFilter) continue;
+    const cancelled = isCancelled(r);
+    if (cancelled && !showCancelled) continue;
+    stream.push({ r, cancelled });
+  }
 
+  const dk = (d) => reportDateKey(d);
+  const fromK = from ? dk(from) : null;
+  const toK = to ? dk(to) : null;
   let fyStart = null;
   try {
     fyStart = require('./opening-post').fiscalOpeningDate(db);
   } catch (_) { fyStart = null; }
 
   const countsAsOpening = (r) => {
-    if (!from || !isOpeningStockRow(r)) return false;
-    const d = r.date || '';
-    if (d < from) return false; // already in opening via «before» loop
-    if (to && d > to) return false;
-    if (d <= from) return true;
-    if (fyStart && d === fyStart && from <= fyStart) return true;
+    if (!fromK || !isOpeningStockRow(r)) return false;
+    const d = dk(r.date);
+    if (d < fromK) return false; // already in opening via «before» loop
+    if (toK && d > toK) return false;
+    if (d <= fromK) return true;
+    if (fyStart && d === dk(fyStart) && fromK <= dk(fyStart)) return true;
     return true;
   };
 
   let opening_qty = 0;
-  if (from) {
-    for (const r of economic) {
-      const before = (r.date || '') < from;
+  let opening_value_rial = 0;
+  if (fromK) {
+    for (const { r, cancelled } of stream) {
+      if (cancelled) continue;
+      const before = dk(r.date) < fromK;
       if (!before && !countsAsOpening(r)) continue;
       opening_qty += (Number(r.qty_in) || 0) - (Number(r.qty_out) || 0);
+      opening_value_rial += stockValueDelta(r);
     }
   }
 
   let period_qty_in = 0;
   let period_qty_out = 0;
+  let period_value_delta_rial = 0;
+  let value_only_rial = 0;
   let running = opening_qty;
+  let runningValue = opening_value_rial;
   const lines = [];
 
-  for (const r of economic) {
-    if (from && (r.date || '') < from) continue;
-    if (to && (r.date || '') > to) continue;
+  for (const { r, cancelled } of stream) {
+    if (fromK && dk(r.date) < fromK) continue;
+    if (toK && dk(r.date) > toK) continue;
     if (countsAsOpening(r)) continue; // already in «اول دوره»
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
-    period_qty_in += qIn;
-    period_qty_out += qOut;
-    running += qIn - qOut;
-    const srcType = r.source_type || r.event_type || null;
+    const vd = stockValueDelta(r);
+    const valueOnly = !qIn && !qOut;
+    if (!cancelled) {
+      period_qty_in += qIn;
+      period_qty_out += qOut;
+      period_value_delta_rial += vd;
+      running += qIn - qOut;
+      runningValue += vd;
+      if (valueOnly) value_only_rial += vd;
+    }
+    // Kardex is quantity-based: value-only revaluations (qty 0) move the value, not the table.
+    if (valueOnly) continue;
     const whDocId = r.wh_doc_id != null ? Number(r.wh_doc_id) : null;
     const hasWhDoc = Number.isFinite(whDocId) && whDocId > 0;
-    const link = safeSourceLink({
-      ref_type: hasWhDoc ? 'warehouse_doc' : srcType,
-      ref_id: hasWhDoc ? whDocId : r.source_id,
-      journal_id: r.je_id,
-    });
+    const link = kardexSourceLink(r, hasWhDoc ? whDocId : null);
     lines.push({
       id: r.id,
       tx_no: r.tx_no || null,
@@ -815,15 +910,21 @@ function buildStockLedger(db, {
       qty_in: qIn,
       qty_out: qOut,
       running_qty: running,
+      running_value_rial: runningValue,
+      value_delta_rial: cancelled ? 0 : vd,
       unit_cost_rial: r.unit_cost_rial,
       amount_rial: r.amount_rial,
-      status: 'posted',
+      status: cancelled ? String(r.status || 'reversed') : 'posted',
+      is_reversed: cancelled,
+      reversal_of: r.reversed_of || null,
+      reversed_by: reversedByOf.get(Number(r.id)) || null,
       is_opening: isOpeningStockRow(r),
       user_name: r.user_name || '',
       source_type: r.source_type || null,
       source_id: r.source_id || null,
       wh_doc_id: hasWhDoc ? whDocId : null,
       wh_doc_num: r.wh_doc_num || null,
+      variant_id: r.variant_id != null ? r.variant_id : (r.move_variant_id != null ? r.move_variant_id : null),
       color_name: r.color_name || null,
       size_name: r.size_name || null,
       variant_sku: r.variant_sku || null,
@@ -838,6 +939,36 @@ function buildStockLedger(db, {
 
   const period_net_qty = period_qty_in - period_qty_out;
   const closing_qty = opening_qty + period_net_qty;
+  const closing_value_rial = opening_value_rial + period_value_delta_rial;
+
+  // ── pagination (only when page / page_size is sent; page_size ≤ 500) ──
+  const total_lines = lines.length;
+  const wantPage = page != null && String(page) !== '';
+  const wantSize = page_size != null && String(page_size) !== '';
+  const paginated = wantPage || wantSize;
+  let pg = 1;
+  let size = total_lines;
+  let total_pages = 1;
+  let pageLines = lines;
+  let page_opening_qty = opening_qty;
+  let page_opening_value_rial = opening_value_rial;
+  if (paginated) {
+    size = Math.min(500, Math.max(1, parseInt(page_size, 10) || 200));
+    total_pages = Math.max(1, Math.ceil(total_lines / size));
+    pg = Math.max(1, parseInt(page, 10) || 1);
+    const start = (pg - 1) * size;
+    pageLines = lines.slice(start, start + size);
+    if (pageLines.length) {
+      const f = pageLines[0];
+      const effQty = f.is_reversed ? 0 : (Number(f.qty_in) || 0) - (Number(f.qty_out) || 0);
+      page_opening_qty = f.running_qty - effQty;
+      page_opening_value_rial = f.running_value_rial - (Number(f.value_delta_rial) || 0);
+    } else if (start > 0) {
+      page_opening_qty = closing_qty;
+      page_opening_value_rial = closing_value_rial;
+    }
+  }
+  const lastLine = pageLines[pageLines.length - 1];
 
   // Physical stock card (warehouse_stock) must equal the ledger. Any gap is
   // reported, never silently aligned — it is settled by a stock count document.
@@ -857,7 +988,10 @@ function buildStockLedger(db, {
       warehouse_qty = Number(ws?.q) || 0;
     }
   }
-  const book_gap_qty = (!to && !eventFilter && warehouse_qty != null)
+  // warehouse_stock is not variant-scoped and excludes WIP when no warehouse is chosen:
+  // the gap is only meaningful for the plain (non-variant, non-WIP-toggle) view.
+  const book_gap_qty = (!to && !eventFilter && warehouse_qty != null
+    && !variantFilterApplied && !(showWip && !whId))
     ? Math.round((closing_qty - warehouse_qty) * 1000) / 1000
     : 0;
 
@@ -872,18 +1006,37 @@ function buildStockLedger(db, {
       stock: Number(product.stock) || 0,
     },
     warehouse_id: whId,
+    variant_id: variantFilterApplied ? varId : null,
+    variant_filter_applied: variantFilterApplied,
     warehouse_qty,
     book_gap_qty,
-    opening_qty,
+    // opening_* = balance at the START OF THE RETURNED PAGE (== period opening on page 1 / unpaginated)
+    opening_qty: page_opening_qty,
+    opening_value_rial: page_opening_value_rial,
+    period_opening_qty: opening_qty,
+    period_opening_value_rial: opening_value_rial,
     period_qty_in,
     period_qty_out,
     period_net_qty,
+    period_value_delta_rial,
+    value_only_rial,
     control_gap_qty: 0,
     live_period: true,
     closing_qty,
+    closing_value_rial,
     closing_warehouse_qty: closing_qty,
+    page_closing_qty: lastLine ? lastLine.running_qty : page_opening_qty,
+    page_closing_value_rial: lastLine ? lastLine.running_value_rial : page_opening_value_rial,
     event_type: eventFilter,
-    lines,
+    toggles: { show_wip: showWip, show_warehouse_only: showWarehouseOnly, show_cancelled: showCancelled },
+    pagination: {
+      paginated, page: pg, page_size: size, total_lines, total_pages, has_more: paginated ? pg < total_pages : false,
+    },
+    page: pg,
+    page_size: size,
+    total_lines,
+    total_pages,
+    lines: pageLines,
     source: 'inventory_ledger',
   };
   if (stripCost) payload = stripCostFields(payload);
@@ -916,21 +1069,24 @@ function financialToCsv(data) {
 }
 
 function stockToCsv(data) {
-  const headers = ['تاریخ', 'شرح', 'نوع', 'ورود', 'خروج', 'مانده'];
+  // v576: «مانده ریالی» sits BEFORE the last column so the qty «مانده» stays last (parseCsvTotals).
+  const headers = ['تاریخ', 'شرح', 'نوع', 'ورود', 'خروج', 'مانده ریالی', 'مانده'];
   const lines = [headers.map(csvEsc).join(',')];
   for (const l of data.lines || []) {
     lines.push([
-      l.date, l.description, l.event_type, l.qty_in, l.qty_out, l.running_qty,
+      l.date, l.description,
+      l.is_reversed ? `${l.event_type} (باطل‌شده)` : l.event_type,
+      l.qty_in, l.qty_out, l.running_value_rial, l.running_qty,
     ].map(csvEsc).join(','));
   }
   lines.push('');
-  lines.push(['مانده اول دوره', '', '', '', '', data.opening_qty].map(csvEsc).join(','));
+  lines.push(['مانده اول دوره', '', '', '', '', data.opening_value_rial, data.opening_qty].map(csvEsc).join(','));
   lines.push([
     'جمع دوره', '', '',
-    data.period_qty_in, data.period_qty_out, data.closing_qty,
+    data.period_qty_in, data.period_qty_out, data.closing_value_rial, data.closing_qty,
   ].map(csvEsc).join(','));
-  lines.push(['گردش خالص دوره', '', '', '', '', data.period_net_qty].map(csvEsc).join(','));
-  lines.push(['مانده پایان دوره', '', '', '', '', data.closing_qty].map(csvEsc).join(','));
+  lines.push(['گردش خالص دوره', '', '', '', '', data.period_value_delta_rial, data.period_net_qty].map(csvEsc).join(','));
+  lines.push(['مانده پایان دوره', '', '', '', '', data.closing_value_rial, data.closing_qty].map(csvEsc).join(','));
   return lines.join('\n');
 }
 
@@ -963,6 +1119,9 @@ module.exports = {
   signMove,
   safeSourceLink,
   isAuditOnlyStockRow,
+  isReversedStockRow,
+  stockValueDelta,
+  kardexSourceLink,
   isVoidPairStockRow,
   isOpeningStockRow,
   isAuditOnlyJournalDescription,

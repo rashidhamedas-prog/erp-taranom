@@ -2729,3 +2729,26 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
 .rcn-banner{display:flex;flex-wrap:wrap;gap:10px;align-items:center;background:var(--amber-bg);color:var(--amber-fg);border:1px solid rgba(217,119,6,.35);border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;line-height:1.8}
 .rcn-banner .rcn-banner-txt{flex:1 1 260px}
 .rcn-h{font-size:14px;margin:18px 0 8px}
+
+/* ===== v576 Phase 3 — کاردکس: ردیف ابطال‌شده، صفحه‌بندی، چاپ ===== */
+#kardexVarWrap:empty{display:none}
+.kardex-flags label{display:inline-flex;gap:4px;align-items:center;cursor:pointer}
+.kardex-row-reversed td{color:var(--muted);background:rgba(128,128,128,.10)}
+.kardex-row-reversed td a{color:var(--muted)}
+.kardex-row-reversed .mono{text-decoration:line-through}
+.kardex-row-reversal td{font-style:italic}
+.kardex-row-flash td{outline:2px solid var(--gold,#C9A843);outline-offset:-2px;background:rgba(201,168,67,.18)}
+.kardex-badge-rev,.kardex-badge-wip{font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted)}
+.kardex-opening-row td{background:var(--purple-light);font-weight:700}
+.kardex-pager{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:8px 14px;font-size:12px}
+.kardex-pager select{padding:4px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit}
+.kardex-print-head{display:none}
+@media print{
+  body.kardex-print-active *{visibility:hidden}
+  body.kardex-print-active #kardexBody,body.kardex-print-active #kardexBody *{visibility:visible}
+  body.kardex-print-active #kardexBody{position:absolute;left:0;top:0;width:100%}
+  body.kardex-print-active .kardex-print-head{display:block;padding:0 0 10px;font-size:12px}
+  body.kardex-print-active .kardex-print-head h3{margin:0 0 4px;font-size:15px}
+  body.kardex-print-active .kardex-pager,body.kardex-print-active .kardex-tog,body.kardex-print-active .kardex-rev-link{display:none!important}
+  body.kardex-print-active .kardex-row-reversed td{color:#666;background:#eee}
+}

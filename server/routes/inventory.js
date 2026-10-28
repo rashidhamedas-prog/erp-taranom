@@ -89,8 +89,20 @@ router.get('/ledger', auth, adminOrAccounting, (req, res) => {
 router.get('/kardex/:productId', auth, adminOrAccounting, (req, res) => {
   try {
     const db = getDB();
+    const q = req.query;
+    // Phase 3 (v576): variant / Jalali period / pagination (page_size ≤ 500) / toggles.
+    const { assertJalaliQuery } = require('../lib/ledgers');
+    const { from, to } = assertJalaliQuery(q.from, q.to);
     const data = getKardex(db, +req.params.productId, {
-      warehouseId: req.query.warehouse_id ? +req.query.warehouse_id : null,
+      warehouseId: q.warehouse_id ? +q.warehouse_id : null,
+      variantId: q.variant_id ? +q.variant_id : null,
+      from,
+      to,
+      page: q.page,
+      pageSize: q.page_size,
+      showWip: q.show_wip,
+      showWarehouseOnly: q.show_warehouse_only,
+      showCancelled: q.show_cancelled,
     });
     res.json(data);
   } catch (e) { sendErr(res, e); }
