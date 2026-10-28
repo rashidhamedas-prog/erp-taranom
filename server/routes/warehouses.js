@@ -231,7 +231,10 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     warehouse_type: warehouse_type || 'finished_goods', inventory_system: invSys,
     inventory_coa_code: invCoa, cogs_coa_code: cogsCoa,
   });
-  if (coaErr) return res.status(coaErr.status).json({ error: coaErr.error, code: coaErr.code });
+  if (coaErr && coaErr.status >= 400) {
+    return res.status(coaErr.status).json({ error: coaErr.error, code: coaErr.code, warnings: coaErr.warnings });
+  }
+  const coaWarning = (coaErr && (coaErr.warning || (coaErr.warnings && coaErr.warnings[0]))) || null;
   const result = db.transaction(() => {
     if (is_default) db.prepare('UPDATE warehouses SET is_default=0').run();
     return db.prepare(`
@@ -254,7 +257,9 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     try { require('../lib/inventory/valuation').setLayerLevel(db, 'warehouses', result.lastInsertRowid, req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
   }
   audit(req.user.id, 'create', 'warehouse', result.lastInsertRowid, `ساخت انبار ${name}`);
-  res.json(db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid));
+  const created = db.prepare('SELECT * FROM warehouses WHERE id=?').get(result.lastInsertRowid);
+  if (coaWarning) created.warning = coaWarning;
+  res.json(created);
 });
 
 router.put('/:id', auth, adminOrAccounting, (req, res) => {
@@ -295,7 +300,12 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
       inventory_coa_code: nextInvCoa,
       cogs_coa_code: nextCogsCoa,
     });
-    if (coaErr) return res.status(coaErr.status).json({ error: coaErr.error, code: coaErr.code });
+    if (coaErr && coaErr.status >= 400) {
+      return res.status(coaErr.status).json({ error: coaErr.error, code: coaErr.code, warnings: coaErr.warnings });
+    }
+    if (coaErr && (coaErr.warning || (coaErr.warnings && coaErr.warnings[0]))) {
+      res.locals.coaWarning = coaErr.warning || coaErr.warnings[0];
+    }
   }
   db.transaction(() => {
     const def = is_default != null ? (is_default ? 1 : 0) : (row.is_default || 0);
@@ -323,7 +333,9 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
     }
   })();
   audit(req.user.id, 'update', 'warehouse', req.params.id, `ویرایش انبار ${name || row.name}`);
-  res.json({ ok: true });
+  const out = { ok: true };
+  if (res.locals.coaWarning) out.warning = res.locals.coaWarning;
+  res.json(out);
 });
 
 router.delete('/:id', auth, adminOrAccounting, (req, res) => {

@@ -88,9 +88,14 @@ function checkMappedAccount(db, code, kind, opts = {}) {
   if (!isPostableCode(db, c)) return { ok: false, reason: 'not_leaf', code: c };
   let groupOk;
   if (standardCoa(db)) {
-    groupOk = kind === 'cogs'
-      ? c.startsWith('5')
-      : (c.startsWith('11') || (opts.fixedAsset && c.startsWith('12')));
+    if (kind === 'cogs') {
+      groupOk = c.startsWith('5');
+    } else if (opts.fixedAsset) {
+      // Phase 3: دارایی_ثابت inventory must be under 12xx (fixed assets), never 11xx goods.
+      groupOk = c.startsWith('12');
+    } else {
+      groupOk = c.startsWith('11');
+    }
   } else {
     const t = String(row.type || '').toLowerCase();
     groupOk = kind === 'cogs' ? (t === 'cogs' || t === 'expense') : t === 'asset';
@@ -104,6 +109,7 @@ const REASON_FA = {
   not_found: 'در دفتر کل یافت نشد یا غیرفعال است',
   not_leaf: 'حساب برگ (قابل ثبت) نیست — زیرمجموعه دارد',
   wrong_group: 'با کاربرد این حساب نمی‌خواند',
+  control: 'کنترلی — سطر باید روی تفصیلی برود',
 };
 
 function reasonFa(reason) {
@@ -126,19 +132,31 @@ function validateWarehouseCoaInput(db, input) {
   const perpetual = isPerpetualSystem(input.inventory_system);
   const inv = String(input.inventory_coa_code || '').trim();
   const cogs = String(input.cogs_coa_code || '').trim();
+  const warnings = [];
+
+  if (fixedAsset && perpetual) {
+    warnings.push('این انبار موجودی کالا نیست؛ ادواری یا غیرفعال کنید');
+  }
 
   if (perpetual && !inv) {
-    return { status: 400, code: 'E_WH_INV_COA_REQUIRED', error: 'برای انبار دائمی، حساب برگ موجودی الزامی است' };
+    return { status: 400, code: 'E_WH_INV_COA_REQUIRED', error: 'برای انبار دائمی، حساب برگ موجودی الزامی است', warnings };
   }
   if (perpetual && !cogs) {
-    return { status: 400, code: 'E_WH_COGS_COA_REQUIRED', error: 'برای انبار دائمی، حساب برگ بهای تمام‌شده الزامی است' };
+    return { status: 400, code: 'E_WH_COGS_COA_REQUIRED', error: 'برای انبار دائمی، حساب برگ بهای تمام‌شده الزامی است', warnings };
   }
   if (inv) {
     const r = checkMappedAccount(db, inv, 'inventory', { fixedAsset });
     if (!r.ok) {
+      const groupHint = fixedAsset
+        ? ' — حساب موجودی دارایی ثابت باید زیر گروه ۱۲ و برگ باشد'
+        : ' — حساب موجودی باید زیر گروه ۱۱ (موجودی کالا) باشد';
+      // Fixed-asset wrong group (e.g. 1104) → 422 so callers never silently keep goods COA.
+      const status = (fixedAsset && (r.reason === 'wrong_group' || r.reason === 'not_leaf')) ? 422 : 400;
       return {
-        status: 400, code: 'E_WH_INV_COA_INVALID',
-        error: `حساب موجودی انبار (${inv}): ${reasonFa(r.reason)}${r.reason === 'wrong_group' ? ' — حساب موجودی باید زیر گروه ۱۱ (موجودی کالا) باشد' : ''}`,
+        status,
+        code: 'E_WH_INV_COA_INVALID',
+        error: `حساب موجودی انبار (${inv}): ${reasonFa(r.reason)}${r.reason === 'wrong_group' || (fixedAsset && r.reason === 'not_leaf') ? groupHint : ''}`,
+        warnings,
       };
     }
   }
@@ -148,9 +166,11 @@ function validateWarehouseCoaInput(db, input) {
       return {
         status: 400, code: 'E_WH_COGS_COA_INVALID',
         error: `حساب بهای تمام‌شده انبار (${cogs}): ${reasonFa(r.reason)}${r.reason === 'wrong_group' ? ' — باید زیر گروه ۵ (بهای تمام‌شده) باشد' : ''}`,
+        warnings,
       };
     }
   }
+  if (warnings.length) return { status: 0, warning: warnings[0], warnings };
   return null;
 }
 

@@ -856,7 +856,7 @@ function releaseEntityCoa(db, coaCode) {
 
 module.exports = {
   acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents,
-  suggestChildCode, validateChildCode, LEGACY, rebuildBaseCoa, ensureMissingBaseCoa,
+  suggestChildCode, validateChildCode, LEGACY, KIND_KEY, KIND_TYPE, rebuildBaseCoa, ensureMissingBaseCoa,
   releaseTafsili, releaseEntityCoa, baseCoaTree,
   isPostableCode, resolvePostableLeaf, ensureLogicalPostable,
   ensureSystemFeeAccountsPostable, coerceSystemPostableCode,

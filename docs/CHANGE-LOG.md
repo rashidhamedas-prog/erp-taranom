@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۰۷ — v588: فاز ۳ گزارش نگاشت برگ (دسته‌ها + کنترلی) و اعتبارسنجی انبار دارایی ثابت (SW v588)
+- **شاخه:** `feat/coa-leaf-report-wh36`؛ منبع: `.tmp-coa-keys-fix/phase-3-leaf-report-and-wh36.md`. **بدون merge/deploy در این تسک** (orchestrator).
+- **گزارش (`lib/coa-leaf-report.js`):** کلیدهای LEGACY به `control` / `not_leaf` / `not_found` (+ `default_unused`) تفکیک می‌شوند. کنترلی = مقادیر `KIND_KEY` + `coa_issue_return_to_supplier` (و `coa_inventory` فقط در حالت `legacy_leaf`). `summary.settings_nonleaf` = فقط not_leaf؛ فیلدهای جدید: `settings_keys_total`, `settings_not_found`, `settings_control`, `settings_default_unused`. `needs_attention` = not_leaf + not_found (+ انبار/مانده غیرکنترلی/سطر روی کنترل). بخش `control_accounts` (کد، تفصیلی فعال، سطر روی خود کنترل). `nonleaf_balances_split.control|non_control`. انبار `active=0` از `warehouses_perpetual_unmapped` خارج و در `warehouses_inactive_unmapped`.
+- **انبار دارایی ثابت (فقط کد، بدون تغییر داده wh36):** موجودی ⊂ ۱۲xx و برگ؛ دائمی ⇒ هشدار «این انبار موجودی کالا نیست؛ ادواری یا غیرفعال کنید». `inventoryAccountForWarehouse` هرگز به `coa_finished_goods`/۱۱۰۴ fallback نمی‌کند؛ نگاشت ۱۱۰۴ ⇒ ۴۲۲.
+- **UI:** مودال گزارش دسته‌ها را جدا نشان می‌دهد؛ فقط کلاس CSS (`coa-leaf-*`) — بدون style/onclick درون‌خطی.
+- **تست:** `test:coa-leaf-report-p3` + به‌روزرسانی `test:coa-leaf-mapping` (۱۲xx برای دارایی ثابت).
+- **Help / SW:** راهنمای ادمین v586؛ `sw.js` erp-taranom-v588؛ `app.js?v=586`.
+- **فایل‌ها:** `lib/{coa-leaf-report,coa-leaf-policy,coa-map}.js`, `lib/inventory/ledger.js`, `routes/warehouses.js`, `scripts/{report-coa-leaf-mapping,test-coa-leaf-mapping-v585,test-coa-leaf-report-p3}.js`, `public/{app.js,app.css,index.html,sw.js}`, `package.json`, CHANGE-LOG.
+- **Deploy:** ⏳ عمداً انجام نشد (فاز ۳ فقط commit روی شاخه).
+
 ### ۱۴۰۵/۰۸/۰۷ — v587: فاز ۲ تفصیلی کالا (`coa_product_tafsili_mode`) + حساب ثبت موجودی فقط از نگاشت انبار (SW v587)
 - **شاخه:** `feat/product-tafsili-warehouse-posting`؛ منبع: `.tmp-coa-keys-fix/phase-2-product-tafsili-and-warehouse-posting.md`. **بدون merge/deploy در این نوبت.**
 - **تنظیم جدید:** `coa_product_tafsili_mode` = `legacy_leaf` (پیش‌فرض migration با INSERT OR IGNORE) | `detail_account`. در UI «تنظیمات ← نگاشت کدینگ».

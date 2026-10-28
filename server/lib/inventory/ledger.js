@@ -136,8 +136,44 @@ function inventoryAccountForWarehouse(db, warehouseId, opts = {}) {
   const t = wh?.warehouse_type || '';
   const fixedAsset = policy.isFixedAssetWarehouseType(t);
   const override = String(wh?.inventory_coa_code || '').trim();
-  const invCheck = policy.checkMappedAccount(db, override, 'inventory', { fixedAsset });
 
+  // Phase 3: دارایی_ثابت never falls back to coa_finished_goods (1104).
+  // Map must be a postable 12xx leaf; otherwise warn-log or 422 (never silent goods COA).
+  if (fixedAsset) {
+    if (override) {
+      const chk = policy.checkMappedAccount(db, override, 'inventory', { fixedAsset: true });
+      if (chk.ok) {
+        const row = db.prepare(
+          'SELECT code, name FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1'
+        ).get(override);
+        if (row) return { code: row.code, name: row.name };
+      }
+      policy.logLeafIssue(policy.E_TYPE_UNSUPPORTED, {
+        warehouse_id: Number(warehouseId), reason: chk.reason || 'bad_map', code: override, mode: policy.leafEnforcementMode(db),
+      });
+      if (opts && opts.readOnly) {
+        return { code: null, name: null, unmapped_fixed_asset: true, inventory_reason: chk.reason || 'bad_map' };
+      }
+      throw policy.leafErr(
+        policy.E_TYPE_UNSUPPORTED, 422,
+        `انبار از نوع «دارایی ثابت» نمی‌تواند حساب ${override} داشته باشد — حساب برگ زیر گروه ۱۲ لازم است (E_WAREHOUSE_TYPE_UNSUPPORTED)`,
+        { warehouse_id: Number(warehouseId), inventory_reason: chk.reason },
+      );
+    }
+    policy.logLeafIssue(policy.E_TYPE_UNSUPPORTED, {
+      warehouse_id: Number(warehouseId), reason: 'empty', mode: policy.leafEnforcementMode(db),
+    });
+    if (opts && opts.readOnly) {
+      return { code: null, name: null, unmapped_fixed_asset: true, inventory_reason: 'empty' };
+    }
+    throw policy.leafErr(
+      policy.E_TYPE_UNSUPPORTED, 422,
+      'انبار از نوع «دارایی ثابت» است و حساب موجودی ندارد — ابتدا در اطلاعات پایه ← انبارها حساب برگ موجودی (گروه ۱۲) را تعیین کنید (E_WAREHOUSE_TYPE_UNSUPPORTED)',
+      { warehouse_id: Number(warehouseId) },
+    );
+  }
+
+  const invCheck = policy.checkMappedAccount(db, override, 'inventory', { fixedAsset: false });
   if (invCheck.ok) {
     const row = db.prepare(
       'SELECT code, name FROM chart_of_accounts WHERE code=? AND COALESCE(is_active,1)=1'
@@ -145,17 +181,7 @@ function inventoryAccountForWarehouse(db, warehouseId, opts = {}) {
     if (row) return { code: row.code, name: row.name };
   }
 
-  // v585: non-standard type «دارایی_ثابت» (warehouse 36) must carry an explicit inventory map.
-  if (fixedAsset) {
-    if (opts && opts.readOnly) return { ...acct(db, 'coa_finished_goods'), unmapped_fixed_asset: true };
-    throw policy.leafErr(
-      'E_WAREHOUSE_TYPE_UNSUPPORTED', 422,
-      'انبار از نوع «دارایی ثابت» است و حساب موجودی ندارد — ابتدا در اطلاعات پایه ← انبارها حساب برگ موجودی را تعیین کنید (E_WAREHOUSE_TYPE_UNSUPPORTED)',
-      { warehouse_id: Number(warehouseId) },
-    );
-  }
-
-  // v586: empty/non-leaf map on perpetual warehouse
+  // Phase 2: empty/non-leaf map on perpetual warehouse
   const perpetual = policy.isPerpetualSystem(wh && wh.inventory_system != null ? wh.inventory_system : 'perpetual');
   if (perpetual && !(opts && opts.readOnly) && !invCheck.ok) {
     const mode = policy.leafEnforcementMode(db);
@@ -182,12 +208,6 @@ function inventoryAccountForWarehouse(db, warehouseId, opts = {}) {
   return acct(db, 'coa_finished_goods');
 }
 
-/**
- * Aggregate rial amounts by warehouse inventory COA for multi-line JE debits/credits.
- * @param {import('better-sqlite3').Database} db
- * @param {{ warehouseId?: number|null, amountRial: number }[]} items
- * @returns {{ code: string, name: string, amountRial: number }[]}
- */
 function inventoryAmountLinesByWarehouse(db, items) {
   const map = new Map();
   for (const it of items || []) {

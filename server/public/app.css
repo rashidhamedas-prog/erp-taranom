@@ -2766,3 +2766,12 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
   body.kardex-print-active .kardex-pager,body.kardex-print-active .kardex-tog,body.kardex-print-active .kardex-rev-link{display:none!important}
   body.kardex-print-active .kardex-row-reversed td{color:#666;background:#eee}
 }
+
+/* ===== COA leaf report modal (v586 Phase 3) - classes only, no inline style ===== */
+.coa-leaf-banner{margin-bottom:12px;line-height:1.9}
+.coa-leaf-toolbar{margin-bottom:12px}
+.coa-leaf-report-intro{margin-bottom:10px;line-height:1.8}
+.coa-leaf-kpis{margin:8px 0 12px;line-height:1.7;font-size:12px}
+.coa-leaf-report h4{margin:16px 0 6px;font-size:13px}
+.coa-leaf-tbl{font-size:12px}
+.coa-leaf-report .muted{color:var(--muted)}
