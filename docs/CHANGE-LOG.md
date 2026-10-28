@@ -5,7 +5,7 @@
 - **تست:** ATP per-line در p1؛ سناریوی هدر ادواری + خط دائمی و `--out` در p2؛ `test:sales-cross-wh-p2` داخل `npm test`.
 - **UI:** برچسب پیکر «موجودی این انبار»؛ Help ادمین/فروش.
 - **فایل‌ها:** `lib/sales-document.js`، `routes/invoices.js`، `scripts/{report-cross-warehouse-sales,test-sales-cross-warehouse,test-sales-cross-warehouse-posting}.js`، `package.json`، `public/{app.js,index.html,sw.js}`، CHANGE-LOG.
-- **Deploy:** ⏳ pending
+- **Deploy:** ✅ merge `a298815b` (PR #75) — بکاپ `/home/taranom/backups/crm.db.20261028-094052` (۹٬۶۱۷٬۴۰۸ بایت)؛ overlay چون درخت سرور کثیف بود؛ `pm2 restart` بدون `--update-env`؛ health/ready=200؛ SW `erp-taranom-v572`؛ sharp 0.33.5؛ test:sales-cross-wh ۲۰/۰؛ p2 ۲۷/۰؛ encoding OK؛ sms ۲۲/۰؛ گزارش `~/backups/reports/xwh-p2-20261028-094121.txt` (T-0015 mismatch تاریخی — بدون heal داده).
 
 ### ۱۴۰۵/۰۸/۰۶ — v571: توالی برگ در گزارش دسته و جمع مبلغ فیلتر دفتر چک (SW v571)
 - **منبع:** شکاف [ممیزی فاز ۴](fea0cad1-aa70-4367-bc1e-4047c1782b06) و [ممیزی فاز ۱](c9e2a77f-8bfc-4e7c-9078-bdb046305bc1).
