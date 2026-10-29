@@ -1,0 +1,73 @@
+{
+  "samples": [
+    {
+      "account_code": "1104",
+      "debit": 4400000,
+      "credit": 0,
+      "debit_rial": 44000000,
+      "credit_rial": 0
+    },
+    {
+      "account_code": "1104",
+      "debit": 155227660,
+      "credit": 0,
+      "debit_rial": 1552276600,
+      "credit_rial": 0
+    },
+    {
+      "account_code": "1104",
+      "debit": 5075227660,
+      "credit": 0,
+      "debit_rial": 50752276600,
+      "credit_rial": 0
+    },
+    {
+      "account_code": "1104",
+      "debit": 172027396,
+      "credit": 0,
+      "debit_rial": 1720273960,
+      "credit_rial": 0
+    },
+    {
+      "account_code": "1104",
+      "debit": 0,
+      "credit": 30444475.4,
+      "debit_rial": 0,
+      "credit_rial": 304444754
+    }
+  ],
+  "cnt": {
+    "c": 258
+  },
+  "cntExact": {
+    "c": 258
+  },
+  "statuses": [
+    {
+      "st": "approved",
+      "c": 232
+    },
+    {
+      "st": "reversed",
+      "c": 26
+    }
+  ],
+  "deleted": {
+    "c": 26
+  },
+  "balDebit": {
+    "bal_coalesce": null,
+    "sum_dr_rial": null,
+    "sum_cr_rial": null,
+    "sum_dr": null,
+    "sum_cr": null
+  },
+  "balDebitToman": {
+    "bal_toman": null,
+    "bal_rial_x10": null
+  },
+  "bal1104only": {
+    "bal_toman": null,
+    "bal_rial": null
+  }
+}

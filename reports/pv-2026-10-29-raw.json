@@ -1,0 +1,918 @@
+{
+  "10_settings_sep": [
+    {
+      "key": "coa_payroll_expense",
+      "value": "610,401"
+    }
+  ],
+  "10_wh_non_digit": [],
+  "11_accounts": [
+    {
+      "code": "1104",
+      "name": "موجودی کالا",
+      "is_active": 1,
+      "n": 258
+    },
+    {
+      "code": "110401",
+      "name": "موجودی کالا",
+      "is_active": 1,
+      "n": 0
+    },
+    {
+      "code": "1110",
+      "name": "موجودی مواد اولیه",
+      "is_active": 1,
+      "n": 93
+    },
+    {
+      "code": "1111",
+      "name": "کالای در جریان ساخت",
+      "is_active": 1,
+      "n": 167
+    },
+    {
+      "code": "1201",
+      "name": "دارایی‌های ثابت",
+      "is_active": 1,
+      "n": 0
+    },
+    {
+      "code": "3102",
+      "name": "تراز افتتاحیه",
+      "is_active": 1,
+      "n": 231
+    },
+    {
+      "code": "3201",
+      "name": "افتتاحیه سال مالی",
+      "is_active": 1,
+      "n": 0
+    },
+    {
+      "code": "5101",
+      "name": "بهای تمام‌شده کالای فروش رفته",
+      "is_active": 1,
+      "n": 111
+    },
+    {
+      "code": "610801",
+      "name": "خالص کسری انبار",
+      "is_active": 1,
+      "n": 0
+    }
+  ],
+  "12_warehouses": [
+    {
+      "id": 33,
+      "name": "انبار مواد اولیه",
+      "active": 1,
+      "kind": "general",
+      "warehouse_type": "raw_material",
+      "inventory_system": "perpetual",
+      "allow_negative": 0,
+      "inventory_coa_code": "1110",
+      "cogs_coa_code": "5101"
+    },
+    {
+      "id": 34,
+      "name": "انبار محصول",
+      "active": 1,
+      "kind": "general",
+      "warehouse_type": "finished_goods",
+      "inventory_system": "perpetual",
+      "allow_negative": 1,
+      "inventory_coa_code": null,
+      "cogs_coa_code": null
+    },
+    {
+      "id": 35,
+      "name": "انبار کیمیا",
+      "active": 1,
+      "kind": "general",
+      "warehouse_type": "finished_goods",
+      "inventory_system": "perpetual",
+      "allow_negative": 0,
+      "inventory_coa_code": null,
+      "cogs_coa_code": null
+    },
+    {
+      "id": 36,
+      "name": "انبار دارایی ثابت",
+      "active": 1,
+      "kind": "general",
+      "warehouse_type": "دارایی_ثابت",
+      "inventory_system": "perpetual",
+      "allow_negative": 0,
+      "inventory_coa_code": null,
+      "cogs_coa_code": null
+    },
+    {
+      "id": 37,
+      "name": "انبار کار در جریان",
+      "active": 1,
+      "kind": "wip",
+      "warehouse_type": "raw_material",
+      "inventory_system": "perpetual",
+      "allow_negative": 0,
+      "inventory_coa_code": "1111",
+      "cogs_coa_code": "5101"
+    }
+  ],
+  "9_settings": [
+    {
+      "key": "coa_product_tafsili_mode",
+      "value": "legacy_leaf"
+    },
+    {
+      "key": "coa_vat_payable",
+      "value": "2103"
+    },
+    {
+      "key": "coa_vat_receivable",
+      "value": "1108"
+    },
+    {
+      "key": "ledger_leaf_enforcement",
+      "value": "warn"
+    },
+    {
+      "key": "vat_rate",
+      "value": "10"
+    }
+  ],
+  "7_roles": [
+    {
+      "role": "admin",
+      "n": 3
+    },
+    {
+      "role": "distribution_office",
+      "n": 1
+    }
+  ],
+  "13_bal_1104": {
+    "bal_1104": null
+  },
+  "4_ledger_cols": [
+    "id",
+    "tx_no",
+    "event_type",
+    "product_id",
+    "warehouse_id",
+    "qty_in",
+    "qty_out",
+    "qty_balance",
+    "unit_cost_rial",
+    "amount_rial",
+    "avg_cost_after_rial",
+    "batch_id",
+    "serial_id",
+    "source_type",
+    "source_id",
+    "je_id",
+    "reversed_of",
+    "status",
+    "date",
+    "note",
+    "created_by",
+    "created_at",
+    "sync_seq",
+    "version",
+    "variant_id"
+  ],
+  "16_adjust_no_je": [
+    {
+      "id": 566,
+      "product_id": 105,
+      "warehouse_id": 35,
+      "amount_rial": 76617310,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 799,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 310253566,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1021,
+      "product_id": 329,
+      "warehouse_id": 35,
+      "amount_rial": 39732000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1022,
+      "product_id": 332,
+      "warehouse_id": 34,
+      "amount_rial": 146852650,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1025,
+      "product_id": 7,
+      "warehouse_id": 35,
+      "amount_rial": 52500000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1074,
+      "product_id": 7,
+      "warehouse_id": 35,
+      "amount_rial": 70000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1076,
+      "product_id": 332,
+      "warehouse_id": 35,
+      "amount_rial": 31468425,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1168,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 622572446,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1188,
+      "product_id": 51,
+      "warehouse_id": 33,
+      "amount_rial": 14000000,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1202,
+      "product_id": 105,
+      "warehouse_id": 35,
+      "amount_rial": 6965210,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1210,
+      "product_id": 332,
+      "warehouse_id": 34,
+      "amount_rial": 2553361264,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1231,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 868250544,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1273,
+      "product_id": 334,
+      "warehouse_id": 34,
+      "amount_rial": 66679942,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1299,
+      "product_id": 332,
+      "warehouse_id": 35,
+      "amount_rial": 0,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1352,
+      "product_id": 7,
+      "warehouse_id": 35,
+      "amount_rial": 17500000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1355,
+      "product_id": 332,
+      "warehouse_id": 35,
+      "amount_rial": 7682279,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1356,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 519951730,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1386,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 437375423,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1405,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 1461118710,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1412,
+      "product_id": 125,
+      "warehouse_id": 34,
+      "amount_rial": 337349824,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1423,
+      "product_id": 332,
+      "warehouse_id": 34,
+      "amount_rial": 0,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1464,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 1493257887,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1466,
+      "product_id": 118,
+      "warehouse_id": 34,
+      "amount_rial": 126506184,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1484,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 2256880375,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1508,
+      "product_id": 1,
+      "warehouse_id": 34,
+      "amount_rial": 120000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1509,
+      "product_id": 2,
+      "warehouse_id": 34,
+      "amount_rial": 102000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1510,
+      "product_id": 3,
+      "warehouse_id": 34,
+      "amount_rial": 102000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1511,
+      "product_id": 4,
+      "warehouse_id": 34,
+      "amount_rial": 102000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1512,
+      "product_id": 5,
+      "warehouse_id": 34,
+      "amount_rial": 74500000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1513,
+      "product_id": 6,
+      "warehouse_id": 34,
+      "amount_rial": 85000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1514,
+      "product_id": 7,
+      "warehouse_id": 34,
+      "amount_rial": 175000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1516,
+      "product_id": 8,
+      "warehouse_id": 34,
+      "amount_rial": 230000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1517,
+      "product_id": 9,
+      "warehouse_id": 34,
+      "amount_rial": 205000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1518,
+      "product_id": 10,
+      "warehouse_id": 34,
+      "amount_rial": 107400000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1519,
+      "product_id": 11,
+      "warehouse_id": 34,
+      "amount_rial": 114000000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1520,
+      "product_id": 12,
+      "warehouse_id": 34,
+      "amount_rial": 107400000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1522,
+      "product_id": 13,
+      "warehouse_id": 34,
+      "amount_rial": 107400000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1523,
+      "product_id": 23,
+      "warehouse_id": 33,
+      "amount_rial": 32277000,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1524,
+      "product_id": 38,
+      "warehouse_id": 33,
+      "amount_rial": 86350000,
+      "event_type": "adjustment",
+      "status": "reversed"
+    },
+    {
+      "id": 1978,
+      "product_id": 115,
+      "warehouse_id": 34,
+      "amount_rial": 66742000,
+      "event_type": "adjustment",
+      "status": "posted"
+    },
+    {
+      "id": 1979,
+      "product_id": 131,
+      "warehouse_id": 35,
+      "amount_rial": 12913914,
+      "event_type": "adjustment",
+      "status": "posted"
+    }
+  ],
+  "15_return_null_wh": {
+    "n": 56,
+    "amt": 455192328
+  },
+  "15_return_sample": [
+    {
+      "id": 1077,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1078,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1079,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1080,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1081,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1082,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1083,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1084,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1085,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1086,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1087,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1088,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1089,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1090,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1091,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1092,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1093,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1094,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1095,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1096,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1097,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1119,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1120,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1121,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1122,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1123,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1124,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1125,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1126,
+      "product_id": 154,
+      "warehouse_id": null,
+      "amount_rial": 5550000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1127,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1128,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1129,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1130,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1131,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1132,
+      "product_id": 109,
+      "warehouse_id": null,
+      "amount_rial": 5379500,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1133,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1134,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1135,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1136,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    },
+    {
+      "id": 1137,
+      "product_id": 106,
+      "warehouse_id": null,
+      "amount_rial": 7022000,
+      "je_id": null,
+      "event_type": "sale_return"
+    }
+  ],
+  "18_ledger_1977": {
+    "id": 1977,
+    "product_id": 109,
+    "warehouse_id": 35,
+    "qty_in": 2,
+    "qty_out": 0,
+    "amount_rial": 10759000,
+    "event_type": "opening",
+    "je_id": null,
+    "status": "posted"
+  },
+  "18_n3201": {
+    "n": 0
+  },
+  "18_je_490": [
+    {
+      "id": 1287,
+      "entry_id": 490,
+      "account_code": "1104",
+      "debit_rial": 71232000,
+      "credit_rial": 0
+    },
+    {
+      "id": 1288,
+      "entry_id": 490,
+      "account_code": "3102",
+      "debit_rial": 0,
+      "credit_rial": 71232000
+    }
+  ],
+  "18_ledger_1230": {
+    "id": 1230,
+    "product_id": 335,
+    "warehouse_id": 34,
+    "amount_rial": 71232000,
+    "event_type": "opening"
+  },
+  "14_zero_in_wh35": {
+    "n": 179
+  },
+  "14_event_types_sample": [
+    {
+      "event_type": "sale",
+      "n": 296
+    },
+    {
+      "event_type": "transfer_out",
+      "n": 205
+    },
+    {
+      "event_type": "transfer_in",
+      "n": 205
+    },
+    {
+      "event_type": "opening",
+      "n": 189
+    },
+    {
+      "event_type": "reversal",
+      "n": 155
+    },
+    {
+      "event_type": "adjustment",
+      "n": 88
+    },
+    {
+      "event_type": "sale_return",
+      "n": 23
+    },
+    {
+      "event_type": "production_receipt",
+      "n": 22
+    },
+    {
+      "event_type": "receipt",
+      "n": 15
+    }
+  ]
+}
