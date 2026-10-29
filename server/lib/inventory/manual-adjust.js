@@ -59,6 +59,12 @@ function parseInputs(db, body = {}) {
     throw adjErr('E_WAREHOUSE_NOT_FOUND', 404, 'انبار یافت نشد');
   }
   const variantId = Number(body.variant_id) || null;
+  if (variantId) {
+    let vr = null;
+    try { vr = db.prepare('SELECT id, product_id FROM product_variants WHERE id=?').get(variantId); } catch (_) { vr = null; }
+    if (!vr) throw adjErr('E_VARIANT_NOT_FOUND', 404, 'واریانت یافت نشد');
+    if (Number(vr.product_id) !== productId) throw adjErr('E_VARIANT_MISMATCH', 400, 'واریانت متعلق به این کالا نیست');
+  }
   const rawMode = body.mode == null || body.mode === '' ? 'delta' : String(body.mode);
   if (!['delta', 'count'].includes(rawMode)) throw adjErr('E_ADJUST_MODE', 400, 'نوع تعدیل باید «شمارش» یا «کم و زیاد» باشد');
   const qty = Number(body.qty);
@@ -218,12 +224,18 @@ function postAdjust(db, body, user, opts = {}) {
       throw adjErr('E_ADJUST_COST_FORBIDDEN', 403, 'تغییر بهای واحد تعدیل فقط با دسترسی «ارزش‌گذاری موجودی — ثبت» مجاز است');
     }
     const L = require('./ledger');
+    // P1: adjusting a SKU that was retired/unchecked brings it back (never E_VARIANT_INACTIVE).
+    if (plan.variant_id) {
+      require('../product-variants').reactivateVariant(db, plan.variant_id);
+    }
     const reasonFa = plan.reason_label;
     const ledgerNote = [`تعدیل دستی${reasonFa ? ' — ' + reasonFa : ''}`, note].filter(Boolean).join(' — ').slice(0, 300);
     const led = L.postInventoryMovement(db, {
       eventType: 'adjustment',
       productId: plan.product_id,
       warehouseId: plan.warehouse_id,
+      // P1: the kardex row carries the SKU (inventory_ledger.variant_id) — one document, one SKU.
+      variantId: plan.variant_id || undefined,
       qty: delta,
       unitCostRial: delta > 0 ? plan.unit_cost_rial : undefined,
       sourceType: SOURCE,
@@ -238,6 +250,8 @@ function postAdjust(db, body, user, opts = {}) {
         qtyDelta: delta, docType: SOURCE, docId: led.id, userId: user && user.id, note: ledgerNote,
         allowNegative: L.allowNegative(db, plan.warehouse_id),
       });
+      // P1: a color leaves the live pack only when EVERY size is exactly 0 (see retireZeroStockColors).
+      try { require('../product-variants').afterVariantStockWrite(db, plan.product_id); } catch (_) { /* optional */ }
     }
     const signed = (Number(led.qty_in) || 0) > 0 ? Math.round(led.amount_rial) : -Math.round(led.amount_rial);
     let counter = plan.counter_account;
@@ -304,6 +318,15 @@ function reverseAdjustInTx(db, row, user, { date, note } = {}) {
       docType: SOURCE, docId: row.id, userId: user && user.id, note: why, applyHeaderStock: false,
     });
     require('./value-approval').cancelForSource(db, SOURCE, row.id, user, why);
+    // P1: the reversal put a quantity back on a SKU that was retired meanwhile → bring it back,
+    // otherwise the color would vanish from the form/kardex while still holding pieces.
+    if (row.variant_id) {
+      try {
+        const PV = require('../product-variants');
+        const v = db.prepare('SELECT * FROM product_variants WHERE id=?').get(row.variant_id);
+        if (v && !Number(v.active) && PV.variantCarriesStock(db, v)) PV.reactivateVariant(db, v.id);
+      } catch (_) { /* variant tables optional */ }
+    }
   }
   if (row.je_id) {
     require('../void-journal').reverseJournalEntry(db, row.je_id, { userId: user && user.id, reason: why });

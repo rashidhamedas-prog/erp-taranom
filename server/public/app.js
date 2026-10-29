@@ -9681,7 +9681,7 @@ function productCardHtml(p, opts){
         <div class="name">${esc(p.name)}</div>
         <div class="code">${esc(p.code||'')} ${p.category?'· '+esc(p.category):''}${opts.showWarehouse&&p.warehouse_name?' · 🏭 '+esc(p.warehouse_name):''}</div>
         <div class="price">${fmt(p.price)} ریال</div>
-        <div class="stock ${low?'low':''}">موجودی: ${fmtQtyFa(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
+        <div class="stock ${low?'low':''}${Number(stockQty)<0?' neg-qty':''}">موجودی: ${fmtQtyFa(stockQty)} ${esc(p.unit||'')} ${low?'⚠️':''}</div>
         ${Number(p.website_stock_push)===0?'<div class="code">ارسال موجودی به سایت: خاموش</div>':''}
         ${(productNeedsColorPick(p)||pack>1||opts.addToCartFn)?`<div data-csp-style="${CSP.style(`font-size:11px;color:var(--muted);margin-top:2px`)}">${productNeedsColorPick(p)?`🎨 ${fmt(p.colors>1?p.colors:1)} رنگ`:''}${productNeedsColorPick(p)&&pack>1?' · ':''}${pack>1?`📦 ${pack} عدد/پک`:''}</div>`:''}
         ${opts.addToCartFn?(((Number(stockQty)||0)<=0 && !(typeof clientAllowsNegativeStock==='function'&&clientAllowsNegativeStock(opts.warehouseFilter||opts.warehouseId||null)))
@@ -10139,7 +10139,7 @@ async function prodModal(id){
             <h2 class="pfv2-card-title" id="pfv2-h-stock">موجودی</h2>
             <p class="pfv2-card-desc">موجودی کلی، هشدار، انبار و ارسال به سایت.</p>
             <div class="pfv2-grid">
-              <div class="fg pfv2-field" id="p-stock-fg"><label for="p-stock">موجودی کلی ${pfv2Hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" type="number" step="0.001" inputmode="numeric" value="${p.stock!=null?p.stock:0}"><div class="muted" id="pfv2-stock-matrix-hint" hidden>از جمع ماتریس محاسبه می‌شود</div></div>
+              <div class="fg pfv2-field" id="p-stock-fg"><label for="p-stock">موجودی کلی ${pfv2Hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" class="${Number(p.stock)<0?'neg-qty':''}" type="number" step="0.001" inputmode="numeric" value="${p.stock!=null?p.stock:0}" ${p.id?'readonly title="موجودی فقط با سند تعدیل تغییر می‌کند"':''}>${p.id?`<button type="button" class="btn sm ghost" id="pfv2-stock-adjust-btn" data-csp-click="${CSP.bind('click',function(){openProdStockAdjust()})}">⚖️ تعدیل موجودی (انبار + رنگ/سایز)</button>`:''}<div class="muted" id="pfv2-stock-matrix-hint" hidden>از جمع ماتریس محاسبه می‌شود</div></div>
               <div class="fg pfv2-field"><label for="p-alert">هشدار موجودی ${pfv2Hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" inputmode="numeric" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
               <div class="fg pfv2-field"><label for="p-warehouse">انبار اصلی ${pfv2Hlp('انباری که این کالا در آن نگهداری می‌شود.')}</label>
                 <select id="p-warehouse">${warehouseOptionsHtml(p.warehouse_id,'— انتخاب انبار —')}</select></div>
@@ -10229,22 +10229,50 @@ function prodColorStockTotals(vars){
   });
   return totals;
 }
+/** P1: رنگ زنده = هر سایزی غیرصفر (منفی هم) — نه جمع؛ S=-1,M=+1 رنگ را نمی‌اندازد */
 function prodLiveColorIds(vars){
-  const totals=prodColorStockTotals(vars);
-  return new Set(Object.keys(totals).filter(id=>totals[id]>1e-9).map(Number));
+  const live=new Set();
+  (vars||[]).forEach(v=>{
+    if(!v || Number(v.is_default)===1) return;
+    const id=Number(v.color_id);
+    if(id && Math.abs(prodVariantGlobalQty(v))>1e-9) live.add(id);
+  });
+  return live;
 }
 function prodScopedToWarehouse(vars){
   return (vars||[]).some(v=>v&&v.warehouse_id!=null&&v.warehouse_id!=='');
 }
 function prodWarehouseColorTotals(vars){
+  // P1: جمع قدر مطلق هر سایز (نه جمع جبری) تا S=-1,M=+1 ردیف رنگ را نیندازد
   const totals={};
   (vars||[]).forEach(v=>{
     if(!v||Number(v.is_default)===1) return;
     const id=Number(v.color_id);
     if(!id) return;
-    totals[id]=(totals[id]||0)+(Number(v.stock)||0);
+    totals[id]=(totals[id]||0)+Math.abs(Number(v.stock)||0);
   });
   return totals;
+}
+/** P1: موجودی فقط با سند تعدیل عوض می‌شود — در ویرایش کالای موجود ماتریس/فیلد کلی فقط‌خواندنی است */
+function prodStockViaDoc(){
+  return Number(window._prodModalProduct&&window._prodModalProduct.id)>0;
+}
+function prodStockWhId(){
+  return Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||el('p-warehouse')?.value||0)||0;
+}
+/** باز کردن فرم تعدیل برای کالای همین فرم (و SKU رنگ×سایز در صورت وجود) */
+function openProdStockAdjust(colorId, sizeId){
+  const pid=Number(window._prodModalProduct&&window._prodModalProduct.id)||0;
+  if(!pid){ showToast('ابتدا کالا را ذخیره کنید','error'); return; }
+  let variant_id;
+  if(colorId&&sizeId){
+    const v=(window._prodStyleVariants||[]).find(x=>x&&Number(x.is_default)!==1&&Number(x.color_id)===Number(colorId)&&Number(x.size_id)===Number(sizeId));
+    if(v) variant_id=Number(v.id)||undefined;
+  }
+  openStockAdjustModal({
+    product_id:pid, warehouse_id:prodStockWhId()||undefined, variant_id, mode:'count',
+    onDone:async()=>{ try{ await prodModal(pid); }catch(_){ /* فرم بسته شد */ } },
+  });
 }
 /** Color rows of the warehouse open in the form. Zero here is not a row, even if another warehouse still has stock. */
 function prodMatrixColorIds(vars){
@@ -11190,6 +11218,7 @@ function renderProdStockGrid(){
   const whName=pcsCurrentWhName();
   const whId=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
   const ro=!prodSkuCanMutate();
+  const viaDoc=prodStockViaDoc(); // P1: کالای موجود — عدد خانه فقط‌خواندنی؛ تغییر با سند تعدیل
   if(colors.length && sizes.length){
     if(stockFg) stockFg.hidden=true;
     const hint=el('pfv2-stock-matrix-hint'); if(hint) hint.hidden=false;
@@ -11208,7 +11237,7 @@ function renderProdStockGrid(){
           <th scope="col" class="pcs-sticky-col">رنگ \\ سایز</th>
           ${sizes.map(s=>`<th scope="col" title="${esc(s.name)}">
             <div class="pcs-th-size"><bdi>${esc(splitSizeLabel(s.name).main)}</bdi>
-            ${ro?'':`<button type="button" class="pcs-select-col pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixCol(Number(s.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
+            ${(ro||viaDoc)?'':`<button type="button" class="pcs-select-col pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixCol(Number(s.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
             </div>
           </th>`).join('')}
           <th scope="col">جمع</th>
@@ -11223,15 +11252,16 @@ function renderProdStockGrid(){
                 ${pcsSwatchSpanHtml(c.id)}
                 <bdi>${esc(c.name)}</bdi>
               </span>
-              ${ro?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
+              ${(ro||viaDoc)?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
             </th>
             ${sizes.map(s=>{
               const q=qtyOf(c.id,s.id);
+              const neg=Number(q)<0;
               const zero=!(Number(q)>0);
               const dirty=pcsDraftGet(whId,c.id,s.id)!==undefined;
               const sku=pcsVariantSku(c.id,s.id);
               return `<td>
-                <input type="number" min="0" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}${dirty?' is-dirty':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" ${tipAll?`title="${esc(tipAll)}"`:''} ${ro?'disabled':''}>
+                <input type="number" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}${neg?' neg-qty':''}${dirty?' is-dirty':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" ${viaDoc?'readonly':''} ${(tipAll||viaDoc)?`title="${esc(viaDoc?'برای تغییر، کلیک کنید (سند تعدیل)':tipAll)}"`:''} ${ro?'disabled':''}>
                 ${sku?`<div class="pcs-sku mono" dir="ltr"><bdi>${esc(sku)}</bdi></div>`:''}
               </td>`;
             }).join('')}
@@ -11247,7 +11277,10 @@ function renderProdStockGrid(){
         </tr></tfoot>
       </table></div>
       <div class="muted pcs-matrix-foot">موجودی کلی مخفی شد؛ ذخیره فقط انبار انتخاب‌شده را می‌نویسد.</div>`;
-    wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
+    if(viaDoc && !ro) wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
+      inp.addEventListener('click', ()=>openProdStockAdjust(Number(inp.dataset.color), Number(inp.dataset.size)));
+    });
+    else wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
       inp.addEventListener('input', ()=>{
         const cid=Number(inp.dataset.color), sid=Number(inp.dataset.size);
         const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
@@ -11271,7 +11304,7 @@ function collectProdStockCells(){
     const color_id=+inp.dataset.color, size_id=+inp.dataset.size;
     if(!color_id||!size_id) return;
     // ماتریس پوشاک = عدد صحیح؛ اعشار (۰٫۷۵) پذیرفته نمی‌شود
-    const q=Math.max(0, Math.round(parseQty(inp.value, 0)));
+    const q=Math.round(parseQty(inp.value, 0)); // P1: بدون clamp — منفیِ واقعی پنهان نشود
     map.set(color_id+':'+size_id, { color_id, size_id, qty:q });
   };
   // اول ماتریس بالا، بعد لیست پایین (ویرایش لیست روی همان ترکیب غالب است)
@@ -11295,7 +11328,7 @@ function prodKeptWarehouseCells(){
     const key=color_id+':'+size_id;
     if(seen.has(key)) return;
     seen.add(key);
-    out.push({ color_id, size_id, qty:Math.max(0, Math.round(Number(v.stock)||0)) });
+    out.push({ color_id, size_id, qty:Math.round(Number(v.stock)||0) });
   });
   return out;
 }
@@ -11330,13 +11363,12 @@ async function refreshProdVariantsPanel(productId){
         <td class="mono" dir="ltr">${esc(v.sku||'—')}</td>
         <td>${esc(v.color_name||v.color_code||'—')}</td>
         <td>${esc(displaySizeName(v.size_name||v.size_code)||'—')}</td>
-        <td><input type="number" min="0" step="1" inputmode="numeric" class="pv-stock-edit" data-color="${v.color_id||0}" data-size="${v.size_id||0}" value="${fmtPieceQty(v.stock)}" data-csp-style="${CSP.style(`width:88px`)}"></td>
+        <td><input type="number" step="1" inputmode="numeric" class="pv-stock-edit${Number(v.stock)<0?' neg-qty':''}" data-color="${v.color_id||0}" data-size="${v.size_id||0}" value="${fmtPieceQty(v.stock)}" readonly title="برای تغییر، دکمهٔ تعدیل را بزنید" data-csp-style="${CSP.style(`width:88px`)}"> <button type="button" class="btn sm ghost" title="تعدیل موجودی این رنگ×سایز" data-csp-click="${CSP.bind('click',function(){openProdStockAdjust(Number(v.color_id)||0,Number(v.size_id)||0)})}">⚖️</button></td>
         <td class="mono" dir="ltr">${esc(v.barcode||'—')}</td>
       </tr>`).join('')}
     </tbody></table></div>
     <div data-csp-style="${CSP.style(`margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap`)}">
-      <button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){saveProdVariantStocks((productId))})}">ذخیره موجودی رنگ×سایز همین انبار</button>
-      <span class="muted">${fmt(matrix.length)} ترکیب فعال — پک زنده از خانه‌های غیرصفر همین انبار ساخته می‌شود</span>
+      <span class="muted">${fmt(matrix.length)} ترکیب فعال — موجودی فقط با سند تعدیل (⚖️) عوض می‌شود؛ منفی‌ها قرمز نمایش داده می‌شوند</span>
     </div>`;
   }catch(e){
     box.innerHTML=`<span style="color:var(--red)">${esc(e.message||'خطا در بارگذاری واریانت')}</span>`;
@@ -11618,7 +11650,8 @@ async function saveProduct(id){
   fd.append('price',moneyVal('p-price'));
   fd.append('retail_price',moneyVal('p-retail'));
   fd.append('cost',moneyVal('p-cost'));
-  fd.append('stock',el('p-stock').value);
+  // P1: موجودی کالای موجود فقط با سند تعدیل؛ PUT عدد stock را نمی‌فرستد (۴۰۹ E_STOCK_VIA_DOCUMENT)
+  if(!id) fd.append('stock',el('p-stock').value);
   fd.append('stock_alert',el('p-alert').value||5);
   const picked=uomPayload('p-unit-id');
   fd.append('unit_id', picked.unit_id||'');
@@ -11689,7 +11722,9 @@ async function saveProduct(id){
       try{
         await api('POST','/product-variants/stock-matrix',{
           product_id:Number(savedId), cells,
-          warehouse_id:el('p-matrix-wh')?.value||el('p-warehouse')?.value||undefined
+          warehouse_id:el('p-matrix-wh')?.value||el('p-warehouse')?.value||undefined,
+          // کالای موجود: فقط ساختار SKU؛ تغییر موجودی با سند تعدیل. کالای تازه: افتتاحیهٔ اولیه (سند)
+          structure_only:!!id
         });
       }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ثبت موجودی رنگ×سایز ناموفق بود','error'); }
     }
@@ -18068,7 +18103,7 @@ async function viewWarehouseStock(id,name){
         <th>کد</th><th>نام کالا</th><th>موجودی</th><th>واحد</th>
       </tr></thead><tbody>${rows.map(p=>`<tr>
         <td class="mono">${esc(p.code||'-')}</td><td>${esc(p.name)}</td>
-        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${p.stock<=p.stock_alert?'var(--red)':'inherit'}`)}">${fmtQtyFa(p.stock)}</td>
+        <td class="mono${Number(p.stock)<0?' neg-qty':''}" data-csp-style="${CSP.style(`font-weight:700;color:${p.stock<=p.stock_alert?'var(--red)':'inherit'}`)}">${fmtQtyFa(p.stock)}</td>
         <td class="muted">${esc(p.unit||'-')}</td>
       </tr>`).join('')||'<tr><td colspan="4" class="empty">کالایی در این انبار نیست</td></tr>'}</tbody></table></div>
     </div>
@@ -39771,6 +39806,15 @@ function renderAdminGuide(){
         <li>حساب غیرکنترلی باید در دفتر کل <b>فعال و برگ</b> (بدون زیرمجموعه) باشد و با گروه کلید سازگار باشد؛ وگرنه ذخیره با خطای فارسی <span dir="ltr">E_COA_NOT_FOUND / E_COA_NOT_LEAF / E_COA_TYPE_MISMATCH</span> رد می‌شود.</li>
         <li>کلیدهای <b>کنترلی</b> (دریافتنی، پرداختنی، موجودی کالا، صندوق، بانک، اشخاص، WIP، سربار/دستمزد، و مرجوعی به تأمین‌کننده) می‌توانند معین غیربرگ باشند.</li>
         <li>پیش‌فرض‌های سیستم عوض نمی‌شوند؛ برای زیان واگذاری دارایی فقط کد پیشنهادی <span dir="ltr">6119</span> در راهنما آمده است. انتخاب برگ نهایی با مدیر/حسابدار است.</li>
+      </ul>`),
+    helpSec('📒','موجودی فقط با سند — کاردکس تنها منبع (v591)',`
+      <p>از این نسخه عدد موجودی هیچ‌جا «دستی» نوشته نمی‌شود؛ هر تغییر یک سند (ردیف کاردکس + سند حسابداری) است و کاردکس تنها منبع حقیقت موجودی است.</p>
+      <ul>
+        <li><b>ویرایش کالا:</b> فیلد «موجودی کلی» و خانه‌های ماتریس رنگ×سایز در کالای موجود فقط‌خواندنی است. دکمهٔ «⚖️ تعدیل موجودی» (یا کلیک روی خانهٔ ماتریس) فرم تعدیل را با <b>انبار + رنگ/سایز</b> باز می‌کند. درخواست ذخیرهٔ کالا با عدد موجودی متفاوت خطای <span dir="ltr">E_STOCK_VIA_DOCUMENT</span> (۴۰۹) می‌دهد.</li>
+        <li><b>ماتریس و تنظیم موجودی (API/اکسل):</b> هر خانهٔ <b>تغییرکرده</b> یک تعدیل «شمارش» همان رنگ/سایز و انبار می‌شود (یک ردیف کاردکس با رنگ/سایز + سند). خانهٔ بدون تغییر چیزی ثبت نمی‌کند. «تنظیم موجودی» تک‌کالا انبار را الزامی می‌خواهد و برای کالای ماتریسی رنگ/سایز را هم (<span dir="ltr">E_VARIANT_REQUIRED</span>).</li>
+        <li><b>رنگ صفر:</b> رنگ فقط وقتی از پک زنده خارج می‌شود که <b>همهٔ سایزهایش دقیقاً صفر</b> باشد (نه جمع صفر: S=−۱ و M=+۱ می‌ماند) و در کاردکس هم مانده نداشته باشد. رنگ حذف/صفر‌نویسی نمی‌شود؛ فقط غیرفعال می‌شود و با تعدیل بعدی دوباره فعال می‌شود. برداشتن تیک رنگی که موجودی دارد، موجودی را پاک نمی‌کند.</li>
+        <li><b>موجودی منفی واقعی:</b> در انباری که «اجازهٔ موجودی منفی» دارد فروش تا منفی مجاز است و عدد واقعی (مثلاً <span dir="ltr">−۳</span>) ذخیره و با رنگ قرمز نمایش داده می‌شود؛ دیگر به صفر گرد نمی‌شود. انبار عادی همچنان فروش بیش از موجودی را رد می‌کند.</li>
+        <li><b>گزارش تطبیق موجودی:</b> انبار ↔ رنگ/سایز ↔ کاردکس برای همین سندها بدون انحراف است؛ مانده هر کالا/انبار/رنگ با تابع واحد «Σ کاردکس زنده» (<span dir="ltr">stockOf</span>) قابل محاسبه است.</li>
       </ul>`),
     helpSec('🔢','کد حساب بدون کاما (v590)',`
       <p>در همهٔ فیلدهای <b>کد حساب</b> (نگاشت کدینگ، حساب موجودی/بهای تمام‌شدهٔ انبار، تعریف حساب، حساب هزینه) دیگر جداکنندهٔ هزارگان نمی‌نشیند؛ مثلاً <span dir="ltr">610401</span> دیگر به «۶۱۰,۴۰۱» تبدیل نمی‌شود و گزارش نگاشت برگ برای آن «یافت نشد» نمی‌دهد.</p>

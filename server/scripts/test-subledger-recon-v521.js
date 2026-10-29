@@ -322,12 +322,12 @@ async function main() {
     console.log('\n[products stock patch]');
     db.prepare('UPDATE products SET average_cost_rial=50000 WHERE id=?').run(prodId);
     const curStock = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(prodId).stock) || 0;
-    const patch = await call('PATCH', `/api/products/${prodId}/stock`, { stock: curStock + 4, note: 'تعدیل تست' });
+    const patch = await call('PATCH', `/api/products/${prodId}/stock`, { stock: curStock + 4, warehouse_id: whId, note: 'تعدیل تست' });
     ok(patch.status === 200, 'stock patch accepted', patch.body);
-    const saLed = db.prepare("SELECT * FROM inventory_ledger WHERE source_type='stock_adjust' AND product_id=? ORDER BY id DESC LIMIT 1").get(prodId);
-    ok(saLed && saLed.je_id && liveJe(saLed.je_id), 'stock_adjust ledger row linked to live JE', saLed);
+    const saLed = db.prepare("SELECT * FROM inventory_ledger WHERE source_type='inventory_adjust' AND product_id=? ORDER BY id DESC LIMIT 1").get(prodId);
+    ok(saLed && saLed.je_id && liveJe(saLed.je_id), 'P1: PATCH stock → inventory_adjust ledger row linked to live JE', saLed);
     const saJe = saLed && saLed.je_id && db.prepare('SELECT * FROM journal_entries WHERE id=?').get(saLed.je_id);
-    ok(saJe && saJe.ref_type === 'stock_adjust' && Number(saJe.ref_id) === Number(saLed.id), 'JE ref stock_adjust/ledger id', saJe);
+    ok(saJe && saJe.ref_type === 'inventory_adjust' && Number(saJe.ref_id) === Number(saLed.id), 'JE ref inventory_adjust/ledger id', saJe);
     const saLine = saJe && db.prepare('SELECT * FROM journal_lines WHERE entry_id=? AND account_code=?').get(saJe.id, invAcct.code);
     ok(saLine && Number(saLine.debit_rial) === Math.round(Number(saLed.amount_rial)), 'Dr inventory = qtyΔ × avg', { saLine, amount: saLed && saLed.amount_rial });
 

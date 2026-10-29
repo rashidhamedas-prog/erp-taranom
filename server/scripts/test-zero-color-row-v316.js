@@ -47,7 +47,9 @@ db.exec(`
   );
 `);
 const { initProductVariantsSchema } = require('../lib/product-variants');
-const { generateMatrix, applyStockMatrix, adjustVariantStock } = require('../lib/product-variants/service');
+const { generateMatrix, adjustVariantStock } = require('../lib/product-variants/service');
+// P1: applyStockMatrix is structure-only in production; fixtures seed cache layers directly.
+const applyStockMatrix = (...a) => require('./test-helpers/matrix-seed').seedMatrixQty(...a);
 initProductVariantsSchema(db);
 
 const productId = db.prepare(
@@ -101,7 +103,7 @@ const pinkLeft = db.prepare(`
 `).get(productId, pink.id).c;
 ok(blackLeft === 0, 'موجودی صفرِ همه سایزها رنگ را از ردیف‌های کالا برمی‌دارد', blackLeft);
 ok(blackKept === 2, 'واریانت برای فاکتور قبلی حذف فیزیکی نمی‌شود', blackKept);
-ok(blackStyle === 0, 'پیوند رنگ با کالا پاک می‌شود', blackStyle);
+ok(blackStyle === 1, 'P1: پیوند رنگ با کالا حذف نمی‌شود (soft-retire، فقط واریانت غیرفعال)', blackStyle);
 ok(blackMaster && Number(blackMaster.active) === 1, 'رنگ در فهرست رنگ‌ها می‌ماند', blackMaster);
 ok(pinkLeft === 2, 'رنگ دارای موجودی می‌ماند', pinkLeft);
 

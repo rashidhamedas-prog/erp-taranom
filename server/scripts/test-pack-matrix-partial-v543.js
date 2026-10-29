@@ -84,7 +84,9 @@ db.exec(`
 `);
 
 const { initProductVariantsSchema } = require('../lib/product-variants');
-const { generateMatrix, applyStockMatrix } = require('../lib/product-variants/service');
+const { generateMatrix } = require('../lib/product-variants/service');
+// P1: applyStockMatrix is structure-only in production; fixtures seed cache layers directly.
+const applyStockMatrix = (...a) => require('./test-helpers/matrix-seed').seedMatrixQty(...a);
 const { ensureInventorySchema, expandLivePack, postStockMovement } = require('../lib/inventory/movement');
 const { unitPriceRialForVariant } = require('../lib/inventory/pack-unit-price');
 const {

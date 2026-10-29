@@ -743,11 +743,29 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   }
   const unitVal = resolvedUnit.unit || 'عدد';
   const intStock = requiresIntegerQty(db, Number(req.params.id), unitVal);
-  const stockVal = excelHasMoves
-    ? parseStockQty(prod.stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock })
-    : (bodyHas(body, 'stock')
-      ? parseStockQty(stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock })
-      : parseStockQty(prod.stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock }));
+  // P1 — stock is NEVER written by a product edit. Quantity only moves through a document
+  // (manualAdjust.postAdjust → kardex row + JE). A client that sends a DIFFERENT stock gets 409;
+  // the same number (read-only form echo) is ignored. The Excel import is the one caller allowed
+  // to carry an absolute qty, and it goes through postAdjust(mode=count) below.
+  const isExcelUpsert = !!(body.excel_upsert || body.from_excel);
+  let excelWantStock = null;
+  if (bodyHas(body, 'stock') && stock !== null && String(stock).trim() !== '') {
+    let want = null;
+    try {
+      want = parseStockQty(stock, { db, productId: Number(req.params.id), unit: unitVal, integer: intStock });
+    } catch (_) { want = parseQty(stock, NaN); }
+    if (Number.isFinite(want)) {
+      if (isExcelUpsert) {
+        if (!excelHasMoves) excelWantStock = want;
+      } else if (Math.abs(want - (Number(prod.stock) || 0)) > 1e-6) {
+        return res.status(409).json({
+          error: 'موجودی فقط با سند تعدیل/افتتاحیه تغییر می‌کند — از «تعدیل موجودی» استفاده کنید',
+          code: 'E_STOCK_VIA_DOCUMENT',
+          current_stock: Number(prod.stock) || 0,
+        });
+      }
+    }
+  }
   const alertVal = bodyHas(body, 'stock_alert') ? (parseInt(stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5);
   const noteVal = bodyHas(body, 'note') ? (note || '') : (prod.note || '');
   const colorsVal = bodyHas(body, 'colors')
@@ -775,9 +793,9 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     ? (String(tax_stuff_id || '').trim() || null)
     : (prod.tax_stuff_id || null);
 
-  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,unit_id=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
+  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock_alert=?,unit=?,unit_id=?,note=?,image=?,colors=?,pack_size=?,warehouse_id=?,barcode=?,
     full_name=?,product_type=?,product_index=?,tax_id=?,consumer_price=?,location=?,opening_price=?,sms_code=?,tax_stuff_id=? WHERE id=?`)
-    .run(catName, catId, codeVal, nameVal, priceVal, costVal, stockVal, alertVal, unitVal, resolvedUnit.unit_id, noteVal, image,
+    .run(catName, catId, codeVal, nameVal, priceVal, costVal, alertVal, unitVal, resolvedUnit.unit_id, noteVal, image,
          colorsVal, packVal, whId, barcodeVal,
          fullNameVal, productTypeVal, productIndexVal, taxIdVal, consumerVal,
          locationVal, openingPriceVal, smsCodeVal, taxStuffVal,
@@ -846,31 +864,32 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
       websitePushNext = next;
     }
   }
-  // Excel upsert: set absolute stock on primary warehouse. Normal UI PUT only seeds missing rows.
-  // After warehouse circulation, Excel must not smash live qty.
-  let excelStockAbs = false;
-  if (whId && !excelHasMoves) {
-    if (body.excel_upsert || body.from_excel) {
-      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-        .run(req.params.id, whId);
-      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-        .run(stockVal, req.params.id, whId);
-      excelStockAbs = true;
+  // P1 — Excel upsert is the only absolute-qty caller: it posts a count adjustment (kardex row +
+  // JE) on the primary warehouse. After warehouse circulation Excel must not smash live qty
+  // (excelHasMoves → excelWantStock stays null). A normal UI PUT never touches warehouse_stock.
+  let excelAdjusted = false;
+  if (excelWantStock != null) {
+    const MA = require('../lib/inventory/manual-adjust');
+    const mv = require('../lib/inventory/movement');
+    if (mv.hasActiveMatrixVariants(db, Number(req.params.id))) {
+      // matrix SKUs need a variant per cell — Excel's single qty column cannot express that
     } else {
-      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-        .run(req.params.id, whId, stockVal);
-    }
-  }
-  // Absolute Excel stock must leave a kardex row (skipStock) so UI کاردکس matches WH qty.
-  if (excelStockAbs) {
-    try {
-      require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {
-        createdBy: req.user.id,
-        noteIn: 'موجودی اکسل',
-        noteOut: 'تعدیل اکسل',
-      });
-    } catch (e) {
-      if (db.inTransaction) throw e;
+      const L = require('../lib/inventory/ledger');
+      const curQty = L.warehouseQty(db, Number(req.params.id), whId || null);
+      if (Math.abs(excelWantStock - curQty) > 1e-9) {
+        try {
+          MA.postAdjust(db, {
+            product_id: Number(req.params.id),
+            warehouse_id: whId || undefined,
+            mode: 'count',
+            qty: excelWantStock,
+            note: 'موجودی اکسل',
+          }, req.user);
+          excelAdjusted = true;
+        } catch (e) {
+          return res.status(e.status || 400).json({ error: e.message || 'ثبت موجودی اکسل ناموفق', code: e.code || 'E_EXCEL_STOCK' });
+        }
+      }
     }
   }
   // Excel upsert must never clear primary image / gallery
@@ -887,7 +906,7 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   } catch (_) {}
   if (websitePushNext === 0) {
     try { require('../lib/website-stock-sync').silenceProductWebsiteOutbox(db, req.params.id); } catch (_) {}
-  } else if (websitePushNext === 1 || parseQty(stockVal) !== parseQty(oldStock)) {
+  } else if (websitePushNext === 1 || excelAdjusted) {
     try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
   }
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
@@ -900,120 +919,89 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   res.json(jsonSafeProduct(row));
 });
 
-// Update stock (admin only) — always via inventory_ledger so کاردکس stays truthful.
+// Update stock (admin only) — P1: a thin wrapper over manualAdjust.postAdjust(mode='count').
+// No raw UPDATE of products/warehouse_stock any more: the change is a kardex row (+ variant_id for
+// matrix products) with its JE, ws = Σledger. warehouse_id is required; matrix products need variant_id.
 router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
-  const { stock, note } = req.body;
-  if (stock === undefined) return res.status(400).json({ error: 'موجودی الزامی است' });
+  const body = req.body || {};
+  if (body.stock === undefined || body.stock === null || body.stock === '') {
+    return res.status(400).json({ error: 'موجودی الزامی است' });
+  }
   const db = getDB();
-  const VA = require('../lib/inventory/value-accounts');
-  let reasonCode;
-  try { reasonCode = VA.normReason(req.body.reason_code); } catch (e) { return res.status(400).json({ error: e.message, code: e.code }); }
-  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
+  const pid = Number(req.params.id);
+  const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
-  const newStock = parseStockQty(stock, {
-    db, productId: Number(req.params.id), unit: prod.unit,
-    integer: requiresIntegerQty(db, Number(req.params.id), prod.unit),
-  });
-  const avg = Math.round(Number(prod.average_cost_rial) || Number(prod.cost) || 0);
-  if (newStock > 0 && !avg) {
+  const warehouseId = Number(body.warehouse_id) || 0;
+  if (!warehouseId) {
     return res.status(422).json({
-      error: 'موجودی بدون بهای میانگین مجاز نیست — ابتدا بها را از حواله مواد یا کارت کالا ثبت کنید',
-      code: 'E_OPENING_COST_REQUIRED',
-      name: prod.name,
-    });
-  }
-  const oldStock = Number(prod.stock) || 0;
-  const change = newStock - oldStock;
-  let whId = prod.warehouse_id || null;
-  if (!whId) {
-    whId = db.prepare(`
-      SELECT id FROM warehouses WHERE COALESCE(active,1)=1
-      ORDER BY CASE WHEN COALESCE(is_default,0)=1 THEN 0 ELSE 1 END, id LIMIT 1
-    `).get()?.id || null;
-  }
-  if (!whId) {
-    return res.status(422).json({
-      error: 'برای تعدیل موجودی باید انبار کالا مشخص باشد',
+      error: 'برای تعدیل موجودی باید انبار مشخص باشد',
       code: 'E_STOCK_WAREHOUSE_REQUIRED',
     });
   }
+  const MA = require('../lib/inventory/manual-adjust');
+  const variantId = Number(body.variant_id) || 0;
+  if (!variantId && require('../lib/inventory/movement').hasActiveMatrixVariants(db, pid)) {
+    return res.status(422).json({
+      error: 'کالای رنگ×سایز: برای تعدیل، واریانت (رنگ/سایز) را مشخص کنید',
+      code: 'E_VARIANT_REQUIRED',
+    });
+  }
+  let qty;
   try {
-    db.transaction(() => {
-      if (!prod.warehouse_id) {
-        db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, req.params.id);
-      }
-      db.prepare('UPDATE products SET stock=? WHERE id=?').run(newStock, req.params.id);
-      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-        .run(req.params.id, whId);
-      const wsBefore = Number(db.prepare(
-        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-      ).get(req.params.id, whId)?.qty) || 0;
-      // Absolute override on primary WH so invoice deduction matches header.
-      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-        .run(newStock, req.params.id, whId);
-      // The change itself is the adjustment document (items with movement
-      // history are skipped by reconcileProductStockLedger below).
-      const whDelta = newStock - wsBefore;
-      if (Math.abs(whDelta) > 1e-9) {
-        const led = require('../lib/inventory/ledger').postInventoryMovement(db, {
-          eventType: 'adjustment',
-          productId: Number(req.params.id),
-          warehouseId: whId,
-          qty: whDelta,
-          unitCostRial: avg,
-          sourceType: 'stock_adjust',
-          sourceId: Number(req.params.id),
-          date: require('../jalali').todayJalali(),
-          note: note || 'تعدیل دستی موجودی',
-          createdBy: req.user.id,
-          skipStock: true,
-          updateAvg: false,
-        });
-        // GL follows the kardex value change (qtyΔ × avg): Dr/Cr inventory ↔ adjustment account.
-        const amt = Math.round(Number(led && led.amount_rial) || 0);
-        if (led && amt) {
-          const counter = reasonCode
-            ? VA.adjustCounterAccount(db, {
-              inventoryCode: require('../lib/inventory/ledger').inventoryAccountForWarehouse(db, whId).code, reasonCode,
-            })
-            : null;
-          const jeId = require('../lib/subledger-recon').postInventoryValueAdjustmentJe(db, {
-            warehouseId: whId,
-            amountRial: whDelta > 0 ? amt : -amt,
-            date: require('../jalali').todayJalali(),
-            userId: req.user.id,
-            sourceType: 'stock_adjust',
-            sourceId: led.id,
-            description: `تعدیل موجودی کالا ${prod.name || prod.id} — ${led.tx_no}${reasonCode ? ' — ' + VA.ADJUST_REASONS[reasonCode] : ''}`,
-            counterCode: counter ? counter.code : null,
-            counterName: counter ? counter.name : null,
-          });
-          if (jeId) db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?').run(jeId, led.id);
-        }
-      }
-      // Kardex must reflect the absolute qty (skipStock — stock tables already set).
-      require('../lib/opening-post').reconcileProductStockLedger(db, req.params.id, {
-        createdBy: req.user.id,
-        noteIn: note || 'تعدیل دستی موجودی',
-        noteOut: note || 'تعدیل دستی موجودی',
+    qty = parseStockQty(body.stock, {
+      db, productId: pid, unit: prod.unit,
+      integer: requiresIntegerQty(db, pid, prod.unit),
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message || 'موجودی نامعتبر است', code: e.code });
+  }
+  const note = String(body.note || '').trim() || 'تعدیل دستی موجودی';
+  const adjBody = {
+    product_id: pid,
+    warehouse_id: warehouseId,
+    variant_id: variantId || undefined,
+    mode: 'count',
+    qty,
+    reason_code: body.reason_code || undefined,
+    date: body.date || undefined,
+    note,
+  };
+  let out = null;
+  try {
+    const plan = MA.planAdjust(db, adjBody, req.user);
+    if (plan.delta_qty > 0 && !plan.unit_cost_rial) {
+      return res.status(422).json({
+        error: 'موجودی بدون بهای میانگین مجاز نیست — ابتدا بها را از حواله مواد یا کارت کالا ثبت کنید',
+        code: 'E_OPENING_COST_REQUIRED',
+        name: prod.name,
       });
-      if (Math.abs(change) > 1e-9) {
-        try {
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-            .run(req.params.id, req.user.id, change, note || `موجودی → ${newStock}`);
-        } catch (_) { /* optional legacy */ }
-      }
-    })();
+    }
+    if (plan.delta_qty) out = MA.postAdjust(db, adjBody, req.user);
   } catch (e) {
     return res.status(e.status || 400).json({
       error: e.message || 'تعدیل موجودی ناموفق',
       code: e.code || 'E_STOCK_ADJUST',
+      ...(e.shortages ? { shortages: e.shortages } : {}),
     });
   }
-  audit(req.user.id, 'update_stock', 'product', req.params.id, note || `موجودی → ${newStock}`);
-  try { require('../lib/website-stock-sync').notifyStockChanged(db, req.params.id); } catch (_) {}
-  const live = db.prepare('SELECT stock FROM products WHERE id=?').get(req.params.id);
-  res.json({ ok: true, stock: Number(live?.stock) || newStock, new_stock: Number(live?.stock) || newStock });
+  if (out) {
+    audit(req.user.id, 'update_stock', 'product', pid, note || `موجودی → ${qty}`);
+    try { require('../lib/website-stock-sync').notifyStockChanged(db, pid, { warehouseId }); } catch (_) {}
+  }
+  const live = db.prepare('SELECT stock FROM products WHERE id=?').get(pid);
+  res.json({
+    ok: true,
+    stock: Number(live && live.stock) || 0,
+    new_stock: Number(live && live.stock) || 0,
+    warehouse_id: warehouseId,
+    variant_id: variantId || null,
+    warehouse_qty: qty,
+    delta_qty: out ? out.delta_qty : 0,
+    ledger_id: out ? out.id : null,
+    tx_no: out ? out.tx_no : null,
+    je_id: out ? out.je_id : null,
+    je_no: out ? out.je_no : null,
+  });
 });
 
 // Delete (admin only) — cascade stock children; block if used in documents

@@ -205,7 +205,7 @@ async function main() {
   }
   const mapIn = src.match(/<input id="s-\$\{esc\(d\.key\)\}"[^>]*>/);
   ok(mapIn && /coa-code/.test(mapIn[0]) && /inputmode="numeric"/.test(mapIn[0]), 'coa-map inputs have coa-code + inputmode');
-  ok(/erp-taranom-v590/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')), 'sw.js CACHE is v590');
+  ok(/erp-taranom-v59\d/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')), 'sw.js CACHE is ≥ v590');
 
   console.warn = realWarn;
   console.log(`\n${fail ? '💥' : '🎉'} ${pass} passed, ${fail} failed`);

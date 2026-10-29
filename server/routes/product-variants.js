@@ -13,11 +13,11 @@ const {
   upsertSize,
   generateMatrix,
   applyStockMatrix,
+  postStockMatrix,
   listVariants,
   getVariant,
   createVariant,
   updateVariant,
-  adjustVariantStock,
   softDeleteVariant,
   ensureDefaultVariant,
   styleMetadata,
@@ -194,10 +194,18 @@ router.post('/stock-matrix', auth, adminOrAccounting, (req, res) => {
     const productId = parseInt(req.body.product_id || req.body.productId, 10);
     if (!productId) return res.status(400).json({ error: 'product_id الزامی است' });
     const cells = Array.isArray(req.body.cells) ? req.body.cells : [];
-    const row = db.transaction(() => applyStockMatrix(db, productId, cells, {
+    const opts = {
       warehouse_id: req.body.warehouse_id,
       auto_barcode: req.body.auto_barcode !== false,
-    }))();
+      reason_code: req.body.reason_code,
+      date: req.body.date,
+      note: req.body.note,
+    };
+    // P1: structure_only → build/activate SKUs only (product form save). Otherwise every CHANGED
+    // cell is one postAdjust(mode=count, variant_id) in a single transaction (kardex row + JE).
+    const row = db.transaction(() => (req.body.structure_only === true || req.body.structure_only === 1
+      ? applyStockMatrix(db, productId, cells, opts)
+      : postStockMatrix(db, productId, cells, opts, req.user)))();
     try { audit(req.user.id, 'update', 'product_variants', productId, `ماتریس موجودی ${row.stock}`, req); } catch (_) {}
     try { require('../lib/website-stock-sync').notifyStockChanged(db, productId); } catch (_) {}
     res.json(row);
@@ -390,8 +398,27 @@ router.patch('/:id/stock', auth, adminOrAccounting, centralOnly, (req, res) => {
     const mode = req.body && req.body.delta != null ? 'delta' : 'set';
     const value = mode === 'delta' ? req.body.delta : req.body.stock;
     if (value == null) return res.status(400).json({ error: 'stock یا delta الزامی است' });
-    const row = adjustVariantStock(db, id, value, mode);
-    res.json(row);
+    // P1: no raw stock write — a variant stock change is an adjustment document
+    // (kardex row with variant_id + JE). warehouse_id is required.
+    const v = getVariant(db, id);
+    if (!v) return res.status(404).json({ error: 'واریانت یافت نشد' });
+    const warehouseId = Number(req.body.warehouse_id) || 0;
+    if (!warehouseId) {
+      return res.status(422).json({ error: 'برای تعدیل موجودی باید انبار مشخص باشد', code: 'E_STOCK_WAREHOUSE_REQUIRED' });
+    }
+    const MA = require('../lib/inventory/manual-adjust');
+    const out = db.transaction(() => MA.postAdjust(db, {
+      product_id: v.product_id,
+      variant_id: id,
+      warehouse_id: warehouseId,
+      mode: mode === 'delta' ? 'delta' : 'count',
+      qty: value,
+      reason_code: req.body.reason_code || undefined,
+      date: req.body.date || undefined,
+      note: String(req.body.note || '').trim() || 'تعدیل موجودی واریانت',
+    }, req.user))();
+    const row = getVariant(db, id);
+    res.json({ ...row, ledger_id: out.id, tx_no: out.tx_no, je_id: out.je_id, warehouse_id: warehouseId });
   } catch (e) { sendErr(res, e); }
 });
 

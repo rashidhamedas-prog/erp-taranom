@@ -89,8 +89,10 @@ db.exec(`
 
 const { initProductVariantsSchema } = require('../lib/product-variants');
 const {
-  generateMatrix, applyStockMatrix, packSizeFor,
+  generateMatrix, packSizeFor,
 } = require('../lib/product-variants/service');
+// P1: applyStockMatrix is structure-only in production; fixtures seed cache layers directly.
+const applyStockMatrix = (...a) => require('./test-helpers/matrix-seed').seedMatrixQty(...a);
 const {
   ensureInventorySchema, expandLivePack, postStockMovement,
 } = require('../lib/inventory/movement');
@@ -143,7 +145,24 @@ ok(live.has_matrix === 1 && live.matrix_sku_count === 4, 'has_matrix with 4 acti
 const defined = expandLivePack(db, productId, 1, { mode: 'defined' });
 ok(defined.lines.length === 4 && defined.pack_size_auto === 4, 'defined mode includes zero-stock active SKU', defined);
 
-// Uncheck black entirely — even zero-stock black×M must deactivate
+// P1: unchecking a color that STILL carries stock must NOT zero it — black×S=2 stays active
+applyStockMatrix(db, productId, [
+  { color_id: pink.id, size_id: szS.id, qty: 5 },
+  { color_id: pink.id, size_id: szM.id, qty: 3 },
+], { warehouse_id: 1 });
+const blackKeptWithStock = db.prepare(`
+  SELECT COUNT(*) c FROM product_variants
+  WHERE product_id=? AND color_id=? AND active=1 AND is_default=0 AND stock>0
+`).get(productId, black.id).c;
+ok(blackKeptWithStock === 1, 'P1: unchecked color with stock keeps its SKU and qty', blackKeptWithStock);
+
+// Uncheck black entirely once it is truly zero — even zero-stock black×M must deactivate
+applyStockMatrix(db, productId, [
+  { color_id: pink.id, size_id: szS.id, qty: 5 },
+  { color_id: pink.id, size_id: szM.id, qty: 3 },
+  { color_id: black.id, size_id: szS.id, qty: 0 },
+  { color_id: black.id, size_id: szM.id, qty: 0 },
+], { warehouse_id: 1 });
 applyStockMatrix(db, productId, [
   { color_id: pink.id, size_id: szS.id, qty: 5 },
   { color_id: pink.id, size_id: szM.id, qty: 3 },

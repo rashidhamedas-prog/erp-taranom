@@ -160,7 +160,9 @@ try {
     );
   `);
   const { initProductVariantsSchema } = require('../lib/product-variants');
-  const { generateMatrix, applyStockMatrix, packSizeFor, adjustVariantStock } = require('../lib/product-variants/service');
+  const { generateMatrix, packSizeFor, adjustVariantStock } = require('../lib/product-variants/service');
+// P1: applyStockMatrix is structure-only in production; fixtures seed cache layers directly.
+const applyStockMatrix = (...a) => require('./test-helpers/matrix-seed').seedMatrixQty(...a);
   initProductVariantsSchema(db);
   const productId = db.prepare("INSERT INTO products (code,name,price,stock,pack_size) VALUES ('STY3','مانتو',100000,0,1)").run().lastInsertRowid;
   generateMatrix(db, {

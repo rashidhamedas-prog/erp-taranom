@@ -1,3 +1,18 @@
+### ۱۴۰۵/۰۸/۰۸ — P1: کاردکس تنها منبع موجودی (Kardex SSOT) (SW v591)
+- **شاخه:** `fix/p1-kardex-ssot` (پایه: main b48d6427)؛ منبع: `P1-kardex-ssot.md` + `reports/pv-2026-10-29.md`. **بدون Iran deploy** (orchestrator پس از GREEN GATE + PR).
+- **PUT /products:** `stock` نادیده؛ مقدار متفاوت ← ۴۰۹ `E_STOCK_VIA_DOCUMENT`. seed مستقیم `warehouse_stock` حذف شد؛ تنها استثنا مسیر Excel (`excel_upsert`) که با `manualAdjust.postAdjust(mode=count)` سند می‌سازد.
+- **PATCH /products/:id/stock** و **PATCH /product-variants/:id/stock:** wrapper روی `postAdjust(count)`؛ `warehouse_id` الزامی (`E_STOCK_WAREHOUSE_REQUIRED`) و برای کالای ماتریسی `variant_id` (`E_VARIANT_REQUIRED`). مسیر قدیمی `stock_adjust` حذف؛ ledger/JE اکنون `inventory_adjust`.
+- **POST /product-variants/stock-matrix:** هر خانهٔ تغییرکرده → `postAdjust(count, variant_id)` در یک tx (`postStockMatrix`)؛ `structure_only:true` فقط SKU می‌سازد؛ `applyStockMatrix` دیگر qty نمی‌نویسد (فیکسچر تست: `scripts/test-helpers/matrix-seed.js`).
+- **ADAPT (PV):** `manual-adjust` اکنون `variantId` را به `postInventoryMovement` می‌دهد ⇒ `inventory_ledger.variant_id` ست می‌شود (کاردکس با فیلتر رنگ/سایز) و `postVariantLayer` فقط لایهٔ vws/pv را نگه می‌دارد؛ `reverseAdjustInTx` ردیف برگشت را با همان `variant_id` و بازفعال‌سازی رنگ می‌زند. مسیر دوگانه‌ای که رنگ را اشتباه retire می‌کرد حذف شد.
+- **retireZeroStockColors:** فقط وقتی همهٔ سایزهای رنگ دقیقاً ۰ (نه Σ) و vws/pv/کاردکس مانده ندارند؛ بدون wipe `stock=0`؛ `active=0` (soft) و `product_style_colors` حذف نمی‌شود؛ `reactivateVariant` در `postAdjust`/ابطال.
+- **منفی واقعی:** clampهای `Math.max(0,…)` در `ledger.js`/`movement.js` برداشته شد (انبار allow_negative → `products.stock`/ws منفی واقعی)؛ UI با کلاس `neg-qty` (قرمز) در کارت/جدول کالا، ماتریس و فیلد موجودی.
+- **SSOT:** `stockOf(db,{productId,warehouseId,variantId})` در `lib/inventory/ledger.js` (Σ `LEDGER_LIVE_SQL`). مصرف‌کنندگان بررسی‌شده: `invoice-line-wh-stock`, `line-availability`, `website-stock-sync`, لیست کالا (`wh_qty` از ws) — تغییری لازم نبود چون از ws نگه‌داشته‌شده با ledger می‌خوانند.
+- **فرم کالا:** `p-stock` و خانه‌های ماتریس در ویرایش فقط‌خواندنی؛ دکمهٔ «⚖️ تعدیل موجودی» (و کلیک روی خانه) `openStockAdjustModal` را با انبار+رنگ/سایز باز می‌کند؛ `saveProduct` برای کالای موجود `stock` نمی‌فرستد و ماتریس را `structure_only` می‌زند؛ کالای تازه با افتتاحیهٔ سندی.
+- **تست:** `scripts/test-p1-kardex-ssot.js` (۵۶ assertion؛ `npm run test:p1-kardex-ssot` داخل `npm test`). به‌روزرسانی: v316، v318 (soft-retire)، v201، v439 (+assertion «موجودی را نگه می‌دارد»)، v543، v528، v521، `test-sync.js` (PATCH با `warehouse_id`).
+- **Help:** بند ادمین «موجودی فقط با سند — کاردکس تنها منبع (v591)». **SW:** `erp-taranom-v591`، `app.js?v=591`.
+- **فایل‌ها:** `lib/inventory/{ledger,movement,manual-adjust}.js`، `lib/product-variants/service.js`، `routes/{products,product-variants}.js`، `public/{app.js,app.css,sw.js,index.html}`، `package.json`، تست‌ها، CHANGE-LOG.
+- **Deploy:** ⏳ منتظر orchestrator (PR به main).
+
 ### ۱۴۰۵/۰۸/۰۸ — P0-الف: باگ کاما در کد حساب «610,401» + نرمال‌سازی سرور + migration (SW v590)
 - **شاخه:** `fix/p0-coa-comma` (پایه: `pv/verify` روی main 172774b4)؛ منبع: `P0-coa-comma-and-coa-keys.md`. **Merge:** #110 → 48d6427.
 - **ریشه:** `isMoneyField` روی id شامل `pay|cost|...` مثل `s-coa_payroll_expense` true بود → `formatMoneyInput` → «610,401». production مقدار `coa_payroll_expense='610,401'` داشت (PV).
