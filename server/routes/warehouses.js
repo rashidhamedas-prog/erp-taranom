@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
+const { normalizeAccountCode } = require('../lib/coa-map');
 const { auth, adminOrAccounting, requireWarehouseOps, requireWarehouseReportView } = require('../middleware/auth');
 
 // Warehouse Phase 2 — /moves/* gated by acc_warehouse_ops: view | create | delete (=void).
@@ -245,8 +246,13 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
     return res.status(e.status || 400).json({ error: e.message });
   }
   const invSys = String(inventory_system || 'perpetual').toLowerCase() === 'periodic' ? 'periodic' : 'perpetual';
-  const invCoa = String(inventory_coa_code || '').trim() || null;
-  const cogsCoa = String(cogs_coa_code || '').trim() || null;
+  let invCoa; let cogsCoa;
+  try {
+    invCoa = normalizeAccountCode(inventory_coa_code, 'حساب موجودی') || null;
+    cogsCoa = normalizeAccountCode(cogs_coa_code, 'حساب بهای تمام‌شده') || null;
+  } catch (e) {
+    return res.status(e.status || 422).json({ error: e.message, code: e.code });
+  }
   // v585 Phase 1: perpetual ⇒ leaf inventory + leaf COGS accounts required; periodic exempt.
   const coaErr = require('../lib/coa-leaf-policy').validateWarehouseCoaInput(db, {
     warehouse_type: warehouse_type || 'finished_goods', inventory_system: invSys,
@@ -303,11 +309,13 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   }
   let nextInvCoa = row.inventory_coa_code || null;
   if (inventory_coa_code !== undefined) {
-    nextInvCoa = String(inventory_coa_code || '').trim() || null;
+    try { nextInvCoa = normalizeAccountCode(inventory_coa_code, 'حساب موجودی') || null; }
+    catch (e) { return res.status(e.status || 422).json({ error: e.message, code: e.code }); }
   }
   let nextCogsCoa = row.cogs_coa_code || null;
   if (req.body.cogs_coa_code !== undefined) {
-    nextCogsCoa = String(req.body.cogs_coa_code || '').trim() || null;
+    try { nextCogsCoa = normalizeAccountCode(req.body.cogs_coa_code, 'حساب بهای تمام‌شده') || null; }
+    catch (e) { return res.status(e.status || 422).json({ error: e.message, code: e.code }); }
   }
   // v585 Phase 1: validate the resulting mapping when the request touches it and the warehouse
   // stays active (deactivating / toggling flags of a legacy unmapped warehouse stays possible).

@@ -183,7 +183,9 @@ async function main() {
     ok(r.status === 200 && r.data?.cogs_coa_code === '5190' && r.data?.inventory_coa_code === '110401', 'perpetual with leaf maps → saved', r.data);
     const savedId = r.data?.id;
     r = await api('PUT', `/api/warehouses/${savedId}`, { cogs_coa_code: '5101x' });
-    ok(r.status === 400 && r.data?.code === 'E_WH_COGS_COA_INVALID', 'PUT with bad cogs → rejected', r.data);
+    ok(r.status === 422 && r.data?.code === 'E_COA_CODE_FORMAT', 'PUT with non-numeric cogs → 422 E_COA_CODE_FORMAT (P0)', r.data);
+    r = await api('PUT', `/api/warehouses/${savedId}`, { cogs_coa_code: '519999' });
+    ok(r.status === 400 && r.data?.code === 'E_WH_COGS_COA_INVALID', 'PUT with unknown numeric cogs → rejected', r.data);
     r = await api('PUT', `/api/warehouses/${whA}`, { active: 0 });
     ok(r.status === 200, 'PUT deactivate legacy unmapped warehouse still allowed', r.data);
     r = await api('PUT', `/api/warehouses/${whA}`, { active: 1 });

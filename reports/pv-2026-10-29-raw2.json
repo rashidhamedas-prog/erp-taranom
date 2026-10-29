@@ -1,0 +1,304 @@
+{
+  "jlCols": [
+    "id",
+    "entry_id",
+    "account_code",
+    "account_name",
+    "debit",
+    "credit",
+    "description",
+    "sync_seq",
+    "version",
+    "line_no",
+    "detail_account_id",
+    "debit_rial",
+    "credit_rial",
+    "cost_center_id",
+    "project_id",
+    "tax_type",
+    "tafsili2_code"
+  ],
+  "jeCols": [
+    "id",
+    "entry_date",
+    "description",
+    "ref_type",
+    "ref_id",
+    "created_by",
+    "created_at",
+    "cost_center_id",
+    "attachment",
+    "sync_seq",
+    "version",
+    "deleted_at",
+    "deleted_by",
+    "src_system",
+    "src_doc_no",
+    "src_atf",
+    "fiscal_year_id",
+    "voucher_number",
+    "voucher_type",
+    "status",
+    "total_debit_rial",
+    "total_credit_rial",
+    "doc_type",
+    "is_closing",
+    "client_request_id",
+    "reversed_by_je_id",
+    "reverses_je_id"
+  ],
+  "moneyCols": {
+    "debitCol": "debit_rial",
+    "creditCol": "credit_rial"
+  },
+  "13_bal_1104": {
+    "bal_1104": null
+  },
+  "13_bal_1104_exact": {
+    "bal": null
+  },
+  "13_kardex_wh": [
+    {
+      "warehouse_id": 34,
+      "signed_amt": 9874049856,
+      "qty": 1754,
+      "n": 478
+    },
+    {
+      "warehouse_id": 35,
+      "signed_amt": 1192069259,
+      "qty": 482,
+      "n": 286
+    }
+  ],
+  "13_kardex_formula2": [
+    {
+      "warehouse_id": 34,
+      "amt_raw": 20910381732,
+      "signed_abs": 10216157888
+    },
+    {
+      "warehouse_id": 35,
+      "amt_raw": 4175019059,
+      "signed_abs": 1192069259
+    }
+  ],
+  "14_zero_in_types": [
+    {
+      "event_type": "transfer_in",
+      "source_type": "warehouse_transfer",
+      "n": 165,
+      "amt": 0
+    }
+  ],
+  "14_transfer_pairs": {
+    "pairs": 194,
+    "zero_in_wh35": 165,
+    "effect_out_amt": 1417257845
+  },
+  "15_return_null_wh": {
+    "n": 34,
+    "amt": 323981828,
+    "je_ids": null
+  },
+  "15_any_null_wh": [
+    {
+      "event_type": "sale_return",
+      "n": 34,
+      "amt": 323981828
+    }
+  ],
+  "16_adjust_live_no_je": [
+    {
+      "id": 799,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 310253566,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1168,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 622572446,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1188,
+      "product_id": 51,
+      "warehouse_id": 33,
+      "amount_rial": 14000000,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1231,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 868250544,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1273,
+      "product_id": 334,
+      "warehouse_id": 34,
+      "amount_rial": 66679942,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1356,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 519951730,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1386,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 437375423,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1405,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 1461118710,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1484,
+      "product_id": 333,
+      "warehouse_id": 33,
+      "amount_rial": 2256880375,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1523,
+      "product_id": 23,
+      "warehouse_id": 33,
+      "amount_rial": 32277000,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1978,
+      "product_id": 115,
+      "warehouse_id": 34,
+      "amount_rial": 66742000,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    },
+    {
+      "id": 1979,
+      "product_id": 131,
+      "warehouse_id": 35,
+      "amount_rial": 12913914,
+      "event_type": "adjustment",
+      "status": "posted",
+      "je_id": null
+    }
+  ],
+  "18_ledger_1977": {
+    "id": 1977,
+    "tx_no": "INV-1977",
+    "event_type": "opening",
+    "product_id": 109,
+    "warehouse_id": 35,
+    "qty_in": 2,
+    "qty_out": 0,
+    "qty_balance": 52,
+    "unit_cost_rial": 5379500,
+    "amount_rial": 10759000,
+    "avg_cost_after_rial": 5379500,
+    "batch_id": null,
+    "serial_id": null,
+    "source_type": "opening_inventory",
+    "source_id": 109,
+    "je_id": null,
+    "reversed_of": null,
+    "status": "posted",
+    "date": "1405/06/31",
+    "note": "موجودی اول دوره",
+    "created_by": 1,
+    "created_at": 1792940522,
+    "sync_seq": 784481,
+    "version": 1,
+    "variant_id": null
+  },
+  "18_ledger_1230": {
+    "id": 1230,
+    "product_id": 335,
+    "warehouse_id": 34,
+    "amount_rial": 71232000,
+    "event_type": "opening",
+    "je_id": 490,
+    "status": "posted"
+  },
+  "18_n3201": {
+    "n": 0
+  },
+  "18_je_490": [
+    {
+      "id": 1287,
+      "entry_id": 490,
+      "account_code": "1104",
+      "account_name": "موجودی کالا",
+      "debit": 7123200,
+      "credit": 0,
+      "description": "",
+      "sync_seq": 545230,
+      "version": 1,
+      "line_no": 1,
+      "detail_account_id": null,
+      "debit_rial": 71232000,
+      "credit_rial": 0,
+      "cost_center_id": null,
+      "project_id": null,
+      "tax_type": null,
+      "tafsili2_code": null
+    },
+    {
+      "id": 1288,
+      "entry_id": 490,
+      "account_code": "3102",
+      "account_name": "تراز افتتاحیه",
+      "debit": 0,
+      "credit": 7123200,
+      "description": "",
+      "sync_seq": 545232,
+      "version": 1,
+      "line_no": 2,
+      "detail_account_id": null,
+      "debit_rial": 0,
+      "credit_rial": 71232000,
+      "cost_center_id": null,
+      "project_id": null,
+      "tax_type": null,
+      "tafsili2_code": null
+    }
+  ],
+  "11_missing_codes": {
+    "has_110402": false,
+    "has_110403": false
+  }
+}

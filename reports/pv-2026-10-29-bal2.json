@@ -1,0 +1,102 @@
+{
+  "balApproved": {
+    "bal_rial": 10952081052,
+    "bal_toman": 1095208105.2
+  },
+  "balAnyLive": {
+    "bal_rial": 10952081052
+  },
+  "kardex": [
+    {
+      "warehouse_id": 34,
+      "signed_amt": 9874049856
+    },
+    {
+      "warehouse_id": 35,
+      "signed_amt": 1192069259
+    }
+  ],
+  "gap": {
+    "gl": 10952081052,
+    "k34": 9874049856,
+    "k35": 1192069259,
+    "kSum": 11066119115
+  },
+  "adjs": [
+    {
+      "id": 1273,
+      "product_id": 334,
+      "warehouse_id": 34,
+      "amount_rial": 66679942,
+      "je_id": null,
+      "status": "posted",
+      "event_type": "adjustment"
+    },
+    {
+      "id": 1978,
+      "product_id": 115,
+      "warehouse_id": 34,
+      "amount_rial": 66742000,
+      "je_id": null,
+      "status": "posted",
+      "event_type": "adjustment"
+    },
+    {
+      "id": 1979,
+      "product_id": 131,
+      "warehouse_id": 35,
+      "amount_rial": 12913914,
+      "je_id": null,
+      "status": "posted",
+      "event_type": "adjustment"
+    }
+  ],
+  "adj1977": {
+    "id": 1977,
+    "product_id": 109,
+    "warehouse_id": 35,
+    "amount_rial": 10759000,
+    "event_type": "opening",
+    "je_id": null,
+    "status": "posted"
+  },
+  "n3201": {
+    "n": 0
+  },
+  "je490": [
+    {
+      "id": 1287,
+      "entry_id": 490,
+      "account_code": "1104",
+      "debit_rial": 71232000,
+      "credit_rial": 0,
+      "debit": 7123200,
+      "credit": 0
+    },
+    {
+      "id": 1288,
+      "entry_id": 490,
+      "account_code": "3102",
+      "debit_rial": 0,
+      "credit_rial": 71232000,
+      "debit": 0,
+      "credit": 7123200
+    }
+  ],
+  "led1230": {
+    "id": 1230,
+    "product_id": 335,
+    "warehouse_id": 34,
+    "amount_rial": 71232000,
+    "event_type": "opening",
+    "je_id": 490,
+    "status": "posted"
+  },
+  "adjLiveNoJeSum": {
+    "n": 12,
+    "amt": 6669015650
+  },
+  "adjTargetSum": {
+    "amt": 146335856
+  }
+}
