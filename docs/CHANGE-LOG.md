@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۰۸ — P0-الف: باگ کاما در کد حساب «610,401» + نرمال‌سازی سرور + migration (SW v590)
+- **شاخه:** `fix/p0-coa-comma` (پایه: `pv/verify` روی main 172774b4)؛ منبع: `P0-coa-comma-and-coa-keys.md`. **بدون deploy توسط این نوبت** (orchestrator).
+- **ریشه:** `isMoneyField` روی id شامل `pay|cost|...` مثل `s-coa_payroll_expense` true بود → `formatMoneyInput` → «610,401». production مقدار `coa_payroll_expense='610,401'` داشت (PV).
+- **کلاینت (`public/app.js`):** `isAccountCodeField(t)` (کلاس `coa-code`/`coa-map-input`، `data-coa-key`، `dataset.kind='account-code'`، id/name شامل `coa_`/`-coa`/`account-code`) ⇒ `isMoneyField` و `wantsEnDigits` زود `false`. ورودی‌های کد حساب (نگاشت کدینگ، انبار `wh-inv-coa`/`wh-cogs-coa`، تعریف حساب `coa-code`، هزینه `ec-account`، دارایی ثابت `fa-coa`، `pty-coa`) کلاس `coa-code` + `inputmode=numeric` + `dir=ltr`. انتخابگرهای hidden `*-account-code` ورودی متنی نیستند. «شمارهٔ حساب» بانکی (`u-bank-account` …) کد COA نیست و دست نخورد.
+- **سرور (`lib/coa-map.js`):** `normalizeAccountCode`/`tryNormalizeAccountCode` — رقم فارسی/عربی→لاتین، حذف `[,٬،\s.]`؛ فقط ارقام یا خالی وگرنه ۴۲۲ `E_COA_CODE_FORMAT`. استفاده: `PUT /settings` (فقط کلیدهای LEGACY coa_*؛ `coa_mode`/`coa_product_tafsili_mode` کد نیستند)، `POST/PUT /warehouses` (`inventory_coa_code`/`cogs_coa_code`)، `POST /accounting/chart-of-accounts` (code).
+- **Migration `coa_code_separator_normalize_v1`** (`migrateCoaCodeSeparators` از `initDB`): idempotent با flag در settings؛ فقط `settings` با کلید `coa_%` و ستون‌های کد انبار؛ مقدار غیرعددی دست‌نخورده؛ هر تغییر یک ردیف `audit_log` (`action=coa_code_normalize`، detail=JSON key/old/new). هیچ سند/مانده‌ای جابه‌جا نمی‌شود. `ledger_leaf_enforcement=warn` دست نخورد؛ SQL گزارش‌ها (posted/approved) در P0 دست نخورد.
+- **تست:** `scripts/test-coa-code-normalize-p0.js` (۵۳ assertion: normalize، migration دو بار، PUT settings، warehouses، گارد کلاینت با vm) + `npm run test:coa-code-normalize` داخل `npm test`؛ `test-coa-leaf-mapping-v585` به‌روز (cogs غیرعددی اکنون ۴۲۲ E_COA_CODE_FORMAT).
+- **Help:** بند ادمین «کد حساب بدون کاما (v590)». **SW:** `erp-taranom-v590`.
+- **جذب absorbed-coa-keys:** فاز ۰ (transfer-unit)، ۱ (coa keys SSOT/PUT validation)، ۲ (product tafsili/warehouse posting)، ۳ (leaf report + wh36)، ۴ (GL↔kardex gap) همه روی main با تست سبز؛ در P0 چیزی از آن‌ها بازپیاده نشد.
+- **فایل‌ها:** `lib/coa-map.js`، `routes/{settings,warehouses,accounting}.js`، `db.js`، `public/{app.js,sw.js}`، `package.json`، `scripts/{test-coa-code-normalize-p0,test-coa-leaf-mapping-v585}.js`، CHANGE-LOG.
+- **Deploy:** ⏳ منتظر orchestrator (بکاپ + pull + pm2 restart بدون --update-env)
+
 ### ۱۴۰۵/۰۸/۰۷ — stamp: پکیج coa-keys فاز ۰→۴ روی ایران (SW v589)
 - **Merge:** #102→#106 روی main (fd9f8458).
 - **Deploy:** ✅ overlay — بکاپ /home/taranom/backups/crm.db.20261028-142244 — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v589 — flag=warn — coa_product_tafsili_mode=legacy_leaf.

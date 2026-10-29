@@ -3756,6 +3756,11 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.warn('warehouse_docs_backfill_v1:', e.message);
   }
+  // P0-الف: کامای جداکنندهٔ هزارگان در کد حساب (مثل «610,401») → «610401»؛ idempotent با flag.
+  try {
+    const norm = require('./lib/coa-map').migrateCoaCodeSeparators(db);
+    if (!norm.skipped && norm.changed) console.log('✅ coa_code_separator_normalize_v1: ' + norm.changed + ' مقدار نرمال شد');
+  } catch (e) { console.warn('coa_code_separator_normalize_v1:', e.message); }
 
   // CON-01/CON-02 — person FK, warehouse, settle metadata
   // CON-03 — master document (consignment_docs) + line linkage (doc_id)

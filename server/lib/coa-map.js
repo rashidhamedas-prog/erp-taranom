@@ -854,7 +854,82 @@ function releaseEntityCoa(db, coaCode) {
   return releaseTafsili(db, coaCode);
 }
 
+/* ───────── P0-الف: نرمال‌سازی کد حساب (باگ کاما «610,401») ───────── */
+const E_COA_CODE_FORMAT = 'E_COA_CODE_FORMAT';
+const COA_CODE_SEPARATORS = /[,\u066C\u060C\s.]/g; // ، ٬ , فاصله و نقطه
+
+/**
+ * ارقام فارسی/عربی → لاتین، حذف جداکننده‌های هزارگان؛ فقط ارقام یا خالی.
+ * نامعتبر → null (بدون پرتاب خطا؛ برای migration و اعتبارسنجی نرم).
+ */
+function tryNormalizeAccountCode(v) {
+  if (v == null) return '';
+  const s = String(v)
+    .replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+    .replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+    .replace(COA_CODE_SEPARATORS, '');
+  if (s === '') return '';
+  return /^\d+$/.test(s) ? s : null;
+}
+
+/** مثل tryNormalizeAccountCode ولی نامعتبر → خطای 422 با code=E_COA_CODE_FORMAT. */
+function normalizeAccountCode(v, label) {
+  const out = tryNormalizeAccountCode(v);
+  if (out === null) {
+    const err = new Error('کد حساب' + (label ? ' «' + label + '»' : '') + ' فقط باید رقم باشد (مثال: 610401)');
+    err.status = 422;
+    err.code = E_COA_CODE_FORMAT;
+    throw err;
+  }
+  return out;
+}
+
+/**
+ * Migration idempotent: coa_code_separator_normalize_v1
+ * فقط settings با کلید coa_* و ستون‌های کد حساب انبار؛ هر تغییر یک ردیف audit_log.
+ * مقدار غیرقابل‌نرمال (نه عددی) دست‌نخورده می‌ماند.
+ */
+function migrateCoaCodeSeparators(db) {
+  const FLAG = 'coa_code_separator_normalize_v1';
+  const done = db.prepare('SELECT value FROM settings WHERE key=?').get(FLAG);
+  if (done) return { skipped: true, changed: 0 };
+  const changes = [];
+  const logStmt = db.prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail) VALUES (?,?,?,?,?)');
+  const run = db.transaction(() => {
+    const rows = db.prepare("SELECT key, value FROM settings WHERE substr(key,1,4)='coa_'").all();
+    for (const r of rows) {
+      const raw = r.value == null ? '' : String(r.value);
+      if (!raw.trim()) continue;
+      const next = tryNormalizeAccountCode(raw);
+      if (next === null || next === '' || next === raw) continue;
+      db.prepare('UPDATE settings SET value=? WHERE key=?').run(next, r.key);
+      logStmt.run(null, 'coa_code_normalize', 'settings', null, JSON.stringify({ key: r.key, old: raw, new: next }));
+      changes.push({ table: 'settings', key: r.key, old: raw, new: next });
+    }
+    let whCols = [];
+    try { whCols = db.prepare('PRAGMA table_info(warehouses)').all().map((c) => c.name); } catch { /* no table */ }
+    for (const col of ['inventory_coa_code', 'cogs_coa_code']) {
+      if (!whCols.includes(col)) continue;
+      const whs = db.prepare('SELECT id, ' + col + ' AS v FROM warehouses WHERE ' + col + ' IS NOT NULL').all();
+      for (const w of whs) {
+        const raw = String(w.v);
+        if (!raw.trim()) continue;
+        const next = tryNormalizeAccountCode(raw);
+        if (next === null || next === '' || next === raw) continue;
+        db.prepare('UPDATE warehouses SET ' + col + '=? WHERE id=?').run(next, w.id);
+        logStmt.run(null, 'coa_code_normalize', 'warehouses', w.id, JSON.stringify({ key: col, old: raw, new: next }));
+        changes.push({ table: 'warehouses', id: w.id, key: col, old: raw, new: next });
+      }
+    }
+    db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(FLAG, '1');
+  });
+  run();
+  if (changes.length) clearCoaCache();
+  return { skipped: false, changed: changes.length, changes };
+}
+
 module.exports = {
+  tryNormalizeAccountCode, normalizeAccountCode, migrateCoaCodeSeparators, E_COA_CODE_FORMAT,
   acct, coaMode, usesExtendedCoa, clearCoaCache, allocTafsili, ensureControlParents,
   suggestChildCode, validateChildCode, LEGACY, KIND_KEY, KIND_TYPE, rebuildBaseCoa, ensureMissingBaseCoa,
   releaseTafsili, releaseEntityCoa, baseCoaTree,

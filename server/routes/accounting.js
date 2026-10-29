@@ -1,6 +1,6 @@
 const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
-const { acct: coaAcct, suggestChildCode, validateChildCode } = require('../lib/coa-map');
+const { acct: coaAcct, suggestChildCode, validateChildCode, tryNormalizeAccountCode, E_COA_CODE_FORMAT } = require('../lib/coa-map');
 const { syncLiveTafsili } = require('../lib/coa-live');
 const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
@@ -1465,7 +1465,8 @@ router.post('/chart-of-accounts', auth, adminOrAccounting, (req, res) => {
   const validTypes = ['asset', 'liability', 'equity', 'revenue', 'cogs', 'expense'];
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'نوع حساب نامعتبر است' });
   const db = getDB();
-  const codeStr = String(code).trim();
+  const codeStr = tryNormalizeAccountCode(code);
+  if (!codeStr) return res.status(422).json({ error: 'کد حساب فقط باید رقم باشد (مثال: 610401)', code: E_COA_CODE_FORMAT });
   const exists = db.prepare('SELECT id FROM chart_of_accounts WHERE code=?').get(codeStr);
   if (exists) return res.status(400).json({ error: 'این کد حساب قبلاً ثبت شده' });
   if (parent_code) {

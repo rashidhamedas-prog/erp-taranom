@@ -1141,8 +1141,17 @@ function toEnDigits(s){
     .replace(/[۰-۹]/g,d=>'۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
     .replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 }
+/** فیلد کد حساب (کدینگ/انبار/تعریف حساب/…): هرگز جداکنندهٔ هزارگان نمی‌گیرد (باگ «610,401»). */
+const RE_COA_FIELD_KEY=/(^|[-_])coa([-_]|$)|account[-_]code|coa_code/i;
+function isAccountCodeField(t){
+  if(!t || t.tagName!=='INPUT') return false;
+  if(t.classList.contains('coa-code')||t.classList.contains('coa-map-input')||t.hasAttribute('data-coa-key')) return true;
+  if(t.dataset && t.dataset.kind==='account-code') return true;
+  return RE_COA_FIELD_KEY.test((t.id||'')+' '+(t.name||'')+' '+(t.getAttribute('data-k')||''));
+}
 function wantsEnDigits(t){
   if(!t || t.tagName!=='INPUT') return false;
+  if(isAccountCodeField(t)) return false; // کد حساب را کلاینت دست نمی‌زند؛ سرور normalizeAccountCode می‌کند
   const type=(t.type||'').toLowerCase();
   if(type==='number'||type==='tel') return true;
   const im=(t.getAttribute('inputmode')||'').toLowerCase();
@@ -1154,6 +1163,7 @@ function wantsEnDigits(t){
 /** فیلدهای مبلغی — جداکننده سه‌رقمی خودکار (قانون ثابت برنامه) */
 function isMoneyField(t){
   if(!t || t.tagName!=='INPUT') return false;
+  if(isAccountCodeField(t)) return false; // کد حساب هرگز مبلغ نیست (s-coa_payroll_expense → «610,401»)
   const idOnly=t.id||'';
   // پیشوند apay زیررشتهٔ pay دارد. جستجو، یادداشت و تاریخ مبلغ نیستند
   // حتی اگر focus قبلی کلاس money چسبانده باشد.
@@ -14430,7 +14440,7 @@ async function partyModal(id){
     <div class="modal-head"><h3>${id?'ویرایش شخص':'شخص جدید'}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" data-csp-style="${CSP.style(`max-height:75vh;overflow:auto`)}"><div class="form-grid">
       <div class="fg"><label>کد</label><input id="pty-code" dir="ltr" class="mono" value="${esc(p.person_code||'')}" placeholder="خودکار"></div>
-      <div class="fg"><label>کد حساب تفصیلی</label><input id="pty-coa" dir="ltr" class="mono" value="${esc(p.coa_code||'')}" placeholder="خودکار" readonly data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
+      <div class="fg"><label>کد حساب تفصیلی</label><input id="pty-coa" dir="ltr" inputmode="numeric" class="mono coa-code" value="${esc(p.coa_code||'')}" placeholder="خودکار" readonly data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
       <div class="fg"><label>پیشوند</label><select id="pty-prefix">
         <option value="">—</option>
         ${['آقا','خانم','شرکت','مؤسسه','سایر'].map(x=>`<option value="${x}" ${(p.prefix||'')===x?'selected':''}>${x}</option>`).join('')}
@@ -17985,11 +17995,11 @@ async function warehouseModal(id){
         <option value="periodic" ${w.inventory_system==='periodic'?'selected':''}>ادواری (Periodic)</option>
       </select></div>
       <div class="fg"><label>حساب برگ موجودی * ${hlp('برای انبار دائمی الزامی است. باید حساب برگ (بدون زیرمجموعه) زیر گروه ۱۱ (موجودی کالا) باشد. هیچ حسابی خودکار انتخاب نمی‌شود. انبار ادواری معاف است.')}</label>
-        <input id="wh-inv-coa" class="mono" dir="ltr" placeholder="کد حساب برگ موجودی" value="${esc(w.inventory_coa_code||'')}">
+        <input id="wh-inv-coa" class="mono coa-code" inputmode="numeric" dir="ltr" placeholder="کد حساب برگ موجودی" value="${esc(w.inventory_coa_code||'')}">
         ${w.inventory_account_code?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">اکنون در دفتر: ${esc(w.inventory_account_code)} — ${esc(w.inventory_account_name||'')}</div>`:''}
       </div>
       <div class="fg"><label>حساب برگ بهای تمام‌شده * ${hlp('برای انبار دائمی الزامی است. باید حساب برگ زیر گروه ۵ (بهای تمام‌شده کالای فروش‌رفته) باشد. فروش از این انبار بدهکار این حساب و بستانکار حساب موجودی می‌شود.')}</label>
-        <input id="wh-cogs-coa" class="mono" dir="ltr" placeholder="کد حساب برگ بهای تمام‌شده" value="${esc(w.cogs_coa_code||'')}">
+        <input id="wh-cogs-coa" class="mono coa-code" inputmode="numeric" dir="ltr" placeholder="کد حساب برگ بهای تمام‌شده" value="${esc(w.cogs_coa_code||'')}">
       </div>
       ${id?`<div class="fg"><label>وضعیت</label><select id="wh-active">
         <option value="1" ${w.active?'selected':''}>فعال</option><option value="0" ${!w.active?'selected':''}>غیرفعال</option>
@@ -19722,7 +19732,7 @@ async function openFixedAssetModal(id){
       <div class="fg"><label>بهای تمام‌شده ${moneyColLabel()} *</label><input id="fa-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(a.cost_rial||0)}"></div>
       <div class="fg"><label>ارزش اسقاط ${moneyColLabel()}</label><input id="fa-salvage" type="text" inputmode="numeric" class="money" value="${moneyInit(a.salvage_rial||0)}"></div>
       <div class="fg"><label>عمر مفید (ماه)</label><input id="fa-life" type="number" min="1" value="${a.useful_life_months||60}"></div>
-      <div class="fg"><label>کد حساب دارایی</label><input id="fa-coa" dir="ltr" class="mono" value="${esc(a.coa_asset_code||'1201')}"></div>
+      <div class="fg"><label>کد حساب دارایی</label><input id="fa-coa" dir="ltr" inputmode="numeric" class="mono coa-code" value="${esc(a.coa_asset_code||'1201')}"></div>
       ${fundingHtml}
       <div class="fg full"><label>محل استقرار</label><input id="fa-location" value="${esc(a.location||'')}"></div>
       <div class="fg full"><label>توضیحات</label><textarea id="fa-note">${esc(a.notes||'')}</textarea></div>
@@ -30125,7 +30135,7 @@ function chartAccountModal(parentCode){
   openModal(`
     <div class="modal-head"><h3>➕ حساب جدید</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body"><div class="form-grid">
-      <div class="fg"><label>کد حساب *</label><input id="coa-code" placeholder="مثال: 6105" class="mono"></div>
+      <div class="fg"><label>کد حساب *</label><input id="coa-code" placeholder="مثال: 6105" class="mono coa-code" inputmode="numeric" dir="ltr"></div>
       <div class="fg"><label>نام حساب *</label><input id="coa-name" placeholder="نام حساب"></div>
       <div class="fg"><label>نوع حساب *</label><select id="coa-type">
         ${['asset','liability','equity','revenue','cogs','expense'].map(t=>`<option value="${t}" ${defaultType===t?'selected':''}>${{asset:'دارایی',liability:'بدهی',equity:'حقوق صاحبان سرمایه',revenue:'درآمد',cogs:'بهای تمام‌شده',expense:'هزینه'}[t]}</option>`).join('')}
@@ -33092,7 +33102,7 @@ async function expenseCategoryModal(id){
           <option value="production_overhead" ${row.cost_section==='production_overhead'?'selected':''}>سربار تولید — کنترل ۵۲۰۲</option>
         </select></div>
       <div class="fg full"><label>کد حساب دفتر کل / معین ${hlp('برای اداری و فروش. اگر خالی باشد از والد یا از ۶۱۰۲/۶۱۰۳ استفاده می‌شود. سربار تولید همیشه ۵۲۰۲ است.')}</label>
-        <input id="ec-account" dir="ltr" class="mono" value="${esc(row.coa_code||row.account_code||'')}" placeholder="مثال: 6102" list="ec-coa-list">
+        <input id="ec-account" dir="ltr" inputmode="numeric" class="mono coa-code" value="${esc(row.coa_code||row.account_code||'')}" placeholder="مثال: 6102" list="ec-coa-list">
         <datalist id="ec-coa-list">${(CACHE.coa||[]).map(c=>`<option value="${esc(c.code)}">${esc(c.code)} — ${esc(c.name)}</option>`).join('')}</datalist>
       </div>
     </div></div>
@@ -36840,7 +36850,7 @@ function coaMapFieldsHtml(s, coaKeyList){
         const sug = d.suggested ? ` — پیشنهادی: ${d.suggested}` : '';
         const ph = d.default_code ? `پیش‌فرض ${d.default_code}` : 'پیش‌فرض سیستم';
         return `<div class="fg fg-code"><label>${esc(d.name||COA_MAP_LABELS[d.key]||d.key)} ${hlp(hint+sug)}</label>
-          <input id="s-${esc(d.key)}" dir="ltr" class="mono coa-map-input" data-coa-key="${esc(d.key)}" value="${esc(s[d.key]||'')}" placeholder="${esc(ph)}"></div>`;
+          <input id="s-${esc(d.key)}" dir="ltr" class="mono coa-code coa-map-input" inputmode="numeric" data-coa-key="${esc(d.key)}" value="${esc(s[d.key]||'')}" placeholder="${esc(ph)}"></div>`;
       }).join('');
   }).join('');
 }
@@ -39761,6 +39771,13 @@ function renderAdminGuide(){
         <li>حساب غیرکنترلی باید در دفتر کل <b>فعال و برگ</b> (بدون زیرمجموعه) باشد و با گروه کلید سازگار باشد؛ وگرنه ذخیره با خطای فارسی <span dir="ltr">E_COA_NOT_FOUND / E_COA_NOT_LEAF / E_COA_TYPE_MISMATCH</span> رد می‌شود.</li>
         <li>کلیدهای <b>کنترلی</b> (دریافتنی، پرداختنی، موجودی کالا، صندوق، بانک، اشخاص، WIP، سربار/دستمزد، و مرجوعی به تأمین‌کننده) می‌توانند معین غیربرگ باشند.</li>
         <li>پیش‌فرض‌های سیستم عوض نمی‌شوند؛ برای زیان واگذاری دارایی فقط کد پیشنهادی <span dir="ltr">6119</span> در راهنما آمده است. انتخاب برگ نهایی با مدیر/حسابدار است.</li>
+      </ul>`),
+    helpSec('🔢','کد حساب بدون کاما (v590)',`
+      <p>در همهٔ فیلدهای <b>کد حساب</b> (نگاشت کدینگ، حساب موجودی/بهای تمام‌شدهٔ انبار، تعریف حساب، حساب هزینه) دیگر جداکنندهٔ هزارگان نمی‌نشیند؛ مثلاً <span dir="ltr">610401</span> دیگر به «۶۱۰,۴۰۱» تبدیل نمی‌شود و گزارش نگاشت برگ برای آن «یافت نشد» نمی‌دهد.</p>
+      <ul>
+        <li>سرور هنگام ذخیره کامای انگلیسی/فارسی، فاصله و نقطه را برمی‌دارد و رقم فارسی/عربی را لاتین می‌کند (<span dir="ltr">۶۱۰۴۰۱</span> → <span dir="ltr">610401</span>)؛ مقدار غیرعددی (مثل <span dir="ltr">61a</span>) با خطای <span dir="ltr">E_COA_CODE_FORMAT</span> رد می‌شود.</li>
+        <li>با اولین اجرای نسخهٔ جدید، مقدارهای قبلی که کاما داشتند (مثل <span dir="ltr">coa_payroll_expense = 610,401</span> یا کد انبار) یک‌بار اصلاح می‌شوند و هر تغییر در گزارش ممیزی (قدیم/جدید) ثبت می‌شود. هیچ سند یا مانده‌ای جابه‌جا نمی‌شود.</li>
+        <li>حالت <span dir="ltr">ledger_leaf_enforcement</span> همان قبلی (هشدار) می‌ماند.</li>
       </ul>`),
     helpSec('📦','تفصیلی کالا و حساب ثبت موجودی از انبار (v587)',`
       <p>ساخت برگ ۱۲رقمی کالایی زیر حساب موجودی با تنظیم <span dir="ltr">coa_product_tafsili_mode</span> در «تنظیمات ← نگاشت کدینگ» کنترل می‌شود. پیش‌فرض <b>legacy_leaf</b> است (رفتار قبلی). با <b>detail_account</b> کالای جدید حساب دفتر نمی‌سازد؛ فقط تفصیلی شناور (دسته کالا، پیوند به products) ساخته می‌شود و <span dir="ltr">products.coa_code</span> خالی می‌ماند. برگ‌های قدیمی غیرفعال یا بازنویسی نمی‌شوند.</p>

@@ -7,6 +7,7 @@ const {
   LEGACY,
   listCoaKeyDescriptors,
   validateCoaKeyAssignment,
+  normalizeAccountCode,
   COA_UI_GROUPS,
 } = require('../lib/coa-map');
 const { assertSafeOutboundTarget } = require('../lib/safe-outbound-request');
@@ -225,6 +226,15 @@ router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
       });
     }
     body.coa_product_tafsili_mode = v;
+  }
+  // P0: کد حساب coa_* — ارقام فارسی/عربی→لاتین، حذف کاما/فاصله/نقطه؛ غیرعددی → 422
+  for (const key of Object.keys(body)) {
+    if (!Object.prototype.hasOwnProperty.call(LEGACY, key)) continue;
+    try {
+      body[key] = normalizeAccountCode(body[key], LEGACY[key].name);
+    } catch (e) {
+      return res.status(e.status || 422).json({ error: e.message, code: e.code, key });
+    }
   }
   const dbForPolicy = getDB();
   const policyCheck = validateStaffPolicyBody(body, dbForPolicy);
