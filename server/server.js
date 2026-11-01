@@ -626,6 +626,7 @@ app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/cheque-records', require('./routes/cheque-records'));
+app.use('/api/warehouses/qty-receipts', require('./routes/qty-receipts')); // P7 — before generic /api/warehouses
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/opening-stock', require('./routes/opening-stock'));
 app.use('/api/inventory', require('./routes/inventory'));
