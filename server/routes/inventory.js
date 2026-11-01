@@ -177,6 +177,37 @@ router.post('/ledger/:id/reverse', auth, reverseGate, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// FR-P334-A: correction reversal of opening/alignment kardex rows (no source document) — admin or acc_warehouse_ops:delete.
+function reverseCorrectionGate(req, res, next) {
+  if (require('../lib/inventory/manual-adjust').canVoidAdjust(req.user, getDB())) return next();
+  return res.status(403).json({ error: 'برای ابطال اصلاحی ردیف کاردکس دسترسی لازم است', code: 'E_PERMISSION' });
+}
+
+router.get('/ledger/:id/reverse-correction-preview', auth, reverseCorrectionGate, (req, res) => {
+  try {
+    const { planCorrection } = require('../lib/inventory/ledger-reverse-correction');
+    const se = req.query && req.query.stock_effect ? String(req.query.stock_effect) : null;
+    res.json(planCorrection(getDB(), +req.params.id, { stockEffect: se }).plan);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/ledger/:id/reverse-correction', auth, reverseCorrectionGate, (req, res) => {
+  try {
+    const { reverseCorrection } = require('../lib/inventory/ledger-reverse-correction');
+    res.json(reverseCorrection(getDB(), +req.params.id, req.body, req.user, { audit }));
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/stock-kardex-mismatch', auth, adminOrAccounting, (req, res) => {
+  try {
+    const { stockKardexMismatch } = require('../lib/inventory/stock-kardex-mismatch');
+    res.json(stockKardexMismatch(getDB(), {
+      productId: parseInt(req.query.product_id, 10) || null,
+      warehouseId: parseInt(req.query.warehouse_id, 10) || null,
+    }));
+  } catch (e) { sendErr(res, e); }
+});
+
 // ---- Batches / Serials ----
 router.get('/fabric-rolls/circulation', auth, adminOrAccounting, (req, res) => {
   try {
