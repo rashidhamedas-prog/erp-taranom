@@ -4113,6 +4113,13 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.warn('p3_recon_drafts_v1:', e.message);
   }
+  // P3-fix — پیش‌نویس‌های ثبت‌نشدهٔ P3: 1104 → 110401؛ پیش‌نویس دستی JE1016 منسوخ (فقط مرکز).
+  try {
+    const p3v2 = require('./lib/inventory/p3-recon-drafts').runP3DraftsV2Migration(db, { isDevice: isDevice() });
+    if (p3v2 && p3v2.changed) console.log('✅ p3_recon_drafts_v2:', JSON.stringify(p3v2));
+  } catch (e) {
+    console.warn('p3_recon_drafts_v2:', e.message);
+  }
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding

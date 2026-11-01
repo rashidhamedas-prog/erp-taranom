@@ -2199,6 +2199,12 @@ function reverseFix(db, fixId, { user, reason } = {}) {
   if (fix.status === 'reversed') throw err('این اصلاحیه قبلاً ابطال شده است', 409, 'E_RECON_FIX_REVERSED');
   const { reverseJournalEntry } = require('./void-journal');
   const userId = user && user.id;
+  const head = fix.je_id ? db.prepare('SELECT id, ref_type, ref_id, description FROM journal_entries WHERE id=?').get(fix.je_id) : null;
+  const collateral = head ? reversePurgeCandidates(db, head).filter((c) => !c.own) : [];
+  if (collateral.length) {
+    throw err(`ابطال سند #${head.id} سند(های) نامرتبط ${collateral.map((c) => '#' + c.id).join('، ')} را حذف فیزیکی می‌کند — متوقف شد`,
+      409, 'E_RECON_REVERSE_COLLATERAL', { collateral });
+  }
   db.transaction(() => {
     if (fix.code === 'fixed_assets') unlinkFixedAssetOpening(db, fix, { userId, reason });
     if (fix.je_id) reverseJournalEntry(db, fix.je_id, { userId, reason: reason || `ابطال اصلاحیه تطبیق #${fix.id}` });
@@ -2207,6 +2213,113 @@ function reverseFix(db, fixId, { user, reason } = {}) {
     writeAudit(db, userId, 'recon_fix_reverse', 'subledger_recon_fix', fix.id, { je_id: fix.je_id, reason: reason || '' });
   })();
   return db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fix.id);
+}
+
+/**
+ * Rows void-journal's purgeReverseVouchersForOriginal would hard-delete when `head` is soft-voided
+ * (same predicate, read-only). `own` = a genuine reverse voucher of this very entry.
+ */
+function reversePurgeCandidates(db, head) {
+  const rows = db.prepare(`
+    SELECT id, ref_type, ref_id, description FROM journal_entries
+    WHERE id<>?
+      AND (
+        description LIKE ?
+        OR (ref_type LIKE '%\\_reversal' ESCAPE '\\' AND ref_id=? AND ref_type NOT LIKE 'payroll_payment%')
+        OR (ref_type = ? AND ref_id = ?)
+      )
+  `).all(head.id, `ابطال سند #${head.id}%`, head.ref_id ?? null,
+    head.ref_type ? `${head.ref_type}_reversal` : '__none__', head.ref_id ?? null);
+  const ownType = head.ref_type ? `${head.ref_type}_reversal` : null;
+  return rows.map((r) => ({
+    id: r.id, ref_type: r.ref_type, ref_id: r.ref_id,
+    own: String(r.description || '').startsWith(`ابطال سند #${head.id}`) || (!!ownType && r.ref_type === ownType),
+  }));
+}
+
+function sumSides(lines) {
+  const { jlDebitRial, jlCreditRial } = require('./money');
+  return lines.map((l) => ({ l, dr: Math.round(jlDebitRial(l)), cr: Math.round(jlCreditRial(l)) }));
+}
+
+/**
+ * Read-only preview of reverseFix (no writes): what the official reverse would do to the ledger,
+ * the target account subtree balance and the GL−kardex gap, plus every precondition.
+ */
+function previewReverseFix(db, fixId, { warehouses } = {}) {
+  ensureReconSchemaOnce(db);
+  const fix = db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fixId);
+  if (!fix) throw err('اصلاحیه یافت نشد', 404, 'E_RECON_FIX_NOT_FOUND');
+  const { closedFiscalYearForDate } = require('./void-journal');
+  const P3 = require('./inventory/p3-recon-drafts');
+  const head = fix.je_id ? db.prepare('SELECT * FROM journal_entries WHERE id=?').get(fix.je_id) : null;
+  const lines = head
+    ? db.prepare('SELECT * FROM journal_lines WHERE entry_id=? ORDER BY COALESCE(line_no,0), id').all(head.id)
+    : [];
+  const sided = sumSides(lines);
+  const closedFy = head ? closedFiscalYearForDate(db, head.entry_date) : null;
+  const mode = !head ? 'none' : (closedFy ? 'counter_voucher' : 'soft_void');
+  const target = String(fix.target || '').trim();
+  const inTarget = (code) => !!target && (String(code) === target || String(code).startsWith(target));
+  const effectTarget = sided.reduce((t, s) => t + (inTarget(s.l.account_code) ? s.cr - s.dr : 0), 0);
+  const effectByAccount = {};
+  for (const s of sided) {
+    const c = String(s.l.account_code);
+    effectByAccount[c] = (effectByAccount[c] || 0) + (s.cr - s.dr);
+  }
+  const before = target ? glBalance(db, [target]) : 0;
+  const whIds = Array.isArray(warehouses) && warehouses.length ? warehouses.map(Number).filter((x) => x > 0) : P3.KARDEX_WAREHOUSES;
+  const kardex = P3.kardexValueRial(db, whIds);
+  const jeAlive = !!head && !(Number(head.deleted_at || 0) > 0) && !['reversed', 'void'].includes(String(head.status || ''))
+    && !(head.reversed_by_je_id && db.prepare(`SELECT 1 FROM journal_entries je WHERE je.id=? AND ${JE_LIVE}`).get(head.reversed_by_je_id));
+  let periodOpen = !!head && !closedFy;
+  let periodNote = closedFy ? `سال مالی ${closedFy.label || closedFy.id} بسته است — سند معکوس در دورهٔ باز ثبت می‌شود` : null;
+  if (head && !closedFy) {
+    const w = require('./fiscal-period').assertFiscalYearWritable(db, head.entry_date);
+    if (!w.ok) { periodOpen = false; periodNote = w.error; }
+  }
+  const purge = head ? reversePurgeCandidates(db, head) : [];
+  const collateral = purge.filter((c) => !c.own);
+  const leafMode = require('./coa-leaf-policy').leafEnforcementMode(db);
+  const { isPostableCode } = require('./coa-map');
+  const nonLeaf = [...new Set(lines.map((l) => String(l.account_code)))].filter((c) => !isPostableCode(db, c));
+  const preconditions = [
+    { key: 'fix_posted', ok: fix.status === 'posted', detail: `status=${fix.status}` },
+    { key: 'fix_not_reversed', ok: !fix.reversed_at, detail: fix.reversed_at ? `reversed_at=${fix.reversed_at}` : null },
+    { key: 'je_alive', ok: jeAlive, detail: head ? `JE #${head.id} status=${head.status}` : 'سند ندارد' },
+    { key: 'period_open', ok: periodOpen, detail: periodNote },
+    { key: 'no_purge_collateral', ok: !collateral.length, detail: collateral.length ? collateral : null },
+    {
+      key: 'leaf_enforcement_not_blocking',
+      ok: mode !== 'counter_voucher' || leafMode !== 'enforce' || !nonLeaf.length,
+      detail: { mode: leafMode, non_leaf_accounts: nonLeaf, applies: mode === 'counter_voucher' },
+    },
+  ];
+  return {
+    fix_id: fix.id,
+    code: fix.code,
+    target,
+    amount_rial: fix.amount_rial,
+    je_id: fix.je_id || null,
+    mode,
+    mode_note: mode === 'soft_void'
+      ? 'سند اصلی status=reversed + deleted_at می‌گیرد (سیاست v285: سند ابطالی جدا ساخته نمی‌شود؛ reversed_by_je_id خالی می‌ماند)'
+      : (mode === 'counter_voucher' ? 'سند معکوس در دورهٔ باز ثبت و با reversed_by_je_id / reverses_je_id پیوند می‌شود' : null),
+    route: `POST /api/accounting/subledger-recon/fixes/${fix.id}/reverse`,
+    je: head ? { id: head.id, entry_date: head.entry_date, ref_type: head.ref_type, status: head.status, description: head.description } : null,
+    reversal_lines: sided.map((s) => ({ account_code: s.l.account_code, debit_rial: s.cr, credit_rial: s.dr })),
+    effect_by_account_rial: effectByAccount,
+    target_subtree: { code: target, balance_before_rial: before, balance_after_rial: before + effectTarget, effect_rial: effectTarget },
+    gap: {
+      kardex_warehouses: whIds,
+      kardex_rial: kardex,
+      before_rial: before - kardex,
+      after_rial: before + effectTarget - kardex,
+    },
+    preconditions,
+    ready: preconditions.every((p) => p.ok),
+    writes: 0,
+  };
 }
 
 /** R13 for the opening fix: void per-asset release vouchers, restore previous acquisition links. */
@@ -2318,6 +2431,8 @@ module.exports = {
   applyFix,
   listFixes,
   reverseFix,
+  previewReverseFix,
+  reversePurgeCandidates,
   postInventoryValueAdjustmentJe,
   glBalance,
   MANUAL_SOURCES,

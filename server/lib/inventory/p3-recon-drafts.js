@@ -8,7 +8,11 @@
  *
  * هر پیش‌نویس کلید منبع یکتا دارد (wh_data_corrections: rule='p3_draft', row_key=<key>)؛
  * یک‌بار ساخته‌شده هرگز دوباره ساخته نمی‌شود (حتی اگر حذف/ثبت شده باشد).
- * هیچ DELETE و هیچ UPDATE روی ردیف موجود انجام نمی‌شود.
+ * هیچ DELETE و هیچ UPDATE روی ردیف موجود انجام نمی‌شود (جز مهاجرت v2 روی پیش‌نویس‌های ثبت‌نشدهٔ P3).
+ *
+ * P3-fix (تصمیم حامد): سطرهای پیش‌نویس روی حساب برگ موجودی (110401، فرزند 1104) می‌نشینند؛
+ * کنترل اختلاف روی جمع 1104 و همهٔ زیرحساب‌هایش. برگشت JE1016 فقط از مسیر رسمی
+ * subledger-recon fix #1 — پیش‌نویس دستی آن دیگر ساخته نمی‌شود و ثبتش مسدود است.
  */
 
 const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
@@ -16,6 +20,13 @@ const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
 const RULE = 'p3_draft';
 const PHASE = 'P3';
 const SETTINGS_KEY = 'p3_recon_drafts_v1';
+const SETTINGS_KEY_V2 = 'p3_recon_drafts_v2';
+const LEAF_SETTING_KEY = 'p3_inventory_leaf_code';
+const RULE_V2 = 'p3_draft_v2';
+const JE1016_DRAFT_KEY = 'je1016_reverse';
+const SUPERSEDED_PREFIX = '⛔ منسوخ — برگشت JE1016 فقط از مسیر رسمی subledger-recon fix #1';
+const OFFICIAL_REVERSE_PATH = 'POST /api/accounting/subledger-recon/fixes/1/reverse';
+const KARDEX_WAREHOUSES = [34, 35];
 
 const ACC_INV = '1104';
 const ACC_OPENING = '3102';
@@ -95,6 +106,79 @@ function accountState(db, code) {
   if (!acc) return { code, exists: false, active: false, postable: false, name: code };
   const kid = db.prepare('SELECT 1 FROM chart_of_accounts WHERE parent_code=? AND COALESCE(is_active,1)=1 LIMIT 1').get(code);
   return { code, exists: true, active: acc.is_active !== 0, postable: acc.is_active !== 0 && !kid, name: acc.name };
+}
+
+// ── inventory subtree / leaf ─────────────────────────────────────
+
+const SUBTREE_CTE = `WITH RECURSIVE inv_tree(code) AS (
+  SELECT ? UNION SELECT c.code FROM chart_of_accounts c JOIN inv_tree t ON c.parent_code=t.code
+)`;
+
+/** کدهای 1104 و همهٔ نوادگانش (درخت parent_code + هم‌پیشوندها، هم‌سو با glBalance تطبیق). */
+function inventorySubtreeCodes(db, root = ACC_INV) {
+  const out = new Set([root]);
+  if (!tableExists(db, 'chart_of_accounts')) return out;
+  for (const r of db.prepare(`${SUBTREE_CTE} SELECT code FROM inv_tree`).all(root)) out.add(String(r.code));
+  for (const r of db.prepare('SELECT code FROM chart_of_accounts WHERE code LIKE ?').all(`${root}%`)) out.add(String(r.code));
+  return out;
+}
+
+/**
+ * حساب برگ موجودی برای سطرهای پیش‌نویس: تنها فرزند فعال و قابل‌ثبت 1104 ← کلید settings
+ * `p3_inventory_leaf_code` (باید زیرشاخهٔ 1104 و قابل‌ثبت باشد) ← fail-safe همان 1104 با هشدار.
+ */
+function resolveInventoryLeaf(db) {
+  if (!tableExists(db, 'chart_of_accounts')) {
+    return { code: ACC_INV, source: 'fallback', warning: 'جدول سرفصل‌ها نیست؛ 1104 نگه داشته شد' };
+  }
+  const kids = db.prepare(
+    'SELECT code FROM chart_of_accounts WHERE parent_code=? AND COALESCE(is_active,1)=1 ORDER BY code'
+  ).all(ACC_INV);
+  if (kids.length === 1 && accountState(db, String(kids[0].code)).postable) {
+    return { code: String(kids[0].code), source: 'single_child', warning: null };
+  }
+  let cfg = '';
+  try { cfg = String((db.prepare('SELECT value FROM settings WHERE key=?').get(LEAF_SETTING_KEY) || {}).value || '').trim(); }
+  catch (_) { cfg = ''; }
+  if (cfg && cfg !== ACC_INV && inventorySubtreeCodes(db).has(cfg) && accountState(db, cfg).postable) {
+    return { code: cfg, source: 'setting', warning: null };
+  }
+  return {
+    code: ACC_INV,
+    source: 'fallback',
+    warning: `حساب برگ یکتای زیر ${ACC_INV} پیدا نشد (فرزندان فعال: ${kids.length})؛ ${ACC_INV} نگه داشته شد — ${LEAF_SETTING_KEY} را تنظیم کنید`,
+  };
+}
+
+/** مانده (بدهکار−بستانکار، ریال) سندهای زنده روی 1104 و همهٔ زیرحساب‌هایش. */
+function glInventorySubtreeRial(db, root = ACC_INV) {
+  if (!tableExists(db, 'journal_lines')) return 0;
+  return Math.round(n(db.prepare(`
+    ${SUBTREE_CTE}
+    SELECT COALESCE(SUM(${SQL_DR}) - SUM(${SQL_CR}),0) v
+    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
+    WHERE ${jeLiveWhere(db, 'je')}
+      AND (jl.account_code IN (SELECT code FROM inv_tree) OR jl.account_code LIKE ?)
+  `).get(root, `${root}%`).v));
+}
+
+/** ارزش کاردکس زنده (ریال) انبارهای داده‌شده — همان فرمول layer-reconcile. */
+function kardexValueRial(db, warehouseIds = KARDEX_WAREHOUSES) {
+  if (!tableExists(db, 'inventory_ledger') || !warehouseIds.length) return 0;
+  return Math.round(n(db.prepare(`
+    SELECT COALESCE(SUM(CASE WHEN COALESCE(qty_in,0)>0 THEN COALESCE(amount_rial,0)
+                             WHEN COALESCE(qty_out,0)>0 THEN -COALESCE(amount_rial,0)
+                             ELSE COALESCE(amount_rial,0) END),0) v
+    FROM inventory_ledger
+    WHERE ${LEDGER_LIVE_SQL} AND warehouse_id IN (${warehouseIds.map(() => '?').join(',')})
+  `).get(...warehouseIds.map(Number)).v));
+}
+
+/** gap = GL(1104+زیرحساب‌ها) − کاردکس(34+35). */
+function inventoryGapSnapshot(db, warehouseIds = KARDEX_WAREHOUSES) {
+  const gl = glInventorySubtreeRial(db);
+  const kardex = kardexValueRial(db, warehouseIds);
+  return { gl_1104_subtree_rial: gl, kardex_rial: kardex, kardex_warehouses: warehouseIds.slice(), gap_rial: gl - kardex };
 }
 
 // ── guards (readonly) ─────────────────────────────────────────────
@@ -184,19 +268,52 @@ function guardLedger1977(db) {
 
 function tag(key) { return `[p3:${key}]`; }
 
+/** سطرهای اصلی پیش‌نویس‌های P3 با حساب موجودی داده‌شده (v1 روی 1104 ساخته شد). */
+function specLines(key, inv) {
+  switch (key) {
+    case JE1016_DRAFT_KEY:
+      return [
+        { code: inv, debit: JE1016.amount, credit: 0, description: 'برگشت JE #1016 — موجودی کالا' },
+        { code: ACC_OPENING, debit: 0, credit: JE1016.amount, description: 'برگشت JE #1016 — تراز افتتاحیه' },
+      ];
+    case 'undoc_adjust_146335856':
+      return [
+        ...UNDOC_ROWS.map((r) => ({
+          code: ACC_SHORTAGE, debit: r.amount, credit: 0,
+          description: `تعدیل بی‌سند ledger#${r.id} کالا ${r.product_id}${r.wip_review ? ' — «بررسی WIP»' : ''}`,
+        })),
+        { code: inv, debit: 0, credit: UNDOC_TOTAL, description: 'موجودی کالا — ledger#1978/1979/1273' },
+      ];
+    case 'opening_je490_offset':
+      return [
+        { code: inv, debit: JE490.amount, credit: 0, description: 'افتتاحیه JE #490 / ledger#1230' },
+        { code: ACC_OPENING, debit: 0, credit: JE490.amount, description: 'تراز افتتاحیه — JE #490' },
+      ];
+    case 'opening_ledger1977':
+      return [
+        { code: inv, debit: LEDGER1977.amount, credit: 0, description: 'افتتاحیه ledger#1977' },
+        { code: ACC_OPENING, debit: 0, credit: LEDGER1977.amount, description: 'تراز افتتاحیه — ledger#1977' },
+      ];
+    default:
+      return null;
+  }
+}
+
 function buildPlan(db) {
   const prefix = 'پیش‌نویس P3 — منتظر تأیید حامد —';
+  const leaf = resolveInventoryLeaf(db);
+  const inv = leaf.code;
+  const subtree = inventorySubtreeCodes(db);
   const specs = [];
   specs.push({
-    key: 'je1016_reverse',
+    key: JE1016_DRAFT_KEY,
     amount: JE1016.amount,
+    superseded: true,
+    official_route: OFFICIAL_REVERSE_PATH,
     guard: guardJe1016(db),
     guard_text: 'JE 1016 با ref_type=inventory_recon_adjust، Dr 3102/Cr 1104 = 1,796,860,352، زنده و برگشت‌نشده',
-    description: `${prefix} برگشت JE #1016 (inventory_recon_adjust، ۱۴۰۵/۰۸/۰۴، Dr 3102 / Cr 1104) ${tag('je1016_reverse')}`,
-    lines: [
-      { code: ACC_INV, debit: JE1016.amount, credit: 0, description: 'برگشت JE #1016 — موجودی کالا' },
-      { code: ACC_OPENING, debit: 0, credit: JE1016.amount, description: 'برگشت JE #1016 — تراز افتتاحیه' },
-    ],
+    description: `${SUPERSEDED_PREFIX} — پیش‌نویس دستی ساخته نمی‌شود ${tag(JE1016_DRAFT_KEY)}`,
+    lines: specLines(JE1016_DRAFT_KEY, inv),
   });
   specs.push({
     key: 'undoc_adjust_146335856',
@@ -204,13 +321,7 @@ function buildPlan(db) {
     guard: guardUndocRows(db),
     guard_text: 'ردیف‌های کاردکس 1978 (کالا 115، wh34، 66,742,000)، 1979 (کالا 131، wh35، 12,913,914)، 1273 (کالا 334، wh34، 66,679,942) زنده و je_id IS NULL، بدون سند تعدیل زنده',
     description: `${prefix} تعدیل بی‌سند کاردکس ledger#1978، ledger#1979، ledger#1273 (کالای 334: بررسی WIP) ${tag('undoc_adjust_146335856')}`,
-    lines: [
-      ...UNDOC_ROWS.map((r) => ({
-        code: ACC_SHORTAGE, debit: r.amount, credit: 0,
-        description: `تعدیل بی‌سند ledger#${r.id} کالا ${r.product_id}${r.wip_review ? ' — «بررسی WIP»' : ''}`,
-      })),
-      { code: ACC_INV, debit: 0, credit: UNDOC_TOTAL, description: 'موجودی کالا — ledger#1978/1979/1273' },
-    ],
+    lines: specLines('undoc_adjust_146335856', inv),
   });
   specs.push({
     key: 'opening_je490_offset',
@@ -218,10 +329,7 @@ function buildPlan(db) {
     guard: guardJe490(db),
     guard_text: 'JE 490 (opening_inventory) زنده با Dr 1104/Cr 3102 = 71,232,000 و ردیف کاردکس 1230 (کالا 335) با je_id=490',
     description: `${prefix} بازگردانی افتتاحیهٔ خنثی‌شدهٔ JE #490 / ledger#1230 (کالای 335) ${tag('opening_je490_offset')}`,
-    lines: [
-      { code: ACC_INV, debit: JE490.amount, credit: 0, description: 'افتتاحیه JE #490 / ledger#1230' },
-      { code: ACC_OPENING, debit: 0, credit: JE490.amount, description: 'تراز افتتاحیه — JE #490' },
-    ],
+    lines: specLines('opening_je490_offset', inv),
   });
   specs.push({
     key: 'opening_ledger1977',
@@ -229,16 +337,14 @@ function buildPlan(db) {
     guard: guardLedger1977(db),
     guard_text: 'ردیف کاردکس 1977 (افتتاحیه، کالا 109، wh35، 10,759,000) زنده با je_id IS NULL و هیچ سطر زندهٔ 3201 با همین مبلغ',
     description: `${prefix} افتتاحیهٔ بی‌سند ledger#1977 (کالای 109، انبار 35) ${tag('opening_ledger1977')}`,
-    lines: [
-      { code: ACC_INV, debit: LEDGER1977.amount, credit: 0, description: 'افتتاحیه ledger#1977' },
-      { code: ACC_OPENING, debit: 0, credit: LEDGER1977.amount, description: 'تراز افتتاحیه — ledger#1977' },
-    ],
+    lines: specLines('opening_ledger1977', inv),
   });
   for (const s of specs) {
     const mark = draftMarker(db, s.key);
     s.already = mark ? { draft_id: Number(mark.new_value) || null } : null;
+    s.inventory_leaf = leaf;
     s.accounts = [...new Set(s.lines.map((l) => l.code))].map((c) => accountState(db, c));
-    s.effect_1104_rial = s.lines.reduce((t, l) => t + (l.code === ACC_INV ? n(l.debit) - n(l.credit) : 0), 0);
+    s.effect_1104_rial = s.lines.reduce((t, l) => t + (subtree.has(String(l.code)) ? n(l.debit) - n(l.credit) : 0), 0);
   }
   return specs;
 }
@@ -312,27 +418,29 @@ function computeZeroInboundCogsShare(db, opts = {}) {
   };
 }
 
+/** مانده زندهٔ 1104 + همهٔ زیرحساب‌ها (110401 و …) — کنترل اختلاف روی کل درخت. */
 function gl1104ApprovedRial(db) {
-  if (!tableExists(db, 'journal_lines')) return 0;
-  return Math.round(n(db.prepare(`
-    SELECT COALESCE(SUM(${SQL_DR}) - SUM(${SQL_CR}),0) v
-    FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
-    WHERE ${jeLiveWhere(db, 'je')} AND jl.account_code=?
-  `).get(ACC_INV).v));
+  return glInventorySubtreeRial(db, ACC_INV);
 }
 
-/** گزارش readonly: برنامهٔ پیش‌نویس‌ها + اثر فرضی روی 1104 + سهم COGS. */
+/** گزارش readonly: برنامهٔ پیش‌نویس‌ها + اثر فرضی روی درخت 1104 + سهم COGS. */
 function buildP3Report(db) {
   const plan = buildPlan(db);
   const gl = gl1104ApprovedRial(db);
-  const eligible = plan.filter((s) => s.guard.ok || s.already);
+  const eligible = plan.filter((s) => !s.superseded && (s.guard.ok || s.already));
   const effect = eligible.reduce((t, s) => t + s.effect_1104_rial, 0);
+  const gap = inventoryGapSnapshot(db);
   return {
+    inventory_leaf: plan[0].inventory_leaf,
     gl_1104_live_rial: gl,
     gl_1104_if_all_drafts_posted_rial: gl + effect,
     drafts_effect_1104_rial: effect,
+    gap_gl_minus_kardex_rial: gap.gap_rial,
+    kardex_34_35_rial: gap.kardex_rial,
+    gap_if_all_drafts_posted_rial: gap.gap_rial + effect,
     plan: plan.map((s) => ({
       key: s.key, amount_rial: s.amount, description: s.description, lines: s.lines,
+      superseded: !!s.superseded, official_route: s.official_route || null,
       guard_ok: !!s.guard.ok, guard_reason: s.guard.ok ? null : s.guard.why, guard_text: s.guard_text,
       already_created: s.already, accounts: s.accounts, effect_1104_rial: s.effect_1104_rial,
     })),
@@ -376,6 +484,10 @@ function createP3Drafts(db, opts = {}) {
     };
     const date = opts.date || todayJalali();
     for (const s of plan) {
+      if (s.superseded) {
+        if (s.already) out.already.push({ key: s.key, draft_id: s.already.draft_id, superseded: true });
+        continue;
+      }
       if (s.already) { out.already.push({ key: s.key, draft_id: s.already.draft_id }); continue; }
       if (!s.guard.ok) { out.skipped.push({ key: s.key, why: s.guard.why }); continue; }
       const missing = s.accounts.filter((a) => !a.exists || !a.active);
@@ -416,13 +528,125 @@ function runP3DraftMigration(db, opts = {}) {
   return res;
 }
 
+// ── v2: 1104 → برگ موجودی + منسوخ‌کردن پیش‌نویس JE1016 ───────────
+
+const V2_REWRITE_KEYS = ['undoc_adjust_146335856', 'opening_je490_offset', 'opening_ledger1977'];
+
+function normLines(lines) {
+  return (Array.isArray(lines) ? lines : []).map((l) => [String(l.code || ''), Math.round(n(l.debit)), Math.round(n(l.credit))]);
+}
+function sameLines(a, b) {
+  const x = normLines(a);
+  const y = normLines(b);
+  return x.length === y.length && x.every((r, i) => r[0] === y[i][0] && r[1] === y[i][1] && r[2] === y[i][2]);
+}
+
+function markerDraftId(db, key) {
+  const m = draftMarker(db, key);
+  const id = m ? Number(m.new_value) : 0;
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/** پیش‌نویسی با همین برچسب P3 قبلاً به سند تبدیل شده؟ (ثبت پیش‌نویس، ردیف را حذف و توضیح را نگه می‌دارد.) */
+function postedAsJournal(db, key) {
+  return !!db.prepare('SELECT 1 FROM journal_entries WHERE description LIKE ? LIMIT 1').get(`%${tag(key)}%`);
+}
+
+function logV2(db, runId, key, col, oldValue, newValue, reason) {
+  db.prepare(`
+    INSERT INTO wh_data_corrections (run_id, phase, rule, tbl, row_key, col, old_value, new_value, reason)
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(runId, PHASE, RULE_V2, 'voucher_drafts', key, col, oldValue, newValue, reason);
+}
+
+/**
+ * مهاجرت بوت (فقط مرکز، یک تراکنش، idempotent با نشانگر settings).
+ * - سه پیش‌نویس P3 (undoc/JE490/ledger1977): اگر ردیف هنوز هست، ثبت نشده، برچسب [p3:key] دارد و
+ *   سطرهایش دقیقاً همان سطرهای اصلی v1 روی 1104 است → حساب 1104 به برگ موجودی بازنویسی + version+1.
+ * - پیش‌نویس JE1016: حذف نمی‌شود؛ پیشوند «⛔ منسوخ …» به توضیح افزوده می‌شود (ثبتش در مسیر post مسدود است).
+ * هیچ پیش‌نویس دیگری لمس نمی‌شود. بدون برگ یکتا یا بدون ردیف P3 → بدون نشانگر (دوباره بررسی در بوت بعد).
+ */
+function runP3DraftsV2Migration(db, opts = {}) {
+  if (opts.isDevice) return { skipped: 'device' };
+  if (!tableExists(db, 'voucher_drafts') || !tableExists(db, 'wh_data_corrections') || !tableExists(db, 'chart_of_accounts')) {
+    return { skipped: 'schema' };
+  }
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(SETTINGS_KEY_V2);
+  if (flag && flag.value === '1') return { skipped: 'done' };
+  if (!db.prepare('SELECT 1 FROM wh_data_corrections WHERE rule=? LIMIT 1').get(RULE)) return { skipped: 'no_p3_drafts' };
+  const leaf = resolveInventoryLeaf(db);
+  if (leaf.code === ACC_INV) return { skipped: 'no_leaf', warning: leaf.warning };
+  const hasVersion = colSet(db, 'voucher_drafts').has('version');
+  const bump = hasVersion ? ', version=COALESCE(version,0)+1' : '';
+  const runId = opts.runId || `p3v2-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const res = { leaf: leaf.code, rewritten: [], superseded: [], skipped: [] };
+  db.transaction(() => {
+    for (const key of V2_REWRITE_KEYS) {
+      const id = markerDraftId(db, key);
+      if (!id) { res.skipped.push({ key, why: 'no_marker' }); continue; }
+      const d = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(id);
+      if (!d) { res.skipped.push({ key, draft_id: id, why: postedAsJournal(db, key) ? 'posted' : 'missing' }); continue; }
+      if (!String(d.description || '').includes(tag(key))) { res.skipped.push({ key, draft_id: id, why: 'tag_mismatch' }); continue; }
+      if (postedAsJournal(db, key)) { res.skipped.push({ key, draft_id: id, why: 'posted' }); continue; }
+      let lines;
+      try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
+      if (sameLines(lines, specLines(key, leaf.code))) { res.skipped.push({ key, draft_id: id, why: 'already_leaf' }); continue; }
+      if (!sameLines(lines, specLines(key, ACC_INV))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
+      const next = lines.map((l) => (String(l.code) === ACC_INV ? { ...l, code: leaf.code } : l));
+      const nextJson = JSON.stringify(next);
+      db.prepare(`UPDATE voucher_drafts SET lines_json=?${bump} WHERE id=?`).run(nextJson, id);
+      logV2(db, runId, key, 'lines_json', d.lines_json, nextJson, `P3-fix: ${ACC_INV} → ${leaf.code}`);
+      res.rewritten.push({ key, draft_id: id, from: ACC_INV, to: leaf.code });
+    }
+    const jid = markerDraftId(db, JE1016_DRAFT_KEY);
+    const jd = jid ? db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(jid) : null;
+    if (!jd) {
+      res.skipped.push({ key: JE1016_DRAFT_KEY, draft_id: jid, why: jid ? 'missing' : 'no_marker' });
+    } else if (String(jd.description || '').startsWith(SUPERSEDED_PREFIX)) {
+      res.skipped.push({ key: JE1016_DRAFT_KEY, draft_id: jid, why: 'already_superseded' });
+    } else {
+      const desc = `${SUPERSEDED_PREFIX} — ${jd.description || ''}`;
+      db.prepare(`UPDATE voucher_drafts SET description=?${bump} WHERE id=?`).run(desc, jid);
+      logV2(db, runId, JE1016_DRAFT_KEY, 'description', jd.description, desc, 'P3-fix: superseded by official subledger-recon fix #1 reverse');
+      res.superseded.push({ key: JE1016_DRAFT_KEY, draft_id: jid });
+    }
+    res.changed = true;
+    db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(SETTINGS_KEY_V2, '1');
+  })();
+  return res;
+}
+
+/** پیش‌نویس دستی برگشت JE1016 (منسوخ) — ثبتش مجاز نیست. */
+function isSupersededP3Draft(db, draftId) {
+  const id = Number(draftId);
+  if (!Number.isFinite(id) || id <= 0 || !tableExists(db, 'wh_data_corrections')) return false;
+  return !!db.prepare(`
+    SELECT 1 FROM wh_data_corrections
+    WHERE rule=? AND row_key=? AND col='id' AND CAST(new_value AS INTEGER)=? LIMIT 1
+  `).get(RULE, JE1016_DRAFT_KEY, id);
+}
+
 module.exports = {
   buildPlan,
   buildP3Report,
   createP3Drafts,
   runP3DraftMigration,
+  runP3DraftsV2Migration,
+  isSupersededP3Draft,
+  resolveInventoryLeaf,
+  inventorySubtreeCodes,
+  glInventorySubtreeRial,
+  kardexValueRial,
+  inventoryGapSnapshot,
   computeZeroInboundCogsShare,
   gl1104ApprovedRial,
+  specLines,
   SETTINGS_KEY,
+  SETTINGS_KEY_V2,
+  LEAF_SETTING_KEY,
+  SUPERSEDED_PREFIX,
+  OFFICIAL_REVERSE_PATH,
+  JE1016_DRAFT_KEY,
+  KARDEX_WAREHOUSES,
   RULE,
 };

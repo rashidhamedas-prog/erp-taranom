@@ -109,11 +109,12 @@ led(2004, { event_type: 'sale', source_type: 'invoice', source_id: 9, product_id
 
 const base = snap();
 
-// ── guard skip on mismatched JE 1016 ──
+// ── JE1016 manual draft is superseded (official subledger-recon reverse) — never created ──
 let r1 = P3.runP3DraftMigration(db, {});
-ok(r1.skipped.some((s) => s.key === 'je1016_reverse'), 'JE1016 amount mismatch → skipped', r1.skipped);
+ok(!r1.skipped.some((s) => s.key === 'je1016_reverse') && !r1.created.some((s) => s.key === 'je1016_reverse'),
+  'JE1016 reverse draft: superseded, neither created nor skipped', r1);
 ok(r1.created.length === 3, '3 other drafts created', r1.created);
-ok(String(q1('SELECT value FROM settings WHERE key=?', P3.SETTINGS_KEY)?.value).startsWith('pending:'), 'marker pending while a guard fails');
+ok(q1('SELECT value FROM settings WHERE key=?', P3.SETTINGS_KEY)?.value === '1', 'marker done (3 drafts)');
 
 // ── device skip ──
 ok(P3.runP3DraftMigration(db, { isDevice: true }).skipped === 'device', 'device role: skipped');
@@ -135,17 +136,16 @@ try {
 
 const beforeSecond = snap();
 const r2 = P3.runP3DraftMigration(db, {});
-ok(r2.created.length === 1 && r2.created[0].key === 'je1016_reverse', 'facts fixed → only JE1016 reverse draft created', r2);
-ok(r2.already.length === 3, 'previous drafts not recreated (idempotent)', r2.already);
-ok(q1('SELECT value FROM settings WHERE key=?', P3.SETTINGS_KEY)?.value === '1', 'marker done');
+ok(r2.skipped === 'done', 'second migration run: done marker → no-op', r2);
+const r2b = P3.createP3Drafts(db, {});
+ok(r2b.created.length === 0, 'JE1016 facts valid → still no JE1016 manual draft', r2b);
+ok(r2b.already.length === 3, 'previous drafts not recreated (idempotent)', r2b.already);
 
 const drafts = p3Drafts();
-ok(drafts.length === 4, '4 P3 drafts in voucher_drafts', drafts.length);
+ok(drafts.length === 3, '3 P3 drafts in voucher_drafts', drafts.length);
 const byKey = new Map(drafts.map((d) => [d.description.match(/\[p3:([^\]]+)\]/)[1], { ...d, lines: JSON.parse(d.lines_json) }]));
 const sideSum = (d, code, side) => d.lines.filter((l) => l.code === code).reduce((t, l) => t + Number(l[side] || 0), 0);
-const rev = byKey.get('je1016_reverse');
-ok(rev && sideSum(rev, '1104', 'debit') === 1796860352 && sideSum(rev, '3102', 'credit') === 1796860352, 'JE1016 reverse: Dr 1104 / Cr 3102 = 1,796,860,352');
-ok(rev && rev.description.includes('#1016'), 'JE1016 reverse references JE 1016');
+ok(!byKey.has('je1016_reverse'), 'no JE1016 reverse draft');
 const und = byKey.get('undoc_adjust_146335856');
 ok(und && sideSum(und, '610801', 'debit') === 146335856 && sideSum(und, '1104', 'credit') === 146335856, 'undoc: Dr 610801 / Cr 1104 = 146,335,856');
 ok(und && /ledger#1273/.test(und.description) && und.lines.some((l) => /بررسی WIP/.test(l.description || '')), 'row 1273 flagged «بررسی WIP»');
@@ -162,7 +162,8 @@ ok(after.led === base.led && after.tombs === base.tombs, 'no DELETE/tombstone; k
 ok(!q1("SELECT 1 FROM journal_entries WHERE description LIKE '%[p3:%'"), 'no journal entry carries a P3 tag');
 
 const rep = P3.buildP3Report(db);
-ok(rep.gl_1104_if_all_drafts_posted_rial - rep.gl_1104_live_rial === 1796860352 - 146335856 + 71232000 + 10759000, 'hypothetical GL1104 effect = +1,732,515,496', rep.drafts_effect_1104_rial);
+ok(rep.gl_1104_if_all_drafts_posted_rial - rep.gl_1104_live_rial === -146335856 + 71232000 + 10759000, 'hypothetical GL1104 effect = −64,344,856 (JE1016 excluded)', rep.drafts_effect_1104_rial);
+ok(rep.plan.find((s) => s.key === 'je1016_reverse').superseded === true, 'report: JE1016 plan entry superseded → official route');
 ok(rep.cogs_zero_inbound.pairs === 1 && rep.cogs_zero_inbound.totals.delta_cogs_sales_rial === 10000, 'COGS share (report only) computed', rep.cogs_zero_inbound.totals);
 ok(rep.cogs_zero_inbound.draft === null, 'COGS share: no draft');
 
@@ -178,7 +179,7 @@ try {
 // ── second boot creates nothing ──
 const vd0 = count('voucher_drafts');
 dbMods.initDB();
-ok(count('voucher_drafts') === vd0 && p3Drafts().length === 4, 'second boot creates nothing');
+ok(count('voucher_drafts') === vd0 && p3Drafts().length === 3, 'second boot creates nothing');
 
 // ── script: report readonly, apply refuses live path ──
 db.pragma('wal_checkpoint(TRUNCATE)');
@@ -194,7 +195,7 @@ fs.copyFileSync(dbFile, path.join(liveDir, 'crm.db'));
 const applyRun = spawnSync(process.execPath, [script, '--mode=apply', '--db', path.join(liveDir, 'crm.db')], { encoding: 'utf8', env });
 ok(applyRun.status === 2 && /i-have-p3-approval/.test(applyRun.stderr), 'apply refuses live production path', applyRun.stderr);
 const dryRun = spawnSync(process.execPath, [script, '--mode=dry-run', '--db', dbFile], { encoding: 'utf8', env });
-ok(dryRun.status === 0 && /already=4/.test(dryRun.stdout), 'dry-run on sandbox: nothing new (already=4)', dryRun.stderr || dryRun.stdout);
+ok(dryRun.status === 0 && /already=3/.test(dryRun.stdout), 'dry-run on sandbox: nothing new (already=3)', dryRun.stderr || dryRun.stdout);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 try { dbMods.closeDB(); } catch (_) {}

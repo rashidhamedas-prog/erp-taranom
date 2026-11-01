@@ -1,6 +1,6 @@
 // Sub-ledger ↔ GL reconciliation (R1–R11) — mounted at /api/accounting/subledger-recon.
 // Reads: admin/accounting/delegated view. Mutations (v522): canDo acc_subledger_recon
-// edit (apply fix) / delete (reverse fix), central server only. Nightly settings: admin.
+// edit (apply fix) / delete (reverse fix + its read-only reverse-preview), central server only. Nightly settings: admin.
 const router = require('express').Router();
 const { getDB } = require('../db');
 const { auth, adminOnly, adminOrAccounting, centralOnlyStrict } = require('../middleware/auth');
@@ -70,6 +70,14 @@ router.get('/last', ...read, (req, res) => {
 router.get('/fixes', ...read, (req, res) => {
   try {
     res.json({ fixes: recon.listFixes(dbReady(), { limit: req.query.limit }) });
+  } catch (e) { sendErr(res, e); }
+});
+
+// Read-only: what POST /fixes/:id/reverse would do (same permission; never writes).
+router.get('/fixes/:id/reverse-preview', ...reverseFix, (req, res) => {
+  try {
+    const wh = String(req.query.warehouses || '').split(',').map((s) => parseInt(s, 10)).filter((x) => x > 0);
+    res.json(recon.previewReverseFix(dbReady(), +req.params.id, { warehouses: wh.length ? wh : null }));
   } catch (e) { sendErr(res, e); }
 });
 
