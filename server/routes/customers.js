@@ -22,6 +22,32 @@ const {
 } = require('../lib/client-request-id');
 
 const excelUpload = createSecureUpload('xlsx');
+const { isManagerRole } = require('../lib/rbac');
+
+/**
+ * P6 — customers.credit_limit_rial (NULL = no per-customer ceiling). Only admin / sales_manager may
+ * write it. Returns { present, value } or throws 403/422.
+ */
+function parseCreditLimitInput(req) {
+  const body = req.body || {};
+  if (!Object.prototype.hasOwnProperty.call(body, 'credit_limit_rial')) return { present: false };
+  if (!isManagerRole(req.user && req.user.role)) {
+    const e = new Error('فقط مدیر می‌تواند سقف اعتبار مشتری را تغییر دهد');
+    e.status = 403;
+    e.code = 'E_CREDIT_LIMIT_FORBIDDEN';
+    throw e;
+  }
+  const raw = body.credit_limit_rial;
+  if (raw === null || raw === '') return { present: true, value: null };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) {
+    const e = new Error('سقف اعتبار باید عدد صفر یا بزرگ‌تر (ریال) باشد، یا خالی برای بدون سقف');
+    e.status = 422;
+    e.code = 'E_CREDIT_LIMIT_VALUE';
+    throw e;
+  }
+  return { present: true, value: Math.round(n) };
+}
 
 // Pre-aggregated ledger balances — one GROUP BY pass instead of a correlated subquery per row.
 const LEDGER_BAL_JOIN = `LEFT JOIN (
@@ -136,7 +162,9 @@ router.post('/', auth, requirePermission('customers', 'create'), (req, res) => {
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   if (!biz) return res.status(400).json({ error: 'نام فروشگاه الزامی است' });
   let requestKey;
+  let creditLimitIn;
   try {
+    creditLimitIn = parseCreditLimitInput(req);
     requestKey = requireClientRequestId(req.body);
     validateCustomerFields(req.body || {});
   } catch (e) {
@@ -178,6 +206,9 @@ router.post('/', auth, requirePermission('customers', 'create'), (req, res) => {
       ).run(createdBy, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, createdBy, autoF, gid, pgid,
         prefix || '', phone2 || '', fax || '', mobile || '', email || '', economic_code || '', postal_code || '', national_id || '', referrer || '', birth_date || '', company_name || '', account_nature || '', createdBy, requestKey);
       const created = db.prepare('SELECT id,created_at FROM customers WHERE id=?').get(result.lastInsertRowid);
+      if (creditLimitIn.present) {
+        db.prepare('UPDATE customers SET credit_limit_rial=? WHERE id=?').run(creditLimitIn.value, created.id);
+      }
       try { ensureCustomerTafsili(db, created.id); } catch (_) {}
       if (bal) syncOpeningLedger(db, created.id, bal, created.created_at, req.user.id);
       return created.id;
@@ -232,6 +263,9 @@ router.put('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را ویرایش کند' });
+  let creditLimitIn;
+  try { creditLimitIn = parseCreditLimitInput(req); }
+  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
   const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   // 8B: validate only fields whose value actually changed — legacy invalid rows stay until edited
@@ -265,6 +299,11 @@ router.put('/:id', auth, (req, res) => {
         email ?? row.email ?? '', economic_code ?? row.economic_code ?? '', postal_code ?? row.postal_code ?? '',
         national_id ?? row.national_id ?? '', referrer ?? row.referrer ?? '', birth_date ?? row.birth_date ?? '',
         company_name ?? row.company_name ?? '', account_nature ?? row.account_nature ?? '', req.params.id);
+    if (creditLimitIn.present) {
+      db.prepare('UPDATE customers SET credit_limit_rial=? WHERE id=?').run(creditLimitIn.value, req.params.id);
+      audit(req.user.id, 'update', 'customer', req.params.id,
+        `سقف اعتبار: ${row.credit_limit_rial == null ? 'بدون سقف' : row.credit_limit_rial} ← ${creditLimitIn.value == null ? 'بدون سقف' : creditLimitIn.value}`);
+    }
     if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
       try { ensureCustomerTafsili(db, req.params.id); } catch (_) {}
       syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
@@ -284,6 +323,28 @@ router.put('/:id', auth, (req, res) => {
     assignCustomerByTerritory(db, req.params.id, city, province, req.user.id);
   }
   res.json({ ok: true });
+});
+
+/** P6: set/clear a customer's credit ceiling (admin / sales_manager only). Body: { credit_limit_rial: number|null }. */
+router.put('/:id/credit-limit', auth, (req, res) => {
+  const db = getDB();
+  const row = db.prepare('SELECT id, biz, credit_limit_rial FROM customers WHERE id=?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'یافت نشد' });
+  let parsed;
+  try {
+    if (!Object.prototype.hasOwnProperty.call(req.body || {}, 'credit_limit_rial')) {
+      const e = new Error('credit_limit_rial الزامی است (عدد ریال یا null برای بدون سقف)');
+      e.status = 400; e.code = 'E_CREDIT_LIMIT_VALUE';
+      throw e;
+    }
+    parsed = parseCreditLimitInput(req);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  db.prepare('UPDATE customers SET credit_limit_rial=? WHERE id=?').run(parsed.value, row.id);
+  audit(req.user.id, 'update', 'customer', row.id,
+    `سقف اعتبار ${row.biz}: ${row.credit_limit_rial == null ? 'بدون سقف' : row.credit_limit_rial} ← ${parsed.value == null ? 'بدون سقف' : parsed.value}`);
+  res.json({ ok: true, id: row.id, credit_limit_rial: parsed.value });
 });
 
 router.delete('/:id', auth, (req, res) => {

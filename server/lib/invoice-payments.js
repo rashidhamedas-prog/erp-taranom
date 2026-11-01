@@ -61,13 +61,15 @@ function assertReceivedCheque(s, index) {
   const n = index + 1;
   const sayadi = digitsOnly(s.sayadi);
   const missing = [];
+  // P6 contract cheque (`method:'cheque'`): sayad id + bank + due only; no sayad inquiry.
+  const lean = !!s.cheque_contract;
   if (!String(s.cheque_bank || '').trim()) missing.push('نام بانک');
-  if (!String(s.cheque_branch || '').trim()) missing.push('شعبه');
-  if (!String(s.cheque_account || '').trim()) missing.push('شماره حساب');
-  if (!String(s.cheque_number || '').trim()) missing.push('شماره چک');
+  if (!lean && !String(s.cheque_branch || '').trim()) missing.push('شعبه');
+  if (!lean && !String(s.cheque_account || '').trim()) missing.push('شماره حساب');
+  if (!lean && !String(s.cheque_number || '').trim()) missing.push('شماره چک');
   if (!/^\d{16}$/.test(sayadi)) missing.push('شناسه صیاد ۱۶ رقمی');
   if (!String(s.cheque_due || '').trim()) missing.push('تاریخ سررسید');
-  if (!String(s.cheque_owner || '').trim()) missing.push('نام صادرکننده');
+  if (!lean && !String(s.cheque_owner || '').trim()) missing.push('نام صادرکننده');
   if (missing.length) {
     const e = new Error(`چک دریافتی${n ? ` (ردیف ${n})` : ''}: ${missing.join('، ')} الزامی است`);
     e.status = 400;
@@ -100,9 +102,101 @@ function assertReceivedCheque(s, index) {
   }
 }
 
-function normalizeInvoicePaySplits(body, invoiceFinal) {
+const METHOD_TO_PAY_TYPE = { cash: 'cash', card: 'pos_card', cheque: 'cheque', credit: 'credit' };
+
+function overErr(paid, final) {
+  const e = new Error(`جمع مبالغ غیرنقد (${fmtRial(paid)}) از مانده سند (${fmtRial(final)}) بیشتر است`);
+  e.status = 422;
+  e.code = 'E_PAY_SPLIT_OVER';
+  e.paid = paid;
+  e.final = final;
+  return e;
+}
+
+/**
+ * P6 generalised tender contract:
+ *   { method: cash|card|cheque|credit, amount,
+ *     cash_box_id | terminal_id | cheque:{sayad_id,bank_name,due_date,...}, trace?, last4? }
+ * Σ ≤ remaining: non-cash (card/cheque/credit) above the remaining → 422 E_PAY_SPLIT_OVER;
+ * cash above the remaining is change (باقی) and is trimmed off, never posted.
+ * Legacy `pay_type` splits (no `method`) pass through untouched. Idempotent.
+ * @returns {{ splits:Array, creditRial:number, changeRial:number, contract:boolean }}
+ */
+function expandMethodSplits(rawSplits, invoiceFinal) {
   const finalAmt = moneyRial(invoiceFinal);
-  const raw = Array.isArray(body && body.pay_splits) ? body.pay_splits : [];
+  const list = Array.isArray(rawSplits) ? rawSplits : [];
+  const contract = list.some((s) => s && s.method != null && s.method !== '');
+  if (!contract) {
+    return { splits: list, credits: [], creditRial: 0, changeRial: 0, contract: false };
+  }
+  const out = [];
+  const credits = [];
+  let creditRial = 0;
+  list.forEach((s, i) => {
+    if (!s) return;
+    const method = String(s.method || '').trim().toLowerCase();
+    if (!method) { out.push(s); return; } // legacy row mixed in
+    const pay_type = METHOD_TO_PAY_TYPE[method];
+    if (!pay_type) {
+      const e = new Error(`قسط ${i + 1}: روش پرداخت نامعتبر است (cash|card|cheque|credit)`);
+      e.status = 422;
+      e.code = 'E_PAY_SPLIT_TYPE';
+      throw e;
+    }
+    const amount = moneyRial(s.amount != null ? s.amount : s.amount_rial);
+    if (pay_type === 'credit') {
+      creditRial += amount;
+      if (amount > 0) credits.push({ pay_type: 'credit', method_credit: true, amount });
+      return;
+    }
+    const flat = Object.assign({}, s, { pay_type, amount });
+    delete flat.method;
+    if (pay_type === 'cheque') {
+      const c = s.cheque && typeof s.cheque === 'object' ? s.cheque : {};
+      flat.sayadi = digitsOnly(c.sayad_id || c.sayadi || s.sayadi || s.sayad_id || '');
+      flat.cheque_bank = String(c.bank_name || c.bank || s.cheque_bank || '').trim();
+      flat.cheque_due = String(c.due_date || c.due || s.cheque_due || s.cheque_due_date || '').trim();
+      flat.cheque_number = String(c.number || c.cheque_number || s.cheque_number || '').trim();
+      flat.cheque_owner = String(c.owner || c.cheque_owner || s.cheque_owner || '').trim();
+      flat.cheque_branch = String(c.branch || s.cheque_branch || '').trim();
+      flat.cheque_account = String(c.account || c.account_number || s.cheque_account || '').trim();
+      flat.sheba = c.sheba || s.sheba || '';
+      // Contract cheque = sayad id + bank + due only (no sayad inquiry); the rest is optional.
+      flat.cheque_contract = true;
+    }
+    out.push(flat);
+  });
+  let nonCash = creditRial;
+  for (const s of out) if (s.pay_type !== 'cash') nonCash += moneyRial(s.amount);
+  if (nonCash - finalAmt > 0.5) throw overErr(nonCash, finalAmt);
+  let room = finalAmt - nonCash;
+  let changeRial = 0;
+  const trimmed = [];
+  for (const s of out) {
+    if (s.pay_type !== 'cash') { trimmed.push(s); continue; }
+    const amt = moneyRial(s.amount);
+    if (amt <= room + 0.5) { trimmed.push(s); room -= amt; continue; }
+    const keep = Math.max(0, room);
+    changeRial += amt - keep;
+    room = 0;
+    if (keep > 0) trimmed.push(Object.assign({}, s, { amount: keep }));
+  }
+  return { splits: trimmed, credits, creditRial, changeRial, contract: true };
+}
+
+function normalizeInvoicePaySplits(body, invoiceFinal) {
+  return normalizeInvoicePayPlan(body, invoiceFinal).splits;
+}
+
+function normalizeInvoicePayPlan(body, invoiceFinal) {
+  const finalAmt = moneyRial(invoiceFinal);
+  const expanded = expandMethodSplits(body && body.pay_splits, finalAmt);
+  // Rows marked method_credit (kept by prepareStoreQuickSaleBody after expansion) are AR, not receipts.
+  let creditRial = expanded.creditRial;
+  const raw = expanded.splits.filter((s) => {
+    if (s && s.method_credit) { creditRial += moneyRial(s.amount); return false; }
+    return true;
+  });
   const mapped = raw.map((s, i) => normalizeOneSplit(s, i));
   const zeroIdx = mapped.findIndex((s) => !(s.amount > 0));
   if (zeroIdx >= 0 && mapped.length > 0) {
@@ -113,7 +207,7 @@ function normalizeInvoicePaySplits(body, invoiceFinal) {
   }
   const splits = mapped.filter((s) => s.amount > 0);
   assertSplits(splits, finalAmt);
-  return splits;
+  return { splits, creditRial, changeRial: expanded.changeRial, contract: expanded.contract };
 }
 
 /**
@@ -124,8 +218,13 @@ function resolveInvoicePayments(body, invoiceFinal, opts) {
   const finalAmt = moneyRial(invoiceFinal);
   const b = body || {};
   if (Array.isArray(b.pay_splits) && b.pay_splits.length > 0) {
-    const splits = normalizeInvoicePaySplits(b, finalAmt);
-    return { splits, skipInvoiceCash: true };
+    const planned = normalizeInvoicePayPlan(b, finalAmt);
+    const out = { splits: planned.splits, skipInvoiceCash: true };
+    if (planned.contract || planned.creditRial) {
+      out.creditRial = planned.creditRial;
+      out.changeRial = planned.changeRial;
+    }
+    return out;
   }
   const pt = normalizePayType(b.pay_type);
   if (!pt || pt === 'credit') {
@@ -179,6 +278,9 @@ function normalizeOneSplit(s, index) {
     cheque_owner: String(s.cheque_owner || s.issuer || '').trim(),
     sheba: normalizeSheba(s.sheba || s.cheque_sheba),
     note: String(s.note || '').trim(),
+    trace: String(s.trace == null ? '' : s.trace).trim() || null,
+    last4: (() => { const d = digitsOnly(s.last4); return d ? d.slice(-4) : null; })(),
+    cheque_contract: !!s.cheque_contract,
   };
 }
 
@@ -375,6 +477,17 @@ function applyInvoicePaySplits(db, {
         return;
       }
       const pos = require('./pos');
+      // P6: reader adapter (manual by default; integrated is a flagged stub). trace/last4 optional.
+      let slip = { trace: s.trace || null, last4: s.last4 || null };
+      try {
+        const term = db.prepare('SELECT * FROM pos_terminals WHERE id=?').get(s.terminal_id);
+        if (term) {
+          const r = require('./pos-adapter').requestPayment(term, s.amount, {
+            db, trace: s.trace, last4: s.last4,
+          });
+          slip = { trace: r.trace || null, last4: r.last4 || null };
+        }
+      } catch (_) { /* adapter never blocks a card sale */ }
       const rec = pos.postReceipt(db, {
         terminal_id: s.terminal_id,
         amount_rial: s.amount,
@@ -382,6 +495,8 @@ function applyInvoicePaySplits(db, {
         cust_id: custId,
         date: when,
         note,
+        trace: slip.trace,
+        last4: slip.last4,
         idempotency_key: `inv-${invoiceId}-pos-${absI}-${s.amount}`,
       }, { id: userId });
       ids.push({ kind: 'pos', id: rec && (rec.receiptId || rec.id) });
@@ -682,6 +797,7 @@ function loadInvoiceReceipts(db, invoiceId) {
 
 module.exports = {
   normalizeInvoicePaySplits,
+  expandMethodSplits,
   resolveInvoicePayments,
   headerPayTypeFromSplits,
   usesSplitPosting,

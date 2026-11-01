@@ -394,7 +394,7 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     const prod = db.prepare('SELECT * FROM products WHERE id=?').get(r.product_id);
     if (!prod) return `محصول شناسه ${r.product_id} یافت نشد`;
     const whId = resolveRowWarehouseId(db, r, warehouseId);
-    const allowNeg = warehouseAllowsNegative(db, whId);
+    const allowNeg = warehouseAllowsNegative(db, whId) || !!(metaOut && metaOut.forceNegative);
     if (isFabricRollLine(r)) {
       const batchId = r.batch_id ? parseInt(r.batch_id, 10) : null;
       if (batchId) {
@@ -432,7 +432,7 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     }
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const whName = whId ? (used.get(whId) || '') : '';
-    const allowNeg = warehouseAllowsNegative(db, whId);
+    const allowNeg = warehouseAllowsNegative(db, whId) || !!(metaOut && metaOut.forceNegative);
     // Legacy seed — same rule as postSaleStockMovements / ledger.warehouseQty: a product that predates
     // warehouse_stock gets its home-warehouse row from products.stock (0 elsewhere). The ATP check reads
     // that rule, so the movement must act on the same number instead of a fresh 0 row.
@@ -670,7 +670,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   }
   const storedPayType = payPlan.splits.length
     ? headerPayTypeFromSplits(payPlan.splits, pType, final)
-    : pType;
+    : (payPlan.creditRial > 0 ? 'credit' : pType);
   const skipInvoiceCash = payPlan.skipInvoiceCash;
 
   // کارشناس فاکتور: مدیر/حسابدار می‌تواند تعیین کند؛ در غیر این صورت مشتری→کاربر جاری
@@ -724,6 +724,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   };
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
+  let storeStockPolicy = null; // P6 — set for store quick-sale firm documents
 
   try {
     resolveCashPaid(req.body || {}, final);
@@ -752,6 +753,20 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       applyHeaderWarehouseToLines(built.rows, whId, { force: lockWh });
       assertWarehouseLines(db, built.rows, whId, { requirePositive: true, allowNegativeProduct: true });
     } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+    // P6: store_insufficient_stock_mode (block → 422; warn → proceed + warning).
+    if (isStoreQuickRequest(req.body, req.user.role)) {
+      try {
+        const { applyInsufficientStockPolicy } = require('../lib/store-quick-sale');
+        storeStockPolicy = applyInsufficientStockPolicy(db, {
+          rows: built.rows, warehouseId: whId, custId: cust_id,
+          backorder: isBackorderRequested(req.body),
+        });
+      } catch (e) {
+        return res.status(e.status || 400).json({
+          error: e.message, code: e.code, shortages: e.shortages,
+        });
+      }
+    }
     try {
       let arDelta = invoiceArDeltaRial(final, payPlan, storedPayType);
       const exMeta = req.body && req.body._store_exchange;
@@ -762,7 +777,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     } catch (e) {
       return res.status(e.status || 409).json({
         error: e.message, code: e.code || 'E_CREDIT_LIMIT',
-        credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial,
+        credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial, limit: e.limit, balance: e.balance,
         additional_rial: e.additional_rial, available_rial: e.available_rial,
       });
     }
@@ -802,6 +817,8 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
           try { forceNeg = !!require('../lib/rbac').hasPermission(db, req.user, 'inventory_negative', 'approve'); }
           catch (_) { forceNeg = false; }
         }
+        const storeWarnForce = !!(storeStockPolicy && storeStockPolicy.force);
+        if (storeWarnForce) { forceNeg = true; stockMeta.forceNegative = true; }
         fulfillment = decideSaleFulfillment(db, {
           rows: built.rows, headerWarehouseId: whId, custId: cust_id, excludeInvoiceId: invId,
           backorderRequested: isBackorderRequested(req.body), role: req.user.role,
@@ -815,7 +832,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             const stocked = runWithSaleContext({ custId: cust_id }, () => postSaleStockMovements(db, {
               rows: built.rows, warehouseId: whId, sourceType: 'invoice', sourceId: invId,
               userId: req.user.id, date: entryDate, note: `فروش ${invoiceTypeLabel(invType)} ${num}`,
-              user: req.user,
+              user: req.user, forceNegative: storeWarnForce,
             }));
             saleCogsRial = stocked.cogsRial;
             stockMeta.usedWarehouses = stocked.usedWarehouses;
@@ -963,8 +980,14 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   const fulfillmentOut = created.fulfillment && created.fulfillment.mode !== 'deduct'
     ? { fulfillment_state: created.fulfillment.fulfillment_state, atp_shortages: created.fulfillment.shortages }
     : {};
+  // P6: warn-mode stock shortage + cash change (باقی) surfaced to the till UI.
+  const p6Out = {};
+  if (storeStockPolicy && storeStockPolicy.warnings.length) p6Out.warnings = storeStockPolicy.warnings;
+  if (payPlan.changeRial > 0) p6Out.change_rial = payPlan.changeRial;
+  if (payPlan.creditRial > 0) p6Out.credit_rial = payPlan.creditRial;
   res.json(applyCatalogCostPolicy(db, req.user, {
     ...row, rows: JSON.parse(row.rows || '[]'), used_warehouses: created.usedWarehouses || [], ...fulfillmentOut,
+    ...p6Out,
   }));
 });
 
@@ -1058,7 +1081,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const pType = pay_type || row.pay_type || 'cash';
   const storedPayType = payPlan.splits.length
     ? headerPayTypeFromSplits(payPlan.splits, pType, final)
-    : pType;
+    : (payPlan.creditRial > 0 ? 'credit' : pType);
   const skipInvoiceCash = payPlan.skipInvoiceCash;
   const journalOpts = {
     payType: skipInvoiceCash ? 'credit' : storedPayType,
@@ -1305,7 +1328,7 @@ router.post('/:id/convert', auth, (req, res) => {
   } catch (e) {
     return res.status(e.status || 409).json({
       error: e.message, code: e.code || 'E_CREDIT_LIMIT',
-      credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial,
+      credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial, limit: e.limit, balance: e.balance,
       additional_rial: e.additional_rial, available_rial: e.available_rial,
     });
   }

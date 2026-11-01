@@ -330,14 +330,17 @@ function assertWarehouseLines(db, rows, headerWarehouseId, {
  */
 function postSaleStockMovements(db, {
   rows, warehouseId, sourceType, sourceId, userId, date, note, user = null,
+  // P6: store quick-sale in `warn` mode — the ticket may take stock below zero (policy, not RBAC).
+  forceNegative = false,
 }) {
   const used = new Map();
   const movements = [];
   const negativeOverrides = [];
   let cogsRial = 0;
-  let canOverrideNeg = false;
+  let canOverrideNeg = !!forceNegative;
   try {
-    if (user && user.role === 'admin') canOverrideNeg = true;
+    if (forceNegative) canOverrideNeg = true;
+    else if (user && user.role === 'admin') canOverrideNeg = true;
     else if (user) {
       const { hasPermission } = require('./rbac');
       canOverrideNeg = !!hasPermission(db, user, 'inventory_negative', 'approve');

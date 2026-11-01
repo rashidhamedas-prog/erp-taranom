@@ -31166,7 +31166,7 @@ async function renderPosDevicesTab(body){
     <tbody>${(terminals||[]).map(d=>`<tr>
       <td>${esc(d.name)}</td><td class="mono">${esc(d.terminal_id)}</td>
       <td>${esc(d.bank_name||'-')}<div class="mono muted">${esc(d.bank_account||'')}</div></td>
-      <td class="mono muted">${esc(d.merchant_id||'-')}</td>
+      <td class="mono muted">${esc(d.merchant_id||'-')}${d.coa_code?`<div>حساب ${esc(d.coa_code)}</div>`:''}${d.mode&&d.mode!=='manual'?`<div>${esc(d.mode)}</div>`:''}${d.shortcut_slot?`<div>میان‌بر ${esc(d.shortcut_slot)}</div>`:''}</td>
       <td>${Number(d.active)?'فعال':'غیرفعال'}</td>
       <td>${Number(d.active)?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deactivatePosDevice(d.id)})}">غیرفعال</button>`:'—'}</td>
     </tr>`).join('')||emptyRow(6)}</tbody></table></div>
@@ -31197,6 +31197,9 @@ function posDeviceModal(){
       <div class="fg"><label>شماره پایانه *</label><input id="pos-term" class="mono"></div>
       <div class="fg"><label>شناسه پذیرنده</label><input id="pos-mid" class="mono"></div>
       <div class="fg full"><label>بانک واریزی *</label><select id="pos-bank"><option value="">در حال بارگذاری…</option></select></div>
+      <div class="fg"><label>کد حساب دریافت (اختیاری)</label><input id="pos-coa" class="mono coa-code" inputmode="numeric" placeholder="خالی = حساب بانک"></div>
+      <div class="fg"><label>حالت</label><select id="pos-mode"><option value="manual">دستی (پیش‌فرض)</option><option value="integrated">متصل</option><option value="both">هر دو</option></select></div>
+      <div class="fg"><label>میان‌بر (۱ تا ۹)</label><input id="pos-slot" type="number" min="1" max="9"></div>
     </div></div>
     <div class="modal-foot"><button class="btn" data-csp-click="${CSP.bind('click',function(event){savePosDevice()})}">💾 ذخیره</button><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button></div>`);
   (async()=>{
@@ -31213,7 +31216,8 @@ async function savePosDevice(){
   if(!name||!terminal_id){ showToast('نام و شماره پایانه الزامی است','error'); return; }
   if(!bank_id){ showToast('یک بانک فعال را از فهرست انتخاب کنید','error'); return; }
   try{
-    await api('POST','/pos/terminals',{name,terminal_id,bank_id,merchant_id:el('pos-mid').value.trim()||null});
+    await api('POST','/pos/terminals',{name,terminal_id,bank_id,merchant_id:el('pos-mid').value.trim()||null,
+      coa_code:el('pos-coa').value.trim()||null, mode:el('pos-mode').value||'manual', shortcut_slot:+el('pos-slot').value||null});
     closeModal(); showToast('کارتخوان ذخیره شد'); loadAccTab('pos-devices');
   }catch(e){}
 }
@@ -39948,6 +39952,15 @@ function renderAdminGuide(){
         <li><b>رابط:</b> ستون بهای کالا، ستون‌های بهای کاردکس و ارزش میانگین در گزارش ارزش‌گذاری «—» می‌شود؛ فیلد «بهای تمام‌شده» در فرم کالا پنهان است و ذخیره‌کردن کالا بها را بازنویسی نمی‌کند.</li>
         <li><b>تنظیم:</b> «کاربران ← دسترسی‌ها» ردیف «مشاهدهٔ بها/سود» را برای هر نقش یا کاربر می‌توان روشن/خاموش کرد (مثلاً مدیر تولید). کلیدهای API v1 بدون دامنهٔ <span dir="ltr">cost</span> نیز بها نمی‌بینند.</li>
       </ul>`),
+    helpSec('💳','تسویه چندروشی + کارتخوان + سقف اعتبار (v594)',`
+      <p>فروش سریع و فاکتور فروش حالا <code>pay_splits</code> با <code>method</code> می‌پذیرد: <code>cash</code> (با <code>cash_box_id</code>)، <code>card</code> (با <code>terminal_id</code>؛ <code>trace</code> و <code>last4</code> اختیاری)، <code>cheque</code> (با <code>cheque: {sayad_id, bank_name, due_date}</code>؛ بدون استعلام صیاد، در دفتر چک ثبت می‌شود) و <code>credit</code> (بدهکار مشتری).</p>
+      <ul>
+        <li><b>مجموع ≤ باقی‌مانده:</b> غیرنقد بیش از باقی‌مانده → ۴۲۲ <code>E_PAY_SPLIT_OVER</code>؛ نقد اضافه «باقی» (change) است و ثبت نمی‌شود. هر روش سند متوازن خودش را می‌زند و جمع خالص مشتری فقط بخش اعتباری است. <code>idempotency_key</code> همان <code>client_request_id</code> است.</li>
+        <li><b>کارتخوان:</b> در <b>حسابداری ← دستگاه‌های کارتخوان</b> فیلد «کد حساب دریافت» (کد بدون کاما)، «حالت» (دستی/متصل/هر دو) و «میان‌بر ۱ تا ۹» اضافه شد. کد خالی = حالت قبلی «در راه»؛ با تنظیم <code>pos_empty_coa_mode=bank</code> (فقط مدیرکل) به حساب بانک می‌رود. اتصال واقعی فقط یک stub پشت فلگ است؛ حالت دستی همیشه کار می‌کند.</li>
+        <li><b>سقف اعتبار مشتری:</b> <code>credit_limit_rial</code> (خالی = بی‌حد). فقط مدیرکل و مدیر فروش می‌توانند عوض کنند (<code>PUT /customers/:id/credit-limit</code>)؛ دیگران ۴۰۳. فروش اعتباری بالاتر از سقف → ۴۲۲ <code>E_CREDIT_LIMIT</code> با <code>{limit, balance}</code>.</li>
+        <li><b>کمبود موجودی فروش سریع:</b> تنظیم <code>store_insufficient_stock_mode</code> = <code>warn</code> (پیش‌فرض: فروش با هشدار و موجودی منفی) یا <code>block</code> (۴۲۲ <code>E_STORE_INSUFFICIENT_STOCK</code>). فقط مدیرکل/مدیر فروش.</li>
+        <li><b>ابطال کامل:</b> ابطال فاکتور همهٔ اثرها (نقد، کارتخوان، چک، حساب مشتری) را برمی‌گرداند.</li>
+      </ul>`),
     helpSec('📒','موجودی فقط با سند — کاردکس تنها منبع (v591)',`
       <p>از این نسخه عدد موجودی هیچ‌جا «دستی» نوشته نمی‌شود؛ هر تغییر یک سند (ردیف کاردکس + سند حسابداری) است و کاردکس تنها منبع حقیقت موجودی است.</p>
       <ul>
@@ -41162,6 +41175,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('💳','تسویه چندروشی در فروش (v592)',`
+      <p>هنگام تسویه می‌توانید یک فروش را بین نقد، کارت، چک و اعتبار (حساب مشتری) تقسیم کنید. جمع غیرنقد نباید از مبلغ باقی‌مانده بیشتر شود؛ نقد اضافه به‌صورت «باقی» به مشتری برمی‌گردد. شماره پیگیری و ۴ رقم آخر کارت اختیاری است. فروش اعتباری بالاتر از سقف اعتبار مشتری رد می‌شود (سقف را فقط مدیر تعیین می‌کند). اگر مدیر حالت «مسدود» را برای کمبود موجودی فعال کرده باشد، فروش بیش از موجودی انجام نمی‌شود.</p>`),
     helpSec('📦','فروش از انبار دیگر (v567)',`
       <p>برای فروش یک ردیف از انبار غیر از انبار سربرگ فاکتور، دسترسی <b>«فروش از انبار دیگر»</b> لازم است (مدیر دارد؛ بقیه را مدیر در دسترسی کاربران فعال می‌کند). بدون آن، انتخابگر انبار ردیف قفل است و پیام «برای فروش از انبار دیگر دسترسی لازم است» دیده می‌شود. نمایندگان همیشه روی انبار خودشان هستند.</p>
       <p>دکمهٔ <b>📦</b> کنار انبار هر ردیف، موجودی همهٔ انبارها را نشان می‌دهد و (با دسترسی) با یک کلیک انبار ردیف را عوض می‌کند. اگر کالا در انبار سربرگ صفر باشد ولی جای دیگر موجود باشد، روی کارت کالا بج «در انبار دیگر: n» می‌آید.</p>`),

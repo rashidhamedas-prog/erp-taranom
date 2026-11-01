@@ -11,6 +11,7 @@ const {
   COA_UI_GROUPS,
 } = require('../lib/coa-map');
 const { assertSafeOutboundTarget } = require('../lib/safe-outbound-request');
+const { isManagerRole } = require('../lib/rbac');
 const {
   getPublicSettings,
   getSmsSettings,
@@ -60,7 +61,23 @@ const NON_COA_ALLOWED_KEYS = [
   'ledger_leaf_enforcement',
   // v586 Phase 2 — product tafsili: legacy_leaf (default) | detail_account
   'coa_product_tafsili_mode',
+  // P6 — store quick-sale vs insufficient stock: warn (default) | block  (admin / sales_manager)
+  'store_insufficient_stock_mode',
+  // P6 — card terminal with empty coa_code: in_transit (legacy default, 1118) | bank (straight to bank account)
+  'pos_empty_coa_mode',
 ];
+
+/** Keys a sales_manager (not only admin) may change through PUT /settings. */
+const MANAGER_SETTING_KEYS = new Set(['store_insufficient_stock_mode']);
+
+/** admin: anything · sales_manager: only MANAGER_SETTING_KEYS · everyone else: 403. */
+function adminOrManagerForStoreKeys(req, res, next) {
+  const role = req.user && req.user.role;
+  if (role === 'admin') return next();
+  const keys = Object.keys(req.body || {});
+  if (isManagerRole(role) && keys.length > 0 && keys.every((k) => MANAGER_SETTING_KEYS.has(k))) return next();
+  return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_SETTINGS_FORBIDDEN' });
+}
 
 /** SSOT: every LEGACY coa_* key is persistable (no hand-maintained coa allow-list). */
 const ALLOWED_KEYS = [
@@ -202,8 +219,28 @@ function currentSettingValue(db, key) {
 }
 
 // PUT upsert key-value pairs (admin only)
-router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
+router.put('/', auth, adminOrManagerForStoreKeys, centralOnly, async (req, res) => {
   const body = req.body || {};
+  if (Object.prototype.hasOwnProperty.call(body, 'store_insufficient_stock_mode')) {
+    const v = String(body.store_insufficient_stock_mode || '').trim().toLowerCase();
+    if (v !== 'warn' && v !== 'block') {
+      return res.status(400).json({
+        error: 'مقدار store_insufficient_stock_mode فقط warn یا block است',
+        code: 'E_STORE_STOCK_MODE',
+      });
+    }
+    body.store_insufficient_stock_mode = v;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'pos_empty_coa_mode')) {
+    const v = String(body.pos_empty_coa_mode || '').trim().toLowerCase();
+    if (v !== 'in_transit' && v !== 'bank') {
+      return res.status(400).json({
+        error: 'مقدار pos_empty_coa_mode فقط in_transit یا bank است',
+        code: 'E_POS_EMPTY_COA_MODE',
+      });
+    }
+    body.pos_empty_coa_mode = v;
+  }
   for (const key of ['currency_base', 'currency_display']) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
     if (String(body[key] || '').trim().toLowerCase() !== 'rial') {
@@ -271,6 +308,10 @@ router.put('/', auth, adminOnly, centralOnly, async (req, res) => {
   updateSettings(db, entries, new Set(ALLOWED_KEYS));
   if (entries.some(([k]) => k.startsWith('coa_') || k === 'feature_cogs_voucher')) clearCoaCache();
   audit(req.user.id, 'update', 'settings', null, 'بروزرسانی تنظیمات');
+  if (req.user.role !== 'admin') {
+    // manager path: never echo the full settings payload
+    return res.json({ ok: true, store_insufficient_stock_mode: body.store_insufficient_stock_mode });
+  }
   res.json(getPublicSettings(db));
 });
 

@@ -129,6 +129,13 @@ function initPosSchema(db, ensureColumn) {
     ensureColumn(db, 'pos_settlement_batches', 'reversal_journal_id', 'INTEGER');
     // CC for 6114 fee + 6102 shortage expense lines (same column as bank-fee pattern).
     ensureColumn(db, 'pos_settlement_batches', 'fee_cost_center_id', 'INTEGER');
+    // P6 — card-reader contract (additive): receiving account override, reader mode, hotkey slot.
+    ensureColumn(db, 'pos_terminals', 'coa_code', 'TEXT');
+    ensureColumn(db, 'pos_terminals', 'mode', "TEXT DEFAULT 'manual'");
+    ensureColumn(db, 'pos_terminals', 'shortcut_slot', 'INTEGER');
+    // Optional card-slip references (never required in either reader mode).
+    ensureColumn(db, 'pos_receipts', 'trace', 'TEXT');
+    ensureColumn(db, 'pos_receipts', 'last4', 'TEXT');
   }
 
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_terminals_terminal_id ON pos_terminals(terminal_id)'); }
@@ -155,6 +162,81 @@ function requireActiveBank(db, bankId) {
   if (!bank) throw httpErr(400, 'بانک انتخاب‌شده وجود ندارد', 'E_POS_BANK_MISSING');
   if (!Number(bank.active)) throw httpErr(400, 'بانک انتخاب‌شده غیرفعال است', 'E_POS_BANK_INACTIVE');
   return bank;
+}
+
+const TERMINAL_MODES = new Set(['integrated', 'manual', 'both']);
+const SHORTCUT_SLOT_MAX = 9;
+
+/** P6: `coa_code` — digits only (Persian/Arabic digits + separators normalised); '' → null. */
+function parseTerminalCoaCode(db, raw) {
+  const { normalizeAccountCode } = require('./coa-map');
+  const code = normalizeAccountCode(raw, 'حساب کارتخوان');
+  if (!code) return null;
+  const acc = db.prepare('SELECT code, type FROM chart_of_accounts WHERE code=?').get(code);
+  if (!acc) throw httpErr(422, `حساب «${code}» در سرفصل حساب‌ها یافت نشد`, 'E_POS_COA_NOT_FOUND');
+  return code;
+}
+
+function parseTerminalMode(raw, fallback) {
+  if (raw === undefined || raw === null || raw === '') return fallback || 'manual';
+  const m = String(raw).trim().toLowerCase();
+  if (!TERMINAL_MODES.has(m)) {
+    throw httpErr(422, 'حالت کارتخوان فقط integrated / manual / both است', 'E_POS_MODE');
+  }
+  return m;
+}
+
+function parseShortcutSlot(db, raw, selfId) {
+  if (raw === undefined) return undefined; // not provided
+  if (raw === null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > SHORTCUT_SLOT_MAX) {
+    throw httpErr(422, `شمارهٔ میان‌بر باید ۱ تا ${SHORTCUT_SLOT_MAX} باشد`, 'E_POS_SLOT');
+  }
+  const dup = db.prepare(
+    'SELECT id FROM pos_terminals WHERE shortcut_slot=? AND COALESCE(active,1)=1 AND id<>?'
+  ).get(n, selfId || 0);
+  if (dup) throw httpErr(409, 'این شمارهٔ میان‌بر برای کارتخوان فعال دیگری ثبت شده است', 'E_POS_SLOT_DUP');
+  return n;
+}
+
+/**
+ * Where a card receipt lands.
+ *  - terminal.coa_code set  → that account directly (no in-transit hop).
+ *  - empty + setting pos_empty_coa_mode='bank' → the terminal's bank account directly.
+ *  - empty (default, legacy) → in-transit 1118; a batch settle later moves it to the bank.
+ * `direct` receipts are born settled (nothing left for the batch settle to do).
+ */
+function resolveTerminalReceiptAccount(db, terminal) {
+  const own = terminal && terminal.coa_code ? String(terminal.coa_code).trim() : '';
+  if (own) {
+    const a = db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(own);
+    if (a) return { code: a.code, name: a.name, direct: true, source: 'terminal' };
+  }
+  let mode = 'in_transit';
+  try {
+    const r = db.prepare("SELECT value FROM settings WHERE key='pos_empty_coa_mode'").get();
+    if (r && String(r.value).trim().toLowerCase() === 'bank') mode = 'bank';
+  } catch (_) { /* default */ }
+  if (mode === 'bank') {
+    const bank = terminal && terminal.bank_id
+      ? db.prepare('SELECT coa_code FROM banks WHERE id=?').get(terminal.bank_id)
+      : null;
+    const a = bank && bank.coa_code
+      ? db.prepare('SELECT code,name FROM chart_of_accounts WHERE code=?').get(bank.coa_code)
+      : null;
+    if (a) return { code: a.code, name: a.name, direct: true, source: 'bank' };
+  }
+  const t = acct(db, 'coa_card_in_transit');
+  return { code: t.code, name: t.name, direct: false, source: 'in_transit' };
+}
+
+function cleanLast4(v) {
+  const s = String(v == null ? '' : v)
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/\D/g, '');
+  return s ? s.slice(-4) : null;
 }
 
 function terminalRow(db, id) {
@@ -187,12 +269,15 @@ function createTerminal(db, body, user) {
   const bank = requireActiveBank(db, body.bank_id);
   const dup = db.prepare('SELECT id FROM pos_terminals WHERE terminal_id=?').get(terminalId);
   if (dup) throw httpErr(409, 'شماره پایانه تکراری است', 'E_POS_TERMINAL_DUP');
+  const coaCode = parseTerminalCoaCode(db, body.coa_code);
+  const mode = parseTerminalMode(body.mode, 'manual');
+  const slot = parseShortcutSlot(db, body.shortcut_slot, 0);
   let id;
   try {
     id = db.prepare(`
-      INSERT INTO pos_terminals (name, terminal_id, merchant_id, bank_id, active, created_by)
-      VALUES (?,?,?,?,1,?)
-    `).run(name, terminalId, merchantId, bank.id, user.id).lastInsertRowid;
+      INSERT INTO pos_terminals (name, terminal_id, merchant_id, bank_id, active, created_by, coa_code, mode, shortcut_slot)
+      VALUES (?,?,?,?,1,?,?,?,?)
+    `).run(name, terminalId, merchantId, bank.id, user.id, coaCode, mode, slot === undefined ? null : slot).lastInsertRowid;
   } catch (e) {
     if (/UNIQUE/i.test(e.message)) throw httpErr(409, 'شماره پایانه تکراری است', 'E_POS_TERMINAL_DUP');
     throw e;
@@ -217,12 +302,17 @@ function updateTerminal(db, id, body, user) {
     bankId = requireActiveBank(db, body.bank_id).id;
   }
   const active = body.active != null ? (body.active ? 1 : 0) : row.active;
+  const coaCode = body.coa_code !== undefined ? parseTerminalCoaCode(db, body.coa_code) : (row.coa_code || null);
+  const mode = body.mode !== undefined ? parseTerminalMode(body.mode, row.mode) : (row.mode || 'manual');
+  const slotIn = parseShortcutSlot(db, body.shortcut_slot, id);
+  const slot = slotIn === undefined ? (row.shortcut_slot == null ? null : row.shortcut_slot) : slotIn;
   try {
     db.prepare(`
       UPDATE pos_terminals
-      SET name=?, terminal_id=?, merchant_id=?, bank_id=?, active=?, updated_at=strftime('%s','now')
+      SET name=?, terminal_id=?, merchant_id=?, bank_id=?, active=?, coa_code=?, mode=?, shortcut_slot=?,
+          updated_at=strftime('%s','now')
       WHERE id=?
-    `).run(name, terminalId, merchantId, bankId, active, id);
+    `).run(name, terminalId, merchantId, bankId, active, coaCode, mode, slot, id);
   } catch (e) {
     if (/UNIQUE/i.test(e.message)) throw httpErr(409, 'شماره پایانه تکراری است', 'E_POS_TERMINAL_DUP');
     throw e;
@@ -344,9 +434,13 @@ function postReceipt(db, body, user) {
     if (!cust) throw httpErr(400, 'مشتری یافت نشد', 'E_POS_CUSTOMER');
   }
 
-  const inTransit = acct(db, 'coa_card_in_transit');
+  // P6: terminal.coa_code (or bank, by setting) posts straight to the account;
+  // otherwise the legacy in-transit hop (1118) until a batch settle.
+  const inTransit = resolveTerminalReceiptAccount(db, terminal);
   const creditAcct = custId ? recvAcct(db, custId) : acct(db, 'coa_sales');
   const toman = rialToLedger(amountRial);
+  const trace = String(body.trace == null ? '' : body.trace).trim() || null;
+  const last4 = cleanLast4(body.last4);
 
   const result = db.transaction(() => {
     let receiptId;
@@ -354,11 +448,12 @@ function postReceipt(db, body, user) {
       receiptId = db.prepare(`
         INSERT INTO pos_receipts
           (terminal_id, date, amount_rial, settled_rial, invoice_id, cust_id,
-           status, idempotency_key, ref, note, created_by)
-        VALUES (?,?,?,0,?,?,'open',?,?,?,?)
+           status, idempotency_key, ref, note, created_by, trace, last4)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
-        terminal.id, date, amountRial, invoiceId, custId,
-        key, String(body.ref || '').trim(), String(body.note || '').trim(), user.id
+        terminal.id, date, amountRial, inTransit.direct ? amountRial : 0, invoiceId, custId,
+        inTransit.direct ? 'settled' : 'open',
+        key, String(body.ref || '').trim(), String(body.note || '').trim(), user.id, trace, last4
       ).lastInsertRowid;
     } catch (e) {
       if (/UNIQUE/i.test(e.message)) throw httpErr(409, 'این دریافت قبلاً ثبت شده است', 'E_POS_IDEMPOTENT');

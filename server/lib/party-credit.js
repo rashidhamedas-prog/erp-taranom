@@ -22,6 +22,20 @@ function customerArExposureRial(db, customerId) {
   return Math.max(0, Math.round(Number(row?.bal) || 0));
 }
 
+/**
+ * P6: `customers.credit_limit_rial` (NULL = no per-customer ceiling → party/legacy limit applies;
+ * a number — including 0 — IS the ceiling). Returns { limit, source } or null.
+ */
+function customerCeilingRial(db, customerId) {
+  try {
+    const r = db.prepare('SELECT credit_limit_rial FROM customers WHERE id=?').get(customerId);
+    if (r && r.credit_limit_rial != null && r.credit_limit_rial !== '') {
+      return Math.max(0, Math.round(Number(r.credit_limit_rial) || 0));
+    }
+  } catch (_) { /* column lags on very old DBs */ }
+  return null;
+}
+
 function resolvePartyCreditLimitRial(db, customerId) {
   let c;
   try {
@@ -32,6 +46,8 @@ function resolvePartyCreditLimitRial(db, customerId) {
   if (!c) {
     throw new PartyCreditError('مشتری یافت نشد', 'E_CUSTOMER_NOT_FOUND');
   }
+  const ceiling = customerCeilingRial(db, customerId);
+  if (ceiling != null) return ceiling;
   if (c.party_id) {
     const p = db.prepare('SELECT credit_limit FROM parties WHERE id=?').get(c.party_id);
     const fromParty = Math.round(Number(p?.credit_limit) || 0);
@@ -61,21 +77,29 @@ function assertPartyCreditLimitOk(db, customerId, additionalRial) {
   const add = Math.round(Number(additionalRial) || 0);
   if (!(add > 0)) return;
   const limit = resolvePartyCreditLimitRial(db, customerId);
-  if (!(limit > 0)) return;
+  const ownCeiling = customerCeilingRial(db, customerId) != null;
+  if (!ownCeiling && !(limit > 0)) return; // legacy: 0 = unlimited
   const used = customerArExposureRial(db, customerId);
   const available = limit - used;
   if (add > available) {
-    throw new PartyCreditError(
+    const err = new PartyCreditError(
       `سقف اعتبار مشتری تمام شده است (سقف ${limit.toLocaleString('fa-IR')} ریال؛ مانده مصرف‌شده ${used.toLocaleString('fa-IR')}؛ این سند ${add.toLocaleString('fa-IR')})`,
       'E_CREDIT_LIMIT',
-      { credit_limit_rial: limit, used_rial: used, additional_rial: add, available_rial: Math.max(0, available) }
+      {
+        credit_limit_rial: limit, used_rial: used, additional_rial: add, available_rial: Math.max(0, available),
+        limit, balance: used,
+      }
     );
+    // P6 contract: per-customer ceiling answers 422 {limit, balance}; legacy party limit stays 409.
+    if (ownCeiling) err.status = 422;
+    throw err;
   }
 }
 
 module.exports = {
   PartyCreditError,
   customerArExposureRial,
+  customerCeilingRial,
   resolvePartyCreditLimitRial,
   invoiceArDeltaRial,
   assertPartyCreditLimitOk,

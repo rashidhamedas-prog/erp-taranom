@@ -250,6 +250,12 @@ function assertWalkinSettlement(db, custId, body, finalAmt, opts) {
   if (!isWalkinCustomer(db, custId)) return;
   const exchangeCredit = moneyRial((opts && opts.exchangeCreditRial) || 0);
   const plan = resolveInvoicePayments(body || {}, finalAmt);
+  if (Number(plan.creditRial) > 0) {
+    const e = new Error('برای نسیه باید مشتری واقعی (غیر از مشتری نقدی فروشگاه) انتخاب شود');
+    e.status = 400;
+    e.code = 'E_WALKIN_NO_CREDIT';
+    throw e;
+  }
   const paid = (plan.splits || []).reduce((a, s) => a + Number(s.amount || 0), 0);
   const final = moneyRial(finalAmt);
   const covered = moneyRial(paid) + Math.min(exchangeCredit, final);
@@ -296,6 +302,8 @@ function prepareStoreQuickSaleBody(db, user, body) {
   const b = { ...(body || {}) };
   b.store_quick = true;
   b.sales_channel = STORE_CHANNEL;
+  // P6: `idempotency_key` is the settlement-contract name for client_request_id.
+  if (!b.client_request_id && b.idempotency_key) b.client_request_id = String(b.idempotency_key);
   if (!b.type || b.type === 'proforma') b.type = 'normal';
   const custId = parseInt(b.cust_id, 10);
   if (!(custId > 0)) {
@@ -318,8 +326,9 @@ function prepareStoreQuickSaleBody(db, user, body) {
     if (r && r.row_type !== 'income') r.warehouse_id = whId;
   }
   // Cash box default when tender needs cash and body omitted it
+  const isCashSplit = (s) => !!s && (s.pay_type === 'cash' || String(s.method || '').toLowerCase() === 'cash');
   const needsCash = String(b.pay_type || '').toLowerCase() === 'cash'
-    || (Array.isArray(b.pay_splits) && b.pay_splits.some((s) => s && s.pay_type === 'cash'));
+    || (Array.isArray(b.pay_splits) && b.pay_splits.some(isCashSplit));
   if (needsCash && !(parseInt(b.cash_box_id, 10) > 0)) {
     try {
       b.cash_box_id = resolveStoreCashBoxId(db, user, b, { optional: !locksStoreCashBox(user && user.role) });
@@ -331,7 +340,7 @@ function prepareStoreQuickSaleBody(db, user, body) {
       lockedCash = resolveStoreCashBoxId(db, user, b);
     }
     b.pay_splits = b.pay_splits.map((s) => {
-      if (!s || s.pay_type !== 'cash') return s;
+      if (!isCashSplit(s)) return s;
       const id = lockedCash || parseInt(s.cash_box_id, 10) || parseInt(b.cash_box_id, 10) || null;
       return { ...s, cash_box_id: id };
     });
@@ -353,7 +362,9 @@ function assertStorePaymentMatchesFinal(body, finalAmt, opts) {
   if (explicitCredit) return;
   if (expect <= 0) return;
   const plan = resolveInvoicePayments(body || {}, expect);
-  const paid = (plan.splits || []).reduce((a, s) => a + moneyRial(s.amount), 0);
+  // P6: explicit `method:'credit'` portions stay on AR and count as covered.
+  const paid = (plan.splits || []).reduce((a, s) => a + moneyRial(s.amount), 0)
+    + moneyRial(plan.creditRial || 0);
   if (Math.abs(moneyRial(paid) - expect) > 0.5) {
     const e = new Error(
       `جمع پرداخت (${moneyRial(paid)}) با مبلغ نهایی فاکتور (${expect}) هم‌خوان نیست`
@@ -385,6 +396,43 @@ function assertStoreQuickSaleRules(db, user, body, ctx) {
   assertWalkinSettlement(db, custId, b, ctx && ctx.final, {
     exchangeCreditRial: ctx && ctx.exchangeCreditRial,
   });
+}
+
+const STOCK_MODE_KEY = 'store_insufficient_stock_mode';
+
+/** `warn` (default) | `block`. Anything else reads as warn. */
+function getInsufficientStockMode(db) {
+  return getSetting(db, STOCK_MODE_KEY).trim().toLowerCase() === 'block' ? 'block' : 'warn';
+}
+
+/**
+ * P6 — store sale vs. insufficient stock (setting `store_insufficient_stock_mode`).
+ *  - block → 422 E_STORE_INSUFFICIENT_STOCK (sale refused, nothing posted).
+ *  - warn  → sale proceeds; stock may go negative for THIS ticket (`force`), response carries a warning.
+ * Explicit backorder requests keep their own (admin/accounting) path and skip this policy.
+ * @returns {{ mode:string, shortages:Array, force:boolean, warnings:Array }}
+ */
+function applyInsufficientStockPolicy(db, { rows, warehouseId, custId, backorder } = {}) {
+  const mode = getInsufficientStockMode(db);
+  const none = { mode, shortages: [], force: false, warnings: [] };
+  if (backorder) return none;
+  const atp = require('./inventory/available-to-promise');
+  const { shortages } = atp.evaluateAvailableToPromise(db, rows || [], warehouseId, { custId });
+  if (!shortages || !shortages.length) return none;
+  const msg = atp.shortageMessage(shortages[0]);
+  if (mode === 'block') {
+    const e = new Error(msg);
+    e.status = 422;
+    e.code = 'E_STORE_INSUFFICIENT_STOCK';
+    e.shortages = shortages;
+    throw e;
+  }
+  return {
+    mode,
+    shortages,
+    force: true,
+    warnings: [{ code: 'W_STORE_INSUFFICIENT_STOCK', message: msg, shortages }],
+  };
 }
 
 /**
@@ -788,6 +836,9 @@ module.exports = {
   assertStoreQuickSaleRules,
   assertStorePaymentMatchesFinal,
   assertWalkinSettlement,
+  STOCK_MODE_KEY,
+  getInsufficientStockMode,
+  applyInsufficientStockPolicy,
   bootstrapStoreSale,
   scalePaySplitsToNet,
   postStoreExchangeRefund,

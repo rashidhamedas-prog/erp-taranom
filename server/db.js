@@ -2460,6 +2460,8 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'settlements', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'party_id', 'INTEGER');
   ensureColumn(db, 'customers', 'created_by', 'INTEGER');
+  // P6 — per-customer credit ceiling (rial). NULL = no ceiling (falls back to party/legacy limit).
+  ensureColumn(db, 'customers', 'credit_limit_rial', 'INTEGER');
   // Audit 8B — idempotent creates (partial UNIQUE; NULL allowed for legacy rows)
   ensureColumn(db, 'invoices', 'client_request_id', 'TEXT');
   ensureColumn(db, 'customers', 'client_request_id', 'TEXT');
