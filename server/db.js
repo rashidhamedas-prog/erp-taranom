@@ -4120,6 +4120,13 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.warn('p3_recon_drafts_v2:', e.message);
   }
+  // FR-P3 — پیش‌نویس‌های ثبت‌نشدهٔ P3: 110401 → 1104 + پیش‌نویس افتتاحیهٔ ledger#2021–2023 (فقط مرکز؛ هیچ post).
+  try {
+    const p3v3 = require('./lib/inventory/p3-recon-drafts').runP3DraftsV3Migration(db, { isDevice: isDevice() });
+    if (p3v3 && p3v3.changed) console.log('✅ p3_recon_drafts_v3:', JSON.stringify(p3v3));
+  } catch (e) {
+    console.warn('p3_recon_drafts_v3:', e.message);
+  }
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding

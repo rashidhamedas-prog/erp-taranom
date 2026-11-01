@@ -285,6 +285,39 @@ function cogsPartsByWarehouse(db, items, ctx = {}) {
   return { invParts: [...inv.values()], cogsParts: [...cogs.values()], totalRial: total };
 }
 
+/*
+ * FR-P3 — the only control accounts that may take a line despite having children, and only when
+ * the caller opts in via ctx.exemptControlCodes (today: the voucher-draft post path for P3 drafts).
+ * 1104 qualifies only while its whole GL balance sits on 1104 itself: no non-void line on any
+ * descendant (110401 and the product tafsili accounts under it). Once a descendant carries a line
+ * the exemption closes and the normal leaf rule applies again.
+ */
+const CONTROL_POSTING_EXEMPT_CODES = Object.freeze(['1104']);
+
+function descendantHasLines(db, code) {
+  const hasDeleted = db.prepare('PRAGMA table_info(journal_entries)').all().some((c) => c.name === 'deleted_at');
+  return !!db.prepare(`
+    WITH RECURSIVE t(code) AS (
+      SELECT code FROM chart_of_accounts WHERE parent_code=?
+      UNION SELECT c.code FROM chart_of_accounts c JOIN t ON c.parent_code=t.code
+    )
+    SELECT 1 FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
+    WHERE jl.account_code IN (SELECT code FROM t)
+      AND COALESCE(je.status,'approved') NOT IN ('reversed','void')
+      ${hasDeleted ? 'AND COALESCE(je.deleted_at,0)=0' : ''}
+    LIMIT 1
+  `).get(code);
+}
+
+function isExemptControlPosting(db, code, ctx) {
+  const c = String(code || '').trim();
+  const asked = ctx && Array.isArray(ctx.exemptControlCodes) ? ctx.exemptControlCodes.map(String) : [];
+  if (!c || !asked.includes(c) || !CONTROL_POSTING_EXEMPT_CODES.includes(c)) return false;
+  const acc = db.prepare('SELECT code, is_active FROM chart_of_accounts WHERE code=?').get(c);
+  if (!acc || acc.is_active === 0) return false;
+  return !descendantHasLines(db, c);
+}
+
 /**
  * postToLedger / rewrite hook: every line account must be a postable leaf.
  *  warn → log E_ACCOUNT_NOT_LEAF per line account (caller still posts)
@@ -298,6 +331,7 @@ function assertLinesPostable(db, lines, ctx = {}) {
     if (!code || seen.has(code)) continue;
     seen.add(code);
     if (isPostableCode(db, code)) continue;
+    if (isExemptControlPosting(db, code, ctx)) continue;
     const ref = ctx.sourceType ? `${ctx.sourceType}:${ctx.sourceId == null ? '' : ctx.sourceId}` : null;
     if (mode === 'enforce') {
       throw leafErr(E_NOT_LEAF, 422,
@@ -329,4 +363,6 @@ module.exports = {
   resolveWarehouseCogsAccounts,
   cogsPartsByWarehouse,
   assertLinesPostable,
+  CONTROL_POSTING_EXEMPT_CODES,
+  isExemptControlPosting,
 };

@@ -10,9 +10,13 @@
  * یک‌بار ساخته‌شده هرگز دوباره ساخته نمی‌شود (حتی اگر حذف/ثبت شده باشد).
  * هیچ DELETE و هیچ UPDATE روی ردیف موجود انجام نمی‌شود (جز مهاجرت v2 روی پیش‌نویس‌های ثبت‌نشدهٔ P3).
  *
- * P3-fix (تصمیم حامد): سطرهای پیش‌نویس روی حساب برگ موجودی (110401، فرزند 1104) می‌نشینند؛
- * کنترل اختلاف روی جمع 1104 و همهٔ زیرحساب‌هایش. برگشت JE1016 فقط از مسیر رسمی
- * subledger-recon fix #1 — پیش‌نویس دستی آن دیگر ساخته نمی‌شود و ثبتش مسدود است.
+ * P3-fix: برگشت JE1016 فقط از مسیر رسمی subledger-recon fix #1 — پیش‌نویس دستی آن ساخته نمی‌شود و ثبتش مسدود است.
+ *
+ * FR-P3 (تصمیم حامد): کل ماندهٔ GL موجودی روی خود 1104 است (110401 بی‌گردش با ۳۴۱ زیرحساب تفصیلی)
+ * ⇒ سطرهای موجودی همهٔ پیش‌نویس‌های P3 روی 1104؛ مهاجرت v3 پیش‌نویس‌های ثبت‌نشدهٔ 110401 را به 1104
+ * برمی‌گرداند و پیش‌نویس افتتاحیهٔ ledger#2021–2023 را می‌سازد. ثبت این پیش‌نویس‌ها روی 1104 حتی با
+ * ledger_leaf_enforcement=enforce از معافیت محدود «حساب کنترل موجودی» (coa-leaf-policy) می‌گذرد.
+ * ledger#2003 صراحتاً مستثناست (EXCLUDED_LEDGER_IDS).
  */
 
 const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
@@ -21,15 +25,16 @@ const RULE = 'p3_draft';
 const PHASE = 'P3';
 const SETTINGS_KEY = 'p3_recon_drafts_v1';
 const SETTINGS_KEY_V2 = 'p3_recon_drafts_v2';
-const LEAF_SETTING_KEY = 'p3_inventory_leaf_code';
+const SETTINGS_KEY_V3 = 'p3_recon_drafts_v3';
 const RULE_V2 = 'p3_draft_v2';
+const RULE_V3 = 'p3_draft_v3';
 const JE1016_DRAFT_KEY = 'je1016_reverse';
 const SUPERSEDED_PREFIX = '⛔ منسوخ — برگشت JE1016 فقط از مسیر رسمی subledger-recon fix #1';
 const OFFICIAL_REVERSE_PATH = 'POST /api/accounting/subledger-recon/fixes/1/reverse';
 const KARDEX_WAREHOUSES = [34, 35];
 
 const ACC_INV = '1104';
-const PREFERRED_LEAF = '110401';
+const LEGACY_LEAF = '110401';
 const ACC_OPENING = '3102';
 const ACC_FY_OPENING = '3201';
 const ACC_SHORTAGE = '610801';
@@ -44,7 +49,24 @@ const UNDOC_ROWS = [
 const UNDOC_TOTAL = 146335856;
 const JE490 = { id: 490, ref_type: 'opening_inventory', amount: 71232000, ledger_id: 1230, product_id: 335, warehouse_id: 34 };
 const LEDGER1977 = { id: 1977, product_id: 109, warehouse_id: 35, amount: 10759000 };
+const OPENINGS_2021_2023_KEY = 'opening_ledger2021_2023';
+const OPENINGS_2021_2023 = [
+  { id: 2021, product_id: 183, warehouse_id: 34, qty: 1, amount: 5189000 },
+  { id: 2022, product_id: 340, warehouse_id: 34, qty: 1, amount: 5051111 },
+  { id: 2023, product_id: 341, warehouse_id: 34, qty: 1, amount: 4493000 },
+];
+const OPENINGS_2021_2023_TOTAL = 14733111;
+// تصمیم حامد: ledger#2003 (کالا 334، انبار 35، ۸ عدد، 165,582,632، opening_inventory) هیچ پیش‌نویسی نمی‌گیرد.
+const EXCLUDED_LEDGER_IDS = Object.freeze([2003]);
 const COGS_TARGET_WH = 35;
+/** گزینهٔ اعتبارسنجی/ثبت فقط برای پیش‌نویس‌های P3: معافیت محدود حساب کنترل 1104 (coa-leaf-policy). */
+const P3_POSTING_OPTIONS = Object.freeze({ exemptControlCodes: Object.freeze([ACC_INV]) });
+{
+  const used = [...UNDOC_ROWS.map((r) => r.id), JE490.ledger_id, LEDGER1977.id, ...OPENINGS_2021_2023.map((r) => r.id)];
+  const bad = used.filter((id) => EXCLUDED_LEDGER_IDS.includes(id));
+  if (bad.length) throw new Error(`P3: ledger مستثنا در پیش‌نویس: ${bad.join(',')}`);
+  if (OPENINGS_2021_2023.reduce((t, r) => t + r.amount, 0) !== OPENINGS_2021_2023_TOTAL) throw new Error('P3: جمع افتتاحیه 2021–2023 ناسازگار');
+}
 
 const SQL_DR = 'COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)';
 const SQL_CR = 'COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)';
@@ -58,9 +80,10 @@ function colSet(db, table) {
   catch (_) { return new Set(); }
 }
 
+/** فقط سندهای قطعی (approved/posted)؛ پیش‌نویس (status='draft')، معلق و برگشتی/باطل شمرده نمی‌شوند. */
 function jeLiveWhere(db, alias) {
   const cols = colSet(db, 'journal_entries');
-  const w = [`COALESCE(${alias}.status,'approved') NOT IN ('reversed','void')`];
+  const w = [`COALESCE(${alias}.status,'approved') IN ('approved','posted')`];
   if (cols.has('deleted_at')) w.push(`COALESCE(${alias}.deleted_at,0)=0`);
   return w.join(' AND ');
 }
@@ -80,7 +103,7 @@ function jeSide(db, id, code, side) {
 function jeIsLive(db, je) {
   if (!je) return false;
   if (Number(je.deleted_at || 0) > 0) return false;
-  if (['reversed', 'void'].includes(String(je.status || ''))) return false;
+  if (!['approved', 'posted'].includes(String(je.status || 'approved'))) return false;
   if (je.reversed_by_je_id) return false;
   const rev = db.prepare(`
     SELECT id FROM journal_entries je
@@ -125,38 +148,16 @@ function inventorySubtreeCodes(db, root = ACC_INV) {
 }
 
 /**
- * حساب برگ موجودی برای سطرهای پیش‌نویس: تنها فرزند فعال و قابل‌ثبت 1104 ← کلید settings
- * `p3_inventory_leaf_code` (باید زیرشاخهٔ 1104 و قابل‌ثبت باشد) ← fail-safe همان 1104 با هشدار.
+ * حساب موجودی سطرهای پیش‌نویس P3 — FR-P3 (تصمیم حامد): همیشه 1104 (کل ماندهٔ GL آنجاست).
+ * 1104 فرزند دارد؛ ثبت از معافیت محدود حساب کنترل موجودی می‌گذرد (`p3PostingOptions`).
  */
 function resolveInventoryLeaf(db) {
-  if (!tableExists(db, 'chart_of_accounts')) {
-    return { code: ACC_INV, source: 'fallback', warning: 'جدول سرفصل‌ها نیست؛ 1104 نگه داشته شد' };
-  }
-  const kids = db.prepare(
-    'SELECT code FROM chart_of_accounts WHERE parent_code=? AND COALESCE(is_active,1)=1 ORDER BY code'
-  ).all(ACC_INV);
-  if (kids.length === 1 && accountState(db, String(kids[0].code)).postable) {
-    return { code: String(kids[0].code), source: 'single_child', warning: null };
-  }
-  // تصمیم حامد: پیش‌نویس‌ها روی 110401 حتی اگر زیرحساب تفصیلی کالا داشته باشد (leaf_enforcement=warn).
-  if (kids.length === 1 && String(kids[0].code) === PREFERRED_LEAF && accountState(db, PREFERRED_LEAF).active) {
-    return {
-      code: PREFERRED_LEAF,
-      source: 'hamed_decision',
-      warning: accountState(db, PREFERRED_LEAF).postable ? null
-        : `${PREFERRED_LEAF} زیرحساب دارد؛ با ledger_leaf_enforcement=block ثبت نهایی رد می‌شود`,
-    };
-  }
-  let cfg = '';
-  try { cfg = String((db.prepare('SELECT value FROM settings WHERE key=?').get(LEAF_SETTING_KEY) || {}).value || '').trim(); }
-  catch (_) { cfg = ''; }
-  if (cfg && cfg !== ACC_INV && inventorySubtreeCodes(db).has(cfg) && accountState(db, cfg).postable) {
-    return { code: cfg, source: 'setting', warning: null };
-  }
+  const st = tableExists(db, 'chart_of_accounts') ? accountState(db, ACC_INV) : { postable: true };
   return {
     code: ACC_INV,
-    source: 'fallback',
-    warning: `حساب برگ یکتای زیر ${ACC_INV} پیدا نشد (فرزندان فعال: ${kids.length})؛ ${ACC_INV} نگه داشته شد — ${LEAF_SETTING_KEY} را تنظیم کنید`,
+    source: 'hamed_decision_1104',
+    warning: st.postable ? null
+      : `${ACC_INV} زیرحساب دارد؛ ثبت پیش‌نویس‌های P3 فقط با معافیت حساب کنترل موجودی (تا وقتی کل مانده روی ${ACC_INV} است)`,
   };
 }
 
@@ -274,11 +275,27 @@ function guardLedger1977(db) {
   return { ok: true };
 }
 
+function guardOpenings2021to2023(db) {
+  for (const exp of OPENINGS_2021_2023) {
+    const r = ledgerRow(db, exp.id);
+    if (!r) return { ok: false, why: `ردیف کاردکس ${exp.id} وجود ندارد` };
+    if (!r.live) return { ok: false, why: `ردیف کاردکس ${exp.id} زنده نیست` };
+    if (r.je_id != null) return { ok: false, why: `ردیف ${exp.id} سند دارد (je_id=${r.je_id})` };
+    const isOpening = String(r.event_type || '') === 'opening' || String(r.source_type || '') === 'opening_inventory';
+    if (!isOpening) return { ok: false, why: `ردیف ${exp.id} افتتاحیه نیست` };
+    if (Number(r.product_id) !== exp.product_id || Number(r.warehouse_id) !== exp.warehouse_id
+      || n(r.qty_in) !== exp.qty || Math.abs(Math.round(n(r.amount_rial))) !== exp.amount) {
+      return { ok: false, why: `کالا/انبار/تعداد/مبلغ ردیف ${exp.id} منطبق نیست` };
+    }
+  }
+  return { ok: true };
+}
+
 // ── plan ─────────────────────────────────────────────────────────
 
 function tag(key) { return `[p3:${key}]`; }
 
-/** سطرهای اصلی پیش‌نویس‌های P3 با حساب موجودی داده‌شده (v1 روی 1104 ساخته شد). */
+/** سطرهای اصلی پیش‌نویس‌های P3 با حساب موجودی داده‌شده (v1 روی 1104؛ v2 روی 110401؛ v3 دوباره 1104). */
 function specLines(key, inv) {
   switch (key) {
     case JE1016_DRAFT_KEY:
@@ -303,6 +320,17 @@ function specLines(key, inv) {
       return [
         { code: inv, debit: LEDGER1977.amount, credit: 0, description: 'افتتاحیه ledger#1977' },
         { code: ACC_OPENING, debit: 0, credit: LEDGER1977.amount, description: 'تراز افتتاحیه — ledger#1977' },
+      ];
+    case OPENINGS_2021_2023_KEY:
+      return [
+        ...OPENINGS_2021_2023.map((r) => ({
+          code: inv, debit: r.amount, credit: 0,
+          description: `افتتاحیه ledger#${r.id} کالا ${r.product_id} (انبار ${r.warehouse_id}، ${r.qty} عدد)`,
+        })),
+        {
+          code: ACC_OPENING, debit: 0, credit: OPENINGS_2021_2023_TOTAL,
+          description: `تراز افتتاحیه — ${OPENINGS_2021_2023.map((r) => `ledger#${r.id}`).join('/')}`,
+        },
       ];
     default:
       return null;
@@ -348,6 +376,14 @@ function buildPlan(db) {
     guard_text: 'ردیف کاردکس 1977 (افتتاحیه، کالا 109، wh35، 10,759,000) زنده با je_id IS NULL و هیچ سطر زندهٔ 3201 با همین مبلغ',
     description: `${prefix} افتتاحیهٔ بی‌سند ledger#1977 (کالای 109، انبار 35) ${tag('opening_ledger1977')}`,
     lines: specLines('opening_ledger1977', inv),
+  });
+  specs.push({
+    key: OPENINGS_2021_2023_KEY,
+    amount: OPENINGS_2021_2023_TOTAL,
+    guard: guardOpenings2021to2023(db),
+    guard_text: 'ردیف‌های کاردکس 2021 (کالا 183، 5,189,000)، 2022 (کالا 340، 5,051,111)، 2023 (کالا 341، 4,493,000) — همه افتتاحیه، انبار 34، ۱ عدد، زنده با je_id IS NULL (ledger#2003 مستثنا)',
+    description: `${prefix} افتتاحیهٔ بی‌سند ledger#2021، ledger#2022، ledger#2023 (کالاهای 183/340/341، انبار 34) ${tag(OPENINGS_2021_2023_KEY)}`,
+    lines: specLines(OPENINGS_2021_2023_KEY, inv),
   });
   for (const s of specs) {
     const mark = draftMarker(db, s.key);
@@ -461,7 +497,7 @@ function buildP3Report(db) {
 function wrapValidate(warnings, key) {
   const { validateAndBuildVoucherLines } = require('../../routes/accounting');
   return (db, lines) => {
-    const built = validateAndBuildVoucherLines(db, lines);
+    const built = validateAndBuildVoucherLines(db, lines, P3_POSTING_OPTIONS);
     if (built && built.code === 'E_COA_NOT_POSTABLE') {
       warnings.push({ key, warning: built.error });
       return { cleanLines: lines, personPostings: [] };
@@ -485,7 +521,10 @@ function createP3Drafts(db, opts = {}) {
     let user;
     try { user = WH.pickServiceUser(db, opts.createdBy || null); }
     catch (e) {
-      for (const s of plan) out.skipped.push({ key: s.key, why: e.message });
+      for (const s of plan) {
+        if (s.superseded || (Array.isArray(opts.onlyKeys) && !opts.onlyKeys.includes(s.key))) continue;
+        out.skipped.push({ key: s.key, why: e.message });
+      }
       return;
     }
     const ctx = {
@@ -493,7 +532,9 @@ function createP3Drafts(db, opts = {}) {
       userId: user.id, changes: [], drafts: [],
     };
     const date = opts.date || todayJalali();
+    const only = Array.isArray(opts.onlyKeys) ? new Set(opts.onlyKeys) : null;
     for (const s of plan) {
+      if (only && !only.has(s.key)) continue;
       if (s.superseded) {
         if (s.already) out.already.push({ key: s.key, draft_id: s.already.draft_id, superseded: true });
         continue;
@@ -574,7 +615,8 @@ function logV2(db, runId, key, col, oldValue, newValue, reason) {
  * - سه پیش‌نویس P3 (undoc/JE490/ledger1977): اگر ردیف هنوز هست، ثبت نشده، برچسب [p3:key] دارد و
  *   سطرهایش دقیقاً همان سطرهای اصلی v1 روی 1104 است → حساب 1104 به برگ موجودی بازنویسی + version+1.
  * - پیش‌نویس JE1016: حذف نمی‌شود؛ پیشوند «⛔ منسوخ …» به توضیح افزوده می‌شود (ثبتش در مسیر post مسدود است).
- * هیچ پیش‌نویس دیگری لمس نمی‌شود. بدون برگ یکتا یا بدون ردیف P3 → بدون نشانگر (دوباره بررسی در بوت بعد).
+ * هیچ پیش‌نویس دیگری لمس نمی‌شود. بدون ردیف P3 → بدون نشانگر (دوباره بررسی در بوت بعد).
+ * (production v2 را با هدف 110401 اجرا کرده است؛ v3 آن را به 1104 برمی‌گرداند.)
  */
 function runP3DraftsV2Migration(db, opts = {}) {
   if (opts.isDevice) return { skipped: 'device' };
@@ -584,8 +626,9 @@ function runP3DraftsV2Migration(db, opts = {}) {
   const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(SETTINGS_KEY_V2);
   if (flag && flag.value === '1') return { skipped: 'done' };
   if (!db.prepare('SELECT 1 FROM wh_data_corrections WHERE rule=? LIMIT 1').get(RULE)) return { skipped: 'no_p3_drafts' };
-  const leaf = resolveInventoryLeaf(db);
-  if (leaf.code === ACC_INV) return { skipped: 'no_leaf', warning: leaf.warning };
+  // FR-P3: هدف فعلی 1104 است ⇒ بدون opts.leafCode بازنویسی نمی‌شود (already_leaf)؛ فقط منسوخ‌کردن JE1016.
+  // opts.leafCode فقط برای بازسازی تاریخچهٔ production (1104→110401) در تست.
+  const leaf = opts.leafCode ? { code: String(opts.leafCode) } : resolveInventoryLeaf(db);
   const hasVersion = colSet(db, 'voucher_drafts').has('version');
   const bump = hasVersion ? ', version=COALESCE(version,0)+1' : '';
   const runId = opts.runId || `p3v2-${new Date().toISOString().replace(/[:.]/g, '-')}`;
@@ -636,13 +679,123 @@ function isSupersededP3Draft(db, draftId) {
   `).get(RULE, JE1016_DRAFT_KEY, id);
 }
 
+/** کلید P3 پیش‌نویس (marker rule=p3_draft + برچسب [p3:key] در شرح)؛ JE1016 منسوخ ⇒ null. */
+function p3DraftKeyFor(db, draft) {
+  const d = draft && typeof draft === 'object' ? draft
+    : (tableExists(db, 'voucher_drafts') ? db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(Number(draft)) : null);
+  if (!d || !tableExists(db, 'wh_data_corrections')) return null;
+  const rows = db.prepare(`
+    SELECT row_key FROM wh_data_corrections WHERE rule=? AND col='id' AND CAST(new_value AS INTEGER)=?
+  `).all(RULE, Number(d.id));
+  for (const r of rows) {
+    const key = String(r.row_key || '');
+    if (!key || key === JE1016_DRAFT_KEY) continue;
+    if (String(d.description || '').includes(tag(key))) return key;
+  }
+  return null;
+}
+
+/** گزینهٔ ثبت برای مسیر «ثبت پیش‌نویس»: فقط پیش‌نویس P3 معافیت 1104 می‌گیرد؛ بقیه null. */
+function p3PostingOptionsForDraft(db, draft) {
+  return p3DraftKeyFor(db, draft) ? P3_POSTING_OPTIONS : null;
+}
+
+/**
+ * بررسی «قابل ثبت بودن» پیش‌نویس با همان توابع مسیر POST /vouchers/drafts/:id/post
+ * (validateAndBuildVoucherLines + گارد برگ postToLedger) — بدون هیچ نوشتن.
+ */
+function checkDraftPostable(db, draftId) {
+  const d = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(Number(draftId));
+  if (!d) return { ok: false, code: 'E_NOT_FOUND', error: 'پیش‌نویس یافت نشد' };
+  if (isSupersededP3Draft(db, d.id)) return { ok: false, code: 'E_P3_DRAFT_SUPERSEDED', error: 'منسوخ' };
+  const { validateAndBuildVoucherLines } = require('../../routes/accounting');
+  const opts = p3PostingOptionsForDraft(db, d) || {};
+  let lines;
+  try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = []; }
+  const built = validateAndBuildVoucherLines(db, lines, opts);
+  if (built.error) return { ok: false, code: built.code || null, error: built.error, p3_key: p3DraftKeyFor(db, d) };
+  try {
+    require('../coa-leaf-policy').assertLinesPostable(db, built.cleanLines, { sourceType: 'manual_voucher', ...opts });
+  } catch (e) {
+    return { ok: false, code: e.code || null, error: e.message, p3_key: p3DraftKeyFor(db, d) };
+  }
+  return { ok: true, p3_key: p3DraftKeyFor(db, d) };
+}
+
+// ── v3 (FR-P3): 110401 → 1104 + پیش‌نویس افتتاحیهٔ ledger#2021–2023 ─────
+
+const V3_REWRITE_KEYS = ['undoc_adjust_146335856', 'opening_je490_offset', 'opening_ledger1977'];
+
+function logV3(db, runId, key, col, oldValue, newValue, reason) {
+  db.prepare(`
+    INSERT INTO wh_data_corrections (run_id, phase, rule, tbl, row_key, col, old_value, new_value, reason)
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(runId, PHASE, RULE_V3, 'voucher_drafts', key, col, oldValue, newValue, reason);
+}
+
+/**
+ * مهاجرت بوت FR-P3 (فقط مرکز، یک تراکنش، idempotent، نشانگر settings `p3_recon_drafts_v3`).
+ * - پیش‌نویس‌های undoc/JE490/ledger1977: اگر ردیف هست، برچسب [p3:key] دارد، به سند تبدیل نشده و
+ *   سطرهایش دقیقاً سطرهای اصلی روی 110401 است ⇒ 110401→1104 + version+1 + لاگ rule=p3_draft_v3.
+ *   روی 1104 ⇒ already_1104؛ هر تفاوت دیگر ⇒ lines_changed (دست‌نخورده).
+ * - پیش‌نویس افتتاحیهٔ ledger#2021–2023 اگر نیست ساخته می‌شود (همان مسیر v1؛ marker rule=p3_draft).
+ * - پیش‌نویس JE1016 (منسوخ) و هر پیش‌نویس دیگری لمس نمی‌شود؛ هیچ post / DELETE.
+ * نشانگر '1' فقط وقتی پیش‌نویس جدید ساخته/موجود باشد؛ وگرنه 'pending:<key>' (بوت بعد دوباره).
+ */
+function runP3DraftsV3Migration(db, opts = {}) {
+  if (opts.isDevice) return { skipped: 'device' };
+  if (!tableExists(db, 'voucher_drafts') || !tableExists(db, 'wh_data_corrections') || !tableExists(db, 'chart_of_accounts')
+    || !tableExists(db, 'journal_entries') || !tableExists(db, 'inventory_ledger')) {
+    return { skipped: 'schema' };
+  }
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(SETTINGS_KEY_V3);
+  if (flag && flag.value === '1') return { skipped: 'done' };
+  if (!db.prepare('SELECT 1 FROM wh_data_corrections WHERE rule=? LIMIT 1').get(RULE)) return { skipped: 'no_p3_drafts' };
+  const hasVersion = colSet(db, 'voucher_drafts').has('version');
+  const bump = hasVersion ? ', version=COALESCE(version,0)+1' : '';
+  const runId = opts.runId || `p3v3-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const res = { target: ACC_INV, rewritten: [], skipped: [], created: [], already: [], pending: [] };
+  db.transaction(() => {
+    for (const key of V3_REWRITE_KEYS) {
+      const id = markerDraftId(db, key);
+      if (!id) { res.skipped.push({ key, why: 'no_marker' }); continue; }
+      const d = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(id);
+      if (!d) { res.skipped.push({ key, draft_id: id, why: postedAsJournal(db, key) ? 'posted' : 'missing' }); continue; }
+      if (!String(d.description || '').includes(tag(key))) { res.skipped.push({ key, draft_id: id, why: 'tag_mismatch' }); continue; }
+      if (postedAsJournal(db, key)) { res.skipped.push({ key, draft_id: id, why: 'posted' }); continue; }
+      let lines;
+      try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
+      if (sameLines(lines, specLines(key, ACC_INV))) { res.skipped.push({ key, draft_id: id, why: 'already_1104' }); continue; }
+      if (!sameLines(lines, specLines(key, LEGACY_LEAF))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
+      const next = lines.map((l) => (String(l.code) === LEGACY_LEAF ? { ...l, code: ACC_INV } : l));
+      const nextJson = JSON.stringify(next);
+      db.prepare(`UPDATE voucher_drafts SET lines_json=?${bump} WHERE id=?`).run(nextJson, id);
+      logV3(db, runId, key, 'lines_json', d.lines_json, nextJson, `FR-P3: ${LEGACY_LEAF} → ${ACC_INV} (تصمیم حامد)`);
+      res.rewritten.push({ key, draft_id: id, from: LEGACY_LEAF, to: ACC_INV });
+    }
+    const made = createP3Drafts(db, { ...opts, onlyKeys: [OPENINGS_2021_2023_KEY] });
+    res.created = made.created;
+    res.already = made.already;
+    res.pending = made.skipped;
+    res.warnings = made.warnings;
+    const value = made.skipped.length ? 'pending:' + made.skipped.map((s) => s.key).sort().join(',') : '1';
+    res.changed = !flag || flag.value !== value || res.rewritten.length > 0;
+    if (!flag || flag.value !== value) db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(SETTINGS_KEY_V3, value);
+  })();
+  return res;
+}
+
 module.exports = {
   buildPlan,
   buildP3Report,
   createP3Drafts,
   runP3DraftMigration,
   runP3DraftsV2Migration,
+  runP3DraftsV3Migration,
   isSupersededP3Draft,
+  p3DraftKeyFor,
+  p3PostingOptionsForDraft,
+  checkDraftPostable,
   resolveInventoryLeaf,
   inventorySubtreeCodes,
   glInventorySubtreeRial,
@@ -653,7 +806,13 @@ module.exports = {
   specLines,
   SETTINGS_KEY,
   SETTINGS_KEY_V2,
-  LEAF_SETTING_KEY,
+  SETTINGS_KEY_V3,
+  RULE_V3,
+  OPENINGS_2021_2023_KEY,
+  OPENINGS_2021_2023,
+  OPENINGS_2021_2023_TOTAL,
+  EXCLUDED_LEDGER_IDS,
+  P3_POSTING_OPTIONS,
   SUPERSEDED_PREFIX,
   OFFICIAL_REVERSE_PATH,
   JE1016_DRAFT_KEY,
