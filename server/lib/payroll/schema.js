@@ -169,6 +169,7 @@ function initPayrollSchema(db) {
     ['other_allowance_rial', 'INTEGER DEFAULT 0'],
     ['mission_allowance_rial', 'INTEGER DEFAULT 0'],
     ['production_bonus_rial', 'INTEGER DEFAULT 0'],
+    ['commission_rial', 'INTEGER DEFAULT 0'],
     ['overtime_pay_rial', 'INTEGER DEFAULT 0'],
     ['night_shift_pay_rial', 'INTEGER DEFAULT 0'],
     ['friday_pay_rial', 'INTEGER DEFAULT 0'],

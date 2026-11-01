@@ -209,6 +209,9 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     ? 1
     : (Number(input.production_bonus_sso_exempt) ? 1 : 0);
 
+  // P9: پورسانت فروش کارمند — ردیف متغیر مشمول بیمه و مالیات حقوق
+  const commission = int(input.commission_rial || 0, 'پورسانت');
+
   const seniorityDaysX100 = int(input.seniority_days_x100 || 0, 'روز پایه سنوات');
   const seniorityDaily = Math.max(0, Math.round(Number(eff._seniority_daily_rial) || 0));
   const seniorityPay = seniorityDaily > 0 && seniorityDaysX100 > 0
@@ -217,7 +220,7 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
 
   const gross = basePay + housing + grocery + spouse + child + otherFixed +
     hardship + otherAllowance + overtimePay + nightPay + fridayPay + shiftPay +
-    seniorityPay + mission + productionBonus;
+    seniorityPay + mission + productionBonus + commission;
 
   // معافیت‌های بیمه خودکار: حق اولاد + ماموریت + (پاداش تولید در صورت مجوز)
   const autoInsuranceExempt = child + mission
@@ -272,6 +275,7 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     other_allowance_rial: otherFixed + otherAllowance,
     mission_allowance_rial: mission,
     production_bonus_rial: productionBonus,
+    commission_rial: commission,
     overtime_pay_rial: overtimePay,
     night_shift_pay_rial: nightPay,
     friday_pay_rial: fridayPay,

@@ -2389,7 +2389,7 @@ const LU = (()=> {
     'exit-acc-shell':'back', 'acc-dash':'dashboard', 'acc-general':'linechart',
     'acc-trial-balance':'scale', 'acc-balance-sheet':'landmark', 'acc-adv-reports':'chart',
     'acc-production':'factory', 'acc-receivables':'receipt', 'acc-sales-invoices':'file',
-    'acc-sales-returns':'undo', 'acc-statement':'file', 'acc-commissions':'target',
+    'acc-sales-returns':'undo', 'acc-statement':'file', 'acc-commissions':'target', 'acc-commission-rules':'percent',
     'acc-reps':'briefcase', 'acc-customer-groups':'users', 'acc-settlements':'banknote',
     'acc-cheques':'card', 'acc-banks':'landmark', 'acc-check-categories':'folder',
     'acc-cash-boxes':'wallet', 'acc-transfers':'repeat', 'acc-trust-checks':'bookmark',
@@ -13166,6 +13166,202 @@ async function osCreate(){
     if(el('osBody')) osLoadList();
   }catch(e){}
 }
+/* ===== P9 — پورسانت سرپرست / چند فروشنده ===== */
+const CMR_ROLE={ supervisor:'سرپرست', seller:'فروشنده' };
+const CMR_SCOPE={ product_group:'گروه کالا', product:'کد کالا', invoice:'فاکتور' };
+const CMR_TSTATUS={ pending:'در انتظار حقوق', in_payroll:'در حقوق پردازش‌شده', voucher:'سند پیش‌نویس', void:'ابطال‌شده' };
+let _cmrMeta=null;
+function cmrMonthRange(){
+  const t=todayJalali(); const ym=t.slice(0,7);
+  const m=Number(ym.slice(5,7)); const last=m<=6?31:(m<=11?30:29);
+  return { from:ym+'/01', to:ym+'/'+String(last) };
+}
+async function renderCommissionRulesTab(body){
+  if(!body) return;
+  try{ _cmrMeta=await api('GET','/commissions/meta',null,false,true); }catch(_){ _cmrMeta=null; }
+  if(!_cmrMeta){ body.innerHTML='<div class="empty">دسترسی محدود — مجوز «پورسانت سرپرست/فروشنده» لازم است</div>'; return; }
+  const rng=cmrMonthRange();
+  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin:0 0 10px;font-size:12px;line-height:1.9`)}">💹 پایهٔ پورسانت = فروش خالص هر ردیف پس از تخفیف ردیف و سرفاکتور (بدون ارزش افزوده) منهای برگشت از فروش. سرپرست از <b>گروه/کد کالا</b>، فروشنده از <b>فاکتور یا کالا</b>. انتقال کارمند به <b>حقوق همان دوره</b> (مشمول بیمه و مالیات) و غیرکارمند به <b>سند پیش‌نویس</b>؛ هیچ پرداخت خودکاری ساخته نمی‌شود.</div>
+  <div class="panel"><div class="panel-head"><b>📊 گزارش پورسانت</b></div><div class="panel-body">
+    <div class="toolbar" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
+      <label>از <input id="cmrFrom" data-jdate value="${esc(rng.from)}" size="10"></label>
+      <label>تا <input id="cmrTo" data-jdate value="${esc(rng.to)}" size="10"></label>
+      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrLoadReport()})}">🔍 محاسبه</button>
+    </div>
+    <div id="cmrReport"><div class="muted">در حال بارگذاری...</div></div>
+  </div></div>
+  <div class="panel"><div class="panel-head"><b>📐 قاعده‌ها</b>
+    <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){cmrRuleModal()})}">➕ قاعدهٔ جدید</button>
+    <label class="muted"><input type="checkbox" id="cmrInactive" data-csp-change="${CSP.bind('change',function(event){cmrLoadRules()})}"> نمایش غیرفعال</label></div>
+    <div class="panel-body" id="cmrRules"></div></div>
+  <div class="panel"><div class="panel-head"><b>🧾 چند فروشنده روی یک فاکتور</b></div><div class="panel-body">
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;flex-wrap:wrap`)}">
+      <input id="cmrInvRef" placeholder="شمارهٔ فاکتور (مثلاً T-0012)" dir="ltr">
+      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrPartiesModal()})}">✏️ تعیین فروشنده‌ها و سهم</button>
+    </div></div></div>
+  <div class="panel"><div class="panel-head"><b>🔁 انتقال‌ها</b></div><div class="panel-body" id="cmrTransfers"></div></div>`;
+  attachDatepickers(body);
+  await Promise.all([cmrLoadReport(), cmrLoadRules(), cmrLoadTransfers()]);
+}
+async function cmrLoadReport(){
+  const box=el('cmrReport'); if(!box) return;
+  const from=el('cmrFrom')?.value||'', to=el('cmrTo')?.value||'';
+  const d=await api('GET','/commissions/report?from='+encodeURIComponent(from)+'&to='+encodeURIComponent(to));
+  const rows=(d&&d.rows)||[];
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th>شخص</th><th>نوع</th><th>پایهٔ فروش</th><th>برگشت</th><th>سرپرستی</th><th>فروشندگی</th><th>کسر برگشت</th><th>جمع پورسانت</th><th>انتقال</th>
+  </tr></thead><tbody>${rows.map(r=>`<tr>
+    <td>${esc(r.name||'-')}</td>
+    <td>${r.is_employee?'کارمند':'غیرکارمند'}</td>
+    <td class="mono">${fmt(r.sales_base_rial)}</td>
+    <td class="mono">${fmt(r.returns_base_rial)}</td>
+    <td class="mono">${fmt(r.supervisor_rial)}</td>
+    <td class="mono">${fmt(r.seller_rial)}</td>
+    <td class="mono">${fmt(r.returns_deduction_rial)}</td>
+    <td class="mono"><b>${fmt(r.total_rial)}</b></td>
+    <td>${r.transfer?`<span class="tag t-done">${esc(r.transfer.doc_no)} — ${CMR_TSTATUS[r.transfer.status]||esc(r.transfer.status)}</span>`
+      :(r.total_rial>0?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){cmrTransferModal(r,from,to)})}">${r.is_employee?'➡️ انتقال به حقوق':'📝 سند پیش‌نویس'}</button>`:'—')}</td>
+  </tr>`).join('')||emptyRow(9)}</tbody>
+  <tfoot><tr><td colspan="7"><b>جمع</b></td><td class="mono"><b>${fmt((d&&d.total_rial)||0)}</b></td><td></td></tr></tfoot></table></div>`;
+}
+async function cmrLoadRules(){
+  const box=el('cmrRules'); if(!box) return;
+  const inc=el('cmrInactive')?.checked?'?include_inactive=1':'';
+  const d=await api('GET','/commissions/rules'+inc);
+  const rows=(d&&d.rows)||[];
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th>شخص</th><th>نقش</th><th>دامنه</th><th>مورد</th><th>درصد</th><th>از</th><th>تا</th><th>وضعیت</th><th>عملیات</th>
+  </tr></thead><tbody>${rows.map(r=>`<tr>
+    <td>${esc(r.person_name||'-')}</td><td>${CMR_ROLE[r.role]||esc(r.role)}</td><td>${CMR_SCOPE[r.scope]||esc(r.scope)}</td>
+    <td>${esc(r.scope_label||(r.scope==='invoice'?'همهٔ فاکتورها':'-'))}</td>
+    <td class="mono">${esc(String(r.pct))}٪</td><td class="mono">${escDate(r.from_date)||'—'}</td><td class="mono">${escDate(r.to_date)||'—'}</td>
+    <td>${+r.active?'<span class="tag t-done">فعال</span>':'<span class="tag t-new">غیرفعال</span>'}</td>
+    <td>${+r.active?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrRuleModal(r)})}">✏️</button>
+      <button class="btn sm red" title="ابطال (غیرفعال‌سازی) — حذف فیزیکی ندارد" data-csp-click="${CSP.bind('click',function(event){cmrDeactivate(r.id)})}">⛔</button>`:''}</td>
+  </tr>`).join('')||emptyRow(9)}</tbody></table></div>`;
+}
+async function cmrLoadTransfers(){
+  const box=el('cmrTransfers'); if(!box) return;
+  const d=await api('GET','/commissions/transfers');
+  const rows=(d&&d.rows)||[];
+  box.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr>
+    <th>شماره</th><th>شخص</th><th>دوره</th><th>مقصد</th><th>مبلغ</th><th>وضعیت</th><th>حقوق/سند</th><th>عملیات</th>
+  </tr></thead><tbody>${rows.map(t=>`<tr>
+    <td class="mono">${esc(t.doc_no||('#'+t.id))}</td><td>${esc(t.person_name||'-')}</td>
+    <td class="mono">${escDate(t.period_from)} تا ${escDate(t.period_to)}</td>
+    <td>${t.target==='payroll'?'حقوق':'سند پیش‌نویس'}</td>
+    <td class="mono">${fmt(t.amount_rial)}</td>
+    <td><span class="tag ${t.status==='void'?'t-new':'t-done'}">${CMR_TSTATUS[t.status]||esc(t.status)}</span></td>
+    <td class="mono">${esc(t.target==='payroll'?(t.payroll_period_label||'-'):(t.je_no||'-'))}</td>
+    <td>${t.status==='pending'||t.status==='voucher'?`<button class="btn sm red" title="ابطال کامل (R13)" data-csp-click="${CSP.bind('click',function(event){cmrVoidTransfer(t.id)})}">⛔ ابطال</button>`
+      :(t.status==='in_payroll'?'<span class="muted">ابتدا حقوق را ابطال کنید</span>':'')}</td>
+  </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
+}
+function cmrPersonOptions(sel){
+  return ((_cmrMeta&&_cmrMeta.persons)||[]).map(p=>`<option value="${p.id}" ${Number(sel)===p.id?'selected':''}>${esc(p.name)}${p.is_employee?' (کارمند)':''}</option>`).join('');
+}
+function cmrRuleModal(rule){
+  const r=rule||{};
+  const groups=((_cmrMeta&&_cmrMeta.groups)||[]).map(g=>`<option value="${g.id}" ${r.scope==='product_group'&&Number(r.scope_id)===g.id?'selected':''}>${esc(g.name)}</option>`).join('');
+  showModal(rule?'ویرایش قاعدهٔ پورسانت':'قاعدهٔ پورسانت جدید',`
+    <div class="fg"><label>شخص</label><select id="cmr-person">${cmrPersonOptions(r.person_id)}</select></div>
+    <div class="fg"><label>نقش</label><select id="cmr-role">${Object.entries(CMR_ROLE).map(([k,l])=>`<option value="${k}" ${r.role===k?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="fg"><label>دامنه</label><select id="cmr-scope">${Object.entries(CMR_SCOPE).map(([k,l])=>`<option value="${k}" ${r.scope===k?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="fg"><label>گروه کالا (برای دامنهٔ گروه)</label><select id="cmr-group"><option value="">—</option>${groups}</select></div>
+    <div class="fg"><label>کد کالا / شمارهٔ فاکتور (برای دامنهٔ کالا/فاکتور؛ فاکتور خالی = همهٔ فاکتورها)</label><input id="cmr-code" dir="ltr" value="${esc(r.scope==='product'||r.scope==='invoice'?String(r.scope_label||'').trim().split(' ')[0]:'')}"></div>
+    <div class="fg"><label>درصد</label><input id="cmr-pct" dir="ltr" value="${esc(r.pct!=null?String(r.pct):'')}"></div>
+    <div class="fg"><label>از تاریخ (اختیاری)</label><input id="cmr-from" dir="ltr" placeholder="1405/07/01" value="${esc(r.from_date||'')}"></div>
+    <div class="fg"><label>تا تاریخ (اختیاری)</label><input id="cmr-to" dir="ltr" placeholder="1405/12/29" value="${esc(r.to_date||'')}"></div>
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:10px`)}">
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){cmrSaveRule(r.id||null)})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`, true);
+  attachDatepickers(document.querySelector('.modal')||document.body);
+}
+async function cmrSaveRule(id){
+  const scope=el('cmr-scope')?.value||'';
+  const body={ person_id:Number(el('cmr-person')?.value), role:el('cmr-role')?.value, scope,
+    pct:Number(toEnDigits(el('cmr-pct')?.value||'')), from_date:el('cmr-from')?.value||'', to_date:el('cmr-to')?.value||'' };
+  if(scope==='product_group') body.scope_id=Number(el('cmr-group')?.value)||null;
+  else { const c=(el('cmr-code')?.value||'').trim(); body.scope_id=null; if(c) body.scope_code=c; }
+  try{
+    const d=await api(id?'PUT':'POST','/commissions/rules'+(id?'/'+id:''),body);
+    if(!d) return; closeModal(); showToast('قاعده ذخیره شد'); cmrLoadRules(); cmrLoadReport();
+  }catch(e){}
+}
+async function cmrDeactivate(id){
+  if(!confirm('قاعده غیرفعال شود؟ (سابقه حفظ می‌شود)')) return;
+  try{ const d=await api('POST','/commissions/rules/'+id+'/deactivate'); if(!d) return; showToast('قاعده غیرفعال شد'); cmrLoadRules(); cmrLoadReport(); }catch(e){}
+}
+let _cmrParties=[];
+async function cmrPartiesModal(){
+  const ref=(el('cmrInvRef')?.value||'').trim();
+  if(!ref){ showToast('شمارهٔ فاکتور را وارد کنید','error'); return; }
+  const d=await api('GET','/commissions/invoice-parties/'+encodeURIComponent(ref));
+  if(!d||!d.invoice) return;
+  _cmrParties=(d.parties||[]).map(p=>({ person_id:p.person_id, role:p.role, share_pct:p.share_pct }));
+  if(!_cmrParties.length && d.default_seller) _cmrParties=[{ person_id:d.default_seller.person_id, role:'seller', share_pct:100 }];
+  showModal(`فروشنده‌ها و سرپرست فاکتور ${esc(d.invoice.num||('#'+d.invoice.id))}`,`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">جمع سهم فروشنده‌ها باید ۱۰۰٪ باشد. اگر سرپرست صریح وارد کنید فقط همان‌ها پورسانت سرپرستیِ این فاکتور را می‌گیرند (جمع ۱۰۰٪)؛ در غیر این صورت سرپرست هر گروه کالا از قاعده‌ها.</div>
+    <div id="cmrPartyRows"></div>
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:10px`)}">
+      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrReadParties(); _cmrParties.push({person_id:null,role:'seller',share_pct:0}); cmrDrawParties()})}">➕ ردیف</button>
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){cmrSaveParties(d.invoice.id)})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`, true);
+  cmrDrawParties();
+}
+function cmrDrawParties(){
+  const box=el('cmrPartyRows'); if(!box) return;
+  box.innerHTML=_cmrParties.map((p,i)=>`<div class="toolbar cmr-party" data-i="${i}" data-csp-style="${CSP.style(`gap:6px;margin-bottom:6px`)}">
+    <select class="cmr-p-person"><option value="">— شخص —</option>${cmrPersonOptions(p.person_id)}</select>
+    <select class="cmr-p-role">${Object.entries(CMR_ROLE).map(([k,l])=>`<option value="${k}" ${p.role===k?'selected':''}>${l}</option>`).join('')}</select>
+    <input class="cmr-p-share" dir="ltr" size="5" value="${esc(String(p.share_pct||''))}"> ٪
+    <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){cmrReadParties(); _cmrParties.splice(i,1); cmrDrawParties()})}">✕</button>
+  </div>`).join('')||'<div class="muted">بدون ردیف — ثبت‌کنندهٔ فاکتور فروشنده با سهم ۱۰۰٪ است</div>';
+}
+function cmrReadParties(){
+  _cmrParties=[...document.querySelectorAll('#cmrPartyRows .cmr-party')].map(row=>({
+    person_id:Number(row.querySelector('.cmr-p-person')?.value)||null,
+    role:row.querySelector('.cmr-p-role')?.value||'seller',
+    share_pct:Number(toEnDigits(row.querySelector('.cmr-p-share')?.value||''))||0,
+  }));
+}
+async function cmrSaveParties(invoiceId){
+  cmrReadParties();
+  try{
+    const d=await api('PUT','/commissions/invoice-parties/'+invoiceId,{ parties:_cmrParties.filter(p=>p.person_id) });
+    if(!d) return; closeModal(); showToast('طرف‌های پورسانت فاکتور ذخیره شد'); cmrLoadReport();
+  }catch(e){}
+}
+function cmrTransferModal(r,from,to){
+  const periods=((_cmrMeta&&_cmrMeta.payroll_periods)||[]).map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('');
+  const ccs=((_cmrMeta&&_cmrMeta.cost_centers)||[]).map(c=>`<option value="${c.id}">${esc([c.code,c.name].filter(Boolean).join(' — '))}</option>`).join('');
+  showModal(`انتقال پورسانت ${esc(r.name||'')} — ${fmt(r.total_rial)} ریال`,`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">${r.is_employee
+      ?'کارمند: پورسانت به‌صورت ردیف «پورسانت» در پردازش حقوق دورهٔ انتخابی می‌آید و مشمول بیمه و مالیات حقوق است؛ سند مستقل ساخته نمی‌شود.'
+      :'غیرکارمند: سند <b>پیش‌نویس</b> بدهکار هزینهٔ پورسانت / بستانکار حساب شخص ساخته می‌شود؛ ثبت قطعی و پرداخت جداگانه است.'}</div>
+    ${r.is_employee?`<div class="fg"><label>دورهٔ حقوق</label><select id="cmr-period"><option value="">—</option>${periods}</select></div>`
+      :`<div class="fg"><label>مرکز هزینه</label><select id="cmr-cc"><option value="">—</option>${ccs}</select></div>`}
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:10px`)}">
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){cmrCreateTransfer(r.person_id,from,to)})}">✅ انتقال</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`, true);
+}
+async function cmrCreateTransfer(personId,from,to){
+  const body={ person_id:personId, from, to };
+  if(el('cmr-period')) body.payroll_period_id=Number(el('cmr-period').value)||null;
+  if(el('cmr-cc')) body.cost_center_id=Number(el('cmr-cc').value)||null;
+  try{
+    const d=await api('POST','/commissions/transfers',body);
+    if(!d) return; closeModal(); showToast(`انتقال ${d.doc_no} ثبت شد`); cmrLoadReport(); cmrLoadTransfers();
+  }catch(e){}
+}
+async function cmrVoidTransfer(id){
+  const reason=prompt('دلیل ابطال انتقال پورسانت:','');
+  if(reason===null) return;
+  try{ const d=await api('POST','/commissions/transfers/'+id+'/void',{reason}); if(!d) return; showToast('انتقال ابطال شد'); cmrLoadReport(); cmrLoadTransfers(); }catch(e){}
+}
 function stkQuery(){
   const p=[];
   if(stkFilter.warehouse_id) p.push('warehouse_id='+encodeURIComponent(stkFilter.warehouse_id));
@@ -14546,7 +14742,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','inv-reconcile','stocktaking','opening-stock','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','inv-reconcile','stocktaking','opening-stock','commission-rules','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -15049,6 +15245,8 @@ async function loadAccTab(tab){
     await renderStocktakingTab(body);
   } else if(tab==='opening-stock'){
     await renderOpeningStockTab(body);
+  } else if(tab==='commission-rules'){
+    await renderCommissionRulesTab(body);
   } else {
     body.innerHTML=`<div class="panel"><div class="panel-body"><p class="muted">این بخش به ماژول مرتبط متصل است. از منوی کناری گزینه‌های فعال را انتخاب کنید.</p></div></div>`;
   }
@@ -41052,6 +41250,17 @@ function renderAdminGuide(){
         <li><b>منبع «جاری مالک»:</b> حساب کنترلی با کلید <span dir="ltr">coa_owner_current</span> (پیش‌فرض <span dir="ltr">2115</span> — در «تنظیمات ← نگاشت کدینگ» قابل تغییر) و تفصیلی خودکار شخص مالک؛ با انتخاب شخص مالک در فرم.</li>
         <li><b>دسته‌ها:</b> حسابدار در همین صفحه یک <b>دستهٔ جدید (برگ)</b> زیر یکی از دسته‌های ۶۱xx می‌سازد؛ حساب را از والد ارث می‌برد. صندوق‌دار فقط انتخاب می‌کند. سربار ساخت از این فرم ثبت نمی‌شود (از «پرداخت هزینه» با مرکز هزینه).</li>
         <li><b>گزارش:</b> جمع هزینه‌های تأییدشده بر اساس دسته و منبع در بازهٔ تاریخ (پایین همان صفحه).</li>
+      </ul>`),
+    helpSec('💹','پورسانت سرپرست و چند فروشنده (P9 — v598)',`
+      <p>منو: <b>حسابداری ← پورسانت سرپرست/فروشنده</b>. کنار «انگیزه فروش» قبلی (که دست‌نخورده می‌ماند) برای هر <b>شخص</b> قاعدهٔ پورسانت تعریف می‌شود و روی یک فاکتور می‌توان چند فروشنده با سهم گذاشت.</p>
+      <ul>
+        <li><b>پایه:</b> مبلغ خالص فروش هر ردیف کالا پس از تخفیف ردیف و سهم تخفیف سرفاکتور، <b>بدون ارزش افزوده</b>؛ برگشت از فروش (با سهم تخفیف همان برگشت) در دورهٔ برگشت <b>کسر</b> می‌شود. فاکتورهای ابطال‌شده و پیش‌فاکتور حساب نمی‌شوند.</li>
+        <li><b>سرپرست:</b> قاعده با دامنهٔ <b>گروه کالا</b> یا <b>کد کالا</b> (کد کالا بر گروه مقدم است). دو سرپرست با گروه‌های جدا هر کدام فقط از فروش گروه خودشان می‌گیرند. اگر روی فاکتور سرپرست صریح ثبت شود فقط همان‌ها (به نسبت سهم) می‌گیرند.</li>
+        <li><b>فروشنده:</b> درصد از قاعدهٔ فروشنده: کد کالا ← گروه کالا ← همان فاکتور ← «همهٔ فاکتورها». فروشنده‌های فاکتور از «چند فروشنده روی یک فاکتور» (مثلاً ۵۰/۵۰؛ جمع سهم باید ۱۰۰٪ باشد)؛ اگر خالی بماند ثبت‌کنندهٔ فاکتور (شخصِ متصل به کاربر) با سهم ۱۰۰٪.</li>
+        <li><b>گزارش ماهانه:</b> برای هر شخص پایهٔ فروش، برگشت، سهم سرپرستی/فروشندگی، کسر برگشت و جمع.</li>
+        <li><b>انتقال:</b> کارمند (دارای کد پرسنلی/شمارهٔ کارمندی) → ردیف «پورسانت» در <b>پردازش حقوق</b> همان دوره؛ جزء ناخالص و <b>مشمول بیمه و مالیات حقوق</b> است و سند مستقل ندارد. غیرکارمند → <b>سند پیش‌نویس</b> بدهکار «هزینه انگیزه فروش» (<span dir="ltr">coa_rep_commission_expense</span>) / بستانکار حساب شخص (یا <span dir="ltr">coa_rep_commission_payable</span>). هیچ پرداختی خودکار ساخته نمی‌شود؛ هر دوره برای هر شخص فقط یک انتقال.</li>
+        <li><b>ابطال (R13):</b> ابطال انتقال، سند پیش‌نویس را باطل می‌کند و انتقال حقوقیِ پردازش‌نشده را از صف حقوق خارج می‌کند (رکورد با وضعیت «ابطال‌شده» می‌ماند). اگر حقوق پردازش شده باشد ابتدا سند حقوق را ابطال کنید؛ پورسانت به «در انتظار حقوق» برمی‌گردد. تا انتقال زنده است، قاعده‌ها و فروشنده‌های فاکتورِ آن دوره قفل‌اند (<span dir="ltr">E_COMMISSION_LOCKED</span>). قاعده‌ها حذف فیزیکی ندارند؛ فقط غیرفعال می‌شوند.</li>
+        <li>مجوز: مدیر/حسابداری یا دسترسی تفویضی «پورسانت سرپرست/فروشنده». تنظیم <span dir="ltr">commission_p9_require_approved=1</span> فقط فاکتورهای تأییدشده را در پایه می‌آورد (پیش‌فرض خاموش).</li>
       </ul>`),
     helpSec('🔢','کد حساب بدون کاما (v590)',`
       <p>در همهٔ فیلدهای <b>کد حساب</b> (نگاشت کدینگ، حساب موجودی/بهای تمام‌شدهٔ انبار، تعریف حساب، حساب هزینه) دیگر جداکنندهٔ هزارگان نمی‌نشیند؛ مثلاً <span dir="ltr">610401</span> دیگر به «۶۱۰,۴۰۱» تبدیل نمی‌شود و گزارش نگاشت برگ برای آن «یافت نشد» نمی‌دهد.</p>

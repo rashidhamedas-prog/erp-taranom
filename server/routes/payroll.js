@@ -67,6 +67,7 @@ const {
   ensureLeaveAccrualSchema,
 } = require('../lib/payroll/leave-accrual');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
+const { pendingPayrollCommission, markConsumedByPayroll } = require('../lib/commissions-multi');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
 const {
@@ -921,7 +922,12 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
       room -= advRequest;
       loanRequest = Math.min(loanRequest, room);
     }
-    const inputForCalc = { ...req.body, other_deductions_rial: otherOnly + advRequest + loanRequest };
+    const pendingComm = pendingPayrollCommission(db, personId, Number(req.body.period_id));
+    const inputForCalc = {
+      ...req.body,
+      other_deductions_rial: otherOnly + advRequest + loanRequest,
+      commission_rial: manual ? 0 : pendingComm.amount_rial,
+    };
     if (manual) {
       const built = buildManualExemptCalc(inputForCalc);
       return res.json({
@@ -947,6 +953,7 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
       loan_due_rial: loanDue,
       loan_balance_rial: loanBalance,
       loan_recovery_rial: loanRequest,
+      commission_pending_rial: pendingComm.amount_rial,
       labor_settings: context.laborSettings || null,
       structure: context.structure ? {
         wage_basis: context.structure.wage_basis,
@@ -1014,9 +1021,14 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         room -= advRequest;
         loanRequest = Math.min(loanRequest, room);
       }
+      const pendingComm = pendingPayrollCommission(db, personId, periodId);
+      if (manual && pendingComm.amount_rial > 0) {
+        warnings.push(`${person.name}: پورسانت منتقل‌شده (${pendingComm.amount_rial.toLocaleString('fa-IR')} ریال) در حالت بدون بیمه/مالیات اعمال نشد و در انتظار می‌ماند`);
+      }
       const inputForCalc = {
         ...input,
         other_deductions_rial: otherOnly + advRequest + loanRequest,
+        commission_rial: manual ? 0 : pendingComm.amount_rial,
       };
       let calc;
       let exemptMeta = null;
@@ -1115,6 +1127,10 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
           recordId
         );
       } catch (_) { /* columns may be mid-migrate */ }
+      if (!manual && calc.commission_rial > 0) {
+        db.prepare('UPDATE payroll_records SET commission_rial=? WHERE id=?').run(calc.commission_rial, recordId);
+        markConsumedByPayroll(db, pendingComm.ids, recordId);
+      }
       const payable = resolvePersonPayableAccount(db, person);
       // Loan/advance recovery applies to BOTH labor and manual_exempt (SSO/tax stay zero on exempt)
       const advAlloc = advRequest > 0
