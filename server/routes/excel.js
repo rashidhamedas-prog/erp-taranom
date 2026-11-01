@@ -5,6 +5,7 @@ const { auth, adminOrAccounting, centralOnlyStrict } = require('../middleware/au
 const { getDB, audit } = require('../db');
 const { applyExcelProductAction } = require('../lib/product-quick');
 const { parseQty } = require('../lib/round3');
+const { canSeeCostVisibility, stripCostExportRows } = require('../lib/cost-visibility');
 
 const upload = createSecureUpload('xlsx');
 
@@ -805,7 +806,10 @@ router.get('/:entity/template', auth, adminOrAccounting, ensureDefinition, async
 
 router.get('/:entity/export', auth, adminOrAccounting, ensureDefinition, async (req, res) => {
   try {
-    await sendBook(res, exportRows(getDB(), req.params.entity), req.excelDef.title, `${req.params.entity}.xlsx`);
+    let rows = exportRows(getDB(), req.params.entity);
+    // P4: exports honour cost_visibility (no cost/margin columns without permission)
+    if (!canSeeCostVisibility(getDB(), req.user)) rows = stripCostExportRows(rows, req.params.entity);
+    await sendBook(res, rows, req.excelDef.title, `${req.params.entity}.xlsx`);
   } catch (e) {
     res.status(400).json({ error: e.message });
   }

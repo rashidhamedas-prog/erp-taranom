@@ -468,6 +468,13 @@ app.use('/api/ai', require('./routes/ai'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/fiscal-year', require('./routes/fiscal-year'));
+// P4 — cost_visibility:view. Strip purchase cost / margin / profit keys from JSON for roles
+// without the permission. Must be mounted BEFORE the routers below (wraps res.json lazily).
+{
+  const { costVisibilityStrip, COST_STRIP_PREFIXES } = require('./lib/cost-visibility');
+  const costMw = costVisibilityStrip();
+  for (const prefix of COST_STRIP_PREFIXES) app.use(prefix, costMw);
+}
 app.use('/api/companies', require('./routes/companies'));
 app.use('/api/onboarding', require('./routes/onboarding'));
 app.use('/api/rbac', require('./routes/rbac'));
