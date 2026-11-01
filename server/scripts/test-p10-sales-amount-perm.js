@@ -161,7 +161,7 @@ console.log('\n══ P10-fix: sales_amount:view ══\n');
   ok('UI: RBAC label «مشاهدهٔ مبلغ فروش»', appJs.includes("sales_amount:'مشاهدهٔ مبلغ فروش'"));
   ok('UI: sales columns gated by canPerm(sales_amount) or cost', appJs.includes("canPerm('sales_amount','view')") && /function qimCanSalesAmt\(\)/.test(appJs));
   ok('UI: CSV uses separate sales/purchase gates', /amtSale\?\['مبلغ فروش \(ریال\)'/.test(appJs) && /amtPur\?\['مبلغ خرید \(ریال\)'/.test(appJs));
-  ok('help updated (P10-fix in admin + sales guides)', (appJs.match(/vNEXT — P10-fix/g) || []).length >= 2);
+  ok('help updated (P10-fix in admin + sales guides)', (appJs.match(/v\w+ — P10-fix/g) || []).length >= 2);
   const route = fs.readFileSync(path.join(__dirname, '..', 'routes', 'reports.js'), 'utf8');
   ok("route passes showSalesAmounts from canDo(sales_amount,'view')", route.includes("showSalesAmounts: canDo(req.user, 'sales_amount', 'view', db)"));
 
