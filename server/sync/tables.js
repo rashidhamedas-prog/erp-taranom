@@ -273,6 +273,10 @@ const SYNCABLE_TABLES = [
   { name: 'opening_stock_lines',               upsertKey: 'id' },
   // P8 — پیش‌نویس هزینهٔ روزانه (صندوق‌دار → تأیید حسابدار) (append-only)
   { name: 'expense_drafts',                    upsertKey: 'id' },
+  // P9 — پورسانت چندنفره (append-only؛ انتقال/ابطال روی مرکز replay می‌شود)
+  { name: 'commission_rules',                  upsertKey: 'id' },
+  { name: 'invoice_commission_parties',        upsertKey: 'id' },
+  { name: 'commission_transfers',              upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -663,6 +667,14 @@ const FK_COLUMNS = [
   ['expense_drafts', 'cash_box_id'],
   ['expense_drafts', 'owner_person_id'],
   ['expense_drafts', 'cost_center_id'],
+  ['commission_rules', 'person_id'],
+  ['invoice_commission_parties', 'invoice_id'],
+  ['invoice_commission_parties', 'person_id'],
+  ['commission_transfers', 'person_id'],
+  ['commission_transfers', 'payroll_period_id'],
+  ['commission_transfers', 'payroll_record_id'],
+  ['commission_transfers', 'je_id'],
+  ['commission_transfers', 'cost_center_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

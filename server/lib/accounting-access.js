@@ -202,6 +202,7 @@ const ACC_ITEMS = {
   'acc-moadian': { apis: ['/api/moadian'], legacy: 'moadian' },
   'acc-commissions': { apis: ['/api/accounting/commissions', '/api/accounting/incentive-payments'] },
   'acc-reps': { apis: ['/api/reps'] },
+  'acc-commission-rules': { apis: ['/api/commissions'], readApis: ['/api/persons', '/api/product-categories'] },
 };
 
 function resourceForNav(navId) {

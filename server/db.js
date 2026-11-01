@@ -2364,6 +2364,72 @@ function initSyncSchema(db, opts) {
     db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('opening_stock');
   }
 
+  // P9 — پورسانت چندنفره (additive / idempotent): قاعده‌ها، طرف‌های فاکتور، انتقال به حقوق/سند.
+  // حذف فیزیکی ندارد: قاعده/طرف با active=0، انتقال با status='void'.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS commission_rules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      person_id INTEGER NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('supervisor','seller')),
+      scope TEXT NOT NULL CHECK (scope IN ('product_group','product','invoice')),
+      scope_id INTEGER,
+      pct REAL NOT NULL,
+      from_date TEXT DEFAULT '',
+      to_date TEXT DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      updated_by INTEGER,
+      updated_at INTEGER,
+      deactivated_by INTEGER,
+      deactivated_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS invoice_commission_parties (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id INTEGER NOT NULL,
+      person_id INTEGER NOT NULL,
+      role TEXT NOT NULL DEFAULT 'seller' CHECK (role IN ('supervisor','seller')),
+      share_pct REAL NOT NULL DEFAULT 100,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      deactivated_by INTEGER,
+      deactivated_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS commission_transfers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_no TEXT,
+      person_id INTEGER NOT NULL,
+      period_from TEXT NOT NULL,
+      period_to TEXT NOT NULL,
+      target TEXT NOT NULL CHECK (target IN ('payroll','voucher')),
+      amount_rial INTEGER NOT NULL DEFAULT 0,
+      base_rial INTEGER NOT NULL DEFAULT 0,
+      detail_json TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','in_payroll','voucher','void')),
+      payroll_period_id INTEGER,
+      payroll_record_id INTEGER,
+      je_id INTEGER,
+      cost_center_id INTEGER,
+      note TEXT DEFAULT '',
+      created_by INTEGER,
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      voided_by INTEGER,
+      voided_at INTEGER,
+      void_reason TEXT DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_commission_rules_person ON commission_rules(person_id, active);
+    CREATE INDEX IF NOT EXISTS idx_invoice_commission_parties_inv ON invoice_commission_parties(invoice_id, active);
+    CREATE INDEX IF NOT EXISTS idx_commission_transfers_person ON commission_transfers(person_id, status);
+    CREATE INDEX IF NOT EXISTS idx_commission_transfers_payroll ON commission_transfers(payroll_record_id);
+  `);
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_transfers_no ON commission_transfers(doc_no)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شمارهٔ انتقال پورسانت ایجاد نشد:', e.message); }
+  if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('commission_transfer')) {
+    db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('commission_transfer');
+  }
+
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
     CREATE TABLE IF NOT EXISTS detail_categories (
@@ -3775,6 +3841,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v34','1')").run();
+    }
+    // v35: commission_rules + invoice_commission_parties + commission_transfers (P9 پورسانت چندنفره)
+    const backfillV35 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v35'").get();
+    if (!backfillV35 || backfillV35.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v35 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v35','1')").run();
     }
   }
 
