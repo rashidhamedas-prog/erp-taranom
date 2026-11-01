@@ -104,25 +104,11 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
       settlementsReversed++;
     }
 
-    // POS receipts are JE'd on pos_receipt, not settlement — void them explicitly.
-    try {
-      const pos = require('./pos');
-      const receipts = db.prepare(
-        "SELECT id FROM pos_receipts WHERE invoice_id=? AND COALESCE(status,'posted')<>'reversed'"
-      ).all(row.id);
-      for (const rec of receipts) {
-        try { db.prepare('UPDATE pos_receipts SET idempotency_key=NULL WHERE id=?').run(rec.id); } catch (_) {}
-        try {
-          pos.voidReceipt(db, rec.id, user, { reason: `ابطال فاکتور ${row.num}` });
-        } catch (_) { /* already reversed / batched edge */ }
-      }
-    } catch (_) { /* pos module optional in some harnesses */ }
+    // POS receipts are JE'd on pos_receipt, not settlement — void any still live (e.g. batched → 409 blocks).
+    require('./pos').voidLivePosReceiptsForInvoice(db, row.id, user, { reason: `ابطال فاکتور ${row.num}` });
 
     // Belt-and-suspenders: any remaining cheque register rows for this invoice.
-    try {
-      const { reverseChequeRecordsForInvoice } = require('./void-settlement');
-      reverseChequeRecordsForInvoice(db, row.id, user.id);
-    } catch (_) { /* optional */ }
+    require('./void-settlement').reverseChequeRecordsForInvoice(db, row.id, user.id);
 
     if (row.stock_deducted) {
       const invRows = JSON.parse(row.rows || '[]');
@@ -225,7 +211,19 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
         postCogsVoucher(db, row.id, row.num, todayJalali(), JSON.parse(row.rows || '[]'), user.id, true);
       }
       reverseCommissionAccrual(db, 'invoice', row.id, user.id, todayJalali());
+      // Companion vouchers keyed on the invoice id (legacy cash→AR reclass) die with it.
+      const { reverseJournalEntry } = require('./void-journal');
+      const companions = db.prepare(`
+        SELECT id FROM journal_entries
+        WHERE ref_type IN ('invoice_ar_reclass','invoice_payment') AND ref_id=?
+          AND COALESCE(deleted_at,0)=0 AND COALESCE(status,'posted') NOT IN ('reversed','void')
+      `).all(row.id);
+      for (const je of companions) {
+        reverseJournalEntry(db, je.id, { userId: user.id, reason: `ابطال فاکتور ${row.num}` });
+      }
     }
+
+    require('./invoice-je-links').assertInvoiceVoidComplete(db, row.id);
 
     if (wasConverted) {
       db.prepare(`UPDATE invoices SET
