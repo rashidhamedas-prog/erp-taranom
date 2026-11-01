@@ -15,9 +15,26 @@
  *
  * Cashier responses are whitelisted (no amount/cost/price keys); the P4 strip middleware on
  * /api/warehouses is a second layer.
+ *
+ * Audit (entity `qty_receipt`, inside the same transaction as the mutation): create / cost /
+ * cost_reverse (written by unlinkWarehouseGrniOnPurchaseVoid) / reverse. Details carry rial
+ * amounts; audit_log is readable only through admin-only APIs (/api/admin/audit, /api/activity-log)
+ * and is central-only (not synced), so non-cost roles never receive them.
  */
-const { getWarehouseDoc, createWarehouseDoc, voidWarehouseDoc } = require('../warehouse-docs');
+const { getWarehouseDoc, createWarehouseDoc, voidWarehouseDocInTx } = require('../warehouse-docs');
 const { invoiceWarehouseGrni } = require('../warehouse-grni-invoice');
+const { audit } = require('../../db');
+
+const AUDIT_ENTITY = 'qty_receipt';
+
+/** cost_pending as at receipt time: any active line entered the kardex at 0. */
+function provisionalCostPending(db, docId) {
+  const zero = db.prepare(`
+    SELECT COUNT(*) AS c FROM warehouse_moves
+    WHERE doc_id=? AND COALESCE(status,'posted')<>'reversed' AND COALESCE(amount_rial,0)<=0
+  `).get(docId).c;
+  return zero > 0 ? 1 : 0;
+}
 
 function qrErr(status, message, code) {
   return Object.assign(new Error(message), { status, code });
@@ -144,23 +161,33 @@ function createQtyReceipt(db, body, user) {
       note: b.note || '',
       lines,
     }, user, { outerTx: true });
-    const zero = db.prepare(`
-      SELECT COUNT(*) AS c FROM warehouse_moves
-      WHERE doc_id=? AND COALESCE(amount_rial,0)<=0
-    `).get(created.id).c;
+    const costPending = provisionalCostPending(db, created.id);
     db.prepare('UPDATE warehouse_docs SET qty_only=1, cost_pending=? WHERE id=?')
-      .run(zero > 0 ? 1 : 0, created.id);
-    return { ...created, doc: getWarehouseDoc(db, created.id) };
+      .run(costPending, created.id);
+    const doc = getWarehouseDoc(db, created.id);
+    audit(user && user.id, 'create', AUDIT_ENTITY, doc.id,
+      `ثبت رسید مقداری ${doc.num}: تأمین‌کننده #${supplierId} (${supplierName(db, supplierId)})، انبار #${warehouseId}، `
+      + `${doc.line_count} ردیف / ${doc.qty_total} عدد، بهای موقت ${Math.round(Number(doc.amount_rial_total) || 0)} ریال، `
+      + `GRNI JE #${doc.je_id || '-'}، cost_pending=${costPending}`);
+    return { ...created, doc };
   })();
 }
 
-/** Void before costing (R13 full reverse; the costed case is refused by voidWarehouseDoc). */
+/** Void before costing (R13 full reverse; the costed case is refused by voidWarehouseDocInTx). */
 function voidQtyReceipt(db, id, user, { reason } = {}) {
-  const doc = loadQtyDoc(db, id);
-  if (doc.purchase_invoice_id) {
-    throw qrErr(400, `رسید ${doc.num} ریالی شده است — ابتدا فاکتور خرید ${purchaseNum(db, doc.purchase_invoice_id) || ''} را ابطال کنید`, 'E_WH_GRNI_LINKED');
-  }
-  return voidWarehouseDoc(db, doc.id, user, { reason: reason || `ابطال رسید مقداری ${doc.num}` });
+  return db.transaction(() => {
+    const doc = loadQtyDoc(db, id);
+    if (doc.purchase_invoice_id) {
+      throw qrErr(400, `رسید ${doc.num} ریالی شده است — ابتدا فاکتور خرید ${purchaseNum(db, doc.purchase_invoice_id) || ''} را ابطال کنید`, 'E_WH_GRNI_LINKED');
+    }
+    const why = reason || `ابطال رسید مقداری ${doc.num}`;
+    const out = voidWarehouseDocInTx(db, doc.id, user, { reason: why });
+    db.prepare('UPDATE warehouse_docs SET cost_pending=0 WHERE id=?').run(doc.id);
+    audit(user && user.id, 'reverse', AUDIT_ENTITY, doc.id,
+      `ابطال رسید مقداری ${doc.num}: ${out.count} ردیف / ${doc.qty_total} عدد از کاردکس برگشت، `
+      + `بهای موقت ${Math.round(Number(doc.amount_rial_total) || 0)} ریال، GRNI JE #${doc.je_id || '-'} معکوس — ${why}`);
+    return out;
+  })();
 }
 
 /**
@@ -187,18 +214,33 @@ function costQtyReceipt(db, id, body, user) {
     }
     return { move_id: m.id, price: Math.round(price) };
   });
-  return db.transaction(() => invoiceWarehouseGrni(db, {
-    warehouse_doc_ids: [doc.id],
-    supplier_id: doc.supplier_id,
-    date: b.date,
-    rows,
-    disc: b.disc,
-    disc_amt: b.disc_amt,
-    vat_exempt: b.vat_exempt,
-    vat_rate: b.vat_rate,
-    note: b.note || `ریالی‌سازی رسید مقداری ${doc.num}`,
-    cost_center_id: b.cost_center_id,
-  }, user))();
+  return db.transaction(() => {
+    const inv = invoiceWarehouseGrni(db, {
+      warehouse_doc_ids: [doc.id],
+      supplier_id: doc.supplier_id,
+      date: b.date,
+      rows,
+      disc: b.disc,
+      disc_amt: b.disc_amt,
+      vat_exempt: b.vat_exempt,
+      vat_rate: b.vat_rate,
+      note: b.note || `ریالی‌سازی رسید مقداری ${doc.num}`,
+      cost_center_id: b.cost_center_id,
+    }, user);
+    db.prepare('UPDATE warehouse_docs SET cost_pending=0 WHERE id=?').run(doc.id);
+    const reval = db.prepare(`
+      SELECT COALESCE(SUM(amount_rial),0) AS s FROM inventory_ledger
+      WHERE source_type='warehouse_grni_reval' AND source_id=? AND COALESCE(status,'posted')='posted'
+    `).get(inv.id).s;
+    const je = db.prepare(`
+      SELECT id FROM journal_entries WHERE ref_type='purchase' AND ref_id=? AND COALESCE(deleted_at,0)=0 ORDER BY id LIMIT 1
+    `).get(inv.id);
+    audit(user && user.id, 'cost', AUDIT_ENTITY, doc.id,
+      `ریالی‌سازی رسید مقداری ${doc.num} → فاکتور خرید ${inv.num} (#${inv.id})، JE #${je ? je.id : '-'}: `
+      + `مبلغ ${Math.round(Number(inv.final) || 0)} ریال (VAT ${Math.round(Number(inv.vat_amount) || 0)})، `
+      + `تسویهٔ GRNI ${Math.round(Number(doc.amount_rial_total) || 0)}، تعدیل ارزش کاردکس ${Math.round(Number(reval) || 0)} ریال`);
+    return inv;
+  })();
 }
 
 module.exports = {
