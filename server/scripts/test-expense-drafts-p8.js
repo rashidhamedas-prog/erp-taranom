@@ -246,9 +246,9 @@ const serverSrc = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
 const app = fs.readFileSync(path.join(root, 'public/app.js'), 'utf8');
 const sw = fs.readFileSync(path.join(root, 'public/sw.js'), 'utf8');
 const { SYNCABLE_TABLES } = require('../sync/tables');
-ok('expense_drafts در SYNCABLE_TABLES (append انتها)', SYNCABLE_TABLES[SYNCABLE_TABLES.length - 1].name === 'expense_drafts');
-ok('cheque_book_leaves هنوز قبل از آن است (ترتیب دست‌نخورده)',
-  SYNCABLE_TABLES[SYNCABLE_TABLES.length - 2].name === 'cheque_book_leaves');
+ok('expense_drafts در SYNCABLE_TABLES (append انتها)', SYNCABLE_TABLES.findIndex((t) => t.name === 'expense_drafts') > SYNCABLE_TABLES.findIndex((t) => t.name === 'opening_stock_lines'));
+ok('cheque_book_leaves و opening_stock_* قبل از آن‌اند (ترتیب دست‌نخورده)',
+  SYNCABLE_TABLES.findIndex((t) => t.name === 'opening_stock_lines') > SYNCABLE_TABLES.findIndex((t) => t.name === 'cheque_book_leaves'));
 ok('PATH_TABLE_MAP: drafts قبل از expenses عمومی',
   capture.indexOf("'/api/expenses/drafts'") > 0
   && capture.indexOf("'/api/expenses/drafts'") < capture.indexOf("['/api/expenses', 'expense_payments']"));

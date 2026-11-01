@@ -130,7 +130,7 @@ async function main() {
     ok(!!q1("SELECT 1 FROM sqlite_master WHERE name='opening_stock_docs'") && !!q1("SELECT 1 FROM sqlite_master WHERE name='opening_stock_lines'"), 'tables exist');
     ok(!!q1("SELECT 1 FROM sqlite_master WHERE name='ux_opening_stock_active'"), 'partial unique index exists');
     const names = SYNCABLE_TABLES.map((t) => t.name);
-    ok(names[names.length - 2] === 'opening_stock_docs' && names[names.length - 1] === 'opening_stock_lines', 'SYNCABLE_TABLES append-only tail');
+    ok(names.indexOf('opening_stock_lines') === names.indexOf('opening_stock_docs') + 1 && names.indexOf('opening_stock_docs') > names.indexOf('cheque_book_leaves'), 'SYNCABLE_TABLES append-only order (P2 after cheque_book_leaves)');
     ok(capture.tableForPath('/api/opening-stock/5/post') === 'opening_stock_docs', 'PATH_TABLE_MAP /api/opening-stock → opening_stock_docs');
     ok(q1("SELECT value FROM settings WHERE key='sync_seq_backfill_v33'")?.value === '1', 'sync_seq_backfill_v33 sealed');
     ok(cols('opening_stock_docs').has('sync_seq') && cols('opening_stock_lines').has('sync_seq'), 'sync_seq column on both tables');
