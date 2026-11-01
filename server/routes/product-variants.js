@@ -390,6 +390,19 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// P5: idempotent internal EAN-13 (prefix 21/23/…) for a variant without a barcode.
+router.post('/:id/generate-barcode', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    ensureSchema(db);
+    const out = require('../lib/barcode-gen').assignVariantBarcode(db, parseInt(req.params.id, 10));
+    if (!out.existed) {
+      try { audit(req.user.id, 'generate_barcode', 'product_variant', req.params.id, `تولید بارکد تنوع ${out.barcode}`, req); } catch (_) {}
+    }
+    res.json({ ok: true, barcode: out.barcode, existed: !!out.existed, product_id: out.product_id });
+  } catch (e) { sendErr(res, e); }
+});
+
 router.patch('/:id/stock', auth, adminOrAccounting, centralOnly, (req, res) => {
   try {
     const db = getDB();

@@ -2940,6 +2940,7 @@ function go(page){
     }
   }
   if(page!=='messages' && typeof stopMsgPoll==='function') stopMsgPoll();
+  if(page!=='store-quick-sale' && typeof storeQsLeave==='function'){ try{ storeQsLeave(); }catch(_){} }
   // تاریخچهٔ ناوبری برای دکمه بازگشت (به‌جز حرکت برگشتی)
   if(!_navGoingBack && CURRENT_PAGE && CURRENT_PAGE!==page){
     PAGE_HISTORY.push(CURRENT_PAGE);
@@ -8091,7 +8092,19 @@ let _storeQs = {
   uiCashTendered: null, holdNote: '', lastInvId: null, preferThermalPrint: true,
   sheetOpen: false, undoLine: null, undoTimer: null, keysBound: false,
   scanBurstAt: 0, scanBurstLen: 0,
+  /* P5 touch POS (UI-only; tenders → pay_splits in storeQsBuildPaySplits) */
+  tenders: [], activeTenderIdx: -1, touch: false, beep: false, fullscreen: false,
+  flashKey: '', success: null, netError: '', draftBanner: false, newConfirmUntil: 0,
+  scanLastKeyAt: 0, scanFastLen: 0, scanAutoTimer: null,
 };
+const STORE_QS_TENDER_METHODS = {
+  cash:   { label:'نقد',      key:'1', icon:'💵' },
+  card:   { label:'کارتخوان', key:'2', icon:'💳' },
+  cheque: { label:'چک',       key:'3', icon:'🧾' },
+  credit: { label:'نسیه',     key:'4', icon:'📒' },
+};
+/** Inter-key gap below this (ms) = barcode wedge, in addition to the legacy 80ms burst rule. */
+const STORE_QS_SCAN_GAP_MS = 50;
 
 function storeQsCanOpen(){
   if(!ME) return false;
@@ -8234,6 +8247,7 @@ function storeQsAddVariantLines(p, rows, opts){
         stock:row.sku_stock!=null?row.sku_stock:p.stock,
       });
     }
+    storeQsMarkAdded(p.id, vid, wh);
   });
   storeQsRenderBody();
   showToast((p.name||'کالا')+' به سبد اضافه شد');
@@ -8301,8 +8315,47 @@ function storeQsAddProduct(p, qty){
       stock:p.stock,
     });
   }
+  storeQsMarkAdded(p.id, null, wh);
   storeQsRenderBody();
   showToast((p.name||'کالا')+' اضافه شد');
+}
+function storeQsLineKey(ln){
+  return [Number(ln&&ln.product_id)||0, Number(ln&&ln.variant_id)||0, Number(ln&&ln.warehouse_id)||0].join(':');
+}
+/** P5: repeat scan = +1 on the same row; the row flashes (≤150ms) and the cart leaves the success screen. */
+function storeQsMarkAdded(pid, vid, wh){
+  _storeQs.flashKey=[Number(pid)||0, Number(vid)||0, Number(wh)||0].join(':');
+  _storeQs.success=null;
+  const ix=(_storeQs.lines||[]).findIndex(l=>storeQsLineKey(l)===_storeQs.flashKey);
+  if(ix>=0) _storeQs.selectedLineIdx=ix;
+  storeQsBeep(true);
+}
+function storeQsBeep(okTone){
+  if(!_storeQs.beep) return;
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx) return;
+    if(!_storeQs._audio) _storeQs._audio=new Ctx();
+    const ctx=_storeQs._audio;
+    const osc=ctx.createOscillator();
+    const gain=ctx.createGain();
+    osc.type='square';
+    osc.frequency.value=okTone?1760:330;
+    gain.gain.value=0.06;
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime+(okTone?0.07:0.18));
+  }catch(_){}
+}
+function storeQsUserKey(name){
+  return 'pos_v2_'+name+'_'+String((typeof ME!=='undefined'&&ME&&ME.id)||0);
+}
+/** ی/ک unification + Persian/Arabic digits → ASCII + collapsed spaces (search/scan input). */
+function storeQsNormQuery(s){
+  let v=String(s==null?'':s);
+  v=v.replace(/[\u064A\u0649]/g,'ی').replace(/\u0643/g,'ک');
+  v=(typeof toEnDigits==='function')?toEnDigits(v):v.replace(/[۰-۹]/g,d=>String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[٠-٩]/g,d=>String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+  return v.replace(/\s+/g,' ').trim();
 }
 function storeQsPosEligible(p){
   if(!p) return false;
@@ -8341,7 +8394,7 @@ function storeQsCancelSearch(){
   _storeQs._searchSeq=(_storeQs._searchSeq||0)+1;
 }
 async function storeQsLookupScan(code){
-  const c=String(code||'').trim();
+  const c=storeQsNormQuery(code);
   if(!c) return;
   storeQsCancelSearch();
   let networkErr=false;
@@ -8373,7 +8426,7 @@ async function storeQsLookupScan(code){
     if(list.length===1){ storeQsAddProduct(list[0],1); _storeQs.scanQ=''; _storeQs.searchResults=[]; storeQsMountResults(); return; }
     if(list.length>1){
       _storeQs.scanQ=c;
-      _storeQs.searchResults=list.slice(0,12);
+      _storeQs.searchResults=list.slice(0,8);
       _storeQs.resultFocus=0;
       storeQsMountResults();
       return;
@@ -8385,6 +8438,7 @@ async function storeQsLookupScan(code){
   _storeQs.scanQ=c;
   _storeQs.searchResults=[];
   storeQsMountResults();
+  storeQsBeep(false);
   showToast('کالا یافت نشد: '+c,'error');
 }
 
@@ -8471,8 +8525,10 @@ function storeQsHoldCart(){
     refInvoiceId:_storeQs.refInvoiceId,
     refInvoice:_storeQs.refInvoice,
     availableDisc:_storeQs.availableDisc,
+    tenders:JSON.parse(JSON.stringify(_storeQs.tenders||[])),
   });
   storeQsSaveHeld(list);
+  _storeQs.tenders=[]; _storeQs.activeTenderIdx=-1; _storeQs.clientRequestId=null;
   _storeQs.lines=[]; _storeQs.returnLines=[]; _storeQs.availableRows=[];
   _storeQs.refInvoiceId=null; _storeQs.refInvoice=null; _storeQs.availableDisc=null;
   _storeQs.discPct=0; _storeQs.selectedLineIdx=-1;
@@ -8496,6 +8552,10 @@ function storeQsResumeHeld(hid){
   _storeQs.refInvoiceId=h.refInvoiceId||null;
   _storeQs.refInvoice=h.refInvoice||null;
   _storeQs.availableDisc=h.availableDisc||null;
+  _storeQs.tenders=Array.isArray(h.tenders)?h.tenders:[];
+  _storeQs.activeTenderIdx=-1;
+  _storeQs.clientRequestId=null;
+  _storeQs.success=null;
   _storeQs.selectedLineIdx=_storeQs.lines.length?0:-1;
   storeQsUiToast('فاکتور ازسرگیری شد');
   storeQsRenderBody();
@@ -8562,6 +8622,170 @@ function storeQsFillRemainCash(){
   _storeQs.uiCashTendered=due;
   storeQsRenderBody({keepFocus:true});
 }
+
+/* ---------- P5 multi-row settlement (tenders) ---------- */
+function storeQsIsWalkin(){
+  const walkinId=Number((_storeQs.boot&&_storeQs.boot.walkin_customer_id)||0);
+  const custId=Number(_storeQs.custId||walkinId||0);
+  return custId===walkinId;
+}
+function storeQsReturnOnly(){
+  return (_storeQs.mode||'sale')==='exchange' && !(_storeQs.lines||[]).length && (_storeQs.returnLines||[]).length>0;
+}
+/** Amount the customer must pay now (0 for refund / even exchange). */
+function storeQsCollectAmt(){
+  if(storeQsReturnOnly()) return 0;
+  return Math.max(0, (_storeQs.mode||'sale')==='exchange'?storeQsNetDue():storeQsFinal());
+}
+/** Empty tender list = implicit full cash (keeps the pre-P5 one-key F10 cash flow). */
+function storeQsEffectiveTenders(){
+  const rows=Array.isArray(_storeQs.tenders)?_storeQs.tenders:[];
+  if(rows.length) return rows;
+  const collect=storeQsCollectAmt();
+  return collect>0?[{ method:'cash', amount:collect, implicit:true }]:[];
+}
+function storeQsTenderPaid(rows){
+  return (rows||storeQsEffectiveTenders()).reduce((a,r)=>a+Math.max(0,Math.round(Number(r.amount)||0)),0);
+}
+/** >0 = still due, <0 = change owed to the customer. */
+function storeQsTenderRemain(){
+  return storeQsCollectAmt()-storeQsTenderPaid();
+}
+function storeQsTenderPayType(rows){
+  const m=new Set((rows||[]).map(r=>r.method));
+  if(!m.size || (m.size===1 && m.has('cash'))) return 'cash';
+  if(m.size===1 && m.has('card')) return 'pos_card';
+  if(m.size===1 && m.has('credit')) return 'credit';
+  if(m.size===2 && m.has('cash') && m.has('card')) return 'mixed';
+  return 'split';
+}
+/** Server error → cashier-facing text for the P6 settlement / stock codes. */
+function storeQsCheckoutErrorText(e){
+  const p=(e&&e.payload)||{};
+  const code=(e&&e.code)||p.code||'';
+  const base=(e&&(e.error||e.message))||p.error||'خطا در ثبت';
+  const n=v=>(v==null||v==='')?'':fmt(Number(v)||0);
+  if(code==='E_CREDIT_LIMIT'){
+    const lim=p.limit!=null?p.limit:p.credit_limit_rial;
+    const bal=p.balance!=null?p.balance:p.used_rial;
+    const parts=[];
+    if(lim!=null) parts.push('سقف اعتبار '+n(lim));
+    if(bal!=null) parts.push('مانده فعلی '+n(bal));
+    if(p.available_rial!=null) parts.push('قابل استفاده '+n(p.available_rial));
+    return 'سقف اعتبار مشتری کافی نیست'+(parts.length?' — '+parts.join('، ')+' ریال':'')+' (بخش نسیه را کم کنید یا روش دیگری اضافه کنید)';
+  }
+  if(code==='E_PAY_SPLIT_OVER'){
+    return 'جمع کارت/چک/نسیه بیش از مبلغ قابل پرداخت است'+(p.paid!=null&&p.final!=null?(' ('+n(p.paid)+' از '+n(p.final)+')'):'')+' — باقی فقط از نقد پس داده می‌شود';
+  }
+  if(code==='E_STORE_INSUFFICIENT_STOCK'){
+    const sh=Array.isArray(p.shortages)?p.shortages:[];
+    const lines=sh.slice(0,3).map(s=>(s.name||s.product_name||('#'+s.product_id))+(s.variant_label?(' '+s.variant_label):'')+': درخواست '+String(s.requested==null?'':s.requested)+'، قابل فروش '+String(s.atp==null?'':s.atp));
+    return 'موجودی ناکافی (فروش بیش از موجودی مسدود است)'+(lines.length?' — '+lines.join('، '):'');
+  }
+  if(code==='E_WALKIN_NO_CREDIT') return 'نسیه برای مشتری نقدی فروشگاه مجاز نیست — مشتری واقعی را انتخاب کنید (F4)';
+  return base;
+}
+function storeQsSyncPayType(){
+  _storeQs.payType=storeQsTenderPayType(storeQsEffectiveTenders());
+  if(_storeQs.payType==='cash'){
+    const cash=storeQsEffectiveTenders().reduce((a,r)=>a+(r.method==='cash'?Math.round(Number(r.amount)||0):0),0);
+    _storeQs.uiCashTendered=cash;
+  }
+}
+function storeQsAddTender(method){
+  if(!STORE_QS_TENDER_METHODS[method]) return;
+  if((method==='credit'||method==='cheque') && storeQsIsWalkin()){
+    storeQsUiToast(method==='credit'?'نسیه فقط برای مشتری واقعی — ابتدا مشتری را انتخاب کنید (F4)':'چک فقط برای مشتری واقعی — ابتدا مشتری را انتخاب کنید (F4)','error');
+    return;
+  }
+  if(!Array.isArray(_storeQs.tenders)) _storeQs.tenders=[];
+  const remain=Math.max(0, storeQsCollectAmt()-storeQsTenderPaid(_storeQs.tenders));
+  const row={ method, amount:remain };
+  if(method==='card') row.terminal_id=Number(_storeQs.terminalId||0)||null;
+  _storeQs.tenders.push(row);
+  _storeQs.activeTenderIdx=_storeQs.tenders.length-1;
+  storeQsSyncPayType();
+  storeQsRenderBody({keepFocus:true});
+  setTimeout(function(){
+    const inp=document.querySelector('[data-tender-amt="'+_storeQs.activeTenderIdx+'"]');
+    if(inp){ try{ inp.focus(); inp.select(); }catch(_){} }
+  }, 30);
+}
+function storeQsRemoveTender(i){
+  if(!_storeQs.tenders||!_storeQs.tenders[i]) return;
+  _storeQs.tenders.splice(i,1);
+  if(_storeQs.activeTenderIdx>=_storeQs.tenders.length) _storeQs.activeTenderIdx=_storeQs.tenders.length-1;
+  storeQsSyncPayType();
+  storeQsRenderBody({keepFocus:true});
+}
+/** «کل مانده»: this row absorbs whatever is still due. */
+function storeQsTenderFillRemain(i){
+  const r=_storeQs.tenders&&_storeQs.tenders[i];
+  if(!r) return;
+  const others=storeQsTenderPaid(_storeQs.tenders)-Math.max(0,Math.round(Number(r.amount)||0));
+  r.amount=Math.max(0, storeQsCollectAmt()-others);
+  _storeQs.activeTenderIdx=i;
+  storeQsSyncPayType();
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsNumpad(k){
+  const i=_storeQs.activeTenderIdx;
+  const r=_storeQs.tenders&&_storeQs.tenders[i];
+  if(!r){ storeQsUiToast('ابتدا یک ردیف پرداخت انتخاب کنید','error'); return; }
+  let s=String(Math.max(0,Math.round(Number(r.amount)||0)));
+  if(s==='0') s='';
+  if(k==='bs') s=s.slice(0,-1);
+  else if(k==='clr') s='';
+  else s=(s+String(k)).slice(0,15);
+  r.amount=parseInt(s||'0',10)||0;
+  storeQsSyncPayType();
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsJalaliKey(s){
+  const en=(typeof toEnDigits==='function'?toEnDigits(String(s||'')):String(s||'')).trim();
+  const m=en.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if(!m) return '';
+  return m[1]+'/'+m[2].padStart(2,'0')+'/'+m[3].padStart(2,'0');
+}
+function storeQsChequePastDue(r){
+  const due=storeQsJalaliKey(r&&r.due);
+  const today=storeQsJalaliKey(typeof todayJalali==='function'?todayJalali():'');
+  return !!(due && today && due<today);
+}
+/** Gate for the tender rows only ('' = OK). Cash-box / walk-in rules stay in storeQsCheckoutGateReason. */
+function storeQsTenderGate(){
+  const collect=storeQsCollectAmt();
+  if(!(collect>0)) return '';
+  const rows=storeQsEffectiveTenders();
+  const amt=r=>Math.max(0,Math.round(Number(r.amount)||0));
+  if(rows.some(r=>(r.method==='credit'||r.method==='cheque') && amt(r)>0) && storeQsIsWalkin())
+    return 'نسیه/چک فقط برای مشتری واقعی — مشتری را انتخاب کنید (F4)';
+  // P6 contract: Σ non-cash (card/cheque/credit) ≤ due; cash above the rest is change.
+  const paid=storeQsTenderPaid(rows);
+  if(paid<collect) return 'مانده پرداخت: '+fmt(collect-paid)+' ریال';
+  const nonCash=rows.reduce((a,r)=>a+(r.method==='cash'?0:amt(r)),0);
+  if(nonCash>collect) return 'جمع کارت/چک/نسیه ('+fmt(nonCash)+') بیش از مبلغ قابل پرداخت است — باقی فقط از نقد پس داده می‌شود';
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i];
+    if(r.method==='card' && amt(r)>0 && !Number(r.terminal_id||_storeQs.terminalId||0))
+      return 'ردیف '+fmtQtyFa(i+1)+': کارتخوان را انتخاب کنید';
+    if(r.method==='cheque' && amt(r)>0){
+      const miss=[];
+      const say=(typeof toEnDigits==='function'?toEnDigits(String(r.sayadi||'')):String(r.sayadi||'')).replace(/\D/g,'');
+      if(!/^\d{16}$/.test(say)) miss.push('شناسه صیاد ۱۶ رقمی');
+      if(!String(r.bank||'').trim()) miss.push('بانک');
+      if(!storeQsJalaliKey(r.due)) miss.push('سررسید (۱۴۰۵/۰۸/۱۰)');
+      if(miss.length) return 'چک ردیف '+fmtQtyFa(i+1)+': '+miss.join('، ');
+    }
+  }
+  return '';
+}
+/** P5 block mode: client mirror of the server 422 (warn mode keeps the inline row warning only). */
+function storeQsStockBlockReason(){
+  if(String((_storeQs.boot&&_storeQs.boot.insufficient_stock_mode)||'warn')!=='block') return '';
+  const short=(_storeQs.lines||[]).find(ln=>ln.stock!=null && Number(ln.qty)>Number(ln.stock));
+  return short?('موجودی ناکافی برای «'+(short.name||'کالا')+'» — فروش بیش از موجودی مسدود است'):'';
+}
 function storeQsCheckoutGateReason(){
   const mode=_storeQs.mode||'sale';
   const boot=_storeQs.boot||{};
@@ -8580,16 +8804,21 @@ function storeQsCheckoutGateReason(){
   const netDue=mode==='exchange'?storeQsNetDue():finalAmt;
   const collectAmt=returnOnly?0:Math.max(0, netDue);
   const settleCase=returnOnly?'refund':(mode==='exchange'?storeQsSettlementCase():'sale');
-  const needsCash=_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&(settleCase==='refund'||returnOnly));
+  storeQsSyncPayType();
+  const tenderRows=storeQsEffectiveTenders();
+  const hasCashTender=collectAmt>0 && tenderRows.some(r=>r.method==='cash' && Math.round(Number(r.amount)||0)>0);
+  const needsCash=hasCashTender||(mode==='exchange'&&(settleCase==='refund'||returnOnly));
   const cashId=Number(_storeQs.cashBoxId||boot.cash_box_id||0);
   if(needsCash && !cashId && collectAmt>=0){
     if(mode==='exchange'&&(settleCase==='refund'||returnOnly)) return 'برای استرداد، صندوق الزامی است';
-    if(_storeQs.payType==='cash'||_storeQs.payType==='mixed') return 'صندوق را انتخاب کنید';
+    return 'صندوق را انتخاب کنید';
   }
-  if((_storeQs.payType==='pos_card'||_storeQs.payType==='mixed') && collectAmt>0 && !Number(_storeQs.terminalId||0))
-    return 'کارتخوان را انتخاب کنید';
   if((mode==='sale'||(mode==='exchange'&&collectAmt>0))&&_storeQs.payType==='credit'&&custId===walkinId)
     return 'مشتری نقدی باید کامل نقد/کارت تسویه شود';
+  const tg=storeQsTenderGate();
+  if(tg) return tg;
+  const sb=storeQsStockBlockReason();
+  if(sb) return sb;
   if(!storeQsWhId()) return 'انبار فروش را انتخاب کنید';
   return '';
 }
@@ -8616,9 +8845,9 @@ function storeQsMountResults(){
   host.innerHTML=storeQsRenderResults();
 }
 async function storeQsLiveSearch(q){
-  const term=String(q||'').trim();
+  const term=storeQsNormQuery(q);
   _storeQs.scanQ=term;
-  if(term.length<1){
+  if(term.length<2){
     _storeQs.searchResults=[];
     _storeQs.searchBusy=false;
     storeQsMountResults();
@@ -8631,13 +8860,13 @@ async function storeQsLiveSearch(q){
   storeQsMountResults();
   try{
     const wh=storeQsWhId();
-    const qs=new URLSearchParams({ search:term, limit:'12', for:'pos', include_zero:'1' });
+    const qs=new URLSearchParams({ search:term, limit:'8', for:'pos', include_zero:'1' });
     if(wh) qs.set('warehouse_id', String(wh));
     const list=listRows(await api('GET','/products?'+qs.toString()));
     if(seq!==_storeQs._searchSeq) return;
     let rows=(list||[]).filter(storeQsPosEligible);
     rows=storeQsRankSearchResults(rows, term);
-    _storeQs.searchResults=rows;
+    _storeQs.searchResults=rows.slice(0,8);
     _storeQs.resultFocus=0;
   }catch(_){
     if(seq!==_storeQs._searchSeq) return;
@@ -8682,9 +8911,11 @@ function storeQsOnScanInputKey(e){
   }
   if(e.key==='Enter'){
     e.preventDefault();
-    const v=String(e.target.value||'').trim();
-    const burst=_storeQs.scanBurstLen>=4 && (now-_storeQs.scanBurstAt)<120;
-    _storeQs.scanBurstAt=0; _storeQs.scanBurstLen=0;
+    if(_storeQs.scanAutoTimer){ clearTimeout(_storeQs.scanAutoTimer); _storeQs.scanAutoTimer=null; }
+    const v=storeQsNormQuery(e.target.value);
+    const burst=(_storeQs.scanBurstLen>=4 && (now-_storeQs.scanBurstAt)<120)
+      || (_storeQs.scanFastLen>=4 && (now-_storeQs.scanLastKeyAt)<120);
+    _storeQs.scanBurstAt=0; _storeQs.scanBurstLen=0; _storeQs.scanFastLen=0; _storeQs.scanLastKeyAt=0;
     storeQsCancelSearch();
     const field=e.target.closest('.pos-scan-field');
     if(field){ field.classList.remove('pos-scan-ok'); void field.offsetWidth; field.classList.add('pos-scan-ok'); }
@@ -8711,12 +8942,35 @@ function storeQsOnScanInputKey(e){
   if(e.key.length===1 && !e.ctrlKey && !e.metaKey && !e.altKey){
     if(!_storeQs.scanBurstAt || now-_storeQs.scanBurstAt>80){ _storeQs.scanBurstAt=now; _storeQs.scanBurstLen=1; }
     else { _storeQs.scanBurstLen++; _storeQs.scanBurstAt=now; }
+    // P5: wedge scanners type with <50ms gaps — count the consecutive fast run.
+    if(_storeQs.scanLastKeyAt && (now-_storeQs.scanLastKeyAt)<STORE_QS_SCAN_GAP_MS) _storeQs.scanFastLen=(_storeQs.scanFastLen||1)+1;
+    else _storeQs.scanFastLen=1;
+    _storeQs.scanLastKeyAt=now;
+    storeQsArmScanAutoSubmit(e.target);
   }
+}
+/** Scanner without an Enter suffix: a ≥6-char <50ms run followed by 120ms silence submits as a scan. */
+function storeQsArmScanAutoSubmit(input){
+  if(_storeQs.scanAutoTimer){ clearTimeout(_storeQs.scanAutoTimer); _storeQs.scanAutoTimer=null; }
+  if((_storeQs.scanFastLen||0)<6) return;
+  _storeQs.scanAutoTimer=setTimeout(function(){
+    _storeQs.scanAutoTimer=null;
+    if((_storeQs.scanFastLen||0)<6 || !input || !input.isConnected) return;
+    const v=storeQsNormQuery(input.value);
+    _storeQs.scanFastLen=0; _storeQs.scanLastKeyAt=0;
+    if(!v) return;
+    storeQsCancelSearch();
+    input.value=''; _storeQs.scanQ=''; _storeQs.searchResults=[];
+    storeQsLookupScan(v);
+    storeQsMountResults();
+  }, 120);
 }
 function storeQsOnScanInput(e){
   const v=e.target.value;
   _storeQs.scanQ=v;
   if(_storeQs._searchTimer) clearTimeout(_storeQs._searchTimer);
+  // A scanner burst in progress never triggers live suggestions.
+  if((_storeQs.scanFastLen||0)>=4) return;
   _storeQs._searchTimer=setTimeout(function(){ storeQsLiveSearch(v); }, 250);
 }
 function storeQsBindKeys(){
@@ -8750,6 +9004,19 @@ function storeQsGlobalKey(e){
   const tag=(e.target&&e.target.tagName||'').toLowerCase();
   const typing=tag==='input'||tag==='textarea'||tag==='select'||(e.target&&e.target.isContentEditable);
   const fk=/^F\d+$/.test(e.key);
+  // P5: Alt+1..4 tender rows, Alt+F fullscreen — layout-independent (e.code), allowed while typing.
+  if(e.altKey && !e.ctrlKey && !e.metaKey){
+    const dm=/^(?:Digit|Numpad)([1-4])$/.exec(String(e.code||''));
+    if(dm){
+      e.preventDefault(); e.stopPropagation();
+      const method=Object.keys(STORE_QS_TENDER_METHODS).find(k=>STORE_QS_TENDER_METHODS[k].key===dm[1]);
+      if(method) storeQsAddTender(method);
+      return;
+    }
+    if(e.code==='KeyF'){ e.preventDefault(); e.stopPropagation(); storeQsToggleFullscreen(); return; }
+  }
+  const emptyScan=!!(e.target && e.target.id==='storeQsScan' && !String(e.target.value||'').trim());
+  if(_storeQs.success && e.key==='Enter' && !e.ctrlKey && (!typing || emptyScan)){ e.preventDefault(); e.stopPropagation(); storeQsResetCart({force:true}); return; }
   if(typing && !fk && e.key!=='Escape' && !(e.ctrlKey&&(e.key==='Enter'||e.key==='p'||e.key==='P'||e.key==='k'||e.key==='K'))) return;
   const prevent=()=>{ e.preventDefault(); e.stopPropagation(); };
   if(e.key==='F2'){ prevent(); const i=el('storeQsScan'); if(i){ i.focus(); i.select(); } return; }
@@ -8878,16 +9145,16 @@ function storeQsRenderLines(){
     const varLbl=typeof variantAttrsLabel==='function'?variantAttrsLabel(ln.color_name||ln.color, ln.size_name):'';
     const stock=ln.stock!=null?Number(ln.stock):null;
     const low=stock!=null && Number(ln.qty)>stock;
-    const sel=_storeQs.selectedLineIdx===idx?' is-selected':'';
+    const sel=(_storeQs.selectedLineIdx===idx?' is-selected':'')+(_storeQs.flashKey&&storeQsLineKey(ln)===_storeQs.flashKey?' pos-row-flash':'');
     return `<tr class="pos-cart-row${sel}" data-csp-click="${CSP.bind('click',function(){_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
       <td>${fmtQtyFa(idx+1)}</td>
       <td><b>${esc(ln.name)}</b>
         <div class="muted mono pos-fs-11">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div>
-        ${low?`<div class="pos-stock-warn" role="status">موجودی ناکافی (موجود: ${fmtQtyFa(stock)})</div>`:''}
+        ${low?`<div class="pos-stock-warn" role="status">موجودی ناکافی (موجود: ${fmtQtyFa(stock)})${String((_storeQs.boot&&_storeQs.boot.insufficient_stock_mode)||'warn')==='block'?' — ثبت مسدود است':''}</div>`:''}
       </td>
       <td><input type="text" inputmode="numeric" class="money pos-price-input" value="${moneyInit(ln.unit_price)}"
-        data-csp-input="${CSP.bind('input',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw||'0',10)||0);storeQsRefreshTotals();})}"
-        data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}"></td>
+        data-csp-input="${CSP.bind('input',function(){const raw=toEnDigits(String(this.value||'')).replace(/\D/g,'');_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw||'0',10)||0);storeQsRefreshTotals();})}"
+        data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/\D/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}"></td>
       <td><div class="pos-stepper" data-csp-click="${CSP.bind('click',function(ev){ev.stopPropagation();})}">
         <button type="button" aria-label="کاهش" data-csp-click="${CSP.bind('click',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);_storeQs.lines[idx].qty=Math.max(cont?0.001:1,(Number(_storeQs.lines[idx].qty)||1)-(cont?0.1:1));_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">−</button>
         <input data-pos-qty="${idx}" type="number" min="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'0.001':'1'}" step="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'0.001':'1'}" inputmode="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'decimal':'numeric'}" value="${esc(String(ln.qty))}" data-csp-change="${CSP.bind('change',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);const q=cont?Math.max(0.001,parseQty(this.value,1)):Math.max(1,Math.round(Number(this.value)||1));_storeQs.lines[idx].qty=q;_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
@@ -9000,11 +9267,78 @@ function storeQsRefreshTotals(){
   const hd=el('posHdrDiscAmt'); if(hd) hd.textContent='−'+storeQsFmtZero(hdrDisc);
   const sub=el('posSubtotalLbl'); if(sub) sub.textContent=fmt(subtotal+lineDisc);
   const dueMob=document.querySelector('.pos-mobile-bar .pos-due'); if(dueMob) dueMob.textContent=fmt(dueShow);
+  storeQsSyncPayType();
+  const st=storeQsSettleState();
+  const ss=el('posSettleStatus');
+  if(ss){ ss.className='pos-settle-status '+st.cls; ss.innerHTML=storeQsSettleStatusInner(st); }
+  const ssMob=document.querySelector('.pos-mobile-bar .pos-settle-mini');
+  if(ssMob){ ssMob.className='pos-settle-mini '+st.cls; ssMob.textContent=st.text+(st.amt?' '+fmt(st.amt):''); }
   const rem=el('posRemainLbl'); const chg=el('posChangeLbl');
-  const collectAmt=Math.max(0, (_storeQs.mode==='exchange'?storeQsNetDue():storeQsFinal()));
-  const tendered=Number(_storeQs.uiCashTendered!=null?_storeQs.uiCashTendered:(_storeQs.payType==='cash'?collectAmt:0));
-  if(rem && _storeQs.payType==='cash') rem.textContent=fmt(Math.max(0,collectAmt-tendered));
-  if(chg && _storeQs.payType==='cash') chg.textContent=fmt(tendered>collectAmt?(tendered-collectAmt):0);
+  const remain=storeQsTenderRemain();
+  if(rem) rem.textContent=fmt(Math.max(0,remain));
+  if(chg) chg.textContent=fmt(Math.max(0,-remain));
+}
+/** P5 summary state: 0 → green «تسویه کامل», >0 → amber «مانده», <0 → «باقی به مشتری» (always with text). */
+function storeQsSettleState(){
+  const collect=storeQsCollectAmt();
+  const rows=storeQsEffectiveTenders();
+  const rem=collect-storeQsTenderPaid(rows);
+  if(collect>0 && rem<=0 && rows.length && rows.every(r=>r.method==='credit'))
+    return { cls:'is-credit', text:'نسیه — کل مبلغ به حساب مشتری', amt:collect, icon:'📒' };
+  if(rem>0) return { cls:'is-due', text:'مانده', amt:rem, icon:'⏳' };
+  if(rem<0) return { cls:'is-change', text:'باقی به مشتری', amt:-rem, icon:'↩' };
+  const creditPart=rows.reduce((a,r)=>a+(r.method==='credit'?Math.max(0,Math.round(Number(r.amount)||0)):0),0);
+  if(creditPart>0) return { cls:'is-credit', text:'تسویه کامل — سهم نسیه', amt:creditPart, icon:'📒' };
+  return { cls:'is-ok', text:'تسویه کامل', amt:0, icon:'✓' };
+}
+function storeQsSettleStatusInner(st){
+  return `<span aria-hidden="true">${st.icon}</span> <span>${esc(st.text)}</span>${st.amt?` <b class="mono">${fmt(st.amt)}</b> <span class="pos-unit-muted">ریال</span>`:''}`;
+}
+function storeQsRenderTenderRow(r, i){
+  const meta=STORE_QS_TENDER_METHODS[r.method]||{label:r.method,icon:''};
+  const active=_storeQs.activeTenderIdx===i?' is-active':'';
+  const setField=function(field){ return CSP.bind('input',function(){ const row=_storeQs.tenders[i]; if(row) row[field]=String(this.value||''); }); };
+  const refreshField=CSP.bind('change',function(){ storeQsRenderBody({keepFocus:true}); });
+  let extra='';
+  if(r.method==='card'){
+    extra=`<div class="pos-tender-extra pos-tender-card">
+      <input type="text" inputmode="numeric" maxlength="4" placeholder="۴ رقم آخر کارت (اختیاری)" aria-label="۴ رقم آخر کارت" value="${esc(String(r.last4||''))}" data-csp-input="${setField('last4')}">
+      <input type="text" inputmode="numeric" maxlength="24" placeholder="شمارهٔ پیگیری (اختیاری)" aria-label="شماره پیگیری" value="${esc(String(r.trace||''))}" data-csp-input="${setField('trace')}">
+    </div>`;
+  } else if(r.method==='cheque'){
+    const past=storeQsChequePastDue(r);
+    extra=`<div class="pos-tender-extra pos-tender-cheque">
+      <input type="text" inputmode="numeric" maxlength="16" placeholder="شناسه صیاد ۱۶ رقمی" aria-label="شناسه صیاد" value="${esc(String(r.sayadi||''))}" data-csp-input="${setField('sayadi')}" data-csp-change="${refreshField}">
+      <input type="text" placeholder="بانک" aria-label="بانک" value="${esc(String(r.bank||''))}" data-csp-input="${setField('bank')}" data-csp-change="${refreshField}">
+      <input type="text" placeholder="شعبه (اختیاری)" aria-label="شعبه" value="${esc(String(r.branch||''))}" data-csp-input="${setField('branch')}" data-csp-change="${refreshField}">
+      <input type="text" inputmode="numeric" placeholder="شماره حساب (اختیاری)" aria-label="شماره حساب" value="${esc(String(r.account||''))}" data-csp-input="${setField('account')}" data-csp-change="${refreshField}">
+      <input type="text" inputmode="numeric" placeholder="شماره چک (اختیاری)" aria-label="شماره چک" value="${esc(String(r.number||''))}" data-csp-input="${setField('number')}" data-csp-change="${refreshField}">
+      <input type="text" placeholder="صادرکننده (اختیاری)" aria-label="صادرکننده" value="${esc(String(r.owner||''))}" data-csp-input="${setField('owner')}" data-csp-change="${refreshField}">
+      <input type="text" inputmode="numeric" placeholder="سررسید ۱۴۰۵/۰۸/۱۰" aria-label="سررسید جلالی" value="${esc(String(r.due||''))}" data-csp-input="${setField('due')}" data-csp-change="${refreshField}">
+      ${past?`<div class="pos-stock-warn" role="alert">هشدار: تاریخ سررسید گذشته است</div>`:''}
+    </div>`;
+  } else if(r.method==='credit'){
+    extra=`<div class="muted pos-fs-12">این مبلغ به حساب مشتری (نسیه) ثبت می‌شود؛ قابل ترکیب با سایر روش‌ها — بیش از سقف اعتبار مشتری رد می‌شود</div>`;
+  }
+  return `<div class="pos-tender-row${active}" data-tender-row="${i}">
+    <div class="pos-tender-head">
+      <span class="pos-tender-name"><span aria-hidden="true">${meta.icon}</span> ${esc(meta.label)}</span>
+      <input type="text" inputmode="numeric" class="money pos-tender-amt" data-tender-amt="${i}" value="${moneyInit(r.amount)}" aria-label="مبلغ ${esc(meta.label)}"
+        data-csp-focus="${CSP.bind('focus',function(){ if(_storeQs.activeTenderIdx!==i){ _storeQs.activeTenderIdx=i; document.querySelectorAll('.pos-v2 .pos-tender-row').forEach(function(n){ n.classList.toggle('is-active', n.getAttribute('data-tender-row')===String(i)); }); } })}"
+        data-csp-input="${CSP.bind('input',function(){ const raw=toEnDigits(String(this.value||'')).replace(/\D/g,''); const row=_storeQs.tenders[i]; if(row){ row.amount=Math.max(0,parseInt(raw||'0',10)||0); storeQsRefreshTotals(); } })}"
+        data-csp-change="${CSP.bind('change',function(){ storeQsRenderBody({keepFocus:true}); })}">
+      <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm pos-tender-fill" data-csp-click="${CSP.bind('click',function(){ storeQsTenderFillRemain(i); })}">کل مانده</button>
+      <button type="button" class="pos-btn pos-btn-ghost pos-btn-icon" aria-label="حذف ردیف ${esc(meta.label)}" data-csp-click="${CSP.bind('click',function(){ storeQsRemoveTender(i); })}">✕</button>
+    </div>
+    ${extra}
+  </div>`;
+}
+function storeQsRenderNumpad(){
+  const keys=['1','2','3','4','5','6','7','8','9','000','0','bs'];
+  return `<div class="pos-numpad" role="group" aria-label="صفحه‌کلید عددی مبلغ">${keys.map(k=>{
+    const lbl=k==='bs'?'⌫':(typeof toFa==='function'?toFa(k):k);
+    return `<button type="button" class="pos-numpad-key" aria-label="${k==='bs'?'پاک کردن رقم آخر':esc(k)}" data-csp-click="${CSP.bind('click',function(){ storeQsNumpad(k); })}">${esc(lbl)}</button>`;
+  }).join('')}</div>`;
 }
 function storeQsRenderBody(opts){
   opts=opts||{};
@@ -9052,59 +9386,45 @@ function storeQsRenderBody(opts){
   const dueLabel=mode!=='exchange'?'قابل پرداخت':(returnOnly||settleCase==='refund')?(returnOnly?'استرداد کامل':'مابه‌التفاوت — استرداد'):(settleCase==='collect'?'مابه‌التفاوت — دریافت':'تعویض برابر');
   const gate=storeQsCheckoutGateReason();
   const collectAmt=returnOnly?0:Math.max(0, mode==='exchange'?netDue:finalAmt);
-  const tendered=Number(_storeQs.uiCashTendered!=null?_storeQs.uiCashTendered:(_storeQs.payType==='cash'?collectAmt:0));
-  const change=(_storeQs.payType==='cash' && tendered>collectAmt)?(tendered-collectAmt):0;
-  const remainCash=_storeQs.payType==='cash'?Math.max(0,collectAmt-tendered):0;
-  const paidUi=_storeQs.payType==='credit'?0:(_storeQs.payType==='cash'?Math.min(collectAmt,tendered):collectAmt);
-  const pct=collectAmt>0?Math.min(1.25, paidUi/collectAmt):0;
+  storeQsSyncPayType();
+  const tenderRows=Array.isArray(_storeQs.tenders)?_storeQs.tenders:[];
+  const settle=storeQsSettleState();
+  const pct=collectAmt>0?Math.min(1.25, storeQsTenderPaid()/collectAmt):0;
+  const remainAmt=storeQsTenderRemain();
   const held=storeQsLoadHeld();
-  const showCash=_storeQs.payType==='cash'||_storeQs.payType==='mixed'||(mode==='exchange'&&(settleCase==='refund'||returnOnly));
-  const showTerm=_storeQs.payType==='pos_card'||_storeQs.payType==='mixed';
-  const mixedHalf=Math.floor(collectAmt/2);
-  const showCard=storeQsCardPaySupported();
+  const anyCashTender=collectAmt>0 && storeQsEffectiveTenders().some(r=>r.method==='cash');
+  const showCash=anyCashTender||(mode==='exchange'&&(settleCase==='refund'||returnOnly));
+  const showTerm=collectAmt>0 && tenderRows.some(r=>r.method==='card');
   const scanVal=opts.keepFocus && el('storeQsScan') ? el('storeQsScan').value : (_storeQs.scanQ||'');
+  const tenderBtn=function(method){
+    const m=STORE_QS_TENDER_METHODS[method];
+    const needsCust=(method==='credit'||method==='cheque') && isWalkin;
+    return `<button type="button" class="pos-tender-btn" data-tender-method="${method}" ${needsCust?'aria-disabled="true" aria-describedby="posTenderCustHint"':''}
+      data-csp-click="${CSP.bind('click',function(){ storeQsAddTender(method); })}"><span aria-hidden="true">${m.icon}</span> ${esc(m.label)} <kbd class="pos-kbd">Alt+${toFa(m.key)}</kbd></button>`;
+  };
 
   const payPanel=`<div class="pos-glass" id="posPayPanel">
-    <div class="pos-card-title"><span>پرداخت <kbd class="pos-kbd">F9</kbd></span>
+    <div class="pos-card-title"><span>تسویه <kbd class="pos-kbd">F9</kbd></span>
       <label class="pos-thermal-label">
         <input type="checkbox" ${_storeQs.preferThermalPrint?'checked':''} data-csp-change="${CSP.bind('change',function(){_storeQs.preferThermalPrint=!!this.checked;})}"> چاپ حرارتی خودکار
       </label>
     </div>
-    <div class="pos-pay-grid" role="group" aria-label="روش پرداخت">
-      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='cash'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('cash');})}">نقد</button>
-      ${showCard?`<button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='bank_card'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('bank_card');})}">کارت</button>`:''}
-      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='pos_card'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('pos_card');})}">پوز</button>
-      ${showCard?`<button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='card_transfer'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('card_transfer');})}">کارت‌به‌کارت</button>`:''}
-      <button type="button" class="pos-pay-chip" role="checkbox" aria-checked="${_storeQs.payType==='credit'?'true':'false'}" ${isWalkin?'disabled title="برای مشتری نقدی مجاز نیست"':''} data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('credit');})}">اعتبار</button>
-    </div>
-    <button type="button" class="pos-pay-chip pos-pay-mixed" role="checkbox" aria-checked="${_storeQs.payType==='mixed'?'true':'false'}" data-csp-click="${CSP.bind('click',function(){storeQsSetPayType('mixed');})}">ترکیبی نقد+پوز</button>
     <select id="storeQsPay" hidden aria-hidden="true"><option value="${esc(_storeQs.payType)}" selected></option></select>
-    ${_storeQs.payType==='cash'?`<div class="pos-pay-row"><span>نقد / مبلغ دریافتی</span>
-      <input type="text" inputmode="numeric" class="money" value="${moneyInit(tendered)}" aria-label="مبلغ نقد دریافتی"
-        data-csp-input="${CSP.bind('input',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiCashTendered=Math.max(0,parseInt(raw||'0',10)||0);storeQsRefreshTotals();})}"
-        data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiCashTendered=Math.max(0,parseInt(raw||'0',10)||0);storeQsRenderBody({keepFocus:true});})}">
-      <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" data-csp-click="${CSP.bind('click',function(){storeQsFillRemainCash();})}">باقیمانده را پر کن</button>
-    </div>`:''}
-    ${_storeQs.payType==='mixed'?(()=>{
-      const mCash=Math.round(Number(_storeQs.uiMixedCash!=null?_storeQs.uiMixedCash:mixedHalf));
-      const mCard=Math.round(Number(_storeQs.uiMixedCard!=null?_storeQs.uiMixedCard:(collectAmt-mCash)));
-      const remMix=Math.max(0, collectAmt-(mCash+mCard));
-      const changeMix=Math.max(0,(mCash+mCard)-collectAmt);
-      return `<div class="pos-pay-row"><span>نقد</span>
-        <input type="text" inputmode="numeric" class="money" value="${moneyInit(mCash)}" aria-label="مبلغ نقد ترکیبی"
-          data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiMixedCash=Math.max(0,parseInt(raw||'0',10)||0);if(_storeQs.uiMixedCard==null)_storeQs.uiMixedCard=Math.max(0,collectAmt-_storeQs.uiMixedCash);storeQsRenderBody({keepFocus:true});})}">
-      </div>
-      <div class="pos-pay-row"><span>پوز</span>
-        <input type="text" inputmode="numeric" class="money" value="${moneyInit(mCard)}" aria-label="مبلغ پوز ترکیبی"
-          data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/[^\\d]/g,'');_storeQs.uiMixedCard=Math.max(0,parseInt(raw||'0',10)||0);storeQsRenderBody({keepFocus:true});})}">
-      </div>
-      <div class="pos-pay-row"><span>باقیمانده ترکیبی</span><b class="mono">${fmt(remMix)}</b></div>
-      <div class="pos-pay-row"><span>پول خرد ترکیبی</span><b class="mono">${fmt(changeMix)}</b></div>`;
-    })():''}
-    ${_storeQs.payType==='pos_card'?`<div class="pos-pay-row"><span>پوز</span><b class="mono">${fmt(collectAmt)}</b></div>`:''}
-    <div class="pos-progress ${change>0?'is-over':''}" aria-hidden="true"><span class="pos-progress-bar" data-csp-style="${CSP.style('width:'+Math.min(100,pct*100)+'%;transform:none')}"></span></div>
-    <div class="pos-pay-row"><span>باقیمانده</span><b class="mono" id="posRemainLbl">${fmt(remainCash)}</b></div>
-    <div class="pos-pay-row"><span>پول خرد</span><b class="mono" id="posChangeLbl">${fmt(change)}</b></div>
+    ${collectAmt>0?`<div class="pos-tender-grid" role="group" aria-label="افزودن ردیف پرداخت">
+      ${tenderBtn('cash')}${tenderBtn('card')}${tenderBtn('cheque')}${tenderBtn('credit')}
+    </div>
+    ${isWalkin?`<div class="muted pos-fs-12 pos-mt-6" id="posTenderCustHint">چک و نسیه فقط با انتخاب مشتری واقعی (F4) فعال می‌شوند</div>`:''}
+    <div class="pos-tender-list" aria-live="polite">
+      ${tenderRows.length
+        ? tenderRows.map((r,i)=>storeQsRenderTenderRow(r,i)).join('')
+        : `<div class="pos-tender-implicit muted">پیش‌فرض: <b>نقد کامل</b> (${fmt(collectAmt)} ریال) — برای کارت/چک/نسیه یا چند روش، دکمهٔ روش را بزنید</div>`}
+    </div>
+    ${tenderRows.length && _storeQs.activeTenderIdx>=0 && tenderRows[_storeQs.activeTenderIdx] ? storeQsRenderNumpad() : ''}`
+    : `<div class="muted pos-fs-12">${(mode==='exchange'&&(settleCase==='refund'||returnOnly))?'استرداد وجه از صندوق انجام می‌شود':'دریافتی لازم نیست'}</div>`}
+    <div class="pos-progress ${remainAmt<0?'is-over':''}" aria-hidden="true"><span class="pos-progress-bar" data-csp-style="${CSP.style('width:'+Math.min(100,pct*100)+'%;transform:none')}"></span></div>
+    <div id="posSettleStatus" class="pos-settle-status ${settle.cls}" role="status" aria-live="polite">${storeQsSettleStatusInner(settle)}</div>
+    <div class="pos-pay-row"><span>مانده</span><b class="mono" id="posRemainLbl">${fmt(Math.max(0,remainAmt))}</b></div>
+    <div class="pos-pay-row"><span>باقی به مشتری</span><b class="mono" id="posChangeLbl">${fmt(Math.max(0,-remainAmt))}</b></div>
     ${showCash?`<div class="fg pos-mt-10"><label for="storeQsCash">صندوق *</label>
       ${cashSelectLocked
         ? `<input value="${esc((boot.cash_box&&boot.cash_box.name)||ME.sales_cash_box_name||'—')}" readonly>
@@ -9112,16 +9432,26 @@ function storeQsRenderBody(opts){
         : `<select id="storeQsCash" data-csp-change="${CSP.bind('change',function(){_storeQs.cashBoxId=Number(this.value)||null;storeQsPersistPref('pos_v2_cash_box',_storeQs.cashBoxId);storeQsRenderBody({keepFocus:true});})}"><option value="">—</option>${cashOpts}</select>`}
     </div>`:''}
     ${showTerm?`<div class="fg pos-mt-10"><label for="storeQsTerm">کارتخوان *</label>
-      <select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;})}"><option value="">—</option>${termOpts}</select>
+      <select id="storeQsTerm" data-csp-change="${CSP.bind('change',function(){_storeQs.terminalId=Number(this.value)||null;(_storeQs.tenders||[]).forEach(function(r){ if(r.method==='card') r.terminal_id=_storeQs.terminalId; });storeQsRenderBody({keepFocus:true});})}"><option value="">—</option>${termOpts}</select>
+    </div>`:''}
+    ${_storeQs.netError?`<div class="pos-net-error" role="alert">
+      <span>${esc(_storeQs.netError)}</span>
+      <button type="button" class="pos-btn pos-btn-primary pos-btn-sm" ${_storeQs.busy?'disabled':''} data-csp-click="${CSP.bind('click',function(){ storeQsCheckout(); })}">تلاش مجدد (همان فاکتور)</button>
     </div>`:''}
     <div class="pos-mt-14">
-      <button type="button" class="pos-btn pos-btn-primary" ${_storeQs.busy||gate?'disabled':''} aria-busy="${_storeQs.busy?'true':'false'}"
-        data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">✔ ${esc(checkoutLbl)} <kbd class="pos-kbd">F10</kbd></button>
+      <button type="button" class="pos-btn pos-btn-primary pos-btn-checkout" ${_storeQs.busy||gate?'disabled':''} aria-busy="${_storeQs.busy?'true':'false'}"
+        data-csp-click="${CSP.bind('click',function(){storeQsCheckout();})}">${_storeQs.busy?'<span class="pos-spinner" aria-hidden="true"></span> در حال ثبت…':('✔ '+esc(checkoutLbl)+' و چاپ')} <kbd class="pos-kbd">F10</kbd></button>
       <div class="pos-block-reason" role="alert" aria-live="polite">${gate?esc(gate):''}</div>
     </div>
     <div class="pos-actions">
       <button type="button" class="pos-btn" data-csp-click="${CSP.bind('click',function(){ if(_storeQs.lastInvId) printInvoice(_storeQs.lastInvId,'THERMAL','thermal'); else storeQsPrintCartReceipt(_storeQs.lastInvMeta||null); })}">چاپ فیش</button>
-      <button type="button" class="pos-btn pos-btn-danger" data-csp-click="${CSP.bind('click',function(){_storeQs.lines=[];_storeQs.returnLines=[];(_storeQs.availableRows||[]).forEach(function(r){r.qty_return=0;});_storeQs.refInvoiceId=null;_storeQs.refInvoice=null;_storeQs.selectedLineIdx=-1;storeQsRenderBody();})}">پاک کردن سبد</button>
+      <details class="pos-more">
+        <summary class="pos-btn pos-btn-ghost">بیشتر ⋯</summary>
+        <div class="pos-more-menu">
+          <button type="button" class="pos-btn pos-btn-ghost pos-btn-block" data-csp-click="${CSP.bind('click',function(){ _storeQs.beep=!_storeQs.beep; storeQsPersistPref(storeQsUserKey('beep'), _storeQs.beep?'1':'0'); storeQsBeep(true); storeQsRenderBody({keepFocus:true}); })}">${_storeQs.beep?'🔔 بوق اسکن: روشن':'🔕 بوق اسکن: خاموش'}</button>
+          <button type="button" class="pos-btn pos-btn-danger pos-btn-block" data-csp-click="${CSP.bind('click',function(){ storeQsClearCartConfirmed(); })}">پاک کردن سبد…</button>
+        </div>
+      </details>
     </div>
   </div>`;
 
@@ -9136,9 +9466,26 @@ function storeQsRenderBody(opts){
       <div class="pos-header-meta">
         <label>انبار ${whSelect}</label>
         <label>مشتری <kbd class="pos-kbd">F4</kbd></label>
+        <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm pos-new-inv${Date.now()<_storeQs.newConfirmUntil?' is-confirm':''}" data-csp-click="${CSP.bind('click',function(){ storeQsNewInvoiceClick(); })}">${Date.now()<_storeQs.newConfirmUntil?'تأیید: سبد فعلی دور ریخته شود؟':'+ فاکتور جدید'}</button>
+        <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" aria-pressed="${_storeQs.touch?'true':'false'}" data-csp-click="${CSP.bind('click',function(){ storeQsToggleTouch(); })}">🖐 حالت لمسی</button>
+        <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" aria-pressed="${_storeQs.fullscreen?'true':'false'}" data-csp-click="${CSP.bind('click',function(){ storeQsToggleFullscreen(); })}">⛶ تمام‌صفحه <kbd class="pos-kbd">Alt+F</kbd></button>
         <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" title="راهنمای میانبرها" data-csp-click="${CSP.bind('click',function(){const d=el('posHelpKeys'); if(d&&d.showModal) d.showModal();})}">?</button>
       </div>
     </header>
+    ${_storeQs.fullscreen?`<button type="button" class="pos-btn pos-fs-exit" data-csp-click="${CSP.bind('click',function(){ storeQsSetFullscreen(false); })}">✕ خروج از تمام‌صفحه <kbd class="pos-kbd">Alt+F</kbd></button>`:''}
+    ${_storeQs.draftBanner?`<div class="pos-draft-banner" role="status">
+      <span>سبد ناتمام قبلی (پیش‌نویس خودکار) بازیابی شد.</span>
+      <button type="button" class="pos-btn pos-btn-sm" data-csp-click="${CSP.bind('click',function(){ _storeQs.draftBanner=false; storeQsRenderBody({keepFocus:true}); })}">ادامه</button>
+      <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" data-csp-click="${CSP.bind('click',function(){ storeQsClearCartConfirmed(); })}">دور ریختن…</button>
+    </div>`:''}
+    ${_storeQs.success?`<div class="pos-success" role="alert" aria-live="assertive">
+      <div class="pos-success-title">✓ ${esc(_storeQs.success.title||'ثبت شد')}${_storeQs.success.num?' — '+esc(String(_storeQs.success.num)):''}</div>
+      ${_storeQs.success.change>0?`<div class="pos-success-change">باقی به مشتری: <b class="mono">${fmt(_storeQs.success.change)}</b> ریال</div>`:''}
+      <div class="pos-success-actions">
+        ${_storeQs.success.id?`<button type="button" class="pos-btn" data-csp-click="${CSP.bind('click',function(){ printInvoice(_storeQs.success.id,'THERMAL','thermal'); })}">🖨 چاپ مجدد</button>`:''}
+        <button type="button" class="pos-btn pos-btn-primary" data-csp-click="${CSP.bind('click',function(){ storeQsResetCart({force:true}); })}">فاکتور جدید <kbd class="pos-kbd">Enter</kbd></button>
+      </div>
+    </div>`:''}
     <div class="pos-shell">
       <div class="pos-main">
         <div class="pos-card">
@@ -9203,8 +9550,10 @@ function storeQsRenderBody(opts){
         <div class="pos-side-desktop-pay ${_storeQs.sheetOpen?'is-sheet-open':''}" id="posPayMount">${payPanel}</div>
       </aside>
     </div>
-    <div class="pos-mobile-bar" aria-label="نوار پرداخت موبایل">
+    <div class="pos-mobile-bar" aria-label="نوار جمع و پرداخت">
       <div class="pos-due">${fmt(dueShow)}</div>
+      <div class="pos-settle-mini ${settle.cls}" role="status">${esc(settle.text)}${settle.amt?' '+fmt(settle.amt):''}</div>
+      <button type="button" class="pos-btn pos-btn-pay-mob" data-csp-click="${CSP.bind('click',function(){ _storeQs.sheetOpen=true; storeQsRenderBody({keepFocus:true}); const p=el('posPayPanel'); if(p) p.scrollIntoView({block:'nearest'}); })}">پرداخت <kbd class="pos-kbd">F9</kbd></button>
       <button type="button" class="pos-btn pos-btn-primary pos-btn-checkout-mob" data-csp-click="${CSP.bind('click',function(){ if(!storeQsCheckoutGateReason()) storeQsCheckout(); else { _storeQs.sheetOpen=true; storeQsRenderBody({keepFocus:true}); } })}">ثبت فروش</button>
     </div>
     <div class="pos-sheet-backdrop ${_storeQs.sheetOpen?'is-open':''}" data-csp-click="${CSP.bind('click',function(){_storeQs.sheetOpen=false;storeQsRenderBody({keepFocus:true});})}"></div>
@@ -9218,7 +9567,10 @@ function storeQsRenderBody(opts){
         <li><span>ویرایش تعداد</span><kbd class="pos-kbd">F7</kbd></li>
         <li><span>تعلیق / معلق‌ها</span><kbd class="pos-kbd">F8</kbd> / Shift+F8</li>
         <li><span>پنل پرداخت</span><kbd class="pos-kbd">F9</kbd></li>
-        <li><span>ثبت فروش</span><kbd class="pos-kbd">F10</kbd></li>
+        <li><span>ثبت و چاپ</span><kbd class="pos-kbd">F10</kbd> / Ctrl+Enter</li>
+        <li><span>ردیف نقد / کارتخوان / چک / نسیه</span><kbd class="pos-kbd">Alt+1</kbd> … <kbd class="pos-kbd">Alt+4</kbd></li>
+        <li><span>تمام‌صفحه</span><kbd class="pos-kbd">Alt+F</kbd></li>
+        <li><span>بستن پیشنهادها / لغو ویرایش</span><kbd class="pos-kbd">Esc</kbd></li>
         <li><span>چاپ فیش</span><kbd class="pos-kbd">Ctrl+P</kbd></li>
       </ul>
     </dialog>
@@ -9228,7 +9580,7 @@ function storeQsRenderBody(opts){
         <li><button type="button" class="pos-btn pos-btn-block" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();storeQsHoldCart();})}">تعلیق فاکتور</button></li>
         <li><button type="button" class="pos-btn pos-btn-block" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();_storeQs.mode='exchange';storeQsLoadRefInvoices().then(()=>storeQsRenderBody()).catch(()=>{_storeQs.mode='sale';storeQsRenderBody();});})}">تعویض / برگشت</button></li>
         <li><button type="button" class="pos-btn pos-btn-block" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();storeQsPrintCartReceipt(_storeQs.lastInvMeta||null);})}">چاپ فیش</button></li>
-        <li><button type="button" class="pos-btn pos-btn-danger pos-btn-block" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();_storeQs.lines=[];storeQsRenderBody();})}">پاک کردن سبد</button></li>
+        <li><button type="button" class="pos-btn pos-btn-danger pos-btn-block" data-csp-click="${CSP.bind('click',function(){el('posCmdPalette').close();storeQsClearCartConfirmed();})}">پاک کردن سبد…</button></li>
       </ul>
     </dialog>`;
 
@@ -9245,12 +9597,147 @@ function storeQsRenderBody(opts){
     }, { once:true });
   }
   requestAnimationFrame(function(){ storeQsSyncTabIndicator(); });
+  if(_storeQs.flashKey){
+    setTimeout(function(){
+      _storeQs.flashKey='';
+      document.querySelectorAll('.pos-v2 .pos-row-flash').forEach(function(r){ r.classList.remove('pos-row-flash'); });
+    }, 150);
+  }
+  storeQsDraftSave();
   if(!opts.keepFocus){
     setTimeout(function(){ const i=el('storeQsScan'); if(i) i.focus(); }, 40);
   }
 }
 
+/* ---------- P5: new invoice / clear / draft / touch / fullscreen ---------- */
+/** After a committed sale/return/exchange: empty cart, fresh idempotency key, success panel (Enter = new invoice). */
+function storeQsAfterSuccess(info){
+  _storeQs.lines=[]; _storeQs.returnLines=[]; _storeQs.tenders=[]; _storeQs.activeTenderIdx=-1;
+  _storeQs.clientRequestId=null; _storeQs.netError=''; _storeQs.draftBanner=false;
+  _storeQs.uiCashTendered=null; _storeQs.uiMixedCash=null; _storeQs.uiMixedCard=null;
+  _storeQs.payType='cash'; _storeQs.selectedLineIdx=-1;
+  _storeQs.success=Object.assign({ at:Date.now() }, info||{});
+  storeQsDraftClear();
+}
+function storeQsCartDirty(){
+  return !!((_storeQs.lines||[]).length || (_storeQs.returnLines||[]).length || (_storeQs.tenders||[]).length);
+}
+function storeQsResetCart(opts){
+  opts=opts||{};
+  const walkinId=Number((_storeQs.boot&&_storeQs.boot.walkin_customer_id)||0);
+  _storeQs.lines=[]; _storeQs.returnLines=[]; _storeQs.availableRows=[];
+  _storeQs.availableDisc=null; _storeQs.refInvoiceId=null; _storeQs.refInvoice=null;
+  _storeQs.tenders=[]; _storeQs.activeTenderIdx=-1; _storeQs.discPct=0;
+  _storeQs.selectedLineIdx=-1; _storeQs.clientRequestId=null; _storeQs.netError='';
+  _storeQs.uiCashTendered=null; _storeQs.uiMixedCash=null; _storeQs.uiMixedCard=null;
+  _storeQs.payType='cash'; _storeQs.newConfirmUntil=0; _storeQs.draftBanner=false;
+  if(opts.force || !opts.keepSuccess) _storeQs.success=null;
+  if((_storeQs.mode||'sale')==='exchange' && !opts.keepMode) _storeQs.mode='sale';
+  _storeQs.custId=walkinId;
+  storeQsDraftClear();
+  storeQsRenderBody();
+}
+/** «فاکتور جدید» on an unfinished cart = two-step confirm (second click within 4s). */
+function storeQsNewInvoiceClick(){
+  if(!storeQsCartDirty() || Date.now()<_storeQs.newConfirmUntil){ storeQsResetCart({force:true}); return; }
+  _storeQs.newConfirmUntil=Date.now()+4000;
+  storeQsRenderBody({keepFocus:true});
+  setTimeout(function(){ if(_storeQs.newConfirmUntil && Date.now()>=_storeQs.newConfirmUntil){ _storeQs.newConfirmUntil=0; if(storeQsPageActive()) storeQsRenderBody({keepFocus:true}); } }, 4100);
+}
+function storeQsClearCartConfirmed(){
+  if(storeQsCartDirty() && !window.confirm('سبد فعلی پاک شود؟ این کار برگشت‌پذیر نیست.')) return;
+  storeQsResetCart({force:true});
+}
+function storeQsDraftKey(){ return storeQsUserKey('draft'); }
+function storeQsDraftClear(){ try{ localStorage.removeItem(storeQsDraftKey()); }catch(_){} }
+/** Autosave of the live cart (separate from held carts). Keeps client_request_id so a retry after refresh stays idempotent. */
+function storeQsDraftSave(){
+  if(!_storeQs.boot) return;
+  if(!storeQsCartDirty()){ storeQsDraftClear(); return; }
+  try{
+    localStorage.setItem(storeQsDraftKey(), JSON.stringify({
+      v:1, at:Date.now(), mode:_storeQs.mode||'sale', custId:_storeQs.custId, discPct:_storeQs.discPct,
+      lines:_storeQs.lines||[], returnLines:_storeQs.returnLines||[], availableRows:_storeQs.availableRows||[],
+      refInvoiceId:_storeQs.refInvoiceId, refInvoice:_storeQs.refInvoice, availableDisc:_storeQs.availableDisc,
+      tenders:_storeQs.tenders||[], clientRequestId:_storeQs.clientRequestId||null, netError:_storeQs.netError||'',
+    }));
+  }catch(_){}
+}
+function storeQsDraftRestore(){
+  let d=null;
+  try{ d=JSON.parse(localStorage.getItem(storeQsDraftKey())||'null'); }catch(_){ d=null; }
+  if(!d || !((d.lines||[]).length || (d.returnLines||[]).length)) return false;
+  _storeQs.mode=d.mode==='exchange'?'exchange':'sale';
+  _storeQs.custId=Number(d.custId)||_storeQs.custId;
+  _storeQs.discPct=Number(d.discPct)||0;
+  _storeQs.lines=Array.isArray(d.lines)?d.lines:[];
+  _storeQs.returnLines=Array.isArray(d.returnLines)?d.returnLines:[];
+  _storeQs.availableRows=Array.isArray(d.availableRows)?d.availableRows:[];
+  _storeQs.refInvoiceId=d.refInvoiceId||null;
+  _storeQs.refInvoice=d.refInvoice||null;
+  _storeQs.availableDisc=d.availableDisc||null;
+  _storeQs.tenders=Array.isArray(d.tenders)?d.tenders:[];
+  _storeQs.clientRequestId=d.clientRequestId||null;
+  _storeQs.netError=d.netError||'';
+  _storeQs.selectedLineIdx=_storeQs.lines.length?0:-1;
+  _storeQs.draftBanner=true;
+  return true;
+}
+function storeQsApplyTouchClass(){
+  const root=document.querySelector('.pos-v2');
+  if(root) root.classList.toggle('pos-touch', !!_storeQs.touch);
+}
+function storeQsToggleTouch(){
+  _storeQs.touch=!_storeQs.touch;
+  storeQsPersistPref(storeQsUserKey('touch'), _storeQs.touch?'1':'0');
+  storeQsApplyTouchClass();
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsFsKey(){ return 'pos_v2_fullscreen_'+String((typeof ME!=='undefined'&&ME&&ME.id)||0); }
+/** Fullscreen = body.pos-fullscreen (hides sidebar/topbar) + native Fullscreen API when available. Cart is never touched. */
+function storeQsSetFullscreen(on, opts){
+  opts=opts||{};
+  _storeQs.fullscreen=!!on;
+  document.body.classList.toggle('pos-fullscreen', !!on);
+  if(!opts.noPersist) storeQsPersistPref(storeQsFsKey(), on?'1':'0');
+  const de=document.documentElement;
+  if(on && !opts.classOnly && de && typeof de.requestFullscreen==='function' && !document.fullscreenElement){
+    try{
+      const p=de.requestFullscreen();
+      if(p && typeof p.then==='function') p.then(function(){ _storeQs._fsNative=true; }).catch(function(){ _storeQs._fsNative=false; });
+      else _storeQs._fsNative=true;
+    }catch(_){ _storeQs._fsNative=false; }
+  }
+  if(!on && document.fullscreenElement && typeof document.exitFullscreen==='function'){
+    try{ const p=document.exitFullscreen(); if(p&&p.catch) p.catch(function(){}); }catch(_){}
+  }
+  if(!on) _storeQs._fsNative=false;
+  if(storeQsPageActive()) storeQsRenderBody({keepFocus:true});
+}
+function storeQsToggleFullscreen(){ storeQsSetFullscreen(!_storeQs.fullscreen); }
+function storeQsOnFullscreenChange(){
+  // Browser Esc leaves native fullscreen: drop only the class/state — the cart stays as is.
+  if(!document.fullscreenElement && _storeQs._fsNative && _storeQs.fullscreen){
+    storeQsSetFullscreen(false);
+  }
+}
+function storeQsBindFullscreenSync(){
+  if(window.__posFsBound) return;
+  window.__posFsBound=true;
+  document.addEventListener('fullscreenchange', storeQsOnFullscreenChange);
+}
+/** Called by go() when navigating away: leave fullscreen chrome but keep the per-user preference. */
+function storeQsLeave(){
+  if(!document.body.classList.contains('pos-fullscreen') && !_storeQs.fullscreen) return;
+  const keep=_storeQs.fullscreen;
+  storeQsSetFullscreen(false, { noPersist:true });
+  _storeQs.fullscreen=false;
+  if(keep) storeQsPersistPref(storeQsFsKey(), '1');
+}
+
 function storeQsBuildPaySplits(finalAmt){
+  const tenderRows=Array.isArray(_storeQs.tenders)?_storeQs.tenders:[];
+  if(tenderRows.length) return storeQsBuildTenderSplits(finalAmt, tenderRows);
   const payType=_storeQs.payType||'cash';
   const cashBoxId=Number((el('storeQsCash')&&el('storeQsCash').value)||_storeQs.cashBoxId||(_storeQs.boot&&_storeQs.boot.cash_box_id)||0)||null;
   const terminalId=Number((el('storeQsTerm')&&el('storeQsTerm').value)||_storeQs.terminalId||0)||null;
@@ -9285,6 +9772,69 @@ function storeQsBuildPaySplits(finalAmt){
     ];
   } else if(payType==='credit'){
     pay_splits=[];
+  }
+  return { pay_splits, cashBoxId, terminalId, payType };
+}
+/**
+ * P5 tender rows → P6 settlement contract:
+ *   pay_splits:[{ method:'cash'|'card'|'cheque'|'credit', amount, cash_box_id|terminal_id, trace?, last4?, cheque:{…} }]
+ * Σ non-cash (card/cheque/credit) ≤ due; cash above the rest is change and is trimmed here (server trims too).
+ * Credit may be combined with other methods; a credit-only sale keeps header pay_type 'credit' with no splits.
+ */
+function storeQsBuildTenderSplits(finalAmt, rows){
+  const cashBoxId=Number((el('storeQsCash')&&el('storeQsCash').value)||_storeQs.cashBoxId||(_storeQs.boot&&_storeQs.boot.cash_box_id)||0)||null;
+  const terminalId=Number((el('storeQsTerm')&&el('storeQsTerm').value)||_storeQs.terminalId||0)||null;
+  const methods=new Set(rows.map(r=>r.method));
+  let payType='split';
+  if(methods.size===1 && methods.has('cash')) payType='cash';
+  else if(methods.size===1 && methods.has('card')) payType='pos_card';
+  else if(methods.size===1 && methods.has('credit')) payType='credit';
+  else if(methods.size===2 && methods.has('cash') && methods.has('card')) payType='mixed';
+  if(!(finalAmt>0)) return { pay_splits:[], cashBoxId, terminalId, payType };
+  const amt=r=>Math.max(0, Math.round(Number(r&&r.amount)||0));
+  const paying=rows.filter(r=>amt(r)>0);
+  if(paying.length && paying.every(r=>r.method==='credit')) return { pay_splits:[], cashBoxId, terminalId, payType:'credit' };
+  const amounts=paying.map(amt);
+  const paid=amounts.reduce((a,b)=>a+b,0);
+  if(paid<finalAmt){ showToast('مانده پرداخت: '+String(finalAmt-paid)+' ریال','error'); return null; }
+  const nonCash=paying.reduce((a,r,i)=>a+(r.method==='cash'?0:amounts[i]),0);
+  if(nonCash>finalAmt){ showToast('جمع کارت/چک/نسیه بیش از مبلغ قابل پرداخت است','error'); return null; }
+  let over=paid-finalAmt;
+  for(let i=paying.length-1;i>=0 && over>0;i--){
+    if(paying[i].method!=='cash') continue;
+    const take=Math.min(amounts[i], over);
+    amounts[i]-=take; over-=take;
+  }
+  const digits=v=>((typeof toEnDigits==='function')?toEnDigits(String(v||'')):String(v||'')).replace(/\D/g,'');
+  const txt=v=>String(v||'').trim();
+  const pay_splits=[];
+  for(let i=0;i<paying.length;i++){
+    const r=paying[i];
+    const a=amounts[i];
+    if(!(a>0)) continue;
+    if(r.method==='cash'){
+      if(!cashBoxId){ showToast('صندوق را انتخاب کنید','error'); return null; }
+      pay_splits.push({ method:'cash', amount:a, cash_box_id:cashBoxId });
+    } else if(r.method==='card'){
+      const tid=Number(r.terminal_id||terminalId||0)||null;
+      if(!tid){ showToast('کارتخوان را انتخاب کنید','error'); return null; }
+      const split={ method:'card', amount:a, terminal_id:tid };
+      const trace=txt(r.trace);
+      const last4=digits(r.last4).slice(-4);
+      if(trace) split.trace=trace;
+      if(last4) split.last4=last4;
+      pay_splits.push(split);
+    } else if(r.method==='cheque'){
+      const due=((typeof toEnDigits==='function')?toEnDigits(String(r.due||'')):String(r.due||'')).trim();
+      const cheque={ sayad_id:digits(r.sayadi), bank_name:txt(r.bank), due_date:due };
+      if(txt(r.number)) cheque.number=txt(r.number);
+      if(txt(r.owner)) cheque.owner=txt(r.owner);
+      if(txt(r.branch)) cheque.branch=txt(r.branch);
+      if(txt(r.account)) cheque.account=txt(r.account);
+      pay_splits.push({ method:'cheque', amount:a, cheque });
+    } else if(r.method==='credit'){
+      pay_splits.push({ method:'credit', amount:a });
+    }
   }
   return { pay_splits, cashBoxId, terminalId, payType };
 }
@@ -9354,7 +9904,21 @@ async function storeQsCheckout(){
       : ('sqs-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10));
   }
   const cartIdem=_storeQs.clientRequestId;
+  const changeAmt=returnOnly?0:Math.max(0, -storeQsTenderRemain());
+  const METHOD_PT={ cash:'cash', card:'pos_card', cheque:'cheque', credit:'credit' };
+  const headerPayType=function(t){
+    if(t.payType==='credit') return 'credit';
+    const sp=(t.pay_splits||[]);
+    const first=sp.find(s=>s && (s.method||s.pay_type)!=='credit')||sp[0];
+    if(!first) return 'cash';
+    return first.pay_type || METHOD_PT[first.method] || 'cash';
+  };
+  const showStockWarnings=function(out){
+    const w=(out&&Array.isArray(out.warnings))?out.warnings.filter(x=>x&&x.code==='W_STORE_INSUFFICIENT_STOCK'):[];
+    if(w.length) storeQsUiToast('هشدار موجودی: '+(w[0].message||'فروش بیش از موجودی ثبت شد'),'warn');
+  };
   _storeQs.busy=true;
+  _storeQs.netError='';
   storeQsRenderBody();
   try{
     if(mode==='exchange' && returnOnly){
@@ -9389,10 +9953,10 @@ async function storeQsCheckout(){
       _storeQs.refInvoice=null;
       _storeQs.discPct=0;
       _storeQs.custId=walkinId;
-      storeQsRenderBody();
+      storeQsAfterSuccess({ title:msg, id:null, num:null, change:0 });
     } else if(mode==='exchange'){
       const payTypeOut=collectAmt>0
-        ? (tender.payType||'cash')
+        ? headerPayType(tender)
         : 'credit';
       const body={
         cust_id:custId,
@@ -9427,6 +9991,8 @@ async function storeQsCheckout(){
       };
       const out=await api('POST','/store/quick-exchange', body);
       const inv=out&&out.invoice;
+      showStockWarnings(out);
+      showStockWarnings(inv);
       let msg='تعویض ثبت شد'+(inv&&inv.num?(': '+inv.num):'');
       if(out&&out.settlement_case==='refund'&&out.refund_rial) msg+=' — استرداد '+fmt(out.refund_rial);
       else if(out&&out.settlement_case==='collect'&&out.net_collect) msg+=' — دریافت '+fmt(out.net_collect);
@@ -9444,7 +10010,7 @@ async function storeQsCheckout(){
       _storeQs.refInvoice=null;
       _storeQs.discPct=0;
       _storeQs.custId=walkinId;
-      storeQsRenderBody();
+      storeQsAfterSuccess({ title:'تعویض ثبت شد', id:inv&&inv.id, num:inv&&inv.num, change:changeAmt });
       if(inv&&inv.id&&typeof printInvoice==='function'){
         setTimeout(function(){ printInvoice(inv.id); }, 200);
       }
@@ -9458,13 +10024,15 @@ async function storeQsCheckout(){
         disc:Number(_storeQs.discPct)||0,
         rows:storeQsSaleRows(),
         warehouse_id:whId,
-        pay_type:tender.payType==='credit'?'credit':(tender.pay_splits[0]&&tender.pay_splits[0].pay_type)||'cash',
+        pay_type:headerPayType(tender),
         cash_box_id:tender.cashBoxId,
         pay_splits:tender.payType==='credit'?undefined:tender.pay_splits,
         client_request_id:cartIdem,
+        idempotency_key:cartIdem,
       };
       const inv=await api('POST','/store/quick-sale', body);
       showToast('فروش ثبت شد: '+(inv.num||''));
+      showStockWarnings(inv);
       if(inv&&inv.id){
         _storeQs.lastInvId=inv.id;
         _storeQs.lastInvMeta={ id:inv.id, num:inv.num, final:inv.final, disc:Number(_storeQs.discPct)||0, pay_type:tender.payType };
@@ -9474,7 +10042,7 @@ async function storeQsCheckout(){
       _storeQs.discPct=0;
       _storeQs.clientRequestId=null;
       _storeQs.custId=walkinId;
-      storeQsRenderBody();
+      storeQsAfterSuccess({ title:'فروش ثبت شد', id:inv&&inv.id, num:inv&&inv.num, change:changeAmt });
       if(inv&&inv.id&&typeof printInvoice==='function'){
         setTimeout(function(){ printInvoice(inv.id); }, 200);
       } else if(inv&&inv.num){
@@ -9482,7 +10050,16 @@ async function storeQsCheckout(){
       }
     }
   }catch(e){
-    showToast((e&&(e.error||e.message))||'خطا در ثبت','error');
+    if(e && e.status){
+      // Server answered: the request was evaluated, so the next attempt is a new request.
+      _storeQs.clientRequestId=null;
+      _storeQs.netError='';
+      showToast(storeQsCheckoutErrorText(e),'error');
+    } else {
+      // Network/timeout: outcome unknown — keep cart + client_request_id so retry cannot double-post.
+      _storeQs.netError='خطای شبکه — ارتباط قطع شد؛ سبد حفظ شده است. «تلاش مجدد» همان فاکتور را بدون ثبت تکراری ارسال می‌کند.';
+      storeQsDraftSave();
+    }
   }finally{
     _storeQs.busy=false;
     storeQsRenderBody();
@@ -9542,6 +10119,18 @@ ROUTES['store-quick-sale'] = async function(){
     if(!_storeQs.terminalId && CACHE.posTerminalChoices.length){
       _storeQs.terminalId = CACHE.posTerminalChoices[0].id;
     }
+    try{
+      _storeQs.touch = localStorage.getItem(storeQsUserKey('touch'))==='1';
+      const bp = localStorage.getItem(storeQsUserKey('beep'));
+      _storeQs.beep = bp==null ? true : bp==='1';
+    }catch(_){}
+    _storeQs.success = null;
+    if(!storeQsCartDirty()) storeQsDraftRestore();
+    storeQsBindFullscreenSync();
+    storeQsApplyTouchClass();
+    let fsPref = false;
+    try{ fsPref = localStorage.getItem(storeQsFsKey())==='1'; }catch(_){}
+    if(fsPref) storeQsSetFullscreen(true, { classOnly:true, noPersist:true });
     storeQsRenderBody();
   }catch(e){
     el('storeQsBody').innerHTML = `<div class="pos-empty" role="alert">${esc((e&&e.message)||'خطا در بارگذاری صندوق')}</div>`;
@@ -11770,10 +12359,64 @@ async function genBarcode(id){
     }
   }catch(e){}
 }
+/** P5: label options — layout (40×25 / 50×30 roll / A4 3×8), variant, count, symbology. */
 async function openBarcodeLabels(id){
+  let variants=[];
+  try{ variants=await api('GET','/product-variants?product_id='+encodeURIComponent(String(id))+'&include_default=0', null, false, true); }catch(_){ variants=[]; }
+  if(!Array.isArray(variants)) variants=(variants&&variants.variants)||[];
+  const canGen=ME&&(ME.role==='admin'||ME.role==='accounting');
+  let dlg=document.getElementById('bcLabelDlg');
+  if(dlg) dlg.remove();
+  dlg=document.createElement('dialog');
+  dlg.id='bcLabelDlg';
+  dlg.className='bc-label-dlg';
+  const varOpts=variants.map(v=>{
+    const lbl=[v.color_name, v.size_name].filter(Boolean).join(' / ')||v.sku||('#'+v.id);
+    return `<option value="${esc(String(v.id))}" data-has-bc="${v.barcode?'1':'0'}">${esc(lbl)}${v.barcode?' — '+esc(v.barcode):' — بدون بارکد'}</option>`;
+  }).join('');
+  dlg.innerHTML=`<form method="dialog" class="bc-label-form">
+    <h3>چاپ برچسب بارکد</h3>
+    <label>قالب
+      <select id="bcLblLayout">
+        <option value="50x30">رول ۵۰×۳۰ میلی‌متر</option>
+        <option value="40x25">رول ۴۰×۲۵ میلی‌متر</option>
+        <option value="a4-3x8">A4 — ۳×۸ (۲۴ برچسب)</option>
+      </select></label>
+    ${variants.length?`<label>تنوع (رنگ/سایز)
+      <select id="bcLblVariant"><option value="">— خود کالا —</option>${varOpts}</select></label>`:''}
+    <label>تعداد <input id="bcLblCount" type="number" min="1" max="96" value="12"></label>
+    <label>نوع بارکد
+      <select id="bcLblSym">
+        <option value="auto">خودکار (EAN-13 اگر معتبر، وگرنه Code128)</option>
+        <option value="ean13">EAN-13</option>
+        <option value="code128">Code128</option>
+      </select></label>
+    <div class="bc-label-actions">
+      ${canGen&&variants.length?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',async function(){
+        const vid=Number((el('bcLblVariant')||{}).value||0);
+        if(!vid){ showToast('ابتدا تنوع را انتخاب کنید','error'); return; }
+        try{ const r=await api('POST','/product-variants/'+vid+'/generate-barcode'); if(r&&r.barcode) showToast('بارکد تنوع: '+r.barcode); }catch(_){}
+      })}">تولید بارکد تنوع</button>`:''}
+      <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){
+        const q=new URLSearchParams();
+        q.set('layout', (el('bcLblLayout')||{}).value||'50x30');
+        q.set('count', String(Math.max(1,Math.min(96,Number((el('bcLblCount')||{}).value)||12))));
+        q.set('symbology', (el('bcLblSym')||{}).value||'auto');
+        const vid=(el('bcLblVariant')||{}).value; if(vid) q.set('variant_id', vid);
+        dlg.close();
+        openBarcodeLabelsDoc(id, q.toString());
+      })}">چاپ</button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ dlg.close(); })}">انصراف</button>
+    </div>
+  </form>`;
+  document.body.appendChild(dlg);
+  dlg.addEventListener('close', function(){ dlg.remove(); }, { once:true });
+  if(typeof dlg.showModal==='function') dlg.showModal(); else openBarcodeLabelsDoc(id, 'count=12');
+}
+async function openBarcodeLabelsDoc(id, query){
   const token=localStorage.getItem('crm_token');
   try{
-    const r=await fetch('/api/products/'+encodeURIComponent(String(id))+'/labels?count=12',{
+    const r=await fetch('/api/products/'+encodeURIComponent(String(id))+'/labels?'+(query||'count=12'),{
       headers:{Authorization:'Bearer '+token},credentials:'same-origin'
     });
     if(!r.ok){ showToast('خطا در دریافت برچسب بارکد','error'); return; }
@@ -40794,6 +41437,14 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>تعویض/برگشت: F3 — اگر بارگذاری فاکتور مرجع شکست بخورد به حالت فروش برمی‌گردد</li>
         <li>تعلیق F8 / بازگردانی آخرین معلق Shift+F8؛ Esc مودال‌ها و لیست را می‌بندد</li>
         <li>ابطال همان مسیر R13 است؛ حذف فیزیکی نیست</li>
+        <li><b>P5 / v596 — پرداخت چندردیفی (روی قرارداد تسویهٔ P6):</b> دکمه‌های نقد / کارتخوان / چک / نسیه (Alt+1…Alt+4) یک ردیف پرداخت با مبلغ پیش‌فرض «مانده» می‌سازند؛ هر ردیف «کل مانده» و ✕ دارد. بدون ردیف = نقد کامل (F10 مثل قبل). جمع کارت/چک/نسیه نباید از مبلغ بیشتر شود (<code>E_PAY_SPLIT_OVER</code>)؛ اضافهٔ نقد «باقی به مشتری» است. کارت: ۴ رقم آخر و شمارهٔ پیگیری اختیاری. چک: صیادی ۱۶ رقمی، بانک و سررسید جلالی الزامی (شعبه/حساب/شماره/صادرکننده اختیاری؛ سررسید گذشته = هشدار). <b>نسیه با سایر روش‌ها قابل ترکیب است</b> ولی فقط با مشتری واقعی؛ عبور از سقف اعتبار با پیام «سقف اعتبار مشتری کافی نیست» (<code>E_CREDIT_LIMIT</code>) رد می‌شود</li>
+        <li><b>وضعیت تسویه</b> همیشه با متن + رنگ: «تسویه کامل» / «مانده» / «باقی به مشتری» / «نسیه»؛ ثبت تا تسویهٔ کامل غیرفعال است و دلیلش زیر دکمه می‌آید</li>
+        <li><b>حالت لمسی و تمام‌صفحه:</b> دکمهٔ «حالت لمسی» (دکمه‌ها و ردیف‌ها بزرگ، numpad، چیدمان ۶۰/۴۰ روی ≥۱۰۲۴px و نوار پایین روی تبلت) و «تمام‌صفحه» (Alt+F؛ منو و نوار بالا پنهان، دکمهٔ خروج همیشه دیده می‌شود). هر دو برای هر کاربر به خاطر سپرده می‌شوند</li>
+        <li><b>اسکنر:</b> ورودی سریع (فاصلهٔ کلید زیر ۵۰ms) بارکد تشخیص داده می‌شود و حتی بدون Enter ثبت می‌شود؛ بارکد تنوع (رنگ/سایز) مستقیم همان تنوع را می‌زند؛ بوق اسکن از منوی «بیشتر» قابل خاموش‌کردن است. جستجو ی/ک عربی و ارقام فارسی را یکسان می‌کند</li>
+        <li><b>قطع شبکه هنگام ثبت:</b> سبد و کلید یکتای درخواست حفظ می‌شود و «تلاش مجدد (همان فاکتور)» فاکتور تکراری نمی‌سازد؛ سبد ناتمام به‌صورت پیش‌نویس خودکار ذخیره و بعد از رفرش با «ادامه / دور ریختن» بازیابی می‌شود</li>
+        <li><b>فاکتور جدید:</b> با سبد پر، دو مرحله‌ای (کلیک دوم ظرف ۴ ثانیه)؛ «پاک کردن سبد» فقط از منوی «بیشتر» با تأیید. پس از ثبت موفق پنل «ثبت شد» با چاپ مجدد و Enter = فاکتور جدید</li>
+        <li><b>موجودی ناکافی:</b> همان تنظیم P6 <code>store_insufficient_stock_mode</code>؛ در حالت <code>warn</code> فروش ثبت و هشدار موجودی نمایش داده می‌شود، در حالت <code>block</code> دکمهٔ ثبت قفل است و پاسخ <code>E_STORE_INSUFFICIENT_STOCK</code> اقلام کسری را نام می‌برد</li>
+        <li><b>بارکد و برچسب (v596):</b> برای تنوع رنگ/سایز «تولید بارکد تنوع» (EAN-13 داخلی یکتا)؛ برچسب با قالب رول ۴۰×۲۵ / ۵۰×۳۰ یا A4 ۳×۸، نام، رنگ/سایز و قیمت مصرف‌کننده؛ نوع بارکد خودکار (EAN-13 معتبر، وگرنه Code128)</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>منوی <b>فروش بازاریاب</b> گردش کاتالوگ → سبد → فاکتور است. نمایش کارت کالا دقیقاً مثل قالب <b>کاتالوگ</b> است (نام، کد، گروه، قیمت، موجودی، رنگ، تعداد در پک).</p>
@@ -41512,6 +42163,8 @@ function renderSalesGuide(){
         <li>اگر شبکه قطع باشد پیام «خطای شبکه» می‌آید، نه «کالا یافت نشد»</li>
         <li>انبار و صندوق از پروفایل قفل است؛ میانبرها با دکمهٔ <b>?</b></li>
         <li>تعویض/برگشت اتمیک است؛ ابطال = R13</li>
+        <li><b>v596:</b> پرداخت با دکمه‌های نقد / کارتخوان / چک / نسیه (Alt+1…Alt+4)؛ مبلغ پیش‌فرض = مانده؛ «باقی به مشتری» فقط از نقد؛ نسیه با روش‌های دیگر قابل ترکیب است (فقط مشتری واقعی، تا سقف اعتبار). وضعیت تسویه با متن نشان داده می‌شود و ثبت تا تسویهٔ کامل قفل است</li>
+        <li><b>حالت لمسی</b> و <b>تمام‌صفحه</b> (Alt+F) از نوار بالا؛ پس از ثبت Enter = فاکتور جدید؛ در قطع شبکه «تلاش مجدد» فاکتور تکراری نمی‌سازد و سبد بعد از رفرش بازیابی می‌شود</li>
       </ul>`),
     helpSec('🛒','فروش بازاریاب',`
       <p>از منو «فروش بازاریاب» یا صفحهٔ <b>کاتالوگ</b>: دکمهٔ <b>افزودن پک</b> پک کامل را خودکار به سبد می‌برد. اگر پک کامل نباشد ولی موجودی تکی باشد، ماتریس رنگ×سایز برای انتخاب تکی باز می‌شود. کارت کالا «پک کامل / تکی موجود» را نشان می‌دهد. ویرایش از سبد. ترتیب از بیشترین موجودی است.</p>

@@ -246,41 +246,56 @@ router.get('/by-barcode/:code', auth, (req, res) => {
   const raw = String(req.params.code || '').trim();
   const code = normalizeDigits(raw).trim();
   if (!code) return res.status(400).json({ error: 'کد الزامی است' });
-  const where = ['(p.barcode=? OR p.code=?)'];
-  const params = [code, code];
-  addProductGroupVisibility(req.user, where, params);
-  addCatalogAclFilter(db, req.user, where, params);
-  let row = db.prepare(`
-    SELECT p.* FROM products p
-    LEFT JOIN product_categories pc ON pc.id=p.category_id
-    WHERE ${where.join(' AND ')}
-  `).get(...params);
-  let variantId = null;
+  // P5: a variant barcode/SKU wins over products.barcode (the scanned label names the exact colour/size).
+  let row = null;
+  let variant = null;
+  try {
+    const v = db.prepare(`
+      SELECT v.id AS variant_id, v.product_id, v.color_id, v.size_id,
+             c.name AS color_name, s.name AS size_name
+      FROM product_variants v
+      LEFT JOIN product_colors c ON c.id=v.color_id
+      LEFT JOIN product_sizes s ON s.id=v.size_id
+      WHERE (v.barcode=? OR v.sku=?) AND COALESCE(v.active,1)=1
+      ORDER BY CASE WHEN v.barcode=? THEN 0 ELSE 1 END, v.id
+      LIMIT 1
+    `).get(code, code, code);
+    if (v && v.product_id) {
+      const where2 = ['p.id=?'];
+      const params2 = [v.product_id];
+      addProductGroupVisibility(req.user, where2, params2);
+      addCatalogAclFilter(db, req.user, where2, params2);
+      row = db.prepare(`
+        SELECT p.* FROM products p
+        LEFT JOIN product_categories pc ON pc.id=p.category_id
+        WHERE ${where2.join(' AND ')}
+      `).get(...params2);
+      if (row) variant = v;
+    }
+  } catch (_) { /* variants table optional */ }
   if (!row) {
-    try {
-      const v = db.prepare(`
-        SELECT v.id AS variant_id, v.product_id, v.barcode AS variant_barcode, v.sku
-        FROM product_variants v
-        WHERE v.barcode=? OR v.sku=?
-        LIMIT 1
-      `).get(code, code);
-      if (v && v.product_id) {
-        variantId = Number(v.variant_id) || null;
-        const where2 = ['p.id=?'];
-        const params2 = [v.product_id];
-        addProductGroupVisibility(req.user, where2, params2);
-        addCatalogAclFilter(db, req.user, where2, params2);
-        row = db.prepare(`
-          SELECT p.* FROM products p
-          LEFT JOIN product_categories pc ON pc.id=p.category_id
-          WHERE ${where2.join(' AND ')}
-        `).get(...params2);
-      }
-    } catch (_) { /* variants table optional */ }
+    const where = ['(p.barcode=? OR p.code=?)'];
+    const params = [code, code];
+    addProductGroupVisibility(req.user, where, params);
+    addCatalogAclFilter(db, req.user, where, params);
+    row = db.prepare(`
+      SELECT p.* FROM products p
+      LEFT JOIN product_categories pc ON pc.id=p.category_id
+      WHERE ${where.join(' AND ')}
+    `).get(...params);
   }
   if (!row) return res.status(404).json({ error: 'محصولی با این بارکد یافت نشد' });
   row.images = listProductImages(db, row.id);
-  if (variantId) row.variant_id = variantId;
+  if (variant) {
+    row.variant_id = Number(variant.variant_id) || null;
+    row.color_id = variant.color_id || null;
+    row.size_id = variant.size_id || null;
+    row.color_name = variant.color_name || '';
+    row.size_name = variant.size_name || '';
+    row.matched_by = 'variant';
+  } else {
+    row.matched_by = 'product';
+  }
   res.json(applyCatalogCostPolicy(db, req.user, row));
 });
 
@@ -422,45 +437,9 @@ router.get('/:id/kardex', auth, (req, res) => {
 
 // ── Barcode support (ported from CRM v4) ────────────────────────────────────
 
-// EAN-13 style internal barcode: prefix 200 (in-store use) + 000 + product id + check digit
-function generateBarcode(productId) {
-  const base = '200' + '000' + String(productId % 1000000).padStart(6, '0');
-  let sum = 0;
-  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (i % 2 === 0 ? 1 : 3);
-  const check = (10 - (sum % 10)) % 10;
-  return base + check;
-}
-
-function escapeHtml(value) {
-  return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function ean13Svg(value) {
-  const code = String(value || '');
-  if (!/^\d{13}$/.test(code)) return `<div class="barcode-text">${escapeHtml(code)}</div>`;
-  const sets = {
-    L: ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'],
-    G: ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'],
-    R: ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'],
-  };
-  const parity = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
-  let bits = '101';
-  const p = parity[Number(code[0])];
-  for (let i = 1; i <= 6; i += 1) bits += sets[p[i - 1]][Number(code[i])];
-  bits += '01010';
-  for (let i = 7; i <= 12; i += 1) bits += sets.R[Number(code[i])];
-  bits += '101';
-  let bars = '';
-  for (let i = 0; i < bits.length; i += 1) {
-    if (bits[i] === '1') bars += `<rect x="${i}" y="0" width="1" height="42"></rect>`;
-  }
-  return `<svg class="bc" viewBox="0 0 95 55" role="img" aria-label="${escapeHtml(code)}" xmlns="http://www.w3.org/2000/svg"><g>${bars}</g><text x="47.5" y="53" text-anchor="middle">${escapeHtml(code)}</text></svg>`;
-}
+// P5: EAN-13 / Code128 helpers live in lib/barcode-gen.js (pure, unit-tested).
+const BarcodeGen = require('../lib/barcode-gen');
+const { escapeHtml } = BarcodeGen;
 
 // Generate a barcode for a product that lacks one (admin only).
 // Deterministic per product id → device replay converges with central.
@@ -469,43 +448,81 @@ router.post('/:id/generate-barcode', auth, adminOnly, (req, res) => {
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   if (!prod) return res.status(404).json({ error: 'یافت نشد' });
   if (prod.barcode) return res.json({ ok: true, barcode: prod.barcode, existed: true });
-  const barcode = generateBarcode(prod.id);
-  db.prepare('UPDATE products SET barcode=? WHERE id=?').run(barcode, prod.id);
-  audit(req.user.id, 'generate_barcode', 'product', prod.id, `تولید بارکد ${barcode} برای ${prod.name}`, req);
-  res.json({ ok: true, barcode });
+  let out;
+  try {
+    out = BarcodeGen.assignProductBarcode(db, prod.id);
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  audit(req.user.id, 'generate_barcode', 'product', prod.id, `تولید بارکد ${out.barcode} برای ${prod.name}`, req);
+  res.json({ ok: true, barcode: out.barcode });
 });
+
+const LABEL_LAYOUTS = new Set(['40x25', '50x30', 'a4-3x8']);
+const LABEL_SYMBOLOGIES = new Set(['auto', 'ean13', 'code128']);
 
 // Printable barcode labels are fetched with the normal Authorization header.
 // Never place a bearer token in the URL: query strings leak via logs/history/referrers.
-router.get('/:id/labels', auth, adminOrAccounting, (req, res) => {
+// P5: ?variant_id= &layout=40x25|50x30|a4-3x8 &symbology=auto|ean13|code128 — consumer (retail) price.
+router.get('/:id/labels', auth, requirePermission('products', 'view'), (req, res) => {
   const db = getDB();
-  const requestedCount = Number.parseInt(String(req.query.count || '12'), 10);
-  const count = Math.min(50, Math.max(1, Number.isFinite(requestedCount) ? requestedCount : 12));
-  const prod = db.prepare(`SELECT p.* FROM products p WHERE p.id=?`).get(req.params.id);
+  const layout = LABEL_LAYOUTS.has(String(req.query.layout || '')) ? String(req.query.layout) : '50x30';
+  const symbology = LABEL_SYMBOLOGIES.has(String(req.query.symbology || '').toLowerCase())
+    ? String(req.query.symbology).toLowerCase() : 'auto';
+  const defCount = layout === 'a4-3x8' ? 24 : 12;
+  const requestedCount = Number.parseInt(String(req.query.count || defCount), 10);
+  const count = Math.min(96, Math.max(1, Number.isFinite(requestedCount) ? requestedCount : defCount));
+  const where = ['p.id=?'];
+  const params = [req.params.id];
+  addProductGroupVisibility(req.user, where, params);
+  addCatalogAclFilter(db, req.user, where, params);
+  const prod = db.prepare(`
+    SELECT p.* FROM products p
+    LEFT JOIN product_categories pc ON pc.id=p.category_id
+    WHERE ${where.join(' AND ')}
+  `).get(...params);
   if (!prod) return res.status(404).send('محصول یافت نشد');
-  if (!prod.barcode) return res.status(400).send('این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
+  let variant = null;
+  const variantId = parseInt(req.query.variant_id, 10);
+  if (variantId > 0) {
+    try {
+      variant = db.prepare(`
+        SELECT v.id, v.product_id, v.barcode, v.sku, v.price_rial, v.price,
+               c.name AS color_name, s.name AS size_name
+        FROM product_variants v
+        LEFT JOIN product_colors c ON c.id=v.color_id
+        LEFT JOIN product_sizes s ON s.id=v.size_id
+        WHERE v.id=? AND v.product_id=?
+      `).get(variantId, prod.id);
+    } catch (_) { variant = null; }
+    if (!variant) return res.status(404).send('تنوع کالا یافت نشد');
+  }
+  const code = variant ? (variant.barcode || '') : (prod.barcode || '');
+  if (!code) {
+    return res.status(400).send(variant
+      ? 'این تنوع بارکد ندارد — ابتدا بارکد تنوع را تولید کنید'
+      : 'این محصول بارکد ندارد — ابتدا بارکد تولید کنید');
+  }
+  const { retailUnitPriceRial } = require('../lib/store-quick-sale');
+  const variantPrice = variant ? Math.round(Number(variant.price_rial || variant.price) || 0) : 0;
+  const consumerPrice = variantPrice > 0 ? variantPrice : retailUnitPriceRial(prod);
   const escName = escapeHtml(prod.name);
-  const barcode = ean13Svg(prod.barcode);
+  const attrs = variant ? [variant.color_name, variant.size_name].filter(Boolean).join(' / ') : '';
+  const barcode = BarcodeGen.barcodeSvg(code, symbology);
   const labels = Array.from({ length: count }, () => `
     <div class="label">
       <div class="name">${escName}</div>
+      ${attrs ? `<div class="attrs">${escapeHtml(attrs)}</div>` : ''}
       ${barcode}
-      <div class="meta">${escapeHtml(prod.code)} — ${Number(prod.price || 0).toLocaleString('fa-IR')} ریال</div>
+      <div class="meta">${escapeHtml(prod.code || '')}</div>
+      <div class="price">${Number(consumerPrice || 0).toLocaleString('fa-IR')} ریال</div>
     </div>`).join('');
   const html = `<!DOCTYPE html><html lang="fa" dir="rtl"><head><meta charset="UTF-8">
 <title>برچسب ${escName}</title>
 <link href="/vendor/vazirmatn/vazirmatn.css" rel="stylesheet">
-<style>
-*{box-sizing:border-box;margin:0;padding:0;font-family:'Vazirmatn',sans-serif}
-body{padding:16px;display:flex;flex-wrap:wrap;gap:8px}
-.label{width:58mm;height:40mm;border:1px dashed #bbb;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px;page-break-inside:avoid}
-.name{font-size:11px;font-weight:700;text-align:center}
-.meta{font-size:10px;color:#444}
-.bc{width:48mm;height:22mm;fill:#111}.bc text{font:8px monospace;letter-spacing:1px}.barcode-text{direction:ltr;font:12px monospace}
-.pbtn{position:fixed;bottom:14px;left:14px;background:#1A5C38;color:#fff;border:none;padding:10px 26px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer}
-@media print{.pbtn{display:none}.label{border-color:transparent}}
-</style></head><body>
-${labels}
+<link href="/labels-print.css?v=596" rel="stylesheet">
+</head><body class="labels layout-${layout}">
+<div class="sheet">${labels}</div>
 <button class="pbtn" type="button" data-print>چاپ 🖨️</button>
 <script src="/print-page.js"></script></body></html>`;
   return sendSecureHtml(res, html, { allowPrintScript: true });
