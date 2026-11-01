@@ -371,6 +371,46 @@ async function main() {
       ok(k.status === 200 && ws(P3, WH35) === 2, 'kardex_only fallback allowed, ws stays 2');
     }
 
+    console.log('— matrix product (row without variant) ⇒ variant_breakdown required —');
+    {
+      const P4 = insert('products', { user_id: ADMIN_ID, name: 'کالای رنگ‌سایز', code: 'P334-MX', price: 1, average_cost_rial: 0, stock: 2, unit: 'عدد' });
+      const V1 = insert('product_variants', { product_id: P4, sku: 'P334-MX-1', color: 'قرمز', size: '1', active: 1, is_default: 0, stock: 1 });
+      const V2 = insert('product_variants', { product_id: P4, sku: 'P334-MX-2', color: 'آبی', size: '1', active: 1, is_default: 0, stock: 1 });
+      const PX = insert('products', { user_id: ADMIN_ID, name: 'کالای دیگر', code: 'P334-OTH', price: 1, average_cost_rial: 0, stock: 0, unit: 'عدد' });
+      const VX = insert('product_variants', { product_id: PX, sku: 'P334-OTHER', color: 'سبز', size: '1', active: 1, is_default: 0, stock: 0 });
+      db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,2)').run(P4, WH35);
+      db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,1)').run(V1, WH35);
+      db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,1)').run(V2, WH35);
+      const led = L.postInventoryMovement(db, {
+        eventType: 'opening', productId: P4, warehouseId: WH35, qtyIn: 2, amountRial: 200000,
+        sourceType: 'opening_inventory', date: D, skipStock: true,
+      });
+      const vq = (v) => Number((q1('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', v, WH35) || {}).qty || 0);
+      const url = `/api/inventory/ledger/${led.id}/reverse-correction`;
+      const prev = await call('GET', `/api/inventory/ledger/${led.id}/reverse-correction-preview`);
+      ok(prev.status === 200 && prev.body.variant_breakdown_required === true
+        && (prev.body.variant_layer_in_warehouse || []).length === 2, 'preview: variant_breakdown_required + variant layer listed', prev.body);
+      const base = { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'with_stock' };
+      const c0 = changes();
+      const r0 = await call('POST', url, base);
+      ok(r0.status === 409 && r0.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_REQUIRED' && changes() === c0, 'no breakdown ⇒ 409 REQUIRED, zero writes', r0.body);
+      const r1 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }] });
+      ok(r1.status === 409 && r1.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_SUM' && changes() === c0, 'sum ≠ qty ⇒ 409 SUM, zero writes', r1.body);
+      const r2 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: VX, qty: 1 }] });
+      ok(r2.status === 409 && r2.body.code === 'E_LEDGER_REVERSE_VARIANT_FOREIGN' && changes() === c0, 'foreign variant ⇒ 409, zero writes', r2.body);
+      const r3 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 2 }] });
+      ok(r3.status === 409 && r3.body.code === 'E_REVERSE_STOCK_NEGATIVE' && changes() === c0, 'variant layer negative ⇒ 409, zero writes', r3.body);
+      const r4 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: V1, qty: 1 }] });
+      ok(r4.status === 400 && r4.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN' && changes() === c0, 'duplicate variant ⇒ 400', r4.body);
+      const r5 = await call('POST', url, { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'kardex_only', variant_breakdown: [{ variant_id: V1, qty: 2 }] });
+      ok(r5.status === 400 && r5.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN' && changes() === c0, 'breakdown with kardex_only ⇒ 400', r5.body);
+      const r6 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: V2, qty: 1 }] });
+      ok(r6.status === 200 && ws(P4, WH35) === 0 && vq(V1) === 0 && vq(V2) === 0 && (r6.body.variant_breakdown || []).length === 2,
+        'breakdown 1+1 ⇒ 200, warehouse_stock 0 and variant layer 0/0', { body: r6.body, v1: vq(V1), v2: vq(V2) });
+      const aud = q1("SELECT detail FROM audit_log WHERE action='ledger_reverse_correction' AND entity_id=? ORDER BY id DESC LIMIT 1", led.id);
+      ok(aud && JSON.parse(aud.detail).variant_breakdown.length === 2, 'audit carries variant_breakdown');
+    }
+
     console.log('— sync capture —');
     {
       const { tableForPath } = require('../sync/capture');

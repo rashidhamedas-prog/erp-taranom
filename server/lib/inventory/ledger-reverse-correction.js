@@ -62,7 +62,64 @@ function validateBody(body) {
     date = String(b.date).trim();
     if (!JALALI_RE.test(date)) throw rcErr('تاریخ باید به شکل ۱۴۰۵/۰۸/۱۱ باشد', 400, 'E_LEDGER_REVERSE_DATE');
   }
-  return { reason, stockEffect, date };
+  let variantBreakdown = null;
+  if (b.variant_breakdown != null) {
+    const arr = Array.isArray(b.variant_breakdown) ? b.variant_breakdown : null;
+    const seen = new Set();
+    const bad = !arr || !arr.length || arr.some((x) => {
+      const vid = Number(x && x.variant_id);
+      const q = Number(x && x.qty);
+      if (!Number.isInteger(vid) || vid <= 0 || !(q > 0) || seen.has(vid)) return true;
+      seen.add(vid);
+      return false;
+    });
+    if (bad) {
+      throw rcErr('variant_breakdown باید آرایه‌ای از {variant_id, qty>0} بدون واریانت تکراری باشد', 400, 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN');
+    }
+    variantBreakdown = arr.map((x) => ({ variant_id: Number(x.variant_id), qty: round3(x.qty) }));
+  }
+  return { reason, stockEffect, date, variantBreakdown };
+}
+
+/**
+ * Matrix product + row without variant_id + with_stock → the variant×warehouse layer must move too,
+ * so an explicit breakdown summing to |qty_delta| is required (else the layer drifts from warehouse_stock).
+ */
+function resolveVariantBreakdown(db, plan, breakdown) {
+  if (plan.variant_id) {
+    if (breakdown) throw rcErr('ردیف خودش واریانت دارد؛ variant_breakdown نفرستید', 400, 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN');
+    return null;
+  }
+  let matrix = false;
+  try { matrix = require('./movement').hasActiveMatrixVariants(db, plan.product_id); } catch (_) { matrix = false; }
+  if (!matrix) {
+    if (breakdown) throw rcErr('کالا رنگ×سایز نیست؛ variant_breakdown لازم نیست', 400, 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN');
+    return null;
+  }
+  if (!breakdown) {
+    throw rcErr('کالای رنگ×سایز: برای ابطال با اثر موجودی، توزیع واریانت (variant_breakdown) الزامی است', 409,
+      'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_REQUIRED', { product_id: plan.product_id, qty: Math.abs(plan.qty_delta) });
+  }
+  const sum = round3(breakdown.reduce((a, x) => a + x.qty, 0));
+  if (Math.abs(sum - Math.abs(plan.qty_delta)) > 1e-9) {
+    throw rcErr(`جمع توزیع واریانت (${sum}) باید برابر تعداد ردیف (${Math.abs(plan.qty_delta)}) باشد`, 409,
+      'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_SUM', { sum, qty: Math.abs(plan.qty_delta) });
+  }
+  const sign = plan.qty_delta < 0 ? -1 : 1;
+  return breakdown.map((x) => {
+    const v = db.prepare('SELECT id, product_id FROM product_variants WHERE id=?').get(x.variant_id);
+    if (!v || Number(v.product_id) !== Number(plan.product_id)) {
+      throw rcErr(`واریانت ${x.variant_id} متعلق به این کالا نیست`, 409, 'E_LEDGER_REVERSE_VARIANT_FOREIGN', { variant_id: x.variant_id });
+    }
+    const before = vwsQty(db, x.variant_id, plan.warehouse_id) || 0;
+    const after = round3(before + sign * x.qty);
+    if (after < -1e-9) {
+      throw rcErr(`موجودی رنگ‌سایز واریانت ${x.variant_id} منفی می‌شود (${after})`, 409, 'E_REVERSE_STOCK_NEGATIVE', {
+        variant_id: x.variant_id, available: before, needed: x.qty,
+      });
+    }
+    return { variant_id: x.variant_id, qty_delta: round3(sign * x.qty), before, after };
+  });
 }
 
 function isReversalRow(row) {
@@ -197,7 +254,17 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   if (!withStockOk && warehouseId != null) {
     warnings.push(`با اثر موجودی، موجودی انبار منفی می‌شود (${wsAfterWith}${vwsAfterWith != null ? ` / رنگ‌سایز ${vwsAfterWith}` : ''}) و ثبت رد خواهد شد`);
   }
-  if (matrix && !variantId) warnings.push('کالای رنگ×سایز: ردیف واریانت ندارد؛ با اثر موجودی فقط موجودی کل انبار و کالا تغییر می‌کند');
+  if (matrix && !variantId) warnings.push('کالای رنگ×سایز: ردیف واریانت ندارد؛ با اثر موجودی، توزیع واریانت (variant_breakdown) الزامی است');
+  let variantLayer = null;
+  if (matrix && !variantId && warehouseId != null) {
+    try {
+      variantLayer = db.prepare(`
+        SELECT v.id AS variant_id, COALESCE(s.qty,0) AS qty FROM product_variants v
+        LEFT JOIN variant_warehouse_stock s ON s.variant_id=v.id AND s.warehouse_id=?
+        WHERE v.product_id=? AND v.active=1 AND COALESCE(v.is_default,0)=0 ORDER BY v.id
+      `).all(warehouseId, productId).map((r) => ({ variant_id: r.variant_id, qty: round3(r.qty) }));
+    } catch (_) { variantLayer = null; }
+  }
   const draft = draftPlanFor(db, row);
   if (draft && draft.needed) warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})؛ سند ثبت نمی‌شود و فقط پیش‌نویس سند برگشت ساخته می‌شود`);
   const out = {
@@ -236,6 +303,9 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
       after_with_stock: blocker ? vws : vwsAfterWith,
       after_kardex_only: vws,
     } : null,
+    matrix,
+    variant_breakdown_required: !!(matrix && !variantId),
+    variant_layer_in_warehouse: variantLayer,
     with_stock_allowed: !blocker && withStockOk,
     kardex_only_allowed: !blocker,
     voucher_draft: draft ? {
@@ -251,7 +321,7 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   return { plan: out, row, draft };
 }
 
-function applyStockEffect(db, { row, plan, user, reversalId, note }) {
+function applyStockEffect(db, { row, plan, user, reversalId, note, variantPlan }) {
   const productId = plan.product_id;
   const warehouseId = plan.warehouse_id;
   const delta = plan.qty_delta;
@@ -276,6 +346,12 @@ function applyStockEffect(db, { row, plan, user, reversalId, note }) {
       docType: DOC_TYPE, docId: reversalId, docLine: 0, userId: user && user.id, note, allowNegative: false,
     });
   }
+  (variantPlan || []).forEach((v, i) => {
+    require('./movement').postVariantLayer(db, {
+      productId, variantId: v.variant_id, warehouseId, qtyDelta: v.qty_delta,
+      docType: DOC_TYPE, docId: reversalId, docLine: i + 1, userId: user && user.id, note, allowNegative: false,
+    });
+  });
   return { before: wsBefore, after: wsAfter };
 }
 
@@ -284,11 +360,17 @@ function applyStockEffect(db, { row, plan, user, reversalId, note }) {
  * @returns response payload
  */
 function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
-  const { reason, stockEffect, date } = validateBody(body);
+  const { reason, stockEffect, date, variantBreakdown } = validateBody(body);
   let out;
   db.transaction(() => {
     const { plan, row, draft } = planCorrection(db, ledgerId, { stockEffect });
     if (plan.blocker) throw rcErr(plan.blocker.error, plan.blocker.status, plan.blocker.code, { ledger_id: plan.ledger_id });
+    let variantPlan = null;
+    if (stockEffect === 'with_stock' && plan.warehouse_id != null) {
+      variantPlan = resolveVariantBreakdown(db, plan, variantBreakdown);
+    } else if (variantBreakdown) {
+      throw rcErr('variant_breakdown فقط با with_stock معنا دارد', 400, 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN');
+    }
     if (stockEffect === 'with_stock' && !plan.with_stock_allowed) {
       if (plan.warehouse_id == null) {
         throw rcErr('ردیف انبار ندارد؛ فقط «فقط کاردکس» ممکن است', 409, 'E_REVERSE_NO_WAREHOUSE');
@@ -307,7 +389,7 @@ function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
     });
     let ws = { before: plan.warehouse_stock.before, after: plan.warehouse_stock.before };
     if (stockEffect === 'with_stock') {
-      ws = applyStockEffect(db, { row, plan, user, reversalId: Number(rev.id), note });
+      ws = applyStockEffect(db, { row, plan, user, reversalId: Number(rev.id), note, variantPlan });
     }
     let draftId = null;
     if (draft && draft.needed) {
@@ -330,6 +412,7 @@ function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
       value_delta_rial: plan.value_delta_rial,
       kardex: { before: plan.kardex.before, after: kAfter },
       warehouse_stock: ws,
+      variant_breakdown: variantPlan,
       je_id: plan.je_id,
       je_posted: false,
       voucher_draft_id: draftId,
@@ -348,6 +431,7 @@ function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
         reversal_id: out.reversal_id,
         warehouse_stock_before: ws.before,
         warehouse_stock_after: ws.after,
+        variant_breakdown: variantPlan,
         kardex_before: plan.kardex.before,
         kardex_after: kAfter,
         je_id: plan.je_id,

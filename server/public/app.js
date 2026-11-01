@@ -24827,6 +24827,10 @@ async function openLedgerReverseCorrection(id, opts){
           <option value="with_stock" ${p.with_stock_allowed?'':'disabled'}>با اثر موجودی (موجودی انبار هم به همان اندازه برمی‌گردد)</option>
           <option value="kardex_only">فقط کاردکس (موجودی انبار دست نمی‌خورد)</option>
         </select></div>
+      ${p.variant_breakdown_required?`<div class="fg"><label>توزیع واریانت (فقط برای «با اثر موجودی»؛ جمع = ${q(Math.abs(p.qty_delta))})</label>
+        <table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>واریانت</th><th>موجودی رنگ‌سایز این انبار</th><th>تعداد</th></tr></thead><tbody>
+        ${(p.variant_layer_in_warehouse||[]).map(v=>`<tr><td class="mono">#${esc(String(v.variant_id))}</td><td class="mono">${q(v.qty)}</td><td><input class="lrcVar" type="number" min="0" step="1" value="0" data-variant-id="${esc(String(v.variant_id))}"></td></tr>`).join('')}
+        </tbody></table></div>`:''}
       <div class="fg"><label for="lrcReason">علت ابطال (حداقل ۵ نویسه)</label><input id="lrcReason" type="text" maxlength="300"></div>`}
     </div>
     <div class="modal-foot">
@@ -24842,7 +24846,12 @@ async function openLedgerReverseCorrection(id, opts){
     const effFa=effect==='with_stock'?'با اثر موجودی':'فقط کاردکس';
     if(!confirm(`ابطال اصلاحی ردیف ${p.tx_no||('#'+p.ledger_id)} (${effFa}) قطعی ثبت شود؟`)) return;
     try{
-      const r=await api('POST','/inventory/ledger/'+encodeURIComponent(id)+'/reverse-correction',{ confirm:true, reason, stock_effect:effect });
+      const body={ confirm:true, reason, stock_effect:effect };
+      if(effect==='with_stock' && p.variant_breakdown_required){
+        body.variant_breakdown=Array.from(document.querySelectorAll('.lrcVar'))
+          .map(i=>({ variant_id:Number(i.dataset.variantId), qty:Number(i.value)||0 })).filter(x=>x.qty>0);
+      }
+      const r=await api('POST','/inventory/ledger/'+encodeURIComponent(id)+'/reverse-correction',body);
       showToast(r&&r.voucher_draft_id?`ابطال ثبت شد — پیش‌نویس سند برگشت #${r.voucher_draft_id} ساخته شد`:'ابطال اصلاحی ثبت شد');
       closeStockAdjust();
       if(typeof opts.onDone==='function'){ try{ opts.onDone(r); }catch(_){} }
@@ -41469,6 +41478,7 @@ function renderAdminGuide(){
         <li>ردیف‌های دارای سند (فاکتور، خرید، تولید، سند انبار، انتقال) فقط از ابطال سند مبدأ برمی‌گردند؛ تعدیل دستی از دکمهٔ ⛔ همان تعدیل.</li>
         <li><b>گزارش اختلاف:</b> <span dir="ltr">GET /api/inventory/stock-kardex-mismatch?product_id=&amp;warehouse_id=</span> (مدیر/حسابداری) کالا×انبارهایی را نشان می‌دهد که موجودی انبار با ماندهٔ کاردکس برابر نیست (هر دو عدد، اختلاف و ارزش کاردکس). فقط‌خواندنی؛ هیچ اصلاح خودکاری ندارد.</li>
         <li>API: <span dir="ltr">POST /api/inventory/ledger/:id/reverse-correction</span> با بدنهٔ <span dir="ltr">{"confirm": true, "reason": "…", "stock_effect": "with_stock" | "kardex_only"}</span>؛ پیش‌نمایش <span dir="ltr">GET …/reverse-correction-preview</span>.</li>
+        <li>کالای رنگ×سایز: اگر ردیف کاردکس واریانت ندارد، «با اثر موجودی» فقط با توزیع واریانت پذیرفته می‌شود (<span dir="ltr">variant_breakdown: [{variant_id, qty}]</span>، جمع = تعداد ردیف، بدون منفی‌شدن لایهٔ رنگ‌سایز)؛ وگرنه ۴۰۹.</li>
       </ul>`),
     helpSec('📦','FR-P3: پیش‌نویس‌های P3 دوباره روی ۱۱۰۴ + افتتاحیهٔ ردیف‌های ۲۰۲۱ تا ۲۰۲۳ (vNEXT)',`
       <p>کل ماندهٔ دفتر کل موجودی روی خود <b>۱۱۰۴</b> است و ۱۱۰۴۰۱ (با زیرحساب‌های تفصیلی کالا) گردشی ندارد؛ بنابراین طبق تصمیم مدیر، سطرهای موجودی همهٔ پیش‌نویس‌های P3 روی <b>۱۱۰۴</b> می‌نشینند. هیچ سندی خودکار ثبت نمی‌شود.</p>
