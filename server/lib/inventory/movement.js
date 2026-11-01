@@ -266,7 +266,8 @@ function postStockMovement(db, opts) {
     if (Number(v.product_id) !== productId) {
       throw movErr('E_VARIANT_MISMATCH', 400, 'واریانت متعلق به این کالا نیست');
     }
-    if (!Number(v.active)) {
+    // P1: a void/reversal must still land on a variant that was retired meanwhile.
+    if (!Number(v.active) && !/_void$/.test(docType)) {
       throw movErr('E_VARIANT_INACTIVE', 400, 'واریانت غیرفعال است و در پک/حرکت موجودی مجاز نیست');
     }
     const nextVar = round3((Number(v.stock) || 0) + qtyDelta);
@@ -279,9 +280,7 @@ function postStockMovement(db, opts) {
     try {
       require('../product-variants').adjustVariantStock(db, variantId, qtyDelta, 'delta');
     } catch (_) {
-      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(
-        allowNegative ? nextVar : Math.max(0, nextVar), variantId
-      );
+      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(nextVar, variantId);
     }
 
     if (warehouseId) {
@@ -314,7 +313,7 @@ function postStockMovement(db, opts) {
       } else {
         db.prepare(
           'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
-        ).run(allowNegative ? whAfter : Math.max(0, whAfter), variantId, warehouseId);
+        ).run(whAfter, variantId, warehouseId);
       }
     }
   }
@@ -329,9 +328,7 @@ function postStockMovement(db, opts) {
         available: Number(prod.stock) || 0, needed: Math.abs(qtyDelta),
       });
     }
-    db.prepare('UPDATE products SET stock=? WHERE id=?').run(
-      allowNegative ? nextStock : Math.max(0, nextStock), productId
-    );
+    db.prepare('UPDATE products SET stock=? WHERE id=?').run(nextStock, productId);
 
     if (warehouseId) {
       ensureProductWhRow(db, productId, warehouseId);
@@ -348,7 +345,7 @@ function postStockMovement(db, opts) {
       }
       db.prepare(
         'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-      ).run(allowNegative ? whAfter : Math.max(0, whAfter), productId, warehouseId);
+      ).run(whAfter, productId, warehouseId);
     }
 
     if (writeStockLog && tableExists(db, 'stock_logs')) {

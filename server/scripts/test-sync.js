@@ -357,7 +357,7 @@ const centralEnv = {
   // B pulls while stock is high, THEN central stock drops without B knowing.
   await req(B, 'POST', '/api/sync/now', bt);
   const bStale = (await req(B, 'GET', '/api/products', bt)).body.find(p => p.code === 'M-1').stock;
-  await req(C, 'PATCH', '/api/products/1/stock', ct, { stock: 1 });
+  await req(C, 'PATCH', '/api/products/1/stock', ct, { stock: 1, warehouse_id: whId });
   // B, seeing the stale higher stock, sells more than central now has:
   const oversellQty = Math.min(bStale, 5);
   const bInv = (await req(B, 'POST', '/api/invoices', bt, { cust_id: abCust.id, type: 'final', warehouse_id: whId, pay_type: 'credit', rows: [{ product_id: 1, qty: oversellQty, price: 50000 }] })).body;

@@ -221,6 +221,50 @@ function inventoryAmountLinesByWarehouse(db, items) {
   return [...map.values()];
 }
 
+/** Float dust (|x| < 1e-9) → 0; any real quantity (including negative) is kept as-is. */
+function cleanQty(n) {
+  const x = Number(n) || 0;
+  return Math.abs(x) < 1e-9 ? 0 : x;
+}
+
+/**
+ * P1 SSOT: on-hand quantity = Σ live kardex rows (same LEDGER_LIVE_SQL as layer-reconcile).
+ * products.stock / warehouse_stock / variant_warehouse_stock / product_variants.stock are CACHES
+ * that postInventoryMovement keeps in step; this function is what they must agree with.
+ *
+ * - warehouseId omitted → company-wide, WIP-staging (warehouse-only) rows excluded because
+ *   they never reach the sellable header products.stock.
+ * - variantId given     → only rows stamped with that variant (needs inventory_ledger.variant_id).
+ *
+ * @param {{productId:number, warehouseId?:number|null, variantId?:number|null}} q
+ * @returns {number}
+ */
+function stockOf(db, { productId, warehouseId = null, variantId = null } = {}) {
+  const pid = Number(productId) || 0;
+  if (!pid) return 0;
+  const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
+  const where = [`product_id=?`, `(${LEDGER_LIVE_SQL})`];
+  const params = [pid];
+  const wh = Number(warehouseId) || 0;
+  const vid = Number(variantId) || 0;
+  if (wh) { where.push('warehouse_id=?'); params.push(wh); }
+  else {
+    const set = [...WAREHOUSE_ONLY_EVENTS].map((e) => `'${e}'`).join(',');
+    where.push(`COALESCE(event_type,'') NOT IN (${set})`);
+  }
+  if (vid) {
+    if (!ledgerHasVariantColumn(db)) {
+      return Math.round((Number(require('./movement').variantWarehouseQty(db, vid, wh || null)) || 0) * 1000) / 1000;
+    }
+    where.push('variant_id=?');
+    params.push(vid);
+  }
+  const row = db.prepare(
+    `SELECT COALESCE(SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)),0) AS q FROM inventory_ledger WHERE ${where.join(' AND ')}`
+  ).get(...params);
+  return Math.round((Number(row && row.q) || 0) * 1000) / 1000;
+}
+
 /**
  * Apply qty delta to products.stock + warehouse_stock.
  * warehouseOnly: WIP staging — only warehouse_stock moves, the sellable header stays.
@@ -246,9 +290,11 @@ function applyStockDelta(db, {
     }), db, [{ product_id: productId, warehouse_id: warehouseId || null, available: qtyBefore, needed: Math.abs(qtyDelta) }]);
   }
 
+  // P1: real qty is stored (never clamped to 0). Negative only reaches here when allowNeg;
+  // otherwise the shortage was thrown above. Tiny float dust (-1e-12) is normalised to 0.
   const stockStored = warehouseOnly
     ? qtyBefore
-    : (allowNeg ? qtyAfter : Math.max(0, qtyAfter));
+    : cleanQty(qtyAfter);
   if (!warehouseOnly) {
     db.prepare('UPDATE products SET stock=? WHERE id=?').run(stockStored, productId);
   }
@@ -266,7 +312,7 @@ function applyStockDelta(db, {
         needed: Math.abs(qtyDelta),
       }), db, [{ product_id: productId, warehouse_id: warehouseId, available: whBefore, needed: Math.abs(qtyDelta) }]);
     }
-    const whStored = allowNeg ? whAfter : Math.max(0, whAfter);
+    const whStored = cleanQty(whAfter);
     db.prepare(
       'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
     ).run(whStored, productId, warehouseId);
@@ -1155,6 +1201,8 @@ function retireOrphanVoidedProductionIssues(db) {
 
 module.exports = {
   postInventoryMovement,
+  stockOf,
+  cleanQty,
   ledgerHasVariantColumn,
   reverseInventoryMovement,
   getKardex,

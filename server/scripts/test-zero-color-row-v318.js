@@ -19,7 +19,7 @@ const serviceSrc = fs.readFileSync(path.join(__dirname, '../lib/product-variants
 ok(appJs.includes('function prodMatrixColorIds'), 'ردیف ماتریس فقط رنگ موجود در همین انبار است');
 ok(appJs.includes('function prodPreserveColorIds'), 'رنگ موجود در انبار دیگر هنگام ذخیره نگه داشته می‌شود');
 ok(appJs.includes('در این انبار صفر است ردیف ندارد'), 'راهنمای فرم ردیف صفر همین انبار را حذف می‌کند');
-ok(serviceSrc.includes('function variantStockLivesInAnotherWarehouse'), 'ذخیره یک انبار رنگ انبار دیگر را حذف نمی‌کند');
+ok(serviceSrc.includes('function variantCarriesStock'), 'P1: ذخیره یک انبار رنگی را که در هر لایه موجودی دارد حذف نمی‌کند');
 
 function loadBetterSqlite3() {
   const candidates = [
@@ -52,7 +52,9 @@ db.exec(`
   );
 `);
 const { initProductVariantsSchema } = require('../lib/product-variants');
-const { generateMatrix, applyStockMatrix } = require('../lib/product-variants/service');
+const { generateMatrix } = require('../lib/product-variants/service');
+// P1: applyStockMatrix is structure-only in production; fixtures seed cache layers directly.
+const applyStockMatrix = (...a) => require('./test-helpers/matrix-seed').seedMatrixQty(...a);
 initProductVariantsSchema(db);
 
 const productId = db.prepare(

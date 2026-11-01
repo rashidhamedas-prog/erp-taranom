@@ -337,7 +337,7 @@ function updateVariant(db, id, body) {
     price: 'price',
     price_rial: 'price_rial',
     cost: 'cost',
-    stock: 'stock',
+    // P1: `stock` is intentionally NOT editable here (cache layer; moves only via adjustment docs).
     weight: 'weight',
     status: 'status',
     active: 'active',
@@ -379,39 +379,86 @@ function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set') {
   return getVariant(db, id);
 }
 
+const STOCK_EPS = 1e-9;
+
 /**
- * A color leaves this product's color rows when every size is company-wide zero.
- * Variants are deactivated (not deleted) so invoices keep their variant_id.
- * The shared color catalog row stays. Negative stock is kept so the shortage stays visible.
+ * True when this SKU still carries ANY quantity in any layer: product_variants.stock,
+ * any variant_warehouse_stock row, or a live kardex Σ stamped with the variant (P1).
+ */
+function variantCarriesStock(db, variantRow) {
+  if (Math.abs(Number(variantRow.stock) || 0) > STOCK_EPS) return true;
+  try {
+    const hit = db.prepare(`
+      SELECT 1 AS x FROM variant_warehouse_stock
+      WHERE variant_id=? AND ABS(COALESCE(qty,0)) > ? LIMIT 1
+    `).get(variantRow.id, STOCK_EPS);
+    if (hit) return true;
+  } catch (_) { /* vws table may be absent in tiny fixtures */ }
+  try {
+    const L = require('../inventory/ledger');
+    if (L.ledgerHasVariantColumn(db)) {
+      const q = L.stockOf(db, { productId: variantRow.product_id, variantId: variantRow.id });
+      if (Math.abs(q) > STOCK_EPS) return true;
+    }
+  } catch (_) { /* ledger table may be absent in tiny fixtures */ }
+  return false;
+}
+
+/**
+ * P1: bring a retired / unchecked SKU back (adjust, receipt, matrix re-check).
+ * Style color/size rows are re-attached; stock is never touched here.
+ */
+function reactivateVariant(db, variantId) {
+  const v = db.prepare('SELECT * FROM product_variants WHERE id=?').get(variantId);
+  if (!v) throw Object.assign(new Error('واریانت یافت نشد'), { status: 404 });
+  if (Number(v.active)) return { reactivated: false, variant: v };
+  db.prepare("UPDATE product_variants SET active=1, status='active' WHERE id=?").run(variantId);
+  try {
+    if (v.color_id) attachStyleColor(db, v.product_id, v.color_id);
+    if (v.size_id) attachStyleSize(db, v.product_id, v.size_id);
+    db.prepare('UPDATE products SET has_variants=1, is_style=1 WHERE id=?').run(v.product_id);
+  } catch (_) { /* style tables optional in tiny fixtures */ }
+  return { reactivated: true, variant: db.prepare('SELECT * FROM product_variants WHERE id=?').get(variantId) };
+}
+
+/**
+ * A color leaves this product's live pack ONLY when every one of its sizes is EXACTLY zero
+ * (not Σ=0: S=-1,M=+1 keeps both) and no layer still carries a quantity — vws / kardex included.
+ * Variants are deactivated (not deleted) so invoices keep their variant_id; stock is never
+ * written here (P1 — the old `stock=0` wipe hid negatives) and product_style_colors is kept
+ * (soft: re-adding the color or a postAdjust re-activates it without losing sort order).
  */
 function retireZeroStockColors(db, productId) {
   const id = parseInt(productId, 10);
   if (!id) return { retired: [] };
-  let groups = [];
+  let rows = [];
   try {
-    groups = db.prepare(`
-      SELECT color_id, COALESCE(SUM(stock),0) AS qty
-      FROM product_variants
-      WHERE product_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
-        AND color_id IS NOT NULL
-      GROUP BY color_id
+    rows = db.prepare(`
+      SELECT * FROM product_variants
+      WHERE product_id=? AND COALESCE(is_default,0)=0 AND color_id IS NOT NULL
     `).all(id);
   } catch (_) {
     return { retired: [] };
   }
+  const byColor = new Map();
+  for (const r of rows) {
+    const k = Number(r.color_id);
+    if (!byColor.has(k)) byColor.set(k, []);
+    byColor.get(k).push(r);
+  }
   const deactivate = db.prepare(`
     UPDATE product_variants
-    SET active=0, status='inactive', stock=0
+    SET active=0, status='inactive'
     WHERE product_id=? AND color_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
   `);
-  const dropStyle = db.prepare('DELETE FROM product_style_colors WHERE product_id=? AND color_id=?');
   const retired = [];
-  for (const group of groups) {
-    const qty = Number(group.qty) || 0;
-    if (qty > 1e-9 || qty < -1e-9) continue;
-    deactivate.run(id, group.color_id);
-    try { dropStyle.run(id, group.color_id); } catch (_) { /* style table may be absent in tiny fixtures */ }
-    retired.push(Number(group.color_id));
+  for (const [colorId, list] of byColor) {
+    const active = list.filter((r) => Number(r.active) !== 0);
+    if (!active.length) continue;
+    // every SKU of the color (active or not) must be clean — a hidden SKU holding qty blocks retirement
+    if (list.some((r) => variantCarriesStock(db, r))) continue;
+    deactivate.run(id, colorId);
+    retired.push(colorId);
   }
   return { retired };
 }
@@ -522,67 +569,71 @@ function packSizeFor(db, productId) {
   };
 }
 
-function variantStockLivesInAnotherWarehouse(db, variantId, warehouseId) {
-  const wh = parseInt(warehouseId, 10);
-  if (!wh || !variantId) return false;
-  try {
-    const here = db.prepare(`
-      SELECT COALESCE(qty,0) AS q FROM variant_warehouse_stock
-      WHERE variant_id=? AND warehouse_id=?
-    `).get(variantId, wh);
-    const hereQty = Number(here && here.q) || 0;
-    if (hereQty > 1e-9 || hereQty < -1e-9) return false;
-    const elsewhere = db.prepare(`
-      SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock
-      WHERE variant_id=? AND warehouse_id!=?
-    `).get(variantId, wh);
-    const other = Number(elsewhere && elsewhere.s) || 0;
-    return other > 1e-9 || other < -1e-9;
-  } catch (_) {
-    return false;
-  }
-}
-
-function deactivateUnselectedVariants(db, productId, colorIds, sizeIds, opts = {}) {
+/**
+ * Unchecked color×size leaves the live pack — but ONLY when it carries no quantity in any
+ * layer (P1: the old code zeroed `stock` of a SKU that still held pieces in this/other
+ * warehouses, silently erasing real — or negative — stock). SKUs that still carry stock stay
+ * active (and keep their style color/size rows); the user zeroes them with an adjustment first.
+ */
+function deactivateUnselectedVariants(db, productId, colorIds, sizeIds) {
   const colors = new Set((colorIds || []).map(Number).filter(Boolean));
   const sizes = new Set((sizeIds || []).map(Number).filter(Boolean));
-  if (!colors.size || !sizes.size) return { deactivated: 0 };
+  if (!colors.size || !sizes.size) return { deactivated: 0, kept: [] };
   const rows = db.prepare(`
-    SELECT id, color_id, size_id, stock FROM product_variants
+    SELECT * FROM product_variants
     WHERE product_id=? AND is_default=0 AND active=1
   `).all(productId);
   let deactivated = 0;
+  const kept = [];
   const keptColors = new Set(colors);
-  const upd = db.prepare("UPDATE product_variants SET active=0, status='inactive', stock=0 WHERE id=?");
+  const keptSizes = new Set(sizes);
+  const upd = db.prepare("UPDATE product_variants SET active=0, status='inactive' WHERE id=?");
   for (const row of rows) {
     if (colors.has(Number(row.color_id)) && sizes.has(Number(row.size_id))) continue;
-    // Unchecked color×size must leave the live pack immediately — even at qty 0 —
-    // so invoice auto-pack never invents SKUs the user removed from the matrix.
-    // This save only edits one warehouse. Zero here, with pieces elsewhere, stays on the product.
-    if (variantStockLivesInAnotherWarehouse(db, row.id, opts.warehouse_id)) {
+    if (variantCarriesStock(db, row)) {
       keptColors.add(Number(row.color_id));
+      keptSizes.add(Number(row.size_id));
+      kept.push(Number(row.id));
       continue;
     }
     upd.run(row.id);
     deactivated += 1;
   }
   const colorList = [...keptColors];
-  const sizeList = [...sizes];
+  const sizeList = [...keptSizes];
   db.prepare(`DELETE FROM product_style_colors WHERE product_id=? AND color_id NOT IN (${colorList.map(() => '?').join(',')})`)
     .run(productId, ...colorList);
   db.prepare(`DELETE FROM product_style_sizes WHERE product_id=? AND size_id NOT IN (${sizeList.map(() => '?').join(',')})`)
     .run(productId, ...sizeList);
-  return { deactivated };
+  return { deactivated, kept };
+}
+
+/** Number of live colors (Σ stock > 0) — catalog field products.colors, not a stock layer. */
+function refreshLiveColorCount(db, productId, fallback = 1) {
+  let liveColorCount = 0;
+  try {
+    liveColorCount = db.prepare(`
+      SELECT COUNT(*) AS c FROM (
+        SELECT color_id FROM product_variants
+        WHERE product_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
+          AND color_id IS NOT NULL
+        GROUP BY color_id
+        HAVING COALESCE(SUM(stock),0) > 0.0000001
+      )
+    `).get(productId).c;
+  } catch (_) {
+    liveColorCount = fallback;
+  }
+  db.prepare('UPDATE products SET colors=? WHERE id=?').run(Math.max(1, Number(liveColorCount) || 0), productId);
 }
 
 /**
- * Set per-SKU qty (color × size). Header products.stock and warehouse_stock
- * become the sum so live pack = in-stock colors × in-stock sizes.
- * Unchecked colors/sizes are deactivated so they leave the live pack.
- * Matrix SKUs are always piece goods → INTEGER qty (qty-policy).
+ * P1 — matrix STRUCTURE only: build / re-activate the color×size SKUs for the cells' colors
+ * and sizes and hide unselected SKUs that carry no stock. It never writes a quantity
+ * (cells[].qty is ignored here); quantities go through postStockMatrix → manualAdjust.postAdjust
+ * (mode=count, variant_id) so every change is a kardex row + JE.
  */
 function applyStockMatrix(db, productId, cells, opts = {}) {
-  const { parseStockQty } = require('../inventory/qty-policy');
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) throw Object.assign(new Error('محصول یافت نشد'), { status: 404 });
   const list = Array.isArray(cells) ? cells : [];
@@ -599,119 +650,104 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
       auto_barcode: opts.auto_barcode !== false,
       stock: 0,
     });
-    deactivateUnselectedVariants(db, productId, colorIds, sizeIds, { warehouse_id: warehouseId });
+    deactivateUnselectedVariants(db, productId, colorIds, sizeIds);
   }
-  const findMatrix = db.prepare(`
-    SELECT * FROM product_variants
-    WHERE product_id=? AND color_id=? AND size_id=? AND active=1
-    LIMIT 1
-  `);
-  const hasVws = !!db.prepare(
-    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='variant_warehouse_stock'"
-  ).get();
-  const updated = [];
-  for (const cell of list) {
-    const colorId = Number(cell.color_id);
-    const sizeId = Number(cell.size_id);
-    if (!colorId || !sizeId) continue;
-    let qty;
-    try {
-      qty = parseStockQty(cell.qty, {
-        db, productId, unit: product.unit, integer: true, strict: true, fallback: 0,
-      });
-    } catch (e) {
-      if (e && e.code === 'E_QTY_NOT_INTEGER') {
-        throw Object.assign(new Error('موجودی رنگ×سایز باید عدد صحیح باشد (مثلاً ۳ نه ۰٫۷۵)'), {
-          status: 400, code: 'E_QTY_NOT_INTEGER',
-        });
-      }
-      throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
-    }
-    if (!Number.isFinite(qty) || qty < 0) {
-      throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
-    }
-    const row = findMatrix.get(productId, colorId, sizeId);
-    if (!row) continue;
-    if (hasVws && warehouseId) {
-      db.prepare(`
-        INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty)
-        VALUES (?,?,?)
-        ON CONFLICT(variant_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-      `).run(row.id, warehouseId, qty);
-      const sumAll = db.prepare(
-        'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
-      ).get(row.id);
-      const global = Math.round(Number(sumAll && sumAll.s) || 0);
-      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(global, row.id);
-      updated.push({
-        id: row.id, color_id: colorId, size_id: sizeId,
-        stock: global, warehouse_id: warehouseId, warehouse_qty: qty,
-      });
-    } else {
-      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(qty, row.id);
-      updated.push({ id: row.id, color_id: colorId, size_id: sizeId, stock: qty });
-    }
-  }
-
-  // Rebuild product + warehouse totals from VWS (or sum of cells if no VWS)
-  let productStock = 0;
-  if (hasVws) {
-    const byWh = db.prepare(`
-      SELECT vws.warehouse_id AS warehouse_id, COALESCE(SUM(vws.qty),0) AS qty
-      FROM variant_warehouse_stock vws
-      JOIN product_variants pv ON pv.id=vws.variant_id
-      WHERE pv.product_id=? AND COALESCE(pv.is_default,0)=0 AND pv.active=1
-      GROUP BY vws.warehouse_id
-    `).all(productId);
-    for (const w of byWh) {
-      const q = Math.round(Number(w.qty) || 0);
-      productStock += q;
-      db.prepare(`
-        INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-        ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-      `).run(productId, w.warehouse_id, q);
-    }
-    if (!byWh.length && warehouseId) {
-      db.prepare(`
-        INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)
-        ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=0
-      `).run(productId, warehouseId);
-    }
-  } else {
-    productStock = updated.reduce((a, u) => a + (Number(u.stock) || 0), 0);
-    if (warehouseId) {
-      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)')
-        .run(productId, warehouseId);
-      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-        .run(productStock, productId, warehouseId);
-    }
-  }
-  afterVariantStockWrite(db, productId);
-  let liveColorCount = 0;
-  try {
-    liveColorCount = db.prepare(`
-      SELECT COUNT(*) AS c FROM (
-        SELECT color_id FROM product_variants
-        WHERE product_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
-          AND color_id IS NOT NULL
-        GROUP BY color_id
-        HAVING COALESCE(SUM(stock),0) > 0.0000001
-      )
-    `).get(productId).c;
-  } catch (_) {
-    liveColorCount = colorIds.length;
-  }
-  db.prepare('UPDATE products SET stock=?, colors=? WHERE id=?').run(
-    productStock, Math.max(1, Number(liveColorCount) || 0), productId
-  );
+  refreshLiveColorCount(db, productId, colorIds.length);
+  const live = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
   return {
     product_id: productId,
-    stock: productStock,
+    stock: Number(live && live.stock) || 0,
     warehouse_id: warehouseId || null,
-    updated,
+    updated: [],
     pack: packSizeFor(db, productId),
     variants: listVariants(db, productId, { include_default: false }),
   };
+}
+
+/** Qty a SKU holds right now in the target warehouse (vws; company-wide pv.stock when no warehouse). */
+function skuQtyAt(db, variantId, warehouseId) {
+  return require('../inventory/movement').variantWarehouseQty(db, variantId, warehouseId || null);
+}
+
+/**
+ * P1 — set per-SKU quantities from the matrix grid. Structure first (applyStockMatrix), then
+ * every CHANGED cell becomes one manualAdjust.postAdjust(mode='count', variant_id) inside the
+ * caller's transaction (this function opens one if none) with a shared batch note.
+ * Colors are retired once, at the end, never between cells.
+ *
+ * @param {object} opts  warehouse_id, reason_code, date, note, auto_barcode
+ * @param {object|null} user
+ */
+function postStockMatrix(db, productId, cells, opts = {}, user = null) {
+  const { parseStockQty } = require('../inventory/qty-policy');
+  const MA = require('../inventory/manual-adjust');
+  const list = Array.isArray(cells) ? cells : [];
+  let out;
+  db.transaction(() => {
+    holdColorRetire(db);
+    try {
+      const base = applyStockMatrix(db, productId, list, opts);
+      const product = db.prepare('SELECT unit FROM products WHERE id=?').get(productId);
+      const warehouseId = base.warehouse_id;
+      const batch = `ماتریس رنگ×سایز #${Date.now().toString(36)}`;
+      const findMatrix = db.prepare(`
+        SELECT * FROM product_variants
+        WHERE product_id=? AND color_id=? AND size_id=? AND active=1
+        LIMIT 1
+      `);
+      const updated = [];
+      for (const cell of list) {
+        const colorId = Number(cell.color_id);
+        const sizeId = Number(cell.size_id);
+        if (!colorId || !sizeId) continue;
+        if (cell.qty === undefined || cell.qty === null || cell.qty === '') continue;
+        let qty;
+        try {
+          qty = parseStockQty(cell.qty, {
+            db, productId, unit: product && product.unit, integer: true, strict: true, fallback: 0,
+          });
+        } catch (e) {
+          if (e && e.code === 'E_QTY_NOT_INTEGER') {
+            throw Object.assign(new Error('موجودی رنگ×سایز باید عدد صحیح باشد (مثلاً ۳ نه ۰٫۷۵)'), {
+              status: 400, code: 'E_QTY_NOT_INTEGER',
+            });
+          }
+          throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
+        }
+        if (!Number.isFinite(qty) || qty < 0) {
+          throw Object.assign(new Error('موجودی رنگ×سایز نامعتبر است'), { status: 400 });
+        }
+        const row = findMatrix.get(productId, colorId, sizeId);
+        if (!row) continue;
+        const cur = skuQtyAt(db, row.id, warehouseId);
+        if (Math.abs(cur - qty) < 1e-9) continue;
+        const r = MA.postAdjust(db, {
+          product_id: productId,
+          variant_id: row.id,
+          warehouse_id: warehouseId,
+          mode: 'count',
+          qty,
+          reason_code: opts.reason_code || undefined,
+          date: opts.date || undefined,
+          note: [batch, opts.note].filter(Boolean).join(' — '),
+        }, user);
+        updated.push({
+          id: row.id, color_id: colorId, size_id: sizeId, warehouse_id: warehouseId,
+          warehouse_qty: qty, delta_qty: r.delta_qty, ledger_id: r.id, tx_no: r.tx_no, je_id: r.je_id,
+        });
+      }
+      out = { ...base, updated };
+    } finally {
+      releaseColorRetire(db);
+    }
+    afterVariantStockWrite(db, productId);
+    refreshLiveColorCount(db, productId);
+    const live = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
+    out.stock = Number(live && live.stock) || 0;
+    out.pack = packSizeFor(db, productId);
+    out.variants = listVariants(db, productId, { include_default: false });
+  })();
+  return out;
 }
 
 function styleMetadata(db, productId) {
@@ -862,6 +898,9 @@ module.exports = {
   softDeleteVariant,
   packSizeFor,
   applyStockMatrix,
+  postStockMatrix,
+  reactivateVariant,
+  variantCarriesStock,
   deactivateUnselectedVariants,
   retireZeroStockColors,
   afterVariantStockWrite,
