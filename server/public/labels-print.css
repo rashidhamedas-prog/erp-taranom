@@ -1,0 +1,46 @@
+/* P5 — barcode label sheet (GET /api/products/:id/labels). External: secure HTML CSP has no inline styles. */
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Vazirmatn',Tahoma,sans-serif}
+body.labels{padding:16px;background:#fff;color:#111}
+.labels .sheet{display:flex;flex-wrap:wrap;gap:8px}
+.labels .label{border:1px dashed #bbb;border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:2mm;page-break-inside:avoid;break-inside:avoid;overflow:hidden}
+.labels .name{font-weight:700;text-align:center;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.labels .attrs{color:#333;line-height:1.2}
+.labels .meta{color:#444;direction:ltr;font-variant-numeric:tabular-nums}
+.labels .price{font-weight:800;font-variant-numeric:tabular-nums}
+.labels .bc{fill:#111}
+.labels .bc text{font:8px monospace;letter-spacing:1px}
+.labels .barcode-text{direction:ltr;font:12px monospace}
+
+/* 40×25 mm thermal roll */
+.layout-40x25 .label{width:40mm;height:25mm}
+.layout-40x25 .name{font-size:8px}
+.layout-40x25 .attrs,.layout-40x25 .meta{font-size:7px}
+.layout-40x25 .price{font-size:9px}
+.layout-40x25 .bc{width:34mm;height:11mm}
+
+/* 50×30 mm thermal roll (default) */
+.layout-50x30 .label{width:50mm;height:30mm}
+.layout-50x30 .name{font-size:10px}
+.layout-50x30 .attrs,.layout-50x30 .meta{font-size:8px}
+.layout-50x30 .price{font-size:11px}
+.layout-50x30 .bc{width:42mm;height:14mm}
+
+/* A4 sheet 3×8 (70×37 mm) */
+.layout-a4-3x8 .sheet{gap:0;width:210mm}
+.layout-a4-3x8 .label{width:70mm;height:37mm;border-radius:0}
+.layout-a4-3x8 .name{font-size:11px}
+.layout-a4-3x8 .attrs,.layout-a4-3x8 .meta{font-size:9px}
+.layout-a4-3x8 .price{font-size:12px}
+.layout-a4-3x8 .bc{width:52mm;height:17mm}
+
+.pbtn{position:fixed;bottom:14px;left:14px;background:#1B5C4A;color:#fff;border:none;padding:10px 26px;border-radius:8px;font-family:inherit;font-size:14px;cursor:pointer;min-height:48px}
+.pbtn:focus-visible{outline:3px solid #0F2F28;outline-offset:2px}
+
+@media print{
+  body.labels{padding:0}
+  .pbtn{display:none}
+  .labels .label{border-color:transparent}
+  .layout-40x25 .sheet,.layout-50x30 .sheet{gap:0}
+  .layout-40x25 .label,.layout-50x30 .label{page-break-after:always;break-after:page}
+}
+@page{margin:0}

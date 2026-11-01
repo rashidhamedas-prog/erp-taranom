@@ -854,3 +854,178 @@ html[dir=rtl] .pos-v2 .pos-cart-row.is-selected td:first-child,
 @media print{
   .pos-receipt-print{ display:block; }
 }
+
+/* ============================================================
+   P5 — touch POS: tenders, numpad, settle status, fullscreen
+   ============================================================ */
+.pos-v2{
+  --pos-p5-brand:#1B5C4A; --pos-p5-ink:#0F2F28; --pos-p5-cream:#F6F1E8; --pos-p5-muted:#6B7280;
+}
+.pos-v2 .mono, .pos-v2 .pos-totals-due strong, .pos-v2 .pos-tender-amt{ font-variant-numeric: tabular-nums; }
+.pos-v2 :is(button, input, select, summary):focus-visible{
+  outline: 3px solid var(--pos-focus);
+  outline-offset: 2px;
+}
+
+/* Tender buttons 2×2 */
+.pos-v2 .pos-tender-grid{
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pos-v2 .pos-tender-btn{
+  min-height: 56px;
+  border-radius: var(--pos-r-md);
+  border: 1px solid var(--pos-border-strong);
+  background: var(--pos-surface);
+  color: var(--pos-text);
+  font: inherit;
+  font-weight: var(--pos-fw-bold);
+  font-size: var(--pos-fs-md);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer;
+}
+.pos-v2 .pos-tender-btn:hover{ border-color: var(--pos-p5-brand); background: var(--pos-brand-50); }
+.pos-v2 .pos-tender-btn[aria-disabled="true"]{ opacity: .55; cursor: not-allowed; }
+.pos-v2 .pos-tender-list{ display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.pos-v2 .pos-tender-implicit{ font-size: var(--pos-fs-sm); padding: 8px 0; }
+.pos-v2 .pos-tender-row{
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-r-md);
+  padding: 8px 10px;
+  background: var(--pos-surface);
+}
+.pos-v2 .pos-tender-row.is-active{ border-color: var(--pos-p5-brand); box-shadow: 0 0 0 2px var(--pos-brand-100); }
+.pos-v2 .pos-tender-head{ display: flex; align-items: center; gap: 8px; }
+.pos-v2 .pos-tender-head .pos-tender-name{ font-weight: var(--pos-fw-bold); min-width: 64px; }
+.pos-v2 .pos-tender-amt{ flex: 1; min-height: 44px; font-size: var(--pos-fs-lg); text-align: left; direction: ltr; }
+.pos-v2 .pos-tender-extra{ margin-top: 8px; }
+.pos-v2 .pos-tender-cheque, .pos-v2 .pos-tender-card{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.pos-v2 .pos-tender-cheque .pos-stock-warn{ grid-column: 1 / -1; }
+.pos-v2 .pos-tender-extra input{ min-height: 40px; width: 100%; }
+.pos-v2 .pos-tender-alert{ color: var(--pos-danger); font-size: var(--pos-fs-xs); margin-top: 6px; }
+
+/* Numpad 3×4 */
+.pos-v2 .pos-numpad{
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+}
+.pos-v2 .pos-numpad button{
+  min-height: 52px;
+  border-radius: var(--pos-r-md);
+  border: 1px solid var(--pos-border);
+  background: var(--pos-surface-2);
+  color: var(--pos-text);
+  font: inherit;
+  font-size: var(--pos-fs-xl);
+  font-weight: var(--pos-fw-bold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.pos-v2 .pos-numpad button:active{ background: var(--pos-brand-100); }
+
+/* Settle status (color + text + icon, never color alone) */
+.pos-v2 .pos-settle-status, .pos-v2 .pos-settle-mini{
+  border-radius: var(--pos-r-md);
+  padding: 8px 12px;
+  margin-top: 10px;
+  font-weight: var(--pos-fw-bold);
+  border: 1px solid transparent;
+}
+.pos-v2 .is-ok{ background: var(--pos-brand-50); color: var(--pos-success); border-color: var(--pos-brand-100); }
+.pos-v2 .is-due{ background: var(--pos-warn-50); color: var(--pos-warn); border-color: color-mix(in srgb, var(--pos-warn) 30%, transparent); }
+.pos-v2 .is-change{ background: #EEF4FF; color: #1E40AF; border-color: #C7D7FE; }
+.pos-v2 .is-credit{ background: #F5F3FF; color: #5B21B6; border-color: #DDD6FE; }
+.pos-v2 .pos-settle-mini{ margin-top: 0; padding: 6px 10px; font-size: var(--pos-fs-sm); }
+.pos-v2 .pos-progress{ height: 6px; border-radius: 99px; background: var(--pos-border); overflow: hidden; margin-top: 10px; }
+.pos-v2 .pos-progress-bar{ display: block; height: 100%; background: var(--pos-p5-brand); }
+.pos-v2 .pos-progress.is-over .pos-progress-bar{ background: #1E40AF; }
+
+/* Checkout + spinner + net error */
+.pos-v2 .pos-btn-checkout{ width: 100%; min-height: 56px; font-size: var(--pos-fs-lg); }
+.pos-v2 .pos-spinner{
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid currentColor; border-inline-end-color: transparent; border-radius: 50%;
+  animation: pos-spin .7s linear infinite; vertical-align: middle;
+}
+@keyframes pos-spin{ to{ transform: rotate(360deg); } }
+.pos-v2 .pos-net-error, .pos-v2 .pos-draft-banner{
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin-top: 10px; padding: 10px 12px;
+  border-radius: var(--pos-r-md);
+  font-size: var(--pos-fs-sm);
+}
+.pos-v2 .pos-net-error{ background: var(--pos-danger-50); color: var(--pos-danger); border: 1px solid color-mix(in srgb, var(--pos-danger) 35%, transparent); }
+.pos-v2 .pos-draft-banner{ background: var(--pos-warn-50); color: var(--pos-warn); border: 1px solid color-mix(in srgb, var(--pos-warn) 30%, transparent); margin-bottom: 10px; }
+.pos-v2 .pos-draft-banner span, .pos-v2 .pos-net-error span{ flex: 1 1 220px; }
+
+/* More menu */
+.pos-v2 .pos-more{ position: relative; }
+.pos-v2 .pos-more > summary{ list-style: none; cursor: pointer; }
+.pos-v2 .pos-more > summary::-webkit-details-marker{ display: none; }
+.pos-v2 .pos-more-menu{
+  position: absolute; inset-inline-end: 0; bottom: calc(100% + 6px); z-index: 30;
+  min-width: 220px; display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; border-radius: var(--pos-r-md);
+  background: var(--pos-surface); border: 1px solid var(--pos-border); box-shadow: var(--pos-sh-3);
+}
+
+/* Success panel */
+.pos-v2 .pos-success{
+  margin-bottom: 12px; padding: 14px 16px;
+  border-radius: var(--pos-r-lg);
+  background: var(--pos-brand-50); color: var(--pos-p5-ink);
+  border: 2px solid var(--pos-p5-brand);
+}
+.pos-v2 .pos-success-title{ font-size: var(--pos-fs-xl); font-weight: var(--pos-fw-black); }
+.pos-v2 .pos-success-change{ font-size: var(--pos-fs-lg); margin-top: 6px; }
+.pos-v2 .pos-success-actions{ display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.pos-v2 .pos-new-inv.is-confirm{ background: var(--pos-warn-50); color: var(--pos-warn); border-color: var(--pos-warn); }
+
+/* Row flash on add (≤150ms) */
+.pos-v2 .pos-row-flash td{ animation: pos-row-flash 150ms ease-out; }
+@keyframes pos-row-flash{ from{ background: var(--pos-brand-100); } to{ background: transparent; } }
+@media (prefers-reduced-motion: reduce){
+  .pos-v2 .pos-row-flash td, .pos-v2 .pos-spinner{ animation: none; }
+}
+
+/* Touch mode */
+.pos-v2.pos-touch{ font-size: var(--pos-fs-lg); }
+.pos-v2.pos-touch .pos-btn{ min-height: 48px; }
+.pos-v2.pos-touch .pos-tender-btn{ min-height: 64px; font-size: var(--pos-fs-lg); }
+.pos-v2.pos-touch .pos-numpad button{ min-height: 64px; font-size: var(--pos-fs-xl); }
+.pos-v2.pos-touch .pos-btn-checkout{ min-height: 64px; font-size: 22px; }
+.pos-v2.pos-touch .pos-cart-row td{ height: 56px; }
+.pos-v2.pos-touch .pos-totals-due strong{ font-size: var(--pos-fs-total); }
+.pos-v2.pos-touch .pos-tender-amt{ min-height: 52px; font-size: 22px; }
+@media (min-width:1024px){
+  .pos-v2.pos-touch .pos-shell{ grid-template-columns: 3fr 2fr; }
+  .pos-v2.pos-touch .pos-side{ position: sticky; top: 8px; }
+}
+@media (max-width:1023px){
+  .pos-v2.pos-touch .pos-shell{ grid-template-columns: 1fr; }
+  .pos-v2.pos-touch .pos-mobile-bar{
+    display: flex; position: sticky; bottom: 0; z-index: 50;
+    gap: 10px; align-items: center; padding: 10px 12px;
+    background: var(--pos-surface); border-top: 1px solid var(--pos-border); box-shadow: var(--pos-sh-3);
+  }
+  .pos-v2.pos-touch .pos-mobile-bar .pos-due{ flex: 1; font-weight: 800; font-size: 22px; color: var(--pos-brand); }
+}
+.pos-v2 .pos-btn-pay-mob{ min-width: 96px; }
+
+/* Fullscreen: hide app chrome, keep a visible exit */
+body.pos-fullscreen .sidebar,
+body.pos-fullscreen .topbar{ display: none !important; }
+body.pos-fullscreen .main{ margin: 0 !important; width: 100vw; max-width: 100vw; }
+body.pos-fullscreen .content{ padding: 8px !important; min-height: 100vh; }
+body.pos-fullscreen .pos-v2 .pos-fs-exit{
+  position: fixed; top: 8px; inset-inline-start: 8px; z-index: 80;
+  min-height: 40px; background: var(--pos-p5-ink); color: #fff; border-color: var(--pos-p5-ink);
+}
+.pos-v2 .pos-fs-exit{ display: none; }
+body.pos-fullscreen .pos-v2 .pos-fs-exit{ display: inline-flex; align-items: center; gap: 6px; }
+@media print{
+  .pos-v2 .pos-fs-exit, .pos-v2 .pos-success, .pos-v2 .pos-draft-banner{ display: none !important; }
+}

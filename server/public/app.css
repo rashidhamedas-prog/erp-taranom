@@ -2779,3 +2779,11 @@ input.inv-field-err,select.inv-field-err,.inv-field-err{border-color:var(--red)!
 /* P1 kardex SSOT: negative stock is real — show it, never clamp to 0 */
 .neg-qty{color:var(--red,#c0392b)!important;font-weight:700}
 input.neg-qty{border-color:var(--red,#c0392b)!important}
+/* P5 — barcode label options dialog */
+.bc-label-dlg{ border:1px solid var(--border,#e5e7eb); border-radius:14px; padding:0; max-width:420px; width:calc(100% - 24px); }
+.bc-label-dlg::backdrop{ background:rgba(15,47,40,.4); }
+.bc-label-form{ display:flex; flex-direction:column; gap:10px; padding:16px; }
+.bc-label-form h3{ margin:0 0 4px; font-size:16px; }
+.bc-label-form label{ display:flex; flex-direction:column; gap:4px; font-size:13px; }
+.bc-label-form select, .bc-label-form input{ min-height:40px; }
+.bc-label-actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:6px; }

@@ -638,6 +638,7 @@ function bootstrapStoreSale(db, user) {
     cash_boxes: cashBoxes,
     locks_cash_box: locksStoreCashBox(user && user.role),
     vat_rate: vatRate,
+    insufficient_stock_mode: getInsufficientStockMode(db),
   };
 }
 

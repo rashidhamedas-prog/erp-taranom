@@ -1,3 +1,18 @@
+### ۱۴۰۵/۰۸/۱۰ — P5: صندوق لمسی فروشگاهی (پرداخت چندردیفی روی قرارداد P6، numpad، تمام‌صفحه) + بارکد تنوع و برچسب (SW v596)
+- **Deploy:** ❌ merge نشده / deploy نشده (فقط PR).
+- **وضعیت:** Draft PR #128 روی شاخهٔ `feat/p5-touch-pos-barcode`، rebase‌شده روی main `20fb7afc` (بعد از P6 v594 و P8 v595)؛ منبع: `P5-touch-pos-barcode.md`.
+- **هم‌ترازی با P6:** منطق سرور تسویه/کمبود موجودی **فقط از P6** است (`applyInsufficientStockPolicy`، `expandMethodSplits`، `E_CREDIT_LIMIT`)؛ نسخهٔ تکراری P5 (`assertStoreStockPolicy`) و تغییرات P5 در `routes/store.js`/`settings.js` حذف شد. P5 فقط `insufficient_stock_mode` را (با `getInsufficientStockMode` P6) به bootstrap اضافه می‌کند تا UI در حالت block ثبت را قفل کند.
+- **پرداخت چندردیفی (app.js):** `_storeQs.tenders` + دکمه‌های نقد/کارتخوان/چک/نسیه (Alt+1…Alt+4)؛ مبلغ پیش‌فرض = مانده، «کل مانده»، ✕، numpad ۳×۴. ارسال طبق قرارداد P6: `pay_splits:[{method:'cash'|'card'|'cheque'|'credit', amount, cash_box_id|terminal_id, trace?, last4?, cheque:{sayad_id,bank_name,due_date,number,owner,branch,account}}]` + `idempotency_key`. **نسیه با سایر روش‌ها ترکیب‌پذیر است** (فقط مشتری واقعی)؛ غیرنقد بیش از مانده در UI و سرور رد می‌شود؛ اضافهٔ نقد = «باقی به مشتری». بدون ردیف = نقد کامل (مسیر legacy `uiMixedCash/uiMixedCard` دست‌نخورده). خطاهای `E_CREDIT_LIMIT` (سقف/مانده)، `E_PAY_SPLIT_OVER`، `E_STORE_INSUFFICIENT_STOCK` (اقلام کسری) پیام فارسی مشخص دارند؛ هشدار `W_STORE_INSUFFICIENT_STOCK` در حالت warn به‌صورت toast.
+- **اسکنر/جستجو:** تشخیص burst (<۵۰ms) و ثبت بدون Enter؛ نرمال‌سازی ی/ک و ارقام فارسی؛ فلش ردیف ≤۱۵۰ms؛ بوق اسکن قابل خاموش‌کردن.
+- **پایداری:** قطع شبکه → سبد + `client_request_id` حفظ و «تلاش مجدد (همان فاکتور)»؛ پیش‌نویس خودکار سبد per-user با بنر «ادامه / دور ریختن»؛ پنل «ثبت شد» (Enter = فاکتور جدید)؛ «فاکتور جدید» دومرحله‌ای؛ «پاک کردن سبد» با تأیید.
+- **حالت لمسی / تمام‌صفحه:** `.pos-v2.pos-touch` و `body.pos-fullscreen` (Alt+F، دکمهٔ خروج همیشه پیدا، خروج خودکار در `go()`)؛ CSS فقط در `pos-v2.css`.
+- **بارکد/برچسب:** `server/lib/barcode-gen.js` (EAN-13، Code128-B)؛ `by-barcode` اول تنوع؛ `POST /product-variants/:id/generate-barcode`؛ `GET /products/:id/labels` با `layout=40x25|50x30|a4-3x8`، `variant_id`، `symbology`؛ `labels-print.css?v=596`.
+- **رفع باگ جانبی:** regex ویرایش فی سطر سبد فروش سریع (`/[^\\d]/` → `/\D/`).
+- **Sync:** جدول جدید ندارد (backfill لازم نیست)؛ مسیر جدید زیر prefix موجود `/api/product-variants`؛ `_diag-sync-gaps` → `mismatches=[]`.
+- **تست:** `scripts/test-p5-touch-pos-barcode.js` (`npm run test:p5-touch-pos` بعد از `test:p6-settlement-card-readers`).
+- **تصمیم‌های باز:** autofill کارتخوان متصل (stub P6)؛ UI تنظیم حالت کمبود موجودی (فعلاً از API/مدیر)؛ تست e2e لمسی اجرا نشد.
+- **Help:** بندهای «P5 / v596» در راهنمای ادمین و فروشگاهی. **SW:** `erp-taranom-v596`، `app.js?v=596`.
+
 ### ۱۴۰۵/۰۸/۱۰ — P8: فرم ساده هزینهٔ روزانه — پیش‌نویس صندوق‌دار → تأیید حسابدار (SW v595)
 - **Deploy:** ✅ #117 → 999f94a8 — overlay Iran — بکاپ /home/taranom/backups/crm.db.20261101-104927 (+wal/shm) — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v595 — leaf=warn — GL1104=10,883,218,790 · k34+35=10,997,256,853 · (GL−K)=−114,038,063
 - **شاخه:** `feat/p8-expense-form` (پایه: origin/main 2fb83e9f)؛ منبع: `P8-expense-form.md`. **فقط PR باز — بدون merge/deploy** (تأیید حامد). commit: tip همین شاخه.
