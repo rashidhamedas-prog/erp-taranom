@@ -16678,8 +16678,16 @@ function _kardexOpenSource(refType, refId){
 }
 /** v525: اقدام ردیف کاردکس — ابطال تعدیل دستی، یا تعدیل موجودی همان کالا در انبار ردیف. */
 function kardexAdjustRowActions(l, productId){
-  if(!l || l.is_opening || typeof canStockAdjust!=='function' || !canStockAdjust()) return '';
+  if(!l) return '';
   const reload=()=>loadItemKardex(productId);
+  /* FR-P334-A: ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی بدون سند مبدأ */
+  const corrBtn=(['opening_inventory','stock_reconcile','opening'].includes(String(l.source_type||''))
+    && !l.is_group && l.status!=='reversed' && !l.reversal_of && String(l.event_type||'')!=='reversal'
+    && typeof canStockAdjustVoid==='function' && canStockAdjustVoid())
+    ? ` <button type="button" class="btn sm ghost" title="ابطال اصلاحی این ردیف (با پیش‌نمایش، علت و اثر موجودی)" data-csp-click="${CSP.bind('click',function(){openLedgerReverseCorrection(l.id, { product_id:productId, onDone:reload })})}">↩ ابطال اصلاحی</button>`
+    : '';
+  if(l.is_opening || typeof canStockAdjust!=='function' || !canStockAdjust()) return corrBtn;
+  if(corrBtn) return corrBtn;
   if(l.source_type==='inventory_adjust' && !l.is_group && l.status!=='reversed' && l.event_type==='adjustment'){
     if(!canStockAdjustVoid()) return '';
     return ` <button type="button" class="btn sm ghost" title="ابطال این تعدیل (برگشت کامل)" data-csp-click="${CSP.bind('click',function(){stockAdjustVoid(l.id, l.tx_no, { product_id:productId, onDone:reload })})}">⛔</button>`;
@@ -24792,6 +24800,54 @@ async function stockAdjustVoid(id, txNo, opts){
     if(opts && typeof opts.onDone==='function'){ try{ opts.onDone(null); }catch(_){} }
     openStockAdjustRecent(opts);
   }catch(_){ /* پیام را api() نشان داده */ }
+}
+/** FR-P334-A: ابطال اصلاحی ردیف کاردکس — پیش‌نمایش ← علت + اثر موجودی ← تأیید نهایی. */
+async function openLedgerReverseCorrection(id, opts){
+  opts=opts||{};
+  let p=null;
+  try{ p=await api('GET','/inventory/ledger/'+encodeURIComponent(id)+'/reverse-correction-preview'); }catch(_){ return; }
+  if(!p) return;
+  const q=v=>v==null?'—':fmtQtyFa(v);
+  const blocked=!p.eligible;
+  const warn=(p.warnings||[]).map(w=>`<li>${esc(w)}</li>`).join('');
+  const rowsHtml=`<table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th></th><th>قبل</th><th>بعد — با اثر موجودی</th><th>بعد — فقط کاردکس</th></tr></thead><tbody>
+    <tr><td>کاردکس (تعداد)</td><td class="mono">${q(p.kardex.before.qty)}</td><td class="mono">${q(p.kardex.after.qty)}</td><td class="mono">${q(p.kardex.after.qty)}</td></tr>
+    <tr><td>کاردکس (ارزش ریال)</td><td class="mono">${fmt(p.kardex.before.value_rial)}</td><td class="mono">${fmt(p.kardex.after.value_rial)}</td><td class="mono">${fmt(p.kardex.after.value_rial)}</td></tr>
+    <tr><td>موجودی انبار</td><td class="mono">${q(p.warehouse_stock.before)}</td><td class="mono">${q(p.warehouse_stock.after_with_stock)}</td><td class="mono">${q(p.warehouse_stock.after_kardex_only)}</td></tr>
+  </tbody></table>`;
+  sadjLayer(`<div class="modal-head"><h3>↩ ابطال اصلاحی ردیف کاردکس ${esc(p.tx_no||('#'+p.ledger_id))}</h3></div>
+    <div class="modal-body">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">${esc(p.product_name||'')} · نوع: ${esc(p.source_type||'')} · ورود ${q(p.qty_in)} / خروج ${q(p.qty_out)} · مبلغ ${fmt(p.amount_rial)} ریال. ردیف اصلی «ابطال‌شده» و یک ردیف معکوس ثبت می‌شود؛ هیچ ردیفی حذف یا ویرایش نمی‌شود.</div>
+      ${blocked?`<div data-csp-style="${CSP.style(`padding:8px 12px;border:1px solid var(--red);border-radius:8px;margin-bottom:8px`)}">⛔ ${esc(p.blocker&&p.blocker.error||'این ردیف قابل ابطال اصلاحی نیست')}</div>`:''}
+      ${rowsHtml}
+      ${warn?`<ul data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:8px 0`)}">${warn}</ul>`:''}
+      ${blocked?'':`<div class="fg"><label for="lrcEffect">اثر موجودی</label>
+        <select id="lrcEffect">
+          <option value="">— انتخاب کنید —</option>
+          <option value="with_stock" ${p.with_stock_allowed?'':'disabled'}>با اثر موجودی (موجودی انبار هم به همان اندازه برمی‌گردد)</option>
+          <option value="kardex_only">فقط کاردکس (موجودی انبار دست نمی‌خورد)</option>
+        </select></div>
+      <div class="fg"><label for="lrcReason">علت ابطال (حداقل ۵ نویسه)</label><input id="lrcReason" type="text" maxlength="300"></div>`}
+    </div>
+    <div class="modal-foot">
+      ${blocked?'':`<button class="btn red" id="lrcGo">ابطال اصلاحی</button>`}
+      <button class="btn ghost" id="lrcClose">بستن</button>
+    </div>`);
+  el('lrcClose')?.addEventListener('click',()=>closeStockAdjust());
+  el('lrcGo')?.addEventListener('click',async()=>{
+    const effect=(el('lrcEffect')||{}).value||'';
+    const reason=String((el('lrcReason')||{}).value||'').trim();
+    if(!effect){ showToast('اثر موجودی را انتخاب کنید','error'); return; }
+    if(reason.length<5){ showToast('علت ابطال حداقل ۵ نویسه','error'); return; }
+    const effFa=effect==='with_stock'?'با اثر موجودی':'فقط کاردکس';
+    if(!confirm(`ابطال اصلاحی ردیف ${p.tx_no||('#'+p.ledger_id)} (${effFa}) قطعی ثبت شود؟`)) return;
+    try{
+      const r=await api('POST','/inventory/ledger/'+encodeURIComponent(id)+'/reverse-correction',{ confirm:true, reason, stock_effect:effect });
+      showToast(r&&r.voucher_draft_id?`ابطال ثبت شد — پیش‌نویس سند برگشت #${r.voucher_draft_id} ساخته شد`:'ابطال اصلاحی ثبت شد');
+      closeStockAdjust();
+      if(typeof opts.onDone==='function'){ try{ opts.onDone(r); }catch(_){} }
+    }catch(_){ /* پیام را api() نشان داده */ }
+  });
 }
 function ivalLevelFieldHtml(id,value,scopeFa){
   const v=value==='product'||value==='warehouse'?value:'';
@@ -41402,6 +41458,17 @@ function renderAdminGuide(){
         <li><b>سود ناخالص</b> = فروش خالص − بهای تمام‌شده؛ <b>سود عملیاتی ساده</b> = سود ناخالص − هزینه‌های دوره (پرداخت هزینهٔ ثبت‌شده بدون سربار تولید + کارمزد بانکی + <b>پیش‌نویس هزینهٔ روزانهٔ تأییدشده</b> (P8؛ پیش‌نویس در انتظار/ردشده/لغو/ابطال‌شده حساب نمی‌شود) + هزینهٔ تأییدشدهٔ نماینده). فروش صندوق لمسی/فروش سریع فروشگاهی (P5) چون فاکتور قطعی می‌سازد خودبه‌خود در فروش و بهای تمام‌شده هست. <b>انگیزهٔ فروش P9</b> فقط به‌صورت سطر جدای «اطلاعاتی» (برآورد قواعد سرپرست/فروشنده منهای برگشت) نمایش داده می‌شود و از سود عملیاتی کسر نمی‌شود؛ با فیلتر شعبه/انبار نمایش داده نمی‌شود. استهلاک و حقوق در این گزارش نیست؛ عدد قطعی پس از بستن دوره از صورت سود و زیان گرفته شود.</li>
         <li>برای بازهٔ چندروزه جدول «به تفکیک روز» و «هزینه‌ها به تفکیک دسته» هم نمایش داده می‌شود. API: <span dir="ltr">GET /api/reports/daily-pnl?date|from&amp;to&amp;warehouse_id&amp;branch_id</span> (شعبه = کاربر ثبت‌کنندهٔ سند).</li>
         <li>هر دو گزارش فقط‌خواندنی‌اند و هیچ سندی نمی‌سازند.</li>
+      </ul>`),
+    helpSec('↩','ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی کاردکس + گزارش اختلاف موجودی انبار با کاردکس (vNEXT)',`
+      <p>ردیف‌های کاردکس که <b>سند مبدأ ندارند</b> — «موجودی اول دوره» قدیمی (opening_inventory)، «هم‌ترازی کاردکس» (stock_reconcile) و ردیف‌های opening — از ابطال عادی رد می‌شوند. برای آن‌ها در کاردکس کالا کنار ردیف دکمهٔ <b>«↩ ابطال اصلاحی»</b> هست (فقط مدیر یا دارندهٔ دسترسی «عملیات انبار — حذف»).</p>
+      <ul>
+        <li>اول <b>پیش‌نمایش فقط‌خواندنی</b> نشان داده می‌شود: کاردکس (تعداد و ارزش) و موجودی انبار، قبل و بعد.</li>
+        <li>باید <b>اثر موجودی</b> را صریح انتخاب کنید: «با اثر موجودی» (موجودی انبار و کالا هم به همان اندازه برمی‌گردد؛ اگر منفی شود رد می‌شود) یا «فقط کاردکس» (برای ردیفی که هرگز کالای فیزیکی را جابه‌جا نکرده؛ موجودی انبار دست نمی‌خورد).</li>
+        <li><b>علت (حداقل ۵ نویسه)</b> و <b>تأیید نهایی</b> الزامی است. ردیف اصلی «ابطال‌شده» و یک ردیف معکوس ثبت می‌شود؛ هیچ ردیفی حذف یا ویرایش نمی‌شود. ابطال دوباره یا ابطال ردیف معکوس رد می‌شود. علت و اثر موجودی در گزارش ممیزی ثبت می‌شود.</li>
+        <li>اگر ردیف سند حسابداری داشته باشد، <b>سندی ثبت نمی‌شود</b>؛ فقط یک <b>پیش‌نویس سند برگشت</b> (با شمارهٔ ردیف کاردکس در شرح) ساخته می‌شود تا حسابداری بررسی و ثبت کند.</li>
+        <li>ردیف‌های دارای سند (فاکتور، خرید، تولید، سند انبار، انتقال) فقط از ابطال سند مبدأ برمی‌گردند؛ تعدیل دستی از دکمهٔ ⛔ همان تعدیل.</li>
+        <li><b>گزارش اختلاف:</b> <span dir="ltr">GET /api/inventory/stock-kardex-mismatch?product_id=&amp;warehouse_id=</span> (مدیر/حسابداری) کالا×انبارهایی را نشان می‌دهد که موجودی انبار با ماندهٔ کاردکس برابر نیست (هر دو عدد، اختلاف و ارزش کاردکس). فقط‌خواندنی؛ هیچ اصلاح خودکاری ندارد.</li>
+        <li>API: <span dir="ltr">POST /api/inventory/ledger/:id/reverse-correction</span> با بدنهٔ <span dir="ltr">{"confirm": true, "reason": "…", "stock_effect": "with_stock" | "kardex_only"}</span>؛ پیش‌نمایش <span dir="ltr">GET …/reverse-correction-preview</span>.</li>
       </ul>`),
     helpSec('📦','FR-P3: پیش‌نویس‌های P3 دوباره روی ۱۱۰۴ + افتتاحیهٔ ردیف‌های ۲۰۲۱ تا ۲۰۲۳ (vNEXT)',`
       <p>کل ماندهٔ دفتر کل موجودی روی خود <b>۱۱۰۴</b> است و ۱۱۰۴۰۱ (با زیرحساب‌های تفصیلی کالا) گردشی ندارد؛ بنابراین طبق تصمیم مدیر، سطرهای موجودی همهٔ پیش‌نویس‌های P3 روی <b>۱۱۰۴</b> می‌نشینند. هیچ سندی خودکار ثبت نمی‌شود.</p>
