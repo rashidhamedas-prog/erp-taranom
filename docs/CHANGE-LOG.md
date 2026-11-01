@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۱۰ — P10: گزارش سریع حرکت کالا + سود و زیان روزانهٔ تقریبی (پیش‌نویس) (SW v599)
-- **Deploy:** ❌ merge نشده / deploy نشده (فقط PR).
+- **Deploy:** ✅ #123 → ef13daec — overlay Iran — بکاپ /home/taranom/backups/crm.db.20261101-111514 (+wal/shm) — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v599 — leaf=warn — GL1104=10,883,218,790 · k34+35=10,997,256,853 · (GL−K)=−114,038,063
 - **وضعیت:** شاخه `feat/p10-reports-daily-pnl` (پایه: main 3b13cf58 = بعد از P6 v594، P8 v595، P5 v596، P7 v597، P9 v598؛ rebase شد)؛ منبع: `P10-reports-daily-pnl.md`. PR پیش‌نویس.
 - **API (فقط‌خواندنی، `server/routes/reports.js` → `server/lib/reports-p10.js`):**
   - `GET /api/reports/quick-item-movement?from&to|date&warehouse_id&type=sale|purchase|both&q&product_id&branch_id` — `auth` + `reports:view` (صندوقدار هم دارد). به تفکیک **کالا × variant**: `sold_qty / returned_qty / net_sold_qty / purchased_qty / purchase_returned_qty` از سطرهای اسناد زنده (فاکتور `normal|final` بدون `deleted_at`، برگشت فروش/خرید غیر `reversed`، فاکتور خرید زنده). فیلتر انبار = انبار سطر یا سربرگ (برگشت فروش ← انبار فاکتور مبدأ). **مبالغ** (`*_amount_rial`) فقط با `cost_visibility:view` ساخته می‌شوند؛ بدون مجوز کلیدش اصلاً در پاسخ نیست (`amounts_visible:false`). middleware P4 هم روی `/api/reports` فعال است.
