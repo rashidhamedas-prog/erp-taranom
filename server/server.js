@@ -621,6 +621,7 @@ app.use('/api/banks', require('./routes/banks'));
 app.use('/api/check-categories', require('./routes/check-categories'));
 app.use('/api/cash-boxes', require('./routes/cash-boxes'));
 app.use('/api/transfers', require('./routes/transfers'));
+app.use('/api/expenses/drafts', require('./routes/expense-drafts')); // P8 — before /api/expenses
 app.use('/api/expenses', require('./routes/expenses'));
 app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));

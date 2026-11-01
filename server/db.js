@@ -3262,6 +3262,14 @@ function initSyncSchema(db, opts) {
     throw e;
   }
 
+  // P8 — expense_drafts (before sync column/trigger pass so it is syncable)
+  try {
+    require('./lib/expense-drafts').ensureExpenseDraftSchema(db);
+  } catch (e) {
+    console.error('❌ expense drafts schema init failed:', e.message);
+    throw e;
+  }
+
   // Second pass — tables created above in this function (parties, fiscal_years, production, …).
   ensureSyncColumnsForAllTables(db);
   if (!isDevice()) {
@@ -3753,6 +3761,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v33','1')").run();
+    }
+    // v34: expense_drafts (P8 daily expense form)
+    const backfillV34 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v34'").get();
+    if (!backfillV34 || backfillV34.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v34 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v34','1')").run();
     }
   }
 

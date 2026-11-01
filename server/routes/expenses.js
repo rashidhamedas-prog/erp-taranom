@@ -390,4 +390,6 @@ router.put('/:id', auth, adminOrAccounting, (req, res) => {
 
 module.exports = router;
 module.exports.resolveExpensePosting = resolveExpensePosting;
+module.exports.resolveCategoryChain = resolveCategoryChain;
+module.exports.findExpenseCategory = findExpenseCategory;
 module.exports.COST_SECTIONS = COST_SECTIONS;

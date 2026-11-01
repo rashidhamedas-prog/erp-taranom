@@ -48,7 +48,7 @@ async function main() {
 
   console.log('— SSOT —');
   const legacyKeys = Object.keys(LEGACY);
-  ok(legacyKeys.length === 93, 'LEGACY has 93 keys', legacyKeys.length);
+  ok(legacyKeys.length === 94, 'LEGACY has 94 keys (P8 coa_owner_current)', legacyKeys.length);
   ok(legacyKeys.every((k) => ALLOWED_KEYS.includes(k)), 'every LEGACY key is in ALLOWED_KEYS');
   ok(ALLOWED_KEYS.includes('coa_admin_expense'), 'coa_admin_expense allowed');
   ok(ALLOWED_KEYS.includes('coa_rep_commission_expense'), 'coa_rep_commission_expense allowed');
@@ -59,7 +59,7 @@ async function main() {
   ok(LEGACY.coa_asset_disposal_loss.code === '6105', 'disposal loss default code unchanged');
   ok(LEGACY.coa_asset_disposal_loss.suggested === '6119', 'disposal loss suggested=6119');
   const desc = listCoaKeyDescriptors();
-  ok(desc.length === 93, 'listCoaKeyDescriptors count', desc.length);
+  ok(desc.length === 94, 'listCoaKeyDescriptors count', desc.length);
   ok(desc.every((d) => d.key && d.name && d.group && typeof d.is_control === 'boolean'), 'descriptor shape');
   ok(isControlCoaKey('coa_receivable') && isControlCoaKey('coa_issue_return_to_supplier'), 'control keys flagged');
   ok(!isControlCoaKey('coa_admin_expense'), 'admin expense is non-control');
@@ -136,7 +136,7 @@ async function main() {
 
   console.log('— GET /settings/coa-keys —');
   let r = await api('GET', '/api/settings/coa-keys');
-  ok(r.status === 200 && r.data.count === 93, 'GET coa-keys 200 / count 93', r.data && r.data.count);
+  ok(r.status === 200 && r.data.count === 94, 'GET coa-keys 200 / count 94', r.data && r.data.count);
   ok(Array.isArray(r.data.keys) && r.data.keys.some((k) => k.key === 'coa_issue_scrap'), 'includes issue keys');
   ok(Array.isArray(r.data.groups) && r.data.groups.includes('حواله‌ها'), 'groups include حواله‌ها');
 

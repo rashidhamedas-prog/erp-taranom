@@ -101,6 +101,9 @@ const PATH_TABLE_MAP = [
   ['/api/banks', 'banks'],
   ['/api/cash-boxes', 'cash_boxes'],
   ['/api/check-categories', 'check_categories'],
+  // P8 — drafts before bare /api/expenses; its category route writes expense_categories
+  ['/api/expenses/drafts/categories', 'expense_categories'],
+  ['/api/expenses/drafts', 'expense_drafts'],
   ['/api/expenses/categories', 'expense_categories'],
   ['/api/expenses', 'expense_payments'],
   ['/api/transfers', 'account_transfers'],
