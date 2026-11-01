@@ -368,15 +368,16 @@ function invoiceWarehouseGrni(db, body, user) {
     }
     gate.finish();
 
-    // Supplier books
-    try {
-      db.prepare(`
-        INSERT INTO supplier_ledger (supplier_id,entry_type,ref_type,ref_id,debit,credit,date,note,created_by)
-        VALUES (?,'purchase','purchase',?,0,?,?,?,?)
-      `).run(supplierId, invId, finalAmt, date, note, user.id);
-    } catch (_) {
-      /* older schema */
-    }
+    // Supplier books (same shape as routes/purchases createSupplierLedgerEntry; retired on void).
+    const supDesc = `فاکتور خرید ${num}`;
+    db.prepare(`
+      INSERT INTO supplier_ledger (supplier_id,date,entry_type,ref_type,ref_id,description,debit,credit,user_id)
+      VALUES (?,?,'purchase','purchase',?,?,0,?,?)
+    `).run(supplierId, date, invId, supDesc, finalAmt, user.id);
+    require('./party-leaf-sync').afterPartyBookInsert(db, {
+      kind: 'supplier', entityId: supplierId, date, entry_type: 'purchase', ref_type: 'purchase', ref_id: invId,
+      description: supDesc, debit: 0, credit: finalAmt, user_id: user.id,
+    });
 
     for (const d of docs) {
       db.prepare('UPDATE warehouse_docs SET purchase_invoice_id=?, supplier_id=COALESCE(supplier_id,?) WHERE id=?')
@@ -421,8 +422,27 @@ function unlinkWarehouseGrniOnPurchaseVoid(db, purchaseId, { userId = null, reas
       note: reason || `ابطال تعدیل بهای GRNI فاکتور #${purchaseId}`,
     });
   }
+  const qtyDocs = db.prepare(`
+    SELECT id, num, amount_rial_total FROM warehouse_docs WHERE purchase_invoice_id=? AND COALESCE(qty_only,0)=1
+  `).all(purchaseId);
   db.prepare('UPDATE warehouse_docs SET purchase_invoice_id=NULL WHERE purchase_invoice_id=?').run(purchaseId);
-  return { unlinked: docs.length, revals_reversed: leds.length };
+  if (qtyDocs.length) {
+    // P7: back to «awaiting costing» with the receipt-time cost_pending flag.
+    const pi = db.prepare('SELECT num, final, reversal_journal_id FROM purchase_invoices WHERE id=?').get(purchaseId) || {};
+    const revalTotal = leds.reduce((s, l) => s + Math.round(Number(l.amount_rial) || 0), 0);
+    for (const d of qtyDocs) {
+      const zero = db.prepare(`
+        SELECT COUNT(*) AS c FROM warehouse_moves
+        WHERE doc_id=? AND COALESCE(status,'posted')<>'reversed' AND COALESCE(amount_rial,0)<=0
+      `).get(d.id).c;
+      db.prepare('UPDATE warehouse_docs SET cost_pending=? WHERE id=?').run(zero > 0 ? 1 : 0, d.id);
+      audit(userId, 'cost_reverse', 'qty_receipt', d.id,
+        `لغو ریالی‌سازی رسید مقداری ${d.num}: فاکتور خرید ${pi.num || ''} (#${purchaseId}) ابطال، JE برگشت #${pi.reversal_journal_id || '-'}، `
+        + `مبلغ ${Math.round(Number(pi.final) || 0)} ریال، تعدیل ارزش کاردکس ${-revalTotal} ریال برگشت، `
+        + `بازگشت به بهای موقت ${Math.round(Number(d.amount_rial_total) || 0)} ریال، cost_pending=${zero > 0 ? 1 : 0}`);
+    }
+  }
+  return { unlinked: docs.length, revals_reversed: leds.length, qty_receipts: qtyDocs.map((d) => d.id) };
 }
 
 function assertWarehouseDocNotBilled(db, docId) {

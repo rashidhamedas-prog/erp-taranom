@@ -536,7 +536,7 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
     return res.status(400).json({ error: `این فاکتور ${activePays} پرداخت تأمین‌کننده فعال دارد — ابتدا پرداخت را ابطال کنید` });
   }
 
-  db.transaction(() => {
+  const voidTx = db.transaction(() => {
     if (row.stock_added) {
       if (perpetualDocsEnabled(db)) {
         const reversed = reverseStockBySource(db, 'purchase', row.id, {
@@ -649,17 +649,19 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 
     db.prepare("UPDATE purchase_invoices SET status='reversed',stock_added=0,reversal_journal_id=?,reversed_at=strftime('%s','now'),reversed_by=? WHERE id=?")
       .run(reversalId, req.user.id, row.id);
-    try {
-      const { unlinkWarehouseGrniOnPurchaseVoid } = require('../lib/warehouse-grni-invoice');
-      unlinkWarehouseGrniOnPurchaseVoid(db, row.id, {
-        userId: req.user.id,
-        reason: `ابطال فاکتور خرید ${row.num}`,
-      });
-    } catch (unlinkErr) {
-      console.warn('unlinkWarehouseGrniOnPurchaseVoid:', unlinkErr && unlinkErr.message);
-    }
-  })();
-  audit(req.user.id, 'reverse', 'purchase', req.params.id, `ابطال فاکتور خرید ${row.num}`);
+    // GRNI/P7: kardex value-only rows + receipt link must reverse with the JE or not at all (R13).
+    const { unlinkWarehouseGrniOnPurchaseVoid } = require('../lib/warehouse-grni-invoice');
+    unlinkWarehouseGrniOnPurchaseVoid(db, row.id, {
+      userId: req.user.id,
+      reason: `ابطال فاکتور خرید ${row.num}`,
+    });
+    audit(req.user.id, 'reverse', 'purchase', req.params.id, `ابطال فاکتور خرید ${row.num}`);
+  });
+  try {
+    voidTx();
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
   res.json({ ok: true });
 });
 
