@@ -2705,6 +2705,12 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
     const db = getDB();
     const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
     if (!draft) return res.status(404).json({ error: 'پیش‌نویس یافت نشد' });
+    if (require('../lib/inventory/p3-recon-drafts').isSupersededP3Draft(db, draft.id)) {
+      return res.status(409).json({
+        error: 'این پیش‌نویس منسوخ است — برگشت JE1016 فقط از مسیر رسمی «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» (اصلاحیه #1 → ابطال) انجام می‌شود',
+        code: 'E_P3_DRAFT_SUPERSEDED',
+      });
+    }
     assertMakerChecker(req.user, draft.created_by);
     const lines = JSON.parse(draft.lines_json || '[]');
     const built = validateAndBuildVoucherLines(db, lines);

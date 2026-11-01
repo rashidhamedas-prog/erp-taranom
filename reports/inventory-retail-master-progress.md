@@ -14,7 +14,8 @@ Order: P1→P2→P4→P6→P8→P5→P7→P9→P10→P3
 | P7 | #125 | d6574661 | v597 | crm.db.20261101-110236 | ✅ |
 | P9 | #127 | ab626f18 | v598 | crm.db.20261101-110733 | ✅ |
 | P10 | #123 | ef13daec | v599 | crm.db.20261101-111514 | ✅ |
-| P3 | #124 (draft) | — | v600 | — | drafts only (voucher_drafts) — awaiting Hamed; not merged/deployed; rebased on 6333402a |
+| P3 | #124 | 99663d33 | v600 | crm.db.20261101-112151 | ✅ drafts only (voucher_drafts #1..#4) — awaiting Hamed |
+| P3-fix | draft PR | — | (no SW bump) | — | drafts → 110401 (v2 migration), JE1016 manual draft superseded (409 on post), reverse-preview + runbook `reports/je1016-reverse-runbook.md` — NOT merged/deployed; JE1016 reverse = Hamed only |
 
 ## Gap baseline (pre-P1 deploy 2026-11-01)
 - GL1104 (approved)=10,883,218,790
@@ -25,3 +26,4 @@ Order: P1→P2→P4→P6→P8→P5→P7→P9→P10→P3
 ## Notes
 - je1016-analysis.md not found on disk; using PV data report analysis for P3.
 - Parallel drafts OK; merge/deploy sequential.
+- P3-fix (Hamed): P3 drafts on leaf 110401; gap control on 1104 + subtree. JE1016 only via official `POST /api/accounting/subledger-recon/fixes/1/reverse` — prepared, STOP. Expected after Hamed's reverse: 1104 subtree 10,883,218,790 → 12,680,079,142; GL−K −114,038,063 → +1,682,822,289.
