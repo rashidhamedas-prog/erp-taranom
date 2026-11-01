@@ -106,6 +106,8 @@ const LEGACY = {
   // Warehouse Phase 5 (v578) — مغایرت انبارگردانی: حساب جدا از ضایعات (6108). APPEND keys only.
   coa_stocktake_loss:         { code: '6120', name: 'کسری انبارگردانی' },
   coa_stocktake_gain:         { code: '4205', name: 'اضافی انبارگردانی' },
+  // P8 — فرم هزینهٔ روزانه: منبع «مالک» (کنترلی؛ تفصیلی = شخص مالک). APPEND keys only.
+  coa_owner_current:          { code: '2115', name: 'حساب جاری شرکا / مالک' },
 };
 
 /** Warehouse issue types (warehouse_docs.issue_type) → logical COA key. */
@@ -195,6 +197,7 @@ const KIND_TYPE = {
 const CONTROL_COA_KEYS = new Set([
   ...Object.values(KIND_KEY),
   'coa_issue_return_to_supplier',
+  'coa_owner_current',
 ]);
 
 function isControlCoaKey(key) {
@@ -263,6 +266,9 @@ function coaKeyCompatRule(key) {
   }
   if (k === 'coa_cheques_payable') {
     return { prefixes: ['2'], types: ['liability'], label: '2xxx' };
+  }
+  if (k === 'coa_owner_current') {
+    return { prefixes: ['2', '3'], types: ['liability', 'equity'], label: '2xxx/3xxx' };
   }
   if (k.startsWith('coa_memo_')) {
     return { prefixes: ['9'], types: ['equity', 'asset', 'liability'], label: '9xxx' };
@@ -563,6 +569,7 @@ function baseCoaTree() {
     ['2112', 'کالای دریافت‌شده فاکتورنشده (GRNI)', 'liability', '2100', 2],
     ['2113', 'بیمه بیکاری پرداختنی', 'liability', '2100', 2],
     ['2114', 'ذخیره مرخصی استحقاقی کارکنان', 'liability', '2100', 2],
+    ['2115', 'حساب جاری شرکا / مالک', 'liability', '2100', 2],
     ['3000', 'حقوق صاحبان سرمایه', 'equity', null, 1],
     ['3101', 'سود (زیان) انباشته', 'equity', '3000', 2],
     ['3102', 'تراز افتتاحیه', 'equity', '3000', 2],

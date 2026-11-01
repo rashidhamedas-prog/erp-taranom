@@ -2383,7 +2383,7 @@ const LU = (()=> {
     reminders:'bell', users:'user', reports:'trending', ai:'bot', b2bOrders:'cart',
     accounting:'wallet', messages:'chat', settings:'settings', backup:'archive', api:'plug',
     help:'book', catalog:'bag', 'my-rep':'briefcase', 'desktop-settings':'monitor',
-    'store-quick-sale':'cart',
+    'store-quick-sale':'cart', 'expense-drafts':'receipt',
     'exit-acc-shell':'back', 'acc-dash':'dashboard', 'acc-general':'linechart',
     'acc-trial-balance':'scale', 'acc-balance-sheet':'landmark', 'acc-adv-reports':'chart',
     'acc-production':'factory', 'acc-receivables':'receipt', 'acc-sales-invoices':'file',
@@ -2467,6 +2467,7 @@ const EMO_LU = {
 const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'store-quick-sale', icon:'🏪', label:'فروش سریع فروشگاهی'},
+  {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه (تأیید)'},
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
   {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
@@ -2498,11 +2499,13 @@ const NAV_SALES = [
 const NAV_STORE = [
   {id:'store-quick-sale', icon:'🏪', label:'فروش سریع فروشگاهی'},
   {id:'invoices', icon:'🧾', label:'فاکتورهای من'},
+  {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
 const NAV_ACCOUNTING = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'store-quick-sale', icon:'🏪', label:'فروش سریع فروشگاهی'},
+  {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه (تأیید)'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
@@ -33295,6 +33298,189 @@ async function deleteExpenseCategory(id){
   try{ await api('DELETE','/expenses/categories/'+id); showToast('حذف شد'); CACHE.expenseCategories=null; loadAccTab('expense-categories'); }catch(e){}
 }
 
+/* ============================================================
+   P8 — هزینهٔ روزانه: پیش‌نویس صندوق‌دار → تأیید حسابدار (بدون سند تا تأیید)
+============================================================ */
+const EXP_DRAFT_SRC_FA={cash_box:'صندوق',petty_cash:'تنخواه',owner:'جاری مالک'};
+const EXP_DRAFT_ST_FA={pending:['در انتظار تأیید','t-pending'],approved:['تأیید شد','t-done'],rejected:['رد شد','t-cancel'],cancelled:['لغو شد','t-cancel'],voided:['ابطال شد','t-cancel']};
+let _expDraft={opts:null,rows:[],status:'',report:null,from:'',to:''};
+function expDraftIsReviewer(){ return !!(ME&&(ME.role==='admin'||ME.role==='accounting')); }
+function expDraftFieldsHtml(p,row,rev){
+  const o=_expDraft.opts||{};
+  const src=row.source||'cash_box';
+  const cats=(o.categories||[]).map(c=>`<option value="${c.id}" ${String(row.category)===String(c.id)||String(row.category)===String(c.code||'')?'selected':''}>${esc(c.name)}${c.account_code?(' — '+esc(c.account_code)):''}</option>`).join('');
+  const boxes=(o.boxes||[]).map(b=>`<option value="${b.id}" ${Number(row.cash_box_id)===b.id?'selected':''}>${esc(b.name)}${Number(b.is_petty_cash)===1?' (تنخواه)':''}</option>`).join('');
+  const owners=(o.owners||[]).map(w=>`<option value="${w.id}" ${Number(row.owner_person_id)===w.id?'selected':''}>${esc(w.name)}</option>`).join('');
+  return `
+    <div class="fg"><label>تاریخ *</label><input id="${p}-date" data-jdate value="${esc(row.date||todayJalali())}"></div>
+    <div class="fg"><label>مبلغ (ریال) *</label><input id="${p}-amount" type="text" inputmode="numeric" class="money" value="${row.amount?fmt(row.amount):''}"></div>
+    <div class="fg"><label>منبع پرداخت *</label>
+      <select id="${p}-source" data-csp-change="${CSP.bind('change',function(event){expDraftSyncSource(p)})}">
+        ${Object.keys(EXP_DRAFT_SRC_FA).map(k=>`<option value="${k}" ${src===k?'selected':''}>${esc(EXP_DRAFT_SRC_FA[k])}</option>`).join('')}
+      </select></div>
+    <div class="fg ${src==='owner'?'hide':''}" id="${p}-box-row"><label>صندوق / تنخواه *</label><select id="${p}-box"><option value="">— انتخاب —</option>${boxes}</select></div>
+    <div class="fg ${src==='owner'?'':'hide'}" id="${p}-owner-row"><label>شخص مالک *</label><select id="${p}-owner"><option value="">— انتخاب —</option>${owners}</select></div>
+    <div class="fg full"><label>دستهٔ هزینه *</label><select id="${p}-cat"><option value="">— انتخاب —</option>${cats}</select></div>
+    <div class="fg full"><label>شرح *</label><input id="${p}-title" value="${esc(row.title||'')}" placeholder="مثال: خرید ملزومات بسته‌بندی"></div>
+    <div class="fg full"><label>توضیحات</label><input id="${p}-note" value="${esc(row.note||'')}"></div>
+    ${rev?`<div class="fg full"><label>کد حساب هزینه (اختیاری — فقط حسابدار) ${hlp('اگر خالی باشد از دسته (یا ۶۱۰۲/۶۱۰۳) گرفته می‌شود.')}</label>
+      <input id="${p}-account" dir="ltr" inputmode="numeric" class="mono coa-code" value="${esc(row.account_code||'')}" placeholder="مثال: 6102"></div>`:''}`;
+}
+function expDraftSyncSource(p){
+  const s=el(p+'-source')?.value;
+  el(p+'-box-row')?.classList.toggle('hide', s==='owner');
+  el(p+'-owner-row')?.classList.toggle('hide', s!=='owner');
+}
+function expDraftRead(p,rev){
+  const source=el(p+'-source').value;
+  const body={
+    date:el(p+'-date').value, amount:moneyVal(p+'-amount'), source,
+    category:el(p+'-cat').value, title:el(p+'-title').value.trim(), note:el(p+'-note').value.trim(),
+    cash_box_id: source==='owner'?null:(+el(p+'-box').value||null),
+    owner_person_id: source==='owner'?(+el(p+'-owner').value||null):null,
+  };
+  if(rev && el(p+'-account')) body.account_code=el(p+'-account').value.trim();
+  return body;
+}
+function expDraftValidate(b){
+  if(!b.amount||b.amount<=0){ showToast('مبلغ معتبر وارد کنید','error'); return false; }
+  if(!b.category){ showToast('دستهٔ هزینه را انتخاب کنید','error'); return false; }
+  if(!b.title && !b.note){ showToast('شرح هزینه الزامی است','error'); return false; }
+  if(b.source==='owner' && !b.owner_person_id){ showToast('شخص مالک را انتخاب کنید','error'); return false; }
+  if(b.source!=='owner' && !b.cash_box_id){ showToast('صندوق یا تنخواه را انتخاب کنید','error'); return false; }
+  return true;
+}
+async function expDraftLoad(){
+  const q=_expDraft.status?('?status='+encodeURIComponent(_expDraft.status)):'';
+  const [opts,rows]=await Promise.all([ api('GET','/expenses/drafts/options'), api('GET','/expenses/drafts'+q) ]);
+  _expDraft.opts=opts||{}; _expDraft.rows=rows||[];
+}
+ROUTES['expense-drafts']=async function(){
+  el('view').innerHTML='<div class="empty">در حال بارگذاری…</div>';
+  await expDraftLoad();
+  expDraftRender();
+};
+function expDraftRender(){
+  const rev=expDraftIsReviewer(), o=_expDraft.opts||{};
+  const rows=_expDraft.rows||[];
+  const pending=rows.filter(r=>r.status==='pending').length;
+  const tbl=rows.map(r=>{
+    const st=EXP_DRAFT_ST_FA[r.status]||[r.status,'t-pending'];
+    const own=Number(r.created_by)===Number(ME.id);
+    const btns=[];
+    if(r.status==='pending' && (rev||own)) btns.push(`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){expDraftEditModal((r.id))})}">✏️ ${rev?'بررسی':'ویرایش'}</button>`);
+    if(r.status==='pending' && rev && !own) btns.push(`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){expDraftApprove((r.id))})}">✔ تأیید</button> <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){expDraftReject((r.id))})}">✖ رد</button>`);
+    if(r.status==='pending' && !rev && own) btns.push(`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){expDraftCancel((r.id))})}">لغو</button>`);
+    if(r.status==='approved' && rev) btns.push(`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){expDraftVoid((r.id))})}">ابطال</button>`);
+    const srcTxt=(EXP_DRAFT_SRC_FA[r.source]||r.source)+(r.source==='owner'?(r.owner_name?(' — '+r.owner_name):''):(r.cash_box_name?(' — '+r.cash_box_name):''));
+    return `<tr>
+      <td class="mono">${esc(r.date)}</td>
+      <td class="mono">${fmt(r.amount)}</td>
+      <td>${esc(r.category_name||r.category)}</td>
+      <td>${esc(r.title||r.note||'')}</td>
+      <td>${esc(srcTxt)}</td>
+      <td>${esc(r.creator_name||'')}</td>
+      <td><span class="tag ${st[1]}">${esc(st[0])}</span>${r.reject_reason?`<div class="muted">${esc(r.reject_reason)}</div>`:''}${r.journal_entry_id?`<div class="muted mono">سند #${r.journal_entry_id}</div>`:''}</td>
+      <td>${btns.join(' ')}</td></tr>`;
+  }).join('')||emptyRow(8);
+  el('view').innerHTML=`
+    <div class="panel"><div class="panel-head"><h3>🧾 ثبت هزینهٔ روزانه ${hlp('هزینه به‌صورت پیش‌نویس ثبت می‌شود و تا تأیید حسابدار هیچ سند حسابداری ندارد.')}</h3></div>
+      <div class="form-grid">${expDraftFieldsHtml('xd',{},false)}</div>
+      <div class="toolbar"><button class="btn" data-csp-click="${CSP.bind('click',function(event){expDraftCreate()})}">📝 ثبت پیش‌نویس</button></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h3>${rev?'پیش‌نویس‌ها و هزینه‌ها':'پیش‌نویس‌های من'} ${pending?`<span class="tag t-pending">${fmt(pending)} در انتظار</span>`:''}</h3>
+      <select id="xd-filter" data-csp-change="${CSP.bind('change',async function(event){_expDraft.status=this.value; await expDraftLoad(); expDraftRender();})}">
+        ${[['','همه'],['pending','در انتظار'],['approved','تأییدشده'],['rejected','ردشده'],['cancelled','لغوشده'],['voided','ابطال‌شده']].map(([v,l])=>`<option value="${v}" ${_expDraft.status===v?'selected':''}>${l}</option>`).join('')}
+      </select></div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>مبلغ (ریال)</th><th>دسته</th><th>شرح</th><th>منبع</th><th>ثبت‌کننده</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>${tbl}</tbody></table></div>
+    </div>
+    ${rev?expDraftReviewerHtml(o):''}`;
+}
+function expDraftReviewerHtml(o){
+  const rep=_expDraft.report;
+  const parents=(o.parents61||[]).map(c=>`<option value="${c.id}">${esc(c.name)} — ${esc(c.account_code||'')}</option>`).join('');
+  const catRows=rep?(rep.by_category||[]).map(r=>`<tr><td>${esc(r.category_name||r.category)}</td><td>${fmt(r.count)}</td><td class="mono">${fmt(r.total)}</td></tr>`).join('')||emptyRow(3):'';
+  const srcRows=rep?(rep.by_source||[]).map(r=>`<tr><td>${esc(EXP_DRAFT_SRC_FA[r.source]||r.source)}</td><td>${fmt(r.count)}</td><td class="mono">${fmt(r.total)}</td></tr>`).join('')||emptyRow(3):'';
+  return `
+    <div class="panel"><div class="panel-head"><h3>➕ افزودن دسته (برگ جدید زیر حساب‌های ۶۱xx)</h3></div>
+      <div class="form-grid">
+        <div class="fg"><label>دستهٔ والد (۶۱xx) *</label><select id="xd-newcat-parent"><option value="">— انتخاب —</option>${parents}</select></div>
+        <div class="fg"><label>نام دستهٔ جدید *</label><input id="xd-newcat-name"></div>
+      </div>
+      <div class="toolbar"><button class="btn" data-csp-click="${CSP.bind('click',function(event){expDraftAddCategory()})}">➕ افزودن دسته</button></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h3>📊 گزارش هزینهٔ روزانه (تأییدشده‌ها)</h3></div>
+      <div class="form-grid">
+        <div class="fg"><label>از تاریخ</label><input id="xd-rep-from" data-jdate value="${esc(_expDraft.from||'')}"></div>
+        <div class="fg"><label>تا تاریخ</label><input id="xd-rep-to" data-jdate value="${esc(_expDraft.to||'')}"></div>
+      </div>
+      <div class="toolbar"><button class="btn" data-csp-click="${CSP.bind('click',function(event){expDraftReport()})}">نمایش گزارش</button></div>
+      ${rep?`<p>جمع کل: <strong class="mono">${fmt(rep.total)}</strong> ریال — ${fmt(rep.count)} هزینه</p>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>دسته</th><th>تعداد</th><th>جمع (ریال)</th></tr></thead><tbody>${catRows}</tbody></table></div>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>منبع</th><th>تعداد</th><th>جمع (ریال)</th></tr></thead><tbody>${srcRows}</tbody></table></div>`:''}
+    </div>`;
+}
+async function expDraftCreate(){
+  const b=expDraftRead('xd',false);
+  if(!expDraftValidate(b)) return;
+  try{
+    await api('POST','/expenses/drafts',b);
+    showToast('پیش‌نویس ثبت شد؛ پس از تأیید حسابدار سند می‌خورد');
+    await expDraftLoad(); expDraftRender();
+  }catch(e){}
+}
+function expDraftEditModal(id){
+  const row=(_expDraft.rows||[]).find(x=>x.id===id); if(!row) return;
+  const rev=expDraftIsReviewer(), own=Number(row.created_by)===Number(ME.id);
+  openModal(`
+    <div class="modal-head"><h3>${rev?'بررسی و ویرایش پیش‌نویس':'ویرایش پیش‌نویس'} #${row.id}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body"><div class="form-grid">${expDraftFieldsHtml('xe',row,rev)}</div>
+      ${rev&&own?'<div class="warn">شما سازندهٔ این پیش‌نویس هستید؛ تأیید باید توسط حسابدار دیگری انجام شود.</div>':''}</div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){expDraftSaveEdit((id),false)})}">💾 ذخیره ویرایش</button>
+      ${rev&&!own?`<button class="btn" data-csp-click="${CSP.bind('click',function(event){expDraftSaveEdit((id),true)})}">✔ ذخیره و تأیید (ثبت سند)</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
+}
+async function expDraftSaveEdit(id, approve){
+  const rev=expDraftIsReviewer();
+  const b=expDraftRead('xe',rev);
+  if(!expDraftValidate(b)) return;
+  try{
+    if(approve){
+      const r=await api('POST','/expenses/drafts/'+id+'/approve',{edits:b});
+      showToast('تأیید شد — سند #'+((r&&r.journal_entry_id)||''));
+    } else {
+      await api('PUT','/expenses/drafts/'+id,b); showToast('ویرایش ذخیره شد');
+    }
+    closeModal(); await expDraftLoad(); expDraftRender();
+  }catch(e){}
+}
+async function expDraftApprove(id){
+  if(!confirm('این هزینه تأیید و سند حسابداری آن ثبت شود؟')) return;
+  try{ const r=await api('POST','/expenses/drafts/'+id+'/approve',{}); showToast('تأیید شد — سند #'+((r&&r.journal_entry_id)||'')); await expDraftLoad(); expDraftRender(); }catch(e){}
+}
+async function expDraftReject(id){
+  const reason=prompt('دلیل رد پیش‌نویس را بنویسید:'); if(!reason||!reason.trim()) return;
+  try{ await api('POST','/expenses/drafts/'+id+'/reject',{reason:reason.trim()}); showToast('رد شد'); await expDraftLoad(); expDraftRender(); }catch(e){}
+}
+async function expDraftCancel(id){
+  if(!confirm('این پیش‌نویس لغو شود؟')) return;
+  try{ await api('POST','/expenses/drafts/'+id+'/cancel',{}); showToast('لغو شد'); await expDraftLoad(); expDraftRender(); }catch(e){}
+}
+async function expDraftVoid(id){
+  const reason=prompt('دلیل ابطال هزینهٔ تأییدشده (سند آن برگردانده می‌شود):'); if(reason===null) return;
+  try{ await api('POST','/expenses/drafts/'+id+'/void',{reason:(reason||'').trim()}); showToast('هزینه ابطال و سند برگشت'); await expDraftLoad(); expDraftRender(); }catch(e){}
+}
+async function expDraftAddCategory(){
+  const parent_id=+el('xd-newcat-parent').value||null, name=el('xd-newcat-name').value.trim();
+  if(!parent_id||!name){ showToast('والد و نام دسته را وارد کنید','error'); return; }
+  try{ await api('POST','/expenses/drafts/categories',{parent_id,name}); showToast('دسته افزوده شد'); await expDraftLoad(); expDraftRender(); }catch(e){}
+}
+async function expDraftReport(){
+  _expDraft.from=el('xd-rep-from').value.trim(); _expDraft.to=el('xd-rep-to').value.trim();
+  const q=[]; if(_expDraft.from) q.push('from='+encodeURIComponent(_expDraft.from)); if(_expDraft.to) q.push('to='+encodeURIComponent(_expDraft.to));
+  try{ _expDraft.report=await api('GET','/expenses/drafts/report'+(q.length?('?'+q.join('&')):'')); expDraftRender(); }catch(e){}
+}
+
 async function renderPersonPositionsTab(body){
   const rows=await api('GET','/person-positions')||[];
   CACHE.personPositions=rows;
@@ -39980,6 +40166,16 @@ function renderAdminGuide(){
         <li><b>ایجاد کالا با موجودی:</b> کالا با موجودی صفر ساخته و یک پیش‌نویس تک‌خطی (انبار پیش‌فرض) ساخته می‌شود؛ موجودی بعد از ثبت قطعی توسط کاربر دیگر اعمال می‌شود. موجودی بدون بها همچنان رد می‌شود.</li>
         <li>مجوز: ایجاد پیش‌نویس و ثبت قطعی = «انبار: ایجاد»؛ مشاهده = «انبار: مشاهده». <span dir="ltr">ledger_leaf_enforcement</span> همان حالت قبلی (هشدار) می‌ماند.</li>
       </ul>`),
+    helpSec('🧾','هزینهٔ روزانه (پیش‌نویس → تأیید حسابدار) — P8 (v595)',`
+      <p>صندوق‌دار هزینهٔ روزانه را از منوی <b>«هزینه روزانه»</b> فقط به‌صورت <b>پیش‌نویس</b> ثبت می‌کند (مبلغ ریال، تاریخ، دسته، شرح، منبع: <b>صندوق</b> / <b>تنخواه</b> / <b>جاری مالک</b>). تا تأیید حسابدار <b>هیچ سند حسابداری</b> ثبت نمی‌شود.</p>
+      <ul>
+        <li><b>تأیید:</b> حسابدار (یا مدیر) پیش‌نویس را با ویرایش کامل بررسی و تأیید می‌کند؛ تنها در همین لحظه سند تراز می‌خورد: بدهکار حساب دستهٔ هزینه (مثلاً ۶۱۰۲) / بستانکار صندوق، تنخواه یا حساب جاری مالک. <b>سازندهٔ پیش‌نویس نمی‌تواند خودش تأیید کند</b> و صندوق‌دار اجازهٔ تأیید، رد یا ساخت دسته ندارد.</li>
+        <li><b>رد:</b> با دلیل الزامی؛ سندی ساخته نمی‌شود.</li>
+        <li><b>ابطال (R13):</b> هزینهٔ تأییدشده با دکمهٔ «ابطال» برمی‌گردد و سند آن در همان تراکنش باطل می‌شود؛ حذف فیزیکی نداریم.</li>
+        <li><b>منبع «جاری مالک»:</b> حساب کنترلی با کلید <span dir="ltr">coa_owner_current</span> (پیش‌فرض <span dir="ltr">2115</span> — در «تنظیمات ← نگاشت کدینگ» قابل تغییر) و تفصیلی خودکار شخص مالک؛ با انتخاب شخص مالک در فرم.</li>
+        <li><b>دسته‌ها:</b> حسابدار در همین صفحه یک <b>دستهٔ جدید (برگ)</b> زیر یکی از دسته‌های ۶۱xx می‌سازد؛ حساب را از والد ارث می‌برد. صندوق‌دار فقط انتخاب می‌کند. سربار ساخت از این فرم ثبت نمی‌شود (از «پرداخت هزینه» با مرکز هزینه).</li>
+        <li><b>گزارش:</b> جمع هزینه‌های تأییدشده بر اساس دسته و منبع در بازهٔ تاریخ (پایین همان صفحه).</li>
+      </ul>`),
     helpSec('🔢','کد حساب بدون کاما (v590)',`
       <p>در همهٔ فیلدهای <b>کد حساب</b> (نگاشت کدینگ، حساب موجودی/بهای تمام‌شدهٔ انبار، تعریف حساب، حساب هزینه) دیگر جداکنندهٔ هزارگان نمی‌نشیند؛ مثلاً <span dir="ltr">610401</span> دیگر به «۶۱۰,۴۰۱» تبدیل نمی‌شود و گزارش نگاشت برگ برای آن «یافت نشد» نمی‌دهد.</p>
       <ul>
@@ -41177,6 +41373,13 @@ function renderSalesGuide(){
   return [
     helpSec('💳','تسویه چندروشی در فروش (v592)',`
       <p>هنگام تسویه می‌توانید یک فروش را بین نقد، کارت، چک و اعتبار (حساب مشتری) تقسیم کنید. جمع غیرنقد نباید از مبلغ باقی‌مانده بیشتر شود؛ نقد اضافه به‌صورت «باقی» به مشتری برمی‌گردد. شماره پیگیری و ۴ رقم آخر کارت اختیاری است. فروش اعتباری بالاتر از سقف اعتبار مشتری رد می‌شود (سقف را فقط مدیر تعیین می‌کند). اگر مدیر حالت «مسدود» را برای کمبود موجودی فعال کرده باشد، فروش بیش از موجودی انجام نمی‌شود.</p>`),
+    helpSec('🧾','هزینهٔ روزانه (پیش‌نویس) — صندوق فروشگاه (v595)',`
+      <p>از منوی <b>«هزینه روزانه»</b> هر هزینه را (مبلغ ریال، تاریخ، دسته، شرح و منبع: صندوق، تنخواه یا مالک) به‌صورت <b>پیش‌نویس</b> ثبت کنید. پیش‌نویس تا تأیید حسابدار سند ندارد و روی موجودی صندوق اثر نمی‌گذارد.</p>
+      <ul>
+        <li>تا قبل از تأیید می‌توانید پیش‌نویس خودتان را ویرایش یا لغو کنید.</li>
+        <li>اگر حسابدار رد کند، دلیل رد کنار ردیف نشان داده می‌شود.</li>
+        <li>تأیید، رد و ساخت دستهٔ جدید فقط با حسابدار است؛ شما فقط دسته را انتخاب می‌کنید.</li>
+      </ul>`),
     helpSec('📦','فروش از انبار دیگر (v567)',`
       <p>برای فروش یک ردیف از انبار غیر از انبار سربرگ فاکتور، دسترسی <b>«فروش از انبار دیگر»</b> لازم است (مدیر دارد؛ بقیه را مدیر در دسترسی کاربران فعال می‌کند). بدون آن، انتخابگر انبار ردیف قفل است و پیام «برای فروش از انبار دیگر دسترسی لازم است» دیده می‌شود. نمایندگان همیشه روی انبار خودشان هستند.</p>
       <p>دکمهٔ <b>📦</b> کنار انبار هر ردیف، موجودی همهٔ انبارها را نشان می‌دهد و (با دسترسی) با یک کلیک انبار ردیف را عوض می‌کند. اگر کالا در انبار سربرگ صفر باشد ولی جای دیگر موجود باشد، روی کارت کالا بج «در انبار دیگر: n» می‌آید.</p>`),
