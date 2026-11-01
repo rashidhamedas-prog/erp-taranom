@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۱۰ — P7-fix: برگشت کامل ریالی‌سازی رسید مقداری + ردپای ممیزی + حساب تأمین‌کننده (v601)
-- **Deploy:** ❌ merge نشده / deploy نشده (فقط PR).
+- **Deploy:** ✅ #135 → 11b10adf — overlay Iran — بکاپ /home/taranom/backups/crm.db.20261101-120557 (+wal/shm) — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-vv601 — leaf=warn — GL1104(subtree)−K = −114,038,063 (بدون تغییر)
 - **شاخه:** `fix/p7-cost-cancel-audit` از origin/main `ed69dea6`. تصمیم الزام‌آور حامد: «P7: approved مثل بقیهٔ فاکتورهای خرید قبول، به شرط مسیر برگشت/ابطال و ثبت audit» ⇒ JE فاکتور خرید ریالی‌سازی همچنان `approved` می‌ماند (تصمیم باز (۱) P7 بسته شد).
 - **شکاف‌های پیداشده و رفع‌شده:**
   1. **حساب تأمین‌کننده (جدی، از v400):** `invoiceWarehouseGrni` در `supplier_ledger` با ستون‌های ناموجود `note/created_by` درج می‌کرد و خطا در `try/catch` بلعیده می‌شد ⇒ هیچ فاکتور خرید از رسید GRNI (از جمله همهٔ ریالی‌سازی‌های P7) در گردش تأمین‌کننده بستانکار نمی‌شد، در حالی که JE پرداختنی ثبت می‌شد. اکنون درج با ستون‌های واقعی (`description/user_id`) + `afterPartyBookInsert` (همان الگوی `createSupplierLedgerEntry`) و بدون بلعیدن خطا. ابطال فاکتور همان ردیف را با `retireSupplierLedgerByRef` برمی‌دارد؛ اصلاح درجا (`updatePurchaseSupplierLedger`) upsert است.
