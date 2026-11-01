@@ -2429,6 +2429,13 @@ function initSyncSchema(db, opts) {
   if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('commission_transfer')) {
     db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('commission_transfer');
   }
+  // P9-fix — نوع ذی‌نفع پورسانت + فلگ بیمه/مالیات کارمند (additive؛ NULL ⇒ مقدار مشتق در lib/commission-beneficiary).
+  ensureColumn(db, 'persons', 'commission_beneficiary_type', 'TEXT');
+  ensureColumn(db, 'persons', 'insurance_applicable', 'INTEGER');
+  ensureColumn(db, 'persons', 'payroll_tax_applicable', 'INTEGER');
+  ensureColumn(db, 'commission_transfers', 'beneficiary_type', 'TEXT');
+  ensureColumn(db, 'commission_transfers', 'tax_rate_pct', 'REAL DEFAULT 0');
+  ensureColumn(db, 'commission_transfers', 'withholding_tax_rial', 'INTEGER DEFAULT 0');
 
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
@@ -3086,6 +3093,15 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.error('❌ payroll/reporting/user-party schema init failed:', e.message);
     throw e;
+  }
+
+  try {
+    if (!isDevice()) {
+      const bf = require('./lib/commission-beneficiary').backfillBeneficiaries(db);
+      if (bf && !bf.skipped) console.log('✅ commission_beneficiary_backfill_v1:', JSON.stringify(bf));
+    }
+  } catch (e) {
+    console.warn('commission_beneficiary_backfill_v1:', e.message);
   }
 
   try {

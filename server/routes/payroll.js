@@ -68,6 +68,7 @@ const {
 } = require('../lib/payroll/leave-accrual');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { pendingPayrollCommission, markConsumedByPayroll } = require('../lib/commissions-multi');
+const { payrollCommissionFlags } = require('../lib/commission-beneficiary');
 const { todayJalali } = require('../jalali');
 const { createSecureUpload } = require('../lib/upload-policy');
 const {
@@ -927,6 +928,7 @@ router.post('/calculate', auth, adminOrAccounting, (req, res) => {
       ...req.body,
       other_deductions_rial: otherOnly + advRequest + loanRequest,
       commission_rial: manual ? 0 : pendingComm.amount_rial,
+      ...payrollCommissionFlags(db, personId),
     };
     if (manual) {
       const built = buildManualExemptCalc(inputForCalc);
@@ -1029,6 +1031,7 @@ router.post('/process', auth, requirePermission('payroll', 'create'), (req, res)
         ...input,
         other_deductions_rial: otherOnly + advRequest + loanRequest,
         commission_rial: manual ? 0 : pendingComm.amount_rial,
+        ...payrollCommissionFlags(db, personId),
       };
       let calc;
       let exemptMeta = null;

@@ -13188,7 +13188,7 @@ async function renderCommissionRulesTab(body){
   try{ _cmrMeta=await api('GET','/commissions/meta',null,false,true); }catch(_){ _cmrMeta=null; }
   if(!_cmrMeta){ body.innerHTML='<div class="empty">دسترسی محدود — مجوز «پورسانت سرپرست/فروشنده» لازم است</div>'; return; }
   const rng=cmrMonthRange();
-  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin:0 0 10px;font-size:12px;line-height:1.9`)}">💹 پایهٔ پورسانت = فروش خالص هر ردیف پس از تخفیف ردیف و سرفاکتور (بدون ارزش افزوده) منهای برگشت از فروش. سرپرست از <b>گروه/کد کالا</b>، فروشنده از <b>فاکتور یا کالا</b>. انتقال کارمند به <b>حقوق همان دوره</b> (مشمول بیمه و مالیات) و غیرکارمند به <b>سند پیش‌نویس</b>؛ هیچ پرداخت خودکاری ساخته نمی‌شود.</div>
+  body.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin:0 0 10px;font-size:12px;line-height:1.9`)}">💹 پایهٔ پورسانت = فروش خالص هر ردیف پس از تخفیف ردیف و سرفاکتور (بدون ارزش افزوده) منهای برگشت از فروش. سرپرست از <b>گروه/کد کالا</b>، فروشنده از <b>فاکتور یا کالا</b>. انتقال ذی‌نفع «کارمند» به <b>حقوق همان دوره</b> (بیمه/مالیات فقط با فلگ روشن) و «نماینده آزاد» به <b>سند پیش‌نویس</b>؛ هیچ پرداخت خودکاری ساخته نمی‌شود. برای هر شخص فقط یکی از «انگیزه فروش» یا این پورسانت.</div>
   <div class="panel"><div class="panel-head"><b>📊 گزارش پورسانت</b></div><div class="panel-body">
     <div class="toolbar" data-csp-style="${CSP.style(`flex-wrap:wrap;gap:8px`)}">
       <label>از <input id="cmrFrom" data-jdate value="${esc(rng.from)}" size="10"></label>
@@ -13206,9 +13206,81 @@ async function renderCommissionRulesTab(body){
       <input id="cmrInvRef" placeholder="شمارهٔ فاکتور (مثلاً T-0012)" dir="ltr">
       <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrPartiesModal()})}">✏️ تعیین فروشنده‌ها و سهم</button>
     </div></div></div>
-  <div class="panel"><div class="panel-head"><b>🔁 انتقال‌ها</b></div><div class="panel-body" id="cmrTransfers"></div></div>`;
+  <div class="panel"><div class="panel-head"><b>🔁 انتقال‌ها</b></div><div class="panel-body" id="cmrTransfers"></div></div>
+  <div class="panel"><div class="panel-head"><b>👥 نوع ذی‌نفع و فلگ بیمه/مالیات</b>
+    <span class="muted" id="cmrTaxRate"></span>
+    ${isAdmin()?`<button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrTaxRateEdit()})}">⚙️ نرخ کسر مالیات نماینده</button>`:''}
+    <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrAccountSuggestions()})}">🧭 پیشنهاد حساب</button></div>
+    <div class="panel-body" id="cmrBenef"></div></div>
+  <div class="panel"><div class="panel-head"><b>🔎 بازبینی ماهانه (برای حامد)</b></div><div class="panel-body">
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;flex-wrap:wrap`)}">
+      <label>ماه <input id="cmrRevMonth" dir="ltr" size="8" value="${esc(rng.from.slice(0,7))}" placeholder="1405/07"></label>
+      <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrLoadReview()})}">🔍 بازبینی</button>
+    </div>
+    <div id="cmrReview"></div></div></div>`;
   attachDatepickers(body);
-  await Promise.all([cmrLoadReport(), cmrLoadRules(), cmrLoadTransfers()]);
+  await Promise.all([cmrLoadReport(), cmrLoadRules(), cmrLoadTransfers(), cmrLoadBeneficiaries(), cmrLoadReview()]);
+}
+const CMR_BTYPE={ employee:'کارمند (ردیف حقوق)', agent:'نماینده آزاد (سند)' };
+const CMR_REASON={ insurance_off:'بیمه خاموش', payroll_tax_off:'مالیات حقوق خاموش', agent_tax_zero:'نماینده — نرخ کسر مالیات ۰' };
+async function cmrLoadBeneficiaries(){
+  const box=el('cmrBenef'); if(!box) return;
+  const d=await api('GET','/commissions/beneficiaries');
+  const rows=(d&&d.rows)||[];
+  if(el('cmrTaxRate')) el('cmrTaxRate').textContent=`نرخ کسر مالیات نماینده: ${fmtPct((d&&d.agent_tax_rate_pct)||0)}٪`;
+  box.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:6px`)}">برای هر شخص فقط یک موتور: اگر «انگیزه فروش» قدیمی فعال باشد قاعدهٔ P9 ثبت نمی‌شود (و برعکس). کارمند: پورسانت ردیف حقوق همان ماه؛ کسر بیمه/مالیات فقط اگر فلگ روشن باشد (نرخ‌ها از تنظیمات حقوق). نماینده آزاد: سند هزینهٔ پورسانت / حساب پرداختنی شخص.</div>
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>شخص</th><th>نوع ذی‌نفع</th><th>بیمه</th><th>مالیات حقوق</th><th>تعارض موتور</th><th>عملیات</th></tr></thead><tbody>${rows.map(b=>`<tr>
+    <td>${esc(b.name||'-')}</td>
+    <td>${CMR_BTYPE[b.beneficiary_type]||esc(b.beneficiary_type)}${b.beneficiary_type_derived?' <span class="muted">(مشتق)</span>':''}</td>
+    <td>${b.beneficiary_type==='employee'?(b.insurance_applicable?'✅':'⛔'):'—'}</td>
+    <td>${b.beneficiary_type==='employee'?(b.payroll_tax_applicable?'✅':'⛔'):'—'}</td>
+    <td>${b.engine_conflict?'<span class="tag t-new">انگیزه فروش هم فعال است</span>':'—'}</td>
+    <td><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){cmrBenefModal(b)})}">✏️</button></td>
+  </tr>`).join('')||emptyRow(6)}</tbody></table></div>`;
+}
+function cmrBenefModal(b){
+  showModal(`ذی‌نفع پورسانت — ${esc(b.name||'')}`,`
+    <div class="fg"><label>نوع ذی‌نفع</label><select id="cmr-b-type">${Object.entries(CMR_BTYPE).map(([k,l])=>`<option value="${k}" ${b.beneficiary_type===k?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="fg"><label><input type="checkbox" id="cmr-b-ins" ${b.insurance_applicable?'checked':''}> مشمول بیمه (فقط کارمند)</label></div>
+    <div class="fg"><label><input type="checkbox" id="cmr-b-tax" ${b.payroll_tax_applicable?'checked':''}> مشمول مالیات حقوق (فقط کارمند)</label></div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">اگر فلگ خاموش باشد روی ردیف پورسانت هیچ کسری زده نمی‌شود (ناخالص = خالص).</div>
+    <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:10px`)}">
+      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){cmrSaveBenef(b.person_id)})}">💾 ذخیره</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`, true);
+}
+async function cmrSaveBenef(personId){
+  const body={ commission_beneficiary_type:el('cmr-b-type')?.value, insurance_applicable:el('cmr-b-ins')?.checked?1:0, payroll_tax_applicable:el('cmr-b-tax')?.checked?1:0 };
+  try{ const d=await api('PUT','/commissions/beneficiaries/'+personId,body); if(!d) return; closeModal(); showToast('ذی‌نفع ذخیره شد'); cmrLoadBeneficiaries(); cmrLoadReport(); cmrLoadReview(); }catch(e){}
+}
+async function cmrTaxRateEdit(){
+  const cur=await api('GET','/commissions/settings');
+  const v=prompt('نرخ کسر مالیات پورسانت نماینده آزاد (درصد، ۰ = بدون کسر):', String((cur&&cur.agent_tax_rate_pct)||0));
+  if(v===null) return;
+  try{ const d=await api('PUT','/commissions/settings',{ agent_tax_rate_pct:toEnDigits(v) }); if(!d) return; showToast('نرخ ذخیره شد'); cmrLoadBeneficiaries(); cmrLoadReview(); }catch(e){}
+}
+async function cmrLoadReview(){
+  const box=el('cmrReview'); if(!box) return;
+  const m=(el('cmrRevMonth')?.value||'').trim(); if(!m) return;
+  const d=await api('GET','/commissions/review?month='+encodeURIComponent(toEnDigits(m)));
+  if(!d) return;
+  const conf=(d.engine_conflicts||[]);
+  box.innerHTML=`${conf.length?`<div class="tag t-new" data-csp-style="${CSP.style(`display:block;margin-bottom:6px`)}">⚠️ تعارض موتور (هر دو فعال؛ پورسانت P9 محاسبه نشد): ${conf.map(c=>esc(c.name)).join('، ')}</div>`:''}
+  <div class="tbl-wrap"><table class="tbl"><thead><tr><th>شخص</th><th>نوع</th><th>پورسانت ماه</th><th>موارد بازبینی</th></tr></thead><tbody>${(d.rows||[]).map(r=>`<tr>
+    <td>${esc(r.name||'-')}</td><td>${CMR_BTYPE[r.beneficiary_type]||esc(r.beneficiary_type)}</td>
+    <td class="mono">${fmt(r.total_rial)}</td><td>${(r.reasons||[]).map(x=>CMR_REASON[x]||esc(x)).join('، ')}</td>
+  </tr>`).join('')||emptyRow(4)}</tbody></table></div>`;
+}
+async function cmrAccountSuggestions(){
+  const d=await api('GET','/commissions/account-suggestions');
+  if(!d) return;
+  const KIND={ expense:'هزینهٔ پورسانت', payable:'پرداختنی پورسانت (پیش‌فرض نماینده)', tax:'مالیات کسرشده (پرداختنی)' };
+  showModal('پیشنهاد حساب پورسانت (فقط گزارش)',`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}">${esc(d.note||'')} — تغییر نگاشت فقط از «تنظیمات ← نگاشت کدینگ» توسط مدیر.</div>
+    ${Object.keys(KIND).map(k=>{ const c=(d.current||{})[k]||{}; const s=(d.suggestions||{})[k]||[];
+      return `<div class="panel"><div class="panel-head"><b>${KIND[k]}</b> <span class="muted">نگاشت فعلی: <span class="mono">${esc(c.code||'-')}</span> ${esc(c.name||'')} (${c.source==='settings'?'تنظیمات':'پیش‌فرض'}${c.exists?'':'، در کدینگ نیست'}${c.exists&&!c.leaf?'، برگ نیست':''})</span></div>
+      <div class="panel-body">${s.length?s.map(x=>`<div><span class="mono">${esc(x.code)}</span> ${esc(x.name)} <span class="muted">— ${esc((x.reasons||[]).join('، '))}</span></div>`).join(''):'<span class="muted">موردی یافت نشد</span>'}</div></div>`; }).join('')}
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-top:10px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`, true);
 }
 async function cmrLoadReport(){
   const box=el('cmrReport'); if(!box) return;
@@ -13219,7 +13291,7 @@ async function cmrLoadReport(){
     <th>شخص</th><th>نوع</th><th>پایهٔ فروش</th><th>برگشت</th><th>سرپرستی</th><th>فروشندگی</th><th>کسر برگشت</th><th>جمع پورسانت</th><th>انتقال</th>
   </tr></thead><tbody>${rows.map(r=>`<tr>
     <td>${esc(r.name||'-')}</td>
-    <td>${r.is_employee?'کارمند':'غیرکارمند'}</td>
+    <td>${(r.beneficiary_type||(r.is_employee?'employee':'agent'))==='employee'?'کارمند':'نماینده آزاد'}</td>
     <td class="mono">${fmt(r.sales_base_rial)}</td>
     <td class="mono">${fmt(r.returns_base_rial)}</td>
     <td class="mono">${fmt(r.supervisor_rial)}</td>
@@ -13227,9 +13299,10 @@ async function cmrLoadReport(){
     <td class="mono">${fmt(r.returns_deduction_rial)}</td>
     <td class="mono"><b>${fmt(r.total_rial)}</b></td>
     <td>${r.transfer?`<span class="tag t-done">${esc(r.transfer.doc_no)} — ${CMR_TSTATUS[r.transfer.status]||esc(r.transfer.status)}</span>`
-      :(r.total_rial>0?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){cmrTransferModal(r,from,to)})}">${r.is_employee?'➡️ انتقال به حقوق':'📝 سند پیش‌نویس'}</button>`:'—')}</td>
+      :(r.total_rial>0?`<button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){cmrTransferModal(r,from,to)})}">${r.beneficiary_type==='employee'?'➡️ انتقال به حقوق':'📝 سند پیش‌نویس'}</button>`:'—')}</td>
   </tr>`).join('')||emptyRow(9)}</tbody>
-  <tfoot><tr><td colspan="7"><b>جمع</b></td><td class="mono"><b>${fmt((d&&d.total_rial)||0)}</b></td><td></td></tr></tfoot></table></div>`;
+  <tfoot><tr><td colspan="7"><b>جمع</b></td><td class="mono"><b>${fmt((d&&d.total_rial)||0)}</b></td><td></td></tr></tfoot></table></div>
+  ${((d&&d.engine_conflicts)||[]).length?`<div class="tag t-new" data-csp-style="${CSP.style(`display:block;margin-top:6px`)}">⚠️ محاسبه نشد (انگیزه فروش قدیمی هم فعال است): ${d.engine_conflicts.map(c=>esc(c.name)+' — '+fmt(c.skipped_rial)).join('، ')}</div>`:''}`;
 }
 async function cmrLoadRules(){
   const box=el('cmrRules'); if(!box) return;
@@ -13265,7 +13338,7 @@ async function cmrLoadTransfers(){
   </tr>`).join('')||emptyRow(8)}</tbody></table></div>`;
 }
 function cmrPersonOptions(sel){
-  return ((_cmrMeta&&_cmrMeta.persons)||[]).map(p=>`<option value="${p.id}" ${Number(sel)===p.id?'selected':''}>${esc(p.name)}${p.is_employee?' (کارمند)':''}</option>`).join('');
+  return ((_cmrMeta&&_cmrMeta.persons)||[]).map(p=>`<option value="${p.id}" ${Number(sel)===p.id?'selected':''}>${esc(p.name)}${(p.beneficiary_type||(p.is_employee?'employee':'agent'))==='employee'?' (کارمند)':''}</option>`).join('');
 }
 function cmrRuleModal(rule){
   const r=rule||{};
@@ -13345,10 +13418,10 @@ function cmrTransferModal(r,from,to){
   const periods=((_cmrMeta&&_cmrMeta.payroll_periods)||[]).map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('');
   const ccs=((_cmrMeta&&_cmrMeta.cost_centers)||[]).map(c=>`<option value="${c.id}">${esc([c.code,c.name].filter(Boolean).join(' — '))}</option>`).join('');
   showModal(`انتقال پورسانت ${esc(r.name||'')} — ${fmt(r.total_rial)} ریال`,`
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">${r.is_employee
-      ?'کارمند: پورسانت به‌صورت ردیف «پورسانت» در پردازش حقوق دورهٔ انتخابی می‌آید و مشمول بیمه و مالیات حقوق است؛ سند مستقل ساخته نمی‌شود.'
-      :'غیرکارمند: سند <b>پیش‌نویس</b> بدهکار هزینهٔ پورسانت / بستانکار حساب شخص ساخته می‌شود؛ ثبت قطعی و پرداخت جداگانه است.'}</div>
-    ${r.is_employee?`<div class="fg"><label>دورهٔ حقوق</label><select id="cmr-period"><option value="">—</option>${periods}</select></div>`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">${r.beneficiary_type==='employee'
+      ?'کارمند: پورسانت به‌صورت ردیف «پورسانت» در پردازش حقوق دورهٔ انتخابی می‌آید؛ کسر بیمه/مالیات فقط اگر فلگ کارمند روشن باشد؛ سند مستقل ساخته نمی‌شود.'
+      :`نماینده آزاد: سند <b>پیش‌نویس</b> بدهکار هزینهٔ پورسانت (کامل) / بستانکار حساب پرداختنی شخص${(_cmrMeta&&_cmrMeta.agent_tax_rate_pct)>0?` منهای ${fmtPct(_cmrMeta.agent_tax_rate_pct)}٪ کسر مالیات (بستانکار مالیات پرداختنی)`:''} ساخته می‌شود؛ ثبت قطعی و پرداخت جداگانه است.`}</div>
+    ${r.beneficiary_type==='employee'?`<div class="fg"><label>دورهٔ حقوق</label><select id="cmr-period"><option value="">—</option>${periods}</select></div>`
       :`<div class="fg"><label>مرکز هزینه</label><select id="cmr-cc"><option value="">—</option>${ccs}</select></div>`}
     <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:10px`)}">
       <button class="btn green" data-csp-click="${CSP.bind('click',function(event){cmrCreateTransfer(r.person_id,from,to)})}">✅ انتقال</button>
@@ -41410,6 +41483,16 @@ function renderAdminGuide(){
         <li><b>دسته‌ها:</b> حسابدار در همین صفحه یک <b>دستهٔ جدید (برگ)</b> زیر یکی از دسته‌های ۶۱xx می‌سازد؛ حساب را از والد ارث می‌برد. صندوق‌دار فقط انتخاب می‌کند. سربار ساخت از این فرم ثبت نمی‌شود (از «پرداخت هزینه» با مرکز هزینه).</li>
         <li><b>گزارش:</b> جمع هزینه‌های تأییدشده بر اساس دسته و منبع در بازهٔ تاریخ (پایین همان صفحه).</li>
       </ul>`),
+    helpSec('🧑‍💼','پورسانت: یک موتور برای هر شخص + نوع ذی‌نفع (P9-fix — v602)',`
+      <p>در همان صفحهٔ <b>حسابداری ← پورسانت سرپرست/فروشنده</b>، بخش‌های «نوع ذی‌نفع و فلگ بیمه/مالیات» و «بازبینی ماهانه» اضافه شده است.</p>
+      <ul>
+        <li><b>فقط یک موتور:</b> اگر کاربرِ متصل به شخص (<span dir="ltr">users.person_id</span> یا همان «شخص» طرف‌حساب) «انگیزه فروش» فعال داشته باشد (نرخ نقد/چک/ثابت/سرپرستی یا قاعده/پلکان با نرخ بیشتر از صفر)، ثبت قاعدهٔ پورسانت یا گذاشتن او روی فاکتور با خطای <span dir="ltr">E_COMMISSION_ENGINE_CONFLICT</span> رد می‌شود؛ برعکس، فعال‌کردن انگیزه فروش برای کسی که قاعدهٔ فعال پورسانت دارد هم رد می‌شود. اگر از قبل هر دو فعال باشند، پورسانت او در گزارش محاسبه نمی‌شود، زیر جدول هشدار می‌آید و انتقال انجام نمی‌شود.</li>
+        <li><b>نوع ذی‌نفع:</b> «کارمند» یا «نماینده آزاد». اگر تعیین نشده باشد، شخص دارای کد پرسنلی/شمارهٔ کارمندی کارمند حساب می‌شود و بقیه نماینده.</li>
+        <li><b>کارمند:</b> پورسانت فقط به‌صورت ردیف حقوق همان ماه منتقل می‌شود (سند مستقیم ندارد). دو فلگ جدا دارد: «مشمول بیمه» و «مشمول مالیات حقوق». پیش‌فرض آن‌ها از پروندهٔ حقوق خوانده می‌شود (بیمه «ندارد» یا معافیت کامل مالیات یعنی خاموش) و در غیر این صورت روشن است. اگر فلگ خاموش باشد، روی ردیف پورسانت آن کسر زده نمی‌شود؛ اگر هر دو خاموش باشند مبلغ ناخالص پورسانت برابر خالص است. نرخ‌های بیمه و مالیات از تنظیمات حقوق (دوره و جدول مالیات) خوانده می‌شوند.</li>
+        <li><b>نماینده آزاد:</b> از حقوق رد نمی‌شود. سند پیش‌نویس ساخته می‌شود: بدهکار هزینهٔ پورسانت به مبلغ کامل، بستانکار حساب پرداختنی همان شخص. «نرخ کسر مالیات نماینده» پیش‌فرض ۰ است و فقط مدیر آن را تغییر می‌دهد. اگر بیشتر از صفر باشد، مبلغ مالیات به «مالیات حقوق پرداختنی» (<span dir="ltr">coa_payroll_tax_payable</span>) بستانکار می‌شود و از حساب پرداختنی شخص کم می‌شود. ابطال انتقال کل سند را برمی‌گرداند.</li>
+        <li><b>پیشنهاد حساب:</b> دکمهٔ «پیشنهاد حساب» نگاشت فعلی حساب‌های هزینه، پرداختنی و مالیات را نشان می‌دهد و از روی نام و گروه حساب‌های کدینگ موجود حساب مناسب پیشنهاد می‌کند. هیچ تنظیمی عوض نمی‌شود؛ تغییر نگاشت فقط از «تنظیمات ← نگاشت کدینگ» انجام می‌شود.</li>
+        <li><b>بازبینی ماهانه:</b> فهرست کسانی که در ماه پورسانت دارند ولی فلگ بیمه یا مالیاتشان خاموش است، نماینده‌های آزاد وقتی نرخ کسر مالیات ۰ است، و اشخاصی که هر دو موتور برایشان فعال است.</li>
+      </ul>`),
     helpSec('💹','پورسانت سرپرست و چند فروشنده (P9 — v598)',`
       <p>منو: <b>حسابداری ← پورسانت سرپرست/فروشنده</b>. کنار «انگیزه فروش» قبلی (که دست‌نخورده می‌ماند) برای هر <b>شخص</b> قاعدهٔ پورسانت تعریف می‌شود و روی یک فاکتور می‌توان چند فروشنده با سهم گذاشت.</p>
       <ul>
@@ -41417,7 +41500,7 @@ function renderAdminGuide(){
         <li><b>سرپرست:</b> قاعده با دامنهٔ <b>گروه کالا</b> یا <b>کد کالا</b> (کد کالا بر گروه مقدم است). دو سرپرست با گروه‌های جدا هر کدام فقط از فروش گروه خودشان می‌گیرند. اگر روی فاکتور سرپرست صریح ثبت شود فقط همان‌ها (به نسبت سهم) می‌گیرند.</li>
         <li><b>فروشنده:</b> درصد از قاعدهٔ فروشنده: کد کالا ← گروه کالا ← همان فاکتور ← «همهٔ فاکتورها». فروشنده‌های فاکتور از «چند فروشنده روی یک فاکتور» (مثلاً ۵۰/۵۰؛ جمع سهم باید ۱۰۰٪ باشد)؛ اگر خالی بماند ثبت‌کنندهٔ فاکتور (شخصِ متصل به کاربر) با سهم ۱۰۰٪.</li>
         <li><b>گزارش ماهانه:</b> برای هر شخص پایهٔ فروش، برگشت، سهم سرپرستی/فروشندگی، کسر برگشت و جمع.</li>
-        <li><b>انتقال:</b> کارمند (دارای کد پرسنلی/شمارهٔ کارمندی) → ردیف «پورسانت» در <b>پردازش حقوق</b> همان دوره؛ جزء ناخالص و <b>مشمول بیمه و مالیات حقوق</b> است و سند مستقل ندارد. غیرکارمند → <b>سند پیش‌نویس</b> بدهکار «هزینه انگیزه فروش» (<span dir="ltr">coa_rep_commission_expense</span>) / بستانکار حساب شخص (یا <span dir="ltr">coa_rep_commission_payable</span>). هیچ پرداختی خودکار ساخته نمی‌شود؛ هر دوره برای هر شخص فقط یک انتقال.</li>
+        <li><b>انتقال:</b> ذی‌نفع «کارمند» → ردیف «پورسانت» در <b>پردازش حقوق</b> همان دوره؛ جزء ناخالص است، بیمه/مالیات طبق فلگ‌های کارمند (بخش P9-fix) و سند مستقل ندارد. غیرکارمند → <b>سند پیش‌نویس</b> بدهکار «هزینه انگیزه فروش» (<span dir="ltr">coa_rep_commission_expense</span>) / بستانکار حساب شخص (یا <span dir="ltr">coa_rep_commission_payable</span>). هیچ پرداختی خودکار ساخته نمی‌شود؛ هر دوره برای هر شخص فقط یک انتقال.</li>
         <li><b>ابطال (R13):</b> ابطال انتقال، سند پیش‌نویس را باطل می‌کند و انتقال حقوقیِ پردازش‌نشده را از صف حقوق خارج می‌کند (رکورد با وضعیت «ابطال‌شده» می‌ماند). اگر حقوق پردازش شده باشد ابتدا سند حقوق را ابطال کنید؛ پورسانت به «در انتظار حقوق» برمی‌گردد. تا انتقال زنده است، قاعده‌ها و فروشنده‌های فاکتورِ آن دوره قفل‌اند (<span dir="ltr">E_COMMISSION_LOCKED</span>). قاعده‌ها حذف فیزیکی ندارند؛ فقط غیرفعال می‌شوند.</li>
         <li>مجوز: مدیر/حسابداری یا دسترسی تفویضی «پورسانت سرپرست/فروشنده». تنظیم <span dir="ltr">commission_p9_require_approved=1</span> فقط فاکتورهای تأییدشده را در پایه می‌آورد (پیش‌فرض خاموش).</li>
       </ul>`),
