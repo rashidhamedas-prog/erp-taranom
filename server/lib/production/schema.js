@@ -1452,6 +1452,7 @@ function createTriggers(db) {
 }
 
 function createViews(db) {
+  const { jeNotDraftFor } = require('../je-live');
   db.exec(`
     DROP VIEW IF EXISTS v_wip_by_order;
     CREATE VIEW v_wip_by_order AS
@@ -1463,6 +1464,7 @@ function createViews(db) {
     LEFT JOIN journal_entries je ON je.ref_id = po.id
                                 AND je.ref_type LIKE 'production_%'
                                 AND COALESCE(je.deleted_at,0) = 0
+                                AND ${jeNotDraftFor(db, 'je')}
     LEFT JOIN journal_lines jl   ON jl.entry_id = je.id
     GROUP BY po.id;
 

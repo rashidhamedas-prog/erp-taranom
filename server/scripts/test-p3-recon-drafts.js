@@ -150,8 +150,8 @@ const byKey = new Map(drafts.map((d) => [d.description.match(/\[p3:([^\]]+)\]/)[
 const sideSum = (d, code, side) => d.lines.filter((l) => l.code === code).reduce((t, l) => t + Number(l[side] || 0), 0);
 ok(!byKey.has('je1016_reverse'), 'no JE1016 reverse draft');
 const und = byKey.get('undoc_adjust_146335856');
-ok(und && sideSum(und, '610801', 'debit') === 146335856 && sideSum(und, '1104', 'credit') === 146335856, 'undoc: Dr 610801 / Cr 1104 = 146,335,856');
-ok(und && /ledger#1273/.test(und.description) && und.lines.some((l) => /بررسی WIP/.test(l.description || '')), 'row 1273 flagged «بررسی WIP»');
+ok(und && sideSum(und, '610801', 'debit') === 79655914 && sideSum(und, '1104', 'credit') === 79655914 && und.lines.length === 3, 'undoc: Dr 610801 / Cr 1104 = 79,655,914 (ledger#1978/1979)');
+ok(und && !/ledger#1273/.test(und.description + und.lines_json), 'FR-P334-B: ledger#1273 not in draft #2 (official kardex reversal FR-P334-A)');
 const o490 = byKey.get('opening_je490_offset');
 ok(o490 && sideSum(o490, '1104', 'debit') === 71232000 && sideSum(o490, '3102', 'credit') === 71232000, 'JE490: Dr 1104 / Cr 3102 = 71,232,000');
 const o1977 = byKey.get('opening_ledger1977');
@@ -169,7 +169,8 @@ ok(after.led === base.led && after.tombs === base.tombs, 'no DELETE/tombstone; k
 ok(!q1("SELECT 1 FROM journal_entries WHERE description LIKE '%[p3:%'"), 'no journal entry carries a P3 tag');
 
 const rep = P3.buildP3Report(db);
-ok(rep.gl_1104_if_all_drafts_posted_rial - rep.gl_1104_live_rial === -146335856 + 71232000 + 10759000 + 14733111, 'hypothetical GL1104 effect = −49,611,745 (JE1016 excluded)', rep.drafts_effect_1104_rial);
+ok(rep.gl_1104_if_all_drafts_posted_rial - rep.gl_1104_live_rial === -79655914 + 71232000 + 10759000 + 14733111, 'hypothetical GL1104 effect = +17,068,197 (JE1016 excluded, ledger#1273 not drafted)', rep.drafts_effect_1104_rial);
+ok(rep.handled_by_official_reversal.length === 1 && rep.handled_by_official_reversal[0].ledger_id === 1273 && rep.handled_by_official_reversal[0].draft === null, 'report: ledger#1273 handled by official kardex reversal (no draft)');
 ok(rep.plan.find((s) => s.key === 'je1016_reverse').superseded === true, 'report: JE1016 plan entry superseded → official route');
 ok(rep.cogs_zero_inbound.pairs === 1 && rep.cogs_zero_inbound.totals.delta_cogs_sales_rial === 10000, 'COGS share (report only) computed', rep.cogs_zero_inbound.totals);
 ok(rep.cogs_zero_inbound.draft === null, 'COGS share: no draft');
