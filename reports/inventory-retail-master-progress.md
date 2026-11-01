@@ -6,15 +6,15 @@ Order: P1→P2→P4→P6→P8→P5→P7→P9→P10→P3
 |-------|-----|-----------|-----|--------|--------|
 | P0 | #110 | b48d6427 | v590 | crm.db.20261029-204228 | ✅ |
 | P1 | #112 | e405bb46 | v591 | crm.db.20261101-095820 | ✅ |
-| P2 | | | | | draft agent |
-| P4 | | | | | draft agent |
-| P6 | | | | | draft agent |
-| P8 | | | | | draft agent |
-| P5 | | | | | pending |
-| P7 | | | | | pending |
-| P9 | | | | | pending |
-| P10 | | | | | pending |
-| P3 | | | | | unlock: see `reports/je1016-analysis.md` — drafts only |
+| P2 | #118 | 126f919d | v592 | crm.db.20261101-103140 | ✅ |
+| P4 | #116 | 71398def | v593 | crm.db.20261101-103518 | ✅ |
+| P6 | #121 | a7a99dfb | v594 | crm.db.20261101-104309 | ✅ |
+| P8 | #117 | 999f94a8 | v595 | crm.db.20261101-104927 | ✅ |
+| P5 | #128 | 0cfa5fd3 | v596 | crm.db.20261101-105721 | ✅ |
+| P7 | #125 | d6574661 | v597 | crm.db.20261101-110236 | ✅ |
+| P9 | #127 | ab626f18 | v598 | crm.db.20261101-110733 | ✅ |
+| P10 | #123 | ef13daec | v599 | crm.db.20261101-111514 | ✅ |
+| P3 | #124 (draft) | — | v600 | — | drafts only (voucher_drafts) — awaiting Hamed; not merged/deployed; rebased on 6333402a |
 
 ## Gap baseline (pre-P1 deploy 2026-11-01)
 - GL1104 (approved)=10,883,218,790
