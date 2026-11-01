@@ -136,6 +136,11 @@ ok(P3.runP3DraftsV2Migration(db, { isDevice: true }).skipped === 'device', 'v2 d
 db.prepare("INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active) VALUES ('110401','موجودی کالا','asset','1104',1)").run();
 const leaf = P3.resolveInventoryLeaf(db);
 ok(leaf.code === '110401' && leaf.source === 'single_child', 'leaf resolver: single active child 110401', leaf);
+db.prepare("INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active) VALUES ('1104010001','کالا ۱','asset','110401',1)").run();
+const leafProd = P3.resolveInventoryLeaf(db);
+ok(leafProd.code === '110401' && leafProd.source === 'hamed_decision' && !!leafProd.warning,
+  'leaf resolver: 110401 kept even with product sub-accounts (production shape)', leafProd);
+db.prepare("DELETE FROM chart_of_accounts WHERE code='1104010001'").run();
 
 // ── gap calc includes 110401 ──
 const gl0 = P3.gl1104ApprovedRial(db);

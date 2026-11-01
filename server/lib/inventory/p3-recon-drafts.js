@@ -29,6 +29,7 @@ const OFFICIAL_REVERSE_PATH = 'POST /api/accounting/subledger-recon/fixes/1/reve
 const KARDEX_WAREHOUSES = [34, 35];
 
 const ACC_INV = '1104';
+const PREFERRED_LEAF = '110401';
 const ACC_OPENING = '3102';
 const ACC_FY_OPENING = '3201';
 const ACC_SHORTAGE = '610801';
@@ -136,6 +137,15 @@ function resolveInventoryLeaf(db) {
   ).all(ACC_INV);
   if (kids.length === 1 && accountState(db, String(kids[0].code)).postable) {
     return { code: String(kids[0].code), source: 'single_child', warning: null };
+  }
+  // تصمیم حامد: پیش‌نویس‌ها روی 110401 حتی اگر زیرحساب تفصیلی کالا داشته باشد (leaf_enforcement=warn).
+  if (kids.length === 1 && String(kids[0].code) === PREFERRED_LEAF && accountState(db, PREFERRED_LEAF).active) {
+    return {
+      code: PREFERRED_LEAF,
+      source: 'hamed_decision',
+      warning: accountState(db, PREFERRED_LEAF).postable ? null
+        : `${PREFERRED_LEAF} زیرحساب دارد؛ با ledger_leaf_enforcement=block ثبت نهایی رد می‌شود`,
+    };
   }
   let cfg = '';
   try { cfg = String((db.prepare('SELECT value FROM settings WHERE key=?').get(LEAF_SETTING_KEY) || {}).value || '').trim(); }
