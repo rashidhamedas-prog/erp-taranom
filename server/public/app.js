@@ -1267,6 +1267,7 @@ function filterMainNavItem(it){
   // دستیار CRM (آمار شخصی) همیشه در منو است؛ فلگ فقط سرویس متنی ابری را می‌بندد
   if(it.id==='b2bOrders' && String(flags.feature_b2b_portal||'0')!=='1') return false;
   if(it.id==='qty-receipts' && !qrCanView()) return false;
+  if(it.id==='daily-pnl' && !(ME && (ME.role==='admin' || canPerm('cost_visibility','view')))) return false;
   return true;
 }
 function applyAppLanguage(){
@@ -2386,6 +2387,7 @@ const LU = (()=> {
     help:'book', catalog:'bag', 'my-rep':'briefcase', 'desktop-settings':'monitor',
     'store-quick-sale':'cart', 'expense-drafts':'receipt',
     'store-quick-sale':'cart', 'qty-receipts':'download',
+    'quick-item-movement':'box', 'daily-pnl':'linechart',
     'exit-acc-shell':'back', 'acc-dash':'dashboard', 'acc-general':'linechart',
     'acc-trial-balance':'scale', 'acc-balance-sheet':'landmark', 'acc-adv-reports':'chart',
     'acc-production':'factory', 'acc-receivables':'receipt', 'acc-sales-invoices':'file',
@@ -2478,6 +2480,8 @@ const NAV_ADMIN = [
   {id:'products', icon:'🛍️', label:'کالاها'},
   {id:'reminders', icon:'🔔', label:'یادآورها'},
   {id:'reports', icon:'📈', label:'گزارشات'},
+  {id:'quick-item-movement', icon:'📦', label:'گزارش سریع کالا'},
+  {id:'daily-pnl', icon:'📈', label:'سود و زیان روزانه'},
   {id:'ai', icon:'🤖', label:'دستیار هوشمند'},
   {id:'b2bOrders', icon:'🛒', label:'سفارشات پورتال'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
@@ -2504,6 +2508,7 @@ const NAV_STORE = [
   {id:'qty-receipts', icon:'📥', label:'رسید مقداری کالا'},
   {id:'invoices', icon:'🧾', label:'فاکتورهای من'},
   {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه'},
+  {id:'quick-item-movement', icon:'📦', label:'گزارش سریع کالا'},
   {id:'help', icon:'📖', label:'راهنما'},
 ];
 const NAV_ACCOUNTING = [
@@ -2512,6 +2517,8 @@ const NAV_ACCOUNTING = [
   {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه (تأیید)'},
   {id:'qty-receipts', icon:'📥', label:'رسید مقداری کالا'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
+  {id:'quick-item-movement', icon:'📦', label:'گزارش سریع کالا'},
+  {id:'daily-pnl', icon:'📈', label:'سود و زیان روزانه'},
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
   {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
@@ -14366,6 +14373,126 @@ function setRepPreset(presetKey){
   if(el('rep-from')) el('rep-from').value = repRange.from;
   if(el('rep-to')) el('rep-to').value = repRange.to;
   loadReports();
+}
+
+/* ---- P10: گزارش سریع حرکت کالا + سود و زیان روزانه (فقط‌خواندنی) ---- */
+const qimState={from:'',to:'',type:'both',warehouse_id:'',q:'',data:null};
+ROUTES['quick-item-movement'] = async function(){
+  if(!qimState.from){ qimState.from=todayJalali(); qimState.to=qimState.from; }
+  let whs=[];
+  try{ whs=await ensureWarehouses()||[]; }catch(_){ whs=[]; }
+  el('view').innerHTML=`
+    <div class="toolbar">
+      <label class="muted">از</label><input id="qim-from" data-jdate value="${esc(qimState.from)}">
+      <label class="muted">تا</label><input id="qim-to" data-jdate value="${esc(qimState.to)}">
+      <select id="qim-type">
+        <option value="both" ${qimState.type==='both'?'selected':''}>فروش و خرید</option>
+        <option value="sale" ${qimState.type==='sale'?'selected':''}>فقط فروش</option>
+        <option value="purchase" ${qimState.type==='purchase'?'selected':''}>فقط خرید</option>
+      </select>
+      <select id="qim-wh"><option value="">همهٔ انبارها</option>${(whs||[]).map(w=>`<option value="${esc(String(w.id))}" ${String(qimState.warehouse_id)===String(w.id)?'selected':''}>${esc(w.name||('انبار #'+w.id))}</option>`).join('')}</select>
+      <input id="qim-q" placeholder="جستجو نام/کد/SKU" value="${esc(qimState.q)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(){qimLoad()})}">📊 نمایش</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){qimToday()})}">امروز</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){qimCsv()})}">📥 اکسل (CSV)</button>
+    </div>
+    <div id="qimBody"><div class="muted">در حال بارگذاری...</div></div>`;
+  attachDatepickers(el('view'));
+  qimLoad();
+};
+function qimToday(){ qimState.from=todayJalali(); qimState.to=qimState.from; if(el('qim-from')) el('qim-from').value=qimState.from; if(el('qim-to')) el('qim-to').value=qimState.to; qimLoad(); }
+async function qimLoad(){
+  qimState.from=el('qim-from')?.value||qimState.from; qimState.to=el('qim-to')?.value||qimState.to;
+  qimState.type=el('qim-type')?.value||'both'; qimState.warehouse_id=el('qim-wh')?.value||''; qimState.q=el('qim-q')?.value||'';
+  const qs=new URLSearchParams({from:qimState.from,to:qimState.to,type:qimState.type});
+  if(qimState.warehouse_id) qs.set('warehouse_id',qimState.warehouse_id);
+  if(qimState.q) qs.set('q',qimState.q);
+  const body=el('qimBody'); if(!body) return;
+  try{
+    const d=await api('GET','/reports/quick-item-movement?'+qs.toString());
+    qimState.data=d;
+    const amt=!!(d&&d.amounts_visible);
+    const showSale=qimState.type!=='purchase', showPur=qimState.type!=='sale';
+    const t=d.totals||{};
+    const head=`<th>کالا</th><th>رنگ/سایز</th>${showSale?'<th>فروش</th><th>برگشت</th><th>خالص فروش</th>':''}${showPur?'<th>خرید</th><th>برگشت خرید</th>':''}${amt&&showSale?'<th>مبلغ خالص فروش</th>':''}${amt&&showPur?'<th>مبلغ خرید</th>':''}`;
+    const rows=(d.rows||[]).map(r=>`<tr>
+      <td>${r.code?`<span class="mono muted">${esc(r.code)}</span> `:''}${esc(r.name)}</td>
+      <td class="muted">${esc([r.color_name,r.size_name].filter(Boolean).join(' / ')||r.sku||'—')}</td>
+      ${showSale?`<td class="mono">${fmtQtyFa(r.sold_qty)}</td><td class="mono">${fmtQtyFa(r.returned_qty)}</td><td class="mono" data-csp-style="${CSP.style('font-weight:700')}">${fmtQtyFa(r.net_sold_qty)}</td>`:''}
+      ${showPur?`<td class="mono">${fmtQtyFa(r.purchased_qty)}</td><td class="mono">${fmtQtyFa(r.purchase_returned_qty)}</td>`:''}
+      ${amt&&showSale?`<td class="mono">${fmt(r.net_sales_amount_rial)}</td>`:''}
+      ${amt&&showPur?`<td class="mono">${fmt(r.purchase_amount_rial)}</td>`:''}
+    </tr>`).join('');
+    body.innerHTML=`
+      <div class="muted" data-csp-style="${CSP.style('font-size:12px;margin:6px 0 10px')}">${esc(d.unit_note||'')}</div>
+      <div class="rep-kpi-grid">
+        ${showSale?`<div class="rep-kpi-card"><div class="kpi-label">تعداد فروش</div><div class="kpi-val">${fmtQtyFa(t.sold_qty)}</div><div class="kpi-sub">برگشت: ${fmtQtyFa(t.returned_qty)} · خالص: ${fmtQtyFa(t.net_sold_qty)}</div></div>`:''}
+        ${showPur?`<div class="rep-kpi-card"><div class="kpi-label">تعداد خرید</div><div class="kpi-val">${fmtQtyFa(t.purchased_qty)}</div><div class="kpi-sub">برگشت خرید: ${fmtQtyFa(t.purchase_returned_qty)}</div></div>`:''}
+        ${amt&&showSale?`<div class="rep-kpi-card"><div class="kpi-label">مبلغ خالص فروش</div><div class="kpi-val">${fmt(t.net_sales_amount_rial)} ریال</div></div>`:''}
+        ${amt&&showPur?`<div class="rep-kpi-card"><div class="kpi-label">مبلغ خرید</div><div class="kpi-val">${fmt(t.purchase_amount_rial)} ریال</div></div>`:''}
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="9" class="muted">در این بازه حرکتی نیست</td></tr>`}</tbody></table></div>`;
+  }catch(e){
+    body.innerHTML=`<div class="err">${esc(e.message||'خطا در بارگذاری گزارش')}</div>`;
+  }
+}
+function qimCsv(){
+  const d=qimState.data; if(!d||!(d.rows||[]).length){ showToast('ردیفی برای خروجی نیست','error'); return; }
+  const amt=!!d.amounts_visible;
+  const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const head=['کد','کالا','رنگ','سایز','SKU','فروش','برگشت فروش','خالص فروش','خرید','برگشت خرید'].concat(amt?['مبلغ فروش (ریال)','مبلغ برگشت (ریال)','مبلغ خالص فروش (ریال)','مبلغ خرید (ریال)']:[]);
+  const lines=[head.map(cell).join(',')].concat(d.rows.map(r=>[r.code,r.name,r.color_name,r.size_name,r.sku,r.sold_qty,r.returned_qty,r.net_sold_qty,r.purchased_qty,r.purchase_returned_qty]
+    .concat(amt?[r.sales_amount_rial,r.returns_amount_rial,r.net_sales_amount_rial,r.purchase_amount_rial]:[]).map(cell).join(',')));
+  rcnCsvDownload(lines,'quick-item-movement-'+String(d.from).replace(/\//g,'')+'-'+String(d.to).replace(/\//g,'')+'.csv');
+}
+
+const dpnlState={from:'',to:''};
+ROUTES['daily-pnl'] = async function(){
+  if(!dpnlState.from){ dpnlState.from=todayJalali(); dpnlState.to=dpnlState.from; }
+  el('view').innerHTML=`
+    <div class="toolbar">
+      <label class="muted">از</label><input id="dpnl-from" data-jdate value="${esc(dpnlState.from)}">
+      <label class="muted">تا</label><input id="dpnl-to" data-jdate value="${esc(dpnlState.to)}">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(){dpnlLoad()})}">📊 نمایش</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){dpnlState.from=todayJalali();dpnlState.to=dpnlState.from;ROUTES['daily-pnl']();})}">امروز</button>
+    </div>
+    <div id="dpnlBody"><div class="muted">در حال بارگذاری...</div></div>`;
+  attachDatepickers(el('view'));
+  dpnlLoad();
+};
+async function dpnlLoad(){
+  dpnlState.from=el('dpnl-from')?.value||dpnlState.from; dpnlState.to=el('dpnl-to')?.value||dpnlState.to;
+  const body=el('dpnlBody'); if(!body) return;
+  try{
+    const d=await api('GET','/reports/daily-pnl?'+new URLSearchParams({from:dpnlState.from,to:dpnlState.to}).toString());
+    const t=d.totals||{};
+    const src=d.cogs_source||{};
+    const line=(label,val,strong)=>`<tr><td>${label}</td><td class="mono" data-csp-style="${CSP.style(strong?'font-weight:800':'')}">${fmt(val)}</td></tr>`;
+    const dayRows=(d.days||[]).map(x=>`<tr><td class="mono">${escDate(x.date)}</td><td class="mono">${fmt(x.net_sales_rial)}</td><td class="mono">${fmt(x.cogs_rial)}</td><td class="mono">${fmt(x.gross_profit_rial)}</td><td class="mono">${fmt(x.expenses_rial)}</td><td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${x.operating_profit_rial<0?'var(--red)':'var(--green)'}`)}">${fmt(x.operating_profit_rial)}</td></tr>`).join('');
+    const expRows=((d.expenses&&d.expenses.by_category)||[]).map(c=>`<tr><td>${esc(c.category)}</td><td class="mono">${fmt(c.amount_rial)}</td></tr>`).join('');
+    body.innerHTML=`
+      <div class="warn" data-csp-style="${CSP.style('margin:6px 0 12px')}">⚠️ ${esc(d.label||'تقریبی؛ قبل از بستن دوره')}</div>
+      <div class="tbl-wrap"><table class="tbl">
+        ${line('فروش قطعی (با ارزش افزوده)',t.sales_gross_rial)}
+        ${line('− ارزش افزودهٔ فروش',t.sales_vat_rial)}
+        ${line('− برگشت از فروش (خالص)',t.returns_rial)}
+        ${line('= فروش خالص',t.net_sales_rial,true)}
+        ${line('− بهای تمام‌شدهٔ فروش',t.cogs_sales_rial)}
+        ${line('+ بهای کالای برگشتی',t.cogs_returns_rial)}
+        ${line('= سود ناخالص',t.gross_profit_rial,true)}
+        ${line('− هزینه‌های دوره',t.expenses_rial)}
+        ${line('= سود عملیاتی ساده',t.operating_profit_rial,true)}
+        ${t.commission_p9_rial!=null?line('(اطلاعاتی) برآورد انگیزهٔ فروش P9 — کسر نشده',t.commission_p9_rial):''}
+        ${t.operating_profit_after_commission_rial!=null?line('(اطلاعاتی) سود عملیاتی پس از انگیزه',t.operating_profit_after_commission_rial):''}
+      </table></div>
+      ${d.commission_p9&&!d.commission_p9.available&&d.commission_p9.note?`<div class="muted" data-csp-style="${CSP.style('font-size:11px')}">${esc(d.commission_p9.note)}</div>`:''}
+      <div class="muted" data-csp-style="${CSP.style('font-size:12px;margin:8px 0')}">حاشیه ناخالص: ${esc(String(t.gross_margin_pct||0))}٪ · حاشیه عملیاتی: ${esc(String(t.operating_margin_pct||0))}٪ · منبع بها: کاردکس ${fmt(src.kardex)} / سند ${fmt(src.journal)} / برآورد ${fmt(src.estimate)} فاکتور</div>
+      ${(d.days||[]).length>1?`<h4>به تفکیک روز</h4><div class="tbl-wrap"><table class="tbl"><thead><tr><th>تاریخ</th><th>فروش خالص</th><th>بهای تمام‌شده</th><th>سود ناخالص</th><th>هزینه</th><th>سود عملیاتی</th></tr></thead><tbody>${dayRows}</tbody></table></div>`:''}
+      ${expRows?`<h4>هزینه‌ها به تفکیک دسته</h4><div class="tbl-wrap"><table class="tbl"><tbody>${expRows}</tbody></table></div>`:''}
+      <div class="muted" data-csp-style="${CSP.style('font-size:11px;margin-top:10px;line-height:1.8')}">${esc(d.method_note||'')}</div>`;
+  }catch(e){
+    body.innerHTML=`<div class="err">${esc(e.message||'خطا در بارگذاری سود و زیان')}</div>`;
+  }
 }
 
 ROUTES.reports = async function(){
@@ -41179,6 +41306,19 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📈','گزارش سریع کالا و سود و زیان روزانه (P10 — v599)',`
+      <p><b>📦 گزارش سریع کالا</b> (منوی اصلی؛ برای صندوقدار هم هست): برای بازهٔ تاریخ (پیش‌فرض امروز)، به تفکیک <b>کالا × رنگ/سایز</b> تعداد <b>فروش، برگشت فروش، خالص فروش، خرید و برگشت خرید</b> را از سطرهای اسناد زنده نشان می‌دهد (فاکتور قطعی فروش، برگشت فروش، فاکتور خرید، برگشت خرید؛ اسناد ابطال‌شده حساب نمی‌شوند). فیلتر: نوع (فروش/خرید/هر دو)، انبار (انبار سطر یا سربرگ) و جستجوی نام/کد/SKU. دکمهٔ «📥 اکسل (CSV)» همان جدول را خروجی می‌دهد.</p>
+      <ul>
+        <li><b>مبالغ</b> (مبلغ سطر فروش/برگشت/خرید، قبل از تخفیف سربرگ و ارزش افزوده) فقط برای دارندگان مجوز <span dir="ltr">cost_visibility:view</span> («مشاهدهٔ بها/سود») ساخته می‌شود؛ بقیه (مثل صندوقدار) فقط تعداد می‌بینند و در خروجی CSV هم ستون مبلغ ندارند. API: <span dir="ltr">GET /api/reports/quick-item-movement?from&amp;to&amp;warehouse_id&amp;type=sale|purchase|both</span> (نیازمند <span dir="ltr">reports:view</span>).</li>
+      </ul>
+      <p><b>📈 سود و زیان روزانه</b> (فقط با مجوز «مشاهدهٔ بها/سود»؛ بدون آن منو دیده نمی‌شود و API خطای ۴۰۳ <span dir="ltr">E_COST_VISIBILITY</span> می‌دهد) — برچسب <b>«تقریبی؛ قبل از بستن دوره»</b>:</p>
+      <ul>
+        <li><b>فروش خالص</b> = فاکتور قطعی فروش زنده − ارزش افزوده − مبلغ خالص برگشت از فروش.</li>
+        <li><b>بهای تمام‌شده</b> = خروج فروش در کاردکس زنده؛ اگر برای فاکتوری کاردکس نبود، سند COGS دفتر؛ اگر آن هم نبود برآورد تعداد × میانگین بها (تعداد هر منبع زیر جدول نمایش داده می‌شود) — منهای بهای کالای برگشتی ثبت‌شده.</li>
+        <li><b>سود ناخالص</b> = فروش خالص − بهای تمام‌شده؛ <b>سود عملیاتی ساده</b> = سود ناخالص − هزینه‌های دوره (پرداخت هزینهٔ ثبت‌شده بدون سربار تولید + کارمزد بانکی + <b>پیش‌نویس هزینهٔ روزانهٔ تأییدشده</b> (P8؛ پیش‌نویس در انتظار/ردشده/لغو/ابطال‌شده حساب نمی‌شود) + هزینهٔ تأییدشدهٔ نماینده). فروش صندوق لمسی/فروش سریع فروشگاهی (P5) چون فاکتور قطعی می‌سازد خودبه‌خود در فروش و بهای تمام‌شده هست. <b>انگیزهٔ فروش P9</b> فقط به‌صورت سطر جدای «اطلاعاتی» (برآورد قواعد سرپرست/فروشنده منهای برگشت) نمایش داده می‌شود و از سود عملیاتی کسر نمی‌شود؛ با فیلتر شعبه/انبار نمایش داده نمی‌شود. استهلاک و حقوق در این گزارش نیست؛ عدد قطعی پس از بستن دوره از صورت سود و زیان گرفته شود.</li>
+        <li>برای بازهٔ چندروزه جدول «به تفکیک روز» و «هزینه‌ها به تفکیک دسته» هم نمایش داده می‌شود. API: <span dir="ltr">GET /api/reports/daily-pnl?date|from&amp;to&amp;warehouse_id&amp;branch_id</span> (شعبه = کاربر ثبت‌کنندهٔ سند).</li>
+        <li>هر دو گزارش فقط‌خواندنی‌اند و هیچ سندی نمی‌سازند.</li>
+      </ul>`),
     helpSec('🔗','نگاشت حساب برگ انبار، کلیدهای کنترلی و دارایی ثابت (v585 / v588)',`
       <p>هر انبار <b>دائمی (Perpetual)</b> باید دو حساب <b>برگ</b> (بدون زیرمجموعه) داشته باشد: <b>حساب موجودی</b> (زیر گروه ۱۱) و <b>حساب بهای تمام‌شده</b> (زیر گروه ۵). در «اطلاعات پایه ← انبارها ← ✏️» هر دو را وارد کنید؛ هیچ حسابی خودکار انتخاب یا پر نمی‌شود. انبار <b>ادواری</b> از این اجبار معاف است.</p>
       <ul>
@@ -42477,6 +42617,8 @@ function renderSalesGuide(){
     helpSec('📥','رسید مقداری کالا از تأمین‌کننده (v597)',`
       <p>اگر منوی <b>📥 رسید مقداری کالا</b> را دارید: «➕ رسید جدید» ← تأمین‌کننده و انبار را انتخاب کنید ← کالا را با نام/کد/بارکد جستجو و اضافه کنید ← برای کالای رنگ‌سایزدار، رنگ/سایز را انتخاب کنید ← تعداد را وارد و ثبت کنید. کالا همان لحظه به موجودی انبار اضافه می‌شود.</p>
       <p>مبلغ و فی خرید را وارد نمی‌کنید و نمی‌بینید؛ حسابداری بعداً رسید را «ریالی» می‌کند. وضعیت هر رسید در فهرست («در انتظار ریالی‌سازی» / «ریالی شده» / «ابطال») دیده می‌شود. ابطال رسید با حسابداری است.</p>`),
+    helpSec('📦','گزارش سریع کالا (P10 — v599)',`
+      <p>منوی <b>«📦 گزارش سریع کالا»</b>: تعداد فروش، برگشت و خالص فروش (و برای مجازها خرید) هر کالا و رنگ/سایز را برای امروز یا هر بازهٔ دلخواه نشان می‌دهد؛ با فیلتر انبار و جستجو. دکمهٔ «📥 اکسل (CSV)» خروجی می‌دهد. اگر مجوز «مشاهدهٔ بها/سود» ندارید فقط تعداد نمایش داده می‌شود (مبلغ و سود دیده نمی‌شود).</p>`),
     helpSec('📦','فروش از انبار دیگر (v567)',`
       <p>برای فروش یک ردیف از انبار غیر از انبار سربرگ فاکتور، دسترسی <b>«فروش از انبار دیگر»</b> لازم است (مدیر دارد؛ بقیه را مدیر در دسترسی کاربران فعال می‌کند). بدون آن، انتخابگر انبار ردیف قفل است و پیام «برای فروش از انبار دیگر دسترسی لازم است» دیده می‌شود. نمایندگان همیشه روی انبار خودشان هستند.</p>
       <p>دکمهٔ <b>📦</b> کنار انبار هر ردیف، موجودی همهٔ انبارها را نشان می‌دهد و (با دسترسی) با یک کلیک انبار ردیف را عوض می‌کند. اگر کالا در انبار سربرگ صفر باشد ولی جای دیگر موجود باشد، روی کارت کالا بج «در انبار دیگر: n» می‌آید.</p>`),

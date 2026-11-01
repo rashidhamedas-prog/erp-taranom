@@ -1,7 +1,9 @@
 const router = require('express').Router();
 const { getDB } = require('../db');
-const { auth, adminOnly, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOnly, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { firmSaleTypeSql } = require('../lib/sales-document');
+const { canSeeCostVisibility } = require('../lib/cost-visibility');
+const { buildQuickItemMovement, buildDailyPnl } = require('../lib/reports-p10');
 const { buildVatReturnReport, buildSeasonal169Report } = require('./adv-reports');
 
 // R13: voided invoices are soft-deleted (deleted_at) and dependent settlements
@@ -152,6 +154,32 @@ router.get('/debt', auth, adminOnly, (req, res) => {
   rows.forEach(r => { r.debt = r.total_invoiced - r.total_settled; });
   const totalDebt = rows.reduce((a, r) => a + r.debt, 0);
   res.json({ rows, totalDebt });
+});
+
+// P10 — گزارش سریع حرکت کالا: تعداد برای همهٔ دارندگان reports:view (مثل صندوقدار)،
+// مبالغ فقط با cost_visibility:view (کلیدهای مبلغ اصلاً ساخته نمی‌شوند).
+router.get('/quick-item-movement', auth, requirePermission('reports', 'view'), (req, res) => {
+  try {
+    const db = getDB();
+    res.json(buildQuickItemMovement(db, req.query, { showAmounts: canSeeCostVisibility(db, req.user) }));
+  } catch (e) {
+    if (!e.status || e.status >= 500) console.error('GET /reports/quick-item-movement', e && e.message);
+    res.status(e.status || 500).json({ error: e.message || 'خطا در گزارش حرکت کالا', code: e.code });
+  }
+});
+
+// P10 — سود و زیان روزانهٔ تقریبی: فقط cost_visibility:view.
+router.get('/daily-pnl', auth, (req, res) => {
+  const db = getDB();
+  if (!canSeeCostVisibility(db, req.user)) {
+    return res.status(403).json({ error: 'مشاهدهٔ سود و زیان نیاز به مجوز «مشاهدهٔ بها/سود» دارد', code: 'E_COST_VISIBILITY' });
+  }
+  try {
+    res.json(buildDailyPnl(db, req.query));
+  } catch (e) {
+    if (!e.status || e.status >= 500) console.error('GET /reports/daily-pnl', e && e.message);
+    res.status(e.status || 500).json({ error: e.message || 'خطا در سود و زیان روزانه', code: e.code });
+  }
 });
 
 router.get('/vat-return', auth, adminOrAccounting, (req, res) => {
