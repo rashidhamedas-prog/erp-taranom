@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۰۸ — P1: کاردکس تنها منبع موجودی (Kardex SSOT) (SW v591)
-- **شاخه:** `fix/p1-kardex-ssot` (پایه: main b48d6427)؛ منبع: `P1-kardex-ssot.md` + `reports/pv-2026-10-29.md`. **بدون Iran deploy** (orchestrator پس از GREEN GATE + PR).
+- **شاخه:** `fix/p1-kardex-ssot` (پایه: main b48d6427)؛ منبع: `P1-kardex-ssot.md` + `reports/pv-2026-10-29.md`. **Merge:** #112 → e405bb46.
 - **PUT /products:** `stock` نادیده؛ مقدار متفاوت ← ۴۰۹ `E_STOCK_VIA_DOCUMENT`. seed مستقیم `warehouse_stock` حذف شد؛ تنها استثنا مسیر Excel (`excel_upsert`) که با `manualAdjust.postAdjust(mode=count)` سند می‌سازد.
 - **PATCH /products/:id/stock** و **PATCH /product-variants/:id/stock:** wrapper روی `postAdjust(count)`؛ `warehouse_id` الزامی (`E_STOCK_WAREHOUSE_REQUIRED`) و برای کالای ماتریسی `variant_id` (`E_VARIANT_REQUIRED`). مسیر قدیمی `stock_adjust` حذف؛ ledger/JE اکنون `inventory_adjust`.
 - **POST /product-variants/stock-matrix:** هر خانهٔ تغییرکرده → `postAdjust(count, variant_id)` در یک tx (`postStockMatrix`)؛ `structure_only:true` فقط SKU می‌سازد؛ `applyStockMatrix` دیگر qty نمی‌نویسد (فیکسچر تست: `scripts/test-helpers/matrix-seed.js`).
@@ -11,7 +11,7 @@
 - **تست:** `scripts/test-p1-kardex-ssot.js` (۵۶ assertion؛ `npm run test:p1-kardex-ssot` داخل `npm test`). به‌روزرسانی: v316، v318 (soft-retire)، v201، v439 (+assertion «موجودی را نگه می‌دارد»)، v543، v528، v521، `test-sync.js` (PATCH با `warehouse_id`).
 - **Help:** بند ادمین «موجودی فقط با سند — کاردکس تنها منبع (v591)». **SW:** `erp-taranom-v591`، `app.js?v=591`.
 - **فایل‌ها:** `lib/inventory/{ledger,movement,manual-adjust}.js`، `lib/product-variants/service.js`، `routes/{products,product-variants}.js`، `public/{app.js,app.css,sw.js,index.html}`، `package.json`، تست‌ها، CHANGE-LOG.
-- **Deploy:** ⏳ منتظر orchestrator (PR به main).
+- **Deploy:** ✅ overlay Iran — بکاپ /home/taranom/backups/crm.db.20261101-095820 (+wal/shm) — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v591 — leaf=warn — GAP_BEFORE GL1104=10,883,218,790 · k34+35=10,997,256,853 · (GL−K)=−114,038,063
 
 ### ۱۴۰۵/۰۸/۰۸ — P0-الف: باگ کاما در کد حساب «610,401» + نرمال‌سازی سرور + migration (SW v590)
 - **شاخه:** `fix/p0-coa-comma` (پایه: `pv/verify` روی main 172774b4)؛ منبع: `P0-coa-comma-and-coa-keys.md`. **Merge:** #110 → 48d6427.
