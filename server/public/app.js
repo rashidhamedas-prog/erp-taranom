@@ -13879,7 +13879,8 @@ const RBAC_RES_FA={
   sales_cross_warehouse:'فروش از انبار دیگر',
   inventory_negative:'موجودی منفی (تأیید)',
   cost_visibility:'مشاهدهٔ بها/سود (بهای خرید، میانگین، حاشیه)',
-  qty_receipt:'رسید مقداری کالا (صندوقدار؛ حذف = ابطال)'
+  qty_receipt:'رسید مقداری کالا (صندوقدار؛ حذف = ابطال)',
+  sales_amount:'مشاهدهٔ مبلغ فروش'
 };
 const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
 /* v522: معنای تیک‌ها در بخش‌های حساس + قابلیت‌های بدون صفحهٔ منو */
@@ -14450,6 +14451,9 @@ function setRepPreset(presetKey){
 
 /* ---- P10: گزارش سریع حرکت کالا + سود و زیان روزانه (فقط‌خواندنی) ---- */
 const qimState={from:'',to:'',type:'both',warehouse_id:'',q:'',data:null};
+/* P10-fix: مبلغ فروش با sales_amount:view یا cost_visibility؛ مبلغ خرید فقط cost_visibility */
+function qimCanCostAmt(){ return !!(ME && (ME.role==='admin' || canPerm('cost_visibility','view'))); }
+function qimCanSalesAmt(){ return !!(ME && (qimCanCostAmt() || canPerm('sales_amount','view'))); }
 ROUTES['quick-item-movement'] = async function(){
   if(!qimState.from){ qimState.from=todayJalali(); qimState.to=qimState.from; }
   let whs=[];
@@ -14484,38 +14488,39 @@ async function qimLoad(){
   try{
     const d=await api('GET','/reports/quick-item-movement?'+qs.toString());
     qimState.data=d;
-    const amt=!!(d&&d.amounts_visible);
+    const amtSale=!!(d&&d.sales_amounts_visible) && qimCanSalesAmt(), amtPur=!!(d&&d.purchase_amounts_visible) && qimCanCostAmt();
     const showSale=qimState.type!=='purchase', showPur=qimState.type!=='sale';
     const t=d.totals||{};
-    const head=`<th>کالا</th><th>رنگ/سایز</th>${showSale?'<th>فروش</th><th>برگشت</th><th>خالص فروش</th>':''}${showPur?'<th>خرید</th><th>برگشت خرید</th>':''}${amt&&showSale?'<th>مبلغ خالص فروش</th>':''}${amt&&showPur?'<th>مبلغ خرید</th>':''}`;
+    const head=`<th>کالا</th><th>رنگ/سایز</th>${showSale?'<th>فروش</th><th>برگشت</th><th>خالص فروش</th>':''}${showPur?'<th>خرید</th><th>برگشت خرید</th>':''}${amtSale&&showSale?'<th>مبلغ فروش</th><th>مبلغ برگشت</th><th>مبلغ خالص فروش</th>':''}${amtPur&&showPur?'<th>مبلغ خرید</th>':''}`;
     const rows=(d.rows||[]).map(r=>`<tr>
       <td>${r.code?`<span class="mono muted">${esc(r.code)}</span> `:''}${esc(r.name)}</td>
       <td class="muted">${esc([r.color_name,r.size_name].filter(Boolean).join(' / ')||r.sku||'—')}</td>
       ${showSale?`<td class="mono">${fmtQtyFa(r.sold_qty)}</td><td class="mono">${fmtQtyFa(r.returned_qty)}</td><td class="mono" data-csp-style="${CSP.style('font-weight:700')}">${fmtQtyFa(r.net_sold_qty)}</td>`:''}
       ${showPur?`<td class="mono">${fmtQtyFa(r.purchased_qty)}</td><td class="mono">${fmtQtyFa(r.purchase_returned_qty)}</td>`:''}
-      ${amt&&showSale?`<td class="mono">${fmt(r.net_sales_amount_rial)}</td>`:''}
-      ${amt&&showPur?`<td class="mono">${fmt(r.purchase_amount_rial)}</td>`:''}
+      ${amtSale&&showSale?`<td class="mono">${fmt(r.sales_amount_rial)}</td><td class="mono">${fmt(r.returns_amount_rial)}</td><td class="mono">${fmt(r.net_sales_amount_rial)}</td>`:''}
+      ${amtPur&&showPur?`<td class="mono">${fmt(r.purchase_amount_rial)}</td>`:''}
     </tr>`).join('');
     body.innerHTML=`
       <div class="muted" data-csp-style="${CSP.style('font-size:12px;margin:6px 0 10px')}">${esc(d.unit_note||'')}</div>
       <div class="rep-kpi-grid">
         ${showSale?`<div class="rep-kpi-card"><div class="kpi-label">تعداد فروش</div><div class="kpi-val">${fmtQtyFa(t.sold_qty)}</div><div class="kpi-sub">برگشت: ${fmtQtyFa(t.returned_qty)} · خالص: ${fmtQtyFa(t.net_sold_qty)}</div></div>`:''}
         ${showPur?`<div class="rep-kpi-card"><div class="kpi-label">تعداد خرید</div><div class="kpi-val">${fmtQtyFa(t.purchased_qty)}</div><div class="kpi-sub">برگشت خرید: ${fmtQtyFa(t.purchase_returned_qty)}</div></div>`:''}
-        ${amt&&showSale?`<div class="rep-kpi-card"><div class="kpi-label">مبلغ خالص فروش</div><div class="kpi-val">${fmt(t.net_sales_amount_rial)} ریال</div></div>`:''}
-        ${amt&&showPur?`<div class="rep-kpi-card"><div class="kpi-label">مبلغ خرید</div><div class="kpi-val">${fmt(t.purchase_amount_rial)} ریال</div></div>`:''}
+        ${amtSale&&showSale?`<div class="rep-kpi-card"><div class="kpi-label">مبلغ خالص فروش</div><div class="kpi-val">${fmt(t.net_sales_amount_rial)} ریال</div><div class="kpi-sub">فروش: ${fmt(t.sales_amount_rial)} · برگشت: ${fmt(t.returns_amount_rial)}</div></div>`:''}
+        ${amtPur&&showPur?`<div class="rep-kpi-card"><div class="kpi-label">مبلغ خرید</div><div class="kpi-val">${fmt(t.purchase_amount_rial)} ریال</div></div>`:''}
       </div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="9" class="muted">در این بازه حرکتی نیست</td></tr>`}</tbody></table></div>`;
+      <div class="tbl-wrap"><table class="tbl"><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="12" class="muted">در این بازه حرکتی نیست</td></tr>`}</tbody></table></div>`;
   }catch(e){
     body.innerHTML=`<div class="err">${esc(e.message||'خطا در بارگذاری گزارش')}</div>`;
   }
 }
 function qimCsv(){
   const d=qimState.data; if(!d||!(d.rows||[]).length){ showToast('ردیفی برای خروجی نیست','error'); return; }
-  const amt=!!d.amounts_visible;
+  const amtSale=!!d.sales_amounts_visible && qimCanSalesAmt(), amtPur=!!d.purchase_amounts_visible && qimCanCostAmt();
   const cell=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
-  const head=['کد','کالا','رنگ','سایز','SKU','فروش','برگشت فروش','خالص فروش','خرید','برگشت خرید'].concat(amt?['مبلغ فروش (ریال)','مبلغ برگشت (ریال)','مبلغ خالص فروش (ریال)','مبلغ خرید (ریال)']:[]);
+  const head=['کد','کالا','رنگ','سایز','SKU','فروش','برگشت فروش','خالص فروش','خرید','برگشت خرید']
+    .concat(amtSale?['مبلغ فروش (ریال)','مبلغ برگشت (ریال)','مبلغ خالص فروش (ریال)']:[]).concat(amtPur?['مبلغ خرید (ریال)','مبلغ برگشت خرید (ریال)']:[]);
   const lines=[head.map(cell).join(',')].concat(d.rows.map(r=>[r.code,r.name,r.color_name,r.size_name,r.sku,r.sold_qty,r.returned_qty,r.net_sold_qty,r.purchased_qty,r.purchase_returned_qty]
-    .concat(amt?[r.sales_amount_rial,r.returns_amount_rial,r.net_sales_amount_rial,r.purchase_amount_rial]:[]).map(cell).join(',')));
+    .concat(amtSale?[r.sales_amount_rial,r.returns_amount_rial,r.net_sales_amount_rial]:[]).concat(amtPur?[r.purchase_amount_rial,r.purchase_returns_amount_rial]:[]).map(cell).join(',')));
   rcnCsvDownload(lines,'quick-item-movement-'+String(d.from).replace(/\//g,'')+'-'+String(d.to).replace(/\//g,'')+'.csv');
 }
 
@@ -41382,7 +41387,7 @@ function renderAdminGuide(){
     helpSec('📈','گزارش سریع کالا و سود و زیان روزانه (P10 — v599)',`
       <p><b>📦 گزارش سریع کالا</b> (منوی اصلی؛ برای صندوقدار هم هست): برای بازهٔ تاریخ (پیش‌فرض امروز)، به تفکیک <b>کالا × رنگ/سایز</b> تعداد <b>فروش، برگشت فروش، خالص فروش، خرید و برگشت خرید</b> را از سطرهای اسناد زنده نشان می‌دهد (فاکتور قطعی فروش، برگشت فروش، فاکتور خرید، برگشت خرید؛ اسناد ابطال‌شده حساب نمی‌شوند). فیلتر: نوع (فروش/خرید/هر دو)، انبار (انبار سطر یا سربرگ) و جستجوی نام/کد/SKU. دکمهٔ «📥 اکسل (CSV)» همان جدول را خروجی می‌دهد.</p>
       <ul>
-        <li><b>مبالغ</b> (مبلغ سطر فروش/برگشت/خرید، قبل از تخفیف سربرگ و ارزش افزوده) فقط برای دارندگان مجوز <span dir="ltr">cost_visibility:view</span> («مشاهدهٔ بها/سود») ساخته می‌شود؛ بقیه (مثل صندوقدار) فقط تعداد می‌بینند و در خروجی CSV هم ستون مبلغ ندارند. API: <span dir="ltr">GET /api/reports/quick-item-movement?from&amp;to&amp;warehouse_id&amp;type=sale|purchase|both</span> (نیازمند <span dir="ltr">reports:view</span>).</li>
+        <li><b>مبالغ</b> (مبلغ سطر فروش/برگشت/خرید، قبل از تخفیف سربرگ و ارزش افزوده) — <b>(vNEXT — P10-fix)</b>: <b>مبلغ فروش، مبلغ برگشت فروش و مبلغ خالص فروش</b> با مجوز جدید <span dir="ltr">sales_amount:view</span> («مشاهدهٔ مبلغ فروش») یا <span dir="ltr">cost_visibility:view</span> دیده می‌شود؛ پیش‌فرض: مدیر کل، حسابداری و <b>صندوقدار (فروشگاهی)</b>. نقش‌های فروش (مدیر فروش/فروشنده/پخش) پیش‌فرض ندارند چون فهرست فاکتورشان فقط فاکتورهای خودشان است — در صورت نیاز از ماتریس دسترسی نقش یا کاربر فعال کنید. <b>مبلغ خرید/برگشت خرید، بها و سود</b> همچنان فقط با <span dir="ltr">cost_visibility:view</span> («مشاهدهٔ بها/سود»). کاربری که هیچ‌کدام را ندارد فقط تعداد می‌بیند؛ خروجی CSV هم همین قاعده را دارد. API: <span dir="ltr">GET /api/reports/quick-item-movement?from&amp;to&amp;warehouse_id&amp;type=sale|purchase|both</span> (نیازمند <span dir="ltr">reports:view</span>).</li>
       </ul>
       <p><b>📈 سود و زیان روزانه</b> (فقط با مجوز «مشاهدهٔ بها/سود»؛ بدون آن منو دیده نمی‌شود و API خطای ۴۰۳ <span dir="ltr">E_COST_VISIBILITY</span> می‌دهد) — برچسب <b>«تقریبی؛ قبل از بستن دوره»</b>:</p>
       <ul>
@@ -42720,7 +42725,8 @@ function renderSalesGuide(){
       <p>اگر منوی <b>📥 رسید مقداری کالا</b> را دارید: «➕ رسید جدید» ← تأمین‌کننده و انبار را انتخاب کنید ← کالا را با نام/کد/بارکد جستجو و اضافه کنید ← برای کالای رنگ‌سایزدار، رنگ/سایز را انتخاب کنید ← تعداد را وارد و ثبت کنید. کالا همان لحظه به موجودی انبار اضافه می‌شود.</p>
       <p>مبلغ و فی خرید را وارد نمی‌کنید و نمی‌بینید؛ حسابداری بعداً رسید را «ریالی» می‌کند. وضعیت هر رسید در فهرست («در انتظار ریالی‌سازی» / «ریالی شده» / «ابطال») دیده می‌شود. ابطال رسید با حسابداری است.</p>`),
     helpSec('📦','گزارش سریع کالا (P10 — v599)',`
-      <p>منوی <b>«📦 گزارش سریع کالا»</b>: تعداد فروش، برگشت و خالص فروش (و برای مجازها خرید) هر کالا و رنگ/سایز را برای امروز یا هر بازهٔ دلخواه نشان می‌دهد؛ با فیلتر انبار و جستجو. دکمهٔ «📥 اکسل (CSV)» خروجی می‌دهد. اگر مجوز «مشاهدهٔ بها/سود» ندارید فقط تعداد نمایش داده می‌شود (مبلغ و سود دیده نمی‌شود).</p>`),
+      <p>منوی <b>«📦 گزارش سریع کالا»</b>: تعداد فروش، برگشت و خالص فروش (و برای مجازها خرید) هر کالا و رنگ/سایز را برای امروز یا هر بازهٔ دلخواه نشان می‌دهد؛ با فیلتر انبار و جستجو. دکمهٔ «📥 اکسل (CSV)» خروجی می‌دهد. اگر مجوز «مشاهدهٔ بها/سود» ندارید فقط تعداد نمایش داده می‌شود (مبلغ و سود دیده نمی‌شود).</p>
+      <p><b>(vNEXT — P10-fix)</b> با مجوز <b>«مشاهدهٔ مبلغ فروش»</b> (پیش‌فرض صندوقدار فروشگاهی؛ برای نقش‌های فروش با فعال‌سازی مدیر) ستون‌های <b>مبلغ فروش، مبلغ برگشت و مبلغ خالص فروش</b> هم نمایش داده و در CSV خروجی گرفته می‌شود؛ مبلغ خرید، بها و سود همچنان فقط با «مشاهدهٔ بها/سود» دیده می‌شود و سود و زیان روزانه بدون آن در دسترس نیست.</p>`),
     helpSec('📦','فروش از انبار دیگر (v567)',`
       <p>برای فروش یک ردیف از انبار غیر از انبار سربرگ فاکتور، دسترسی <b>«فروش از انبار دیگر»</b> لازم است (مدیر دارد؛ بقیه را مدیر در دسترسی کاربران فعال می‌کند). بدون آن، انتخابگر انبار ردیف قفل است و پیام «برای فروش از انبار دیگر دسترسی لازم است» دیده می‌شود. نمایندگان همیشه روی انبار خودشان هستند.</p>
       <p>دکمهٔ <b>📦</b> کنار انبار هر ردیف، موجودی همهٔ انبارها را نشان می‌دهد و (با دسترسی) با یک کلیک انبار ردیف را عوض می‌کند. اگر کالا در انبار سربرگ صفر باشد ولی جای دیگر موجود باشد، روی کارت کالا بج «در انبار دیگر: n» می‌آید.</p>`),

@@ -16,8 +16,8 @@ const { hasPermission } = require('./rbac');
 const COST_SAFE = /cost_?(center|centre|cc|sheet|type|code|id|name|account|basis|mode|method|policy|ing|element|owner|label|group)|costing|cost_?centers?/i;
 /** Any key containing cost / margin / profit / cogs / landed (camel or snake). */
 const COST_KEY_GLOBAL = /cost|margin|profit|cogs|landed/i;
-/** Exact extra keys (purchase / opening price). */
-const COST_KEY_EXACT = /^(purchase_price(_rial)?|opening_price(_rial)?|buy_price(_rial)?)$/i;
+/** Exact extra keys (purchase / opening price, P10 purchase amounts). Sales amount keys are never listed here. */
+const COST_KEY_EXACT = /^(purchase_price(_rial)?|opening_price(_rial)?|buy_price(_rial)?|purchase_(returns_)?amount(_rial)?)$/i;
 
 /** Extra keys hidden only under stock-valuation prefixes (kardex amounts, valuation totals). */
 const STOCK_VALUE_KEY = /^(amount_rial|amount_rial_total|provisional_rial|value_rial|total_value_rial|stock_value_rial|inventory_value_rial|balance_value_rial|balance_amount_rial)$/i;
