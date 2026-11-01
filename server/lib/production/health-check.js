@@ -4,6 +4,7 @@
  * accounting-events.md §5 (H1..H5, C1..C7)
  */
 const { acct } = require('../coa-map');
+const { jeNotDraftFor } = require('../je-live');
 
 function runQuery(db, sql, params = []) {
   try {
@@ -26,8 +27,10 @@ function mkCheck(code, name, rows) {
 
 // PRD-18 (roll surplus found at cutting) credits 5211 by design; ADR-011 bans
 // only BOM-vs-actual material variance postings, so surplus entries are exempt.
-const ADR011_EXEMPT_SQL = `COALESCE(je.deleted_at, 0) = 0
+function adr011ExemptSql(db) {
+  return `COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
   AND COALESCE(je.ref_type, '') NOT LIKE 'cutting_roll_surplus%'`;
+}
 
 function adr011VarianceCodes(db) {
   return [acct(db, 'coa_var_material_price').code, acct(db, 'coa_var_material_qty').code];
@@ -37,7 +40,7 @@ function adr011ViolationLines(db) {
   return db.prepare(`
     SELECT jl.entry_id, jl.account_code, je.ref_type FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE jl.account_code IN (?, ?) AND ${ADR011_EXEMPT_SQL}
+    WHERE jl.account_code IN (?, ?) AND ${adr011ExemptSql(db)}
   `).all(...adr011VarianceCodes(db));
 }
 
@@ -48,12 +51,13 @@ function adr011Balance(db, code) {
       COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE jl.account_code = ? AND ${ADR011_EXEMPT_SQL}
+    WHERE jl.account_code = ? AND ${adr011ExemptSql(db)}
   `).get(code);
   return Number(r && r.bal) || 0;
 }
 
 function runHealthCheck(db) {
+  const notDraft = jeNotDraftFor(db);
   const wipCode = acct(db, 'coa_wip').code;
   const subInvCode = acct(db, 'coa_subcontract_inventory').code;
   const varPriceCode = acct(db, 'coa_var_material_price').code;
@@ -82,7 +86,7 @@ function runHealthCheck(db) {
       FROM journal_lines jl
       JOIN journal_entries je ON je.id = jl.entry_id
       WHERE jl.account_code IN (${ctrlIn})
-        AND COALESCE(je.deleted_at, 0) = 0
+        AND COALESCE(je.deleted_at, 0) = 0 AND ${notDraft}
       GROUP BY jl.account_code
       HAVING ABS(bal) > 5
     `, ctrlCodes)),
@@ -115,11 +119,12 @@ function runHealthCheck(db) {
     mkCheck('C2', 'بدون سند انتقال مرحله (ADR-012)', runQuery(db, `
       SELECT id, ref_type FROM journal_entries
       WHERE ref_type LIKE '%stage_transfer%' AND COALESCE(deleted_at, 0) = 0
+        AND ${jeNotDraftFor(db, 'journal_entries')}
     `)),
     mkCheck('C3', 'بدون سند انحراف مواد (ADR-011)', runQuery(db, `
       SELECT jl.entry_id, jl.account_code FROM journal_lines jl
       JOIN journal_entries je ON je.id = jl.entry_id
-      WHERE jl.account_code IN (?, ?) AND ${ADR011_EXEMPT_SQL}
+      WHERE jl.account_code IN (?, ?) AND ${adr011ExemptSql(db)}
     `, [varPriceCode, varQtyCode])),
     mkCheck('C4', 'همه اسناد تولیدی تراز', runQuery(db, `
       SELECT je.id, je.voucher_number,
@@ -127,7 +132,7 @@ function runHealthCheck(db) {
              SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)) c
       FROM journal_entries je
       JOIN journal_lines jl ON jl.entry_id = je.id
-      WHERE je.ref_type LIKE 'production_%' AND COALESCE(je.deleted_at, 0) = 0
+      WHERE je.ref_type LIKE 'production_%' AND COALESCE(je.deleted_at, 0) = 0 AND ${notDraft}
       GROUP BY je.id
       HAVING ABS(d - c) > 5
     `)),
@@ -135,7 +140,7 @@ function runHealthCheck(db) {
       SELECT jl.account_code, SUM(jl.debit_rial) - SUM(jl.credit_rial) bal
       FROM journal_lines jl
       JOIN journal_entries je ON je.id = jl.entry_id
-      WHERE jl.account_code IN (${ctrlIn}) AND COALESCE(je.deleted_at, 0) = 0
+      WHERE jl.account_code IN (${ctrlIn}) AND COALESCE(je.deleted_at, 0) = 0 AND ${notDraft}
       GROUP BY jl.account_code
       HAVING ABS(bal) > 5
     `, ctrlCodes)),
@@ -145,7 +150,7 @@ function runHealthCheck(db) {
       JOIN journal_entries je ON je.ref_type LIKE 'production_%'
       JOIN journal_lines jl ON jl.entry_id = je.id AND jl.account_code = ?
         AND jl.detail_account_id = po.coa_wip_tafsili
-      WHERE po.status = 'closed' AND COALESCE(je.deleted_at, 0) = 0
+      WHERE po.status = 'closed' AND COALESCE(je.deleted_at, 0) = 0 AND ${notDraft}
       GROUP BY po.id
       HAVING ABS(wip) > 5
     `, [wipCode])),
@@ -155,7 +160,7 @@ function runHealthCheck(db) {
       JOIN production_subcontract sc ON sc.order_id = po.id
       JOIN journal_entries je ON je.id = sc.je_id
       JOIN journal_lines jl ON jl.entry_id = je.id AND jl.account_code = ?
-      WHERE po.status IN ('completed', 'closed') AND COALESCE(je.deleted_at, 0) = 0
+      WHERE po.status IN ('completed', 'closed') AND COALESCE(je.deleted_at, 0) = 0 AND ${notDraft}
       GROUP BY po.id
       HAVING ABS(bal) > 5
     `, [subInvCode])),

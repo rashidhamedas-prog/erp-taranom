@@ -17,6 +17,9 @@
  * برمی‌گرداند و پیش‌نویس افتتاحیهٔ ledger#2021–2023 را می‌سازد. ثبت این پیش‌نویس‌ها روی 1104 حتی با
  * ledger_leaf_enforcement=enforce از معافیت محدود «حساب کنترل موجودی» (coa-leaf-policy) می‌گذرد.
  * ledger#2003 صراحتاً مستثناست (EXCLUDED_LEDGER_IDS).
+ *
+ * FR-P334-B (تصمیم حامد): ledger#1273 (کالا 334، WIP) با برگشت رسمی کاردکس (FR-P334-A) حل می‌شود ⇒
+ * پیش‌نویس #2 فقط ledger#1978/1979 (79,655,914)؛ مهاجرت v4 سطر 1273 را از پیش‌نویس ثبت‌نشدهٔ موجود حذف می‌کند.
  */
 
 const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
@@ -41,12 +44,18 @@ const ACC_SHORTAGE = '610801';
 const ACC_COGS = '5101';
 
 const JE1016 = { id: 1016, ref_type: 'inventory_recon_adjust', amount: 1796860352 };
+const UNDOC_KEY = 'undoc_adjust_146335856';
 const UNDOC_ROWS = [
   { id: 1978, product_id: 115, warehouse_id: 34, amount: 66742000 },
   { id: 1979, product_id: 131, warehouse_id: 35, amount: 12913914 },
-  { id: 1273, product_id: 334, warehouse_id: 34, amount: 66679942, wip_review: true },
 ];
-const UNDOC_TOTAL = 146335856;
+const UNDOC_TOTAL = 79655914;
+// FR-P334-B (تصمیم حامد): ledger#1273 (کالا 334، WIP) با برگشت رسمی کاردکس (FR-P334-A) حل می‌شود، نه پیش‌نویس.
+const LEDGER1273 = { id: 1273, product_id: 334, warehouse_id: 34, amount: 66679942, wip_review: true };
+const OFFICIAL_KARDEX_REVERSAL_LEDGER_IDS = Object.freeze([LEDGER1273.id]);
+const OFFICIAL_KARDEX_REVERSAL_ROUTE = 'FR-P334-A — برگشت رسمی کاردکس ledger#1273';
+const UNDOC_LEGACY_ROWS = [...UNDOC_ROWS, LEDGER1273];
+const UNDOC_LEGACY_TOTAL = 146335856;
 const JE490 = { id: 490, ref_type: 'opening_inventory', amount: 71232000, ledger_id: 1230, product_id: 335, warehouse_id: 34 };
 const LEDGER1977 = { id: 1977, product_id: 109, warehouse_id: 35, amount: 10759000 };
 const OPENINGS_2021_2023_KEY = 'opening_ledger2021_2023';
@@ -63,8 +72,10 @@ const COGS_TARGET_WH = 35;
 const P3_POSTING_OPTIONS = Object.freeze({ exemptControlCodes: Object.freeze([ACC_INV]) });
 {
   const used = [...UNDOC_ROWS.map((r) => r.id), JE490.ledger_id, LEDGER1977.id, ...OPENINGS_2021_2023.map((r) => r.id)];
-  const bad = used.filter((id) => EXCLUDED_LEDGER_IDS.includes(id));
+  const bad = used.filter((id) => EXCLUDED_LEDGER_IDS.includes(id) || OFFICIAL_KARDEX_REVERSAL_LEDGER_IDS.includes(id));
   if (bad.length) throw new Error(`P3: ledger مستثنا در پیش‌نویس: ${bad.join(',')}`);
+  if (UNDOC_ROWS.reduce((t, r) => t + r.amount, 0) !== UNDOC_TOTAL
+    || UNDOC_LEGACY_ROWS.reduce((t, r) => t + r.amount, 0) !== UNDOC_LEGACY_TOTAL) throw new Error('P3: جمع تعدیل بی‌سند ناسازگار');
   if (OPENINGS_2021_2023.reduce((t, r) => t + r.amount, 0) !== OPENINGS_2021_2023_TOTAL) throw new Error('P3: جمع افتتاحیه 2021–2023 ناسازگار');
 }
 
@@ -295,6 +306,28 @@ function guardOpenings2021to2023(db) {
 
 function tag(key) { return `[p3:${key}]`; }
 
+function undocLines(rows, inv) {
+  const total = rows.reduce((t, r) => t + r.amount, 0);
+  return [
+    ...rows.map((r) => ({
+      code: ACC_SHORTAGE, debit: r.amount, credit: 0,
+      description: `تعدیل بی‌سند ledger#${r.id} کالا ${r.product_id}${r.wip_review ? ' — «بررسی WIP»' : ''}`,
+    })),
+    { code: inv, debit: 0, credit: total, description: `موجودی کالا — ledger#${rows.map((r) => r.id).join('/')}` },
+  ];
+}
+
+/** سطرهای پیش‌نویس #2 پیش از FR-P334-B (چهار سطر با ledger#1273؛ همان شکل production). */
+function legacyUndocLines(inv) {
+  return undocLines(UNDOC_LEGACY_ROWS, inv);
+}
+
+/** همهٔ شکل‌های معتبر سطرهای پیش‌نویس (فعلی + تاریخی) برای مهاجرت‌های v2/v3. */
+function specVariants(key, inv) {
+  const cur = specLines(key, inv);
+  return key === UNDOC_KEY ? [cur, legacyUndocLines(inv)] : [cur];
+}
+
 /** سطرهای اصلی پیش‌نویس‌های P3 با حساب موجودی داده‌شده (v1 روی 1104؛ v2 روی 110401؛ v3 دوباره 1104). */
 function specLines(key, inv) {
   switch (key) {
@@ -303,14 +336,8 @@ function specLines(key, inv) {
         { code: inv, debit: JE1016.amount, credit: 0, description: 'برگشت JE #1016 — موجودی کالا' },
         { code: ACC_OPENING, debit: 0, credit: JE1016.amount, description: 'برگشت JE #1016 — تراز افتتاحیه' },
       ];
-    case 'undoc_adjust_146335856':
-      return [
-        ...UNDOC_ROWS.map((r) => ({
-          code: ACC_SHORTAGE, debit: r.amount, credit: 0,
-          description: `تعدیل بی‌سند ledger#${r.id} کالا ${r.product_id}${r.wip_review ? ' — «بررسی WIP»' : ''}`,
-        })),
-        { code: inv, debit: 0, credit: UNDOC_TOTAL, description: 'موجودی کالا — ledger#1978/1979/1273' },
-      ];
+    case UNDOC_KEY:
+      return undocLines(UNDOC_ROWS, inv);
     case 'opening_je490_offset':
       return [
         { code: inv, debit: JE490.amount, credit: 0, description: 'افتتاحیه JE #490 / ledger#1230' },
@@ -337,8 +364,19 @@ function specLines(key, inv) {
   }
 }
 
+const DRAFT_PREFIX = 'پیش‌نویس P3 — منتظر تأیید حامد —';
+
+function undocDescription(prefix = DRAFT_PREFIX) {
+  return `${prefix} تعدیل بی‌سند کاردکس ledger#1978، ledger#1979 ${tag(UNDOC_KEY)}`;
+}
+
+/** شرح پیش‌نویس #2 پیش از FR-P334-B (همان متن v1 در production). */
+function legacyUndocDescription(prefix = DRAFT_PREFIX) {
+  return `${prefix} تعدیل بی‌سند کاردکس ledger#1978، ledger#1979، ledger#1273 (کالای 334: بررسی WIP) ${tag(UNDOC_KEY)}`;
+}
+
 function buildPlan(db) {
-  const prefix = 'پیش‌نویس P3 — منتظر تأیید حامد —';
+  const prefix = DRAFT_PREFIX;
   const leaf = resolveInventoryLeaf(db);
   const inv = leaf.code;
   const subtree = inventorySubtreeCodes(db);
@@ -354,12 +392,12 @@ function buildPlan(db) {
     lines: specLines(JE1016_DRAFT_KEY, inv),
   });
   specs.push({
-    key: 'undoc_adjust_146335856',
+    key: UNDOC_KEY,
     amount: UNDOC_TOTAL,
     guard: guardUndocRows(db),
-    guard_text: 'ردیف‌های کاردکس 1978 (کالا 115، wh34، 66,742,000)، 1979 (کالا 131، wh35، 12,913,914)، 1273 (کالا 334، wh34، 66,679,942) زنده و je_id IS NULL، بدون سند تعدیل زنده',
-    description: `${prefix} تعدیل بی‌سند کاردکس ledger#1978، ledger#1979، ledger#1273 (کالای 334: بررسی WIP) ${tag('undoc_adjust_146335856')}`,
-    lines: specLines('undoc_adjust_146335856', inv),
+    guard_text: 'ردیف‌های کاردکس 1978 (کالا 115، wh34، 66,742,000)، 1979 (کالا 131، wh35، 12,913,914) زنده و je_id IS NULL، بدون سند تعدیل زنده (ledger#1273 → برگشت رسمی کاردکس FR-P334-A)',
+    description: undocDescription(prefix),
+    lines: specLines(UNDOC_KEY, inv),
   });
   specs.push({
     key: 'opening_je490_offset',
@@ -491,6 +529,11 @@ function buildP3Report(db) {
       already_created: s.already, accounts: s.accounts, effect_1104_rial: s.effect_1104_rial,
     })),
     cogs_zero_inbound: computeZeroInboundCogsShare(db, {}),
+    excluded_ledger_ids: EXCLUDED_LEDGER_IDS.slice(),
+    handled_by_official_reversal: [{
+      ledger_id: LEDGER1273.id, product_id: LEDGER1273.product_id, warehouse_id: LEDGER1273.warehouse_id,
+      amount_rial: LEDGER1273.amount, route: OFFICIAL_KARDEX_REVERSAL_ROUTE, draft: null,
+    }],
   };
 }
 
@@ -643,8 +686,8 @@ function runP3DraftsV2Migration(db, opts = {}) {
       if (postedAsJournal(db, key)) { res.skipped.push({ key, draft_id: id, why: 'posted' }); continue; }
       let lines;
       try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
-      if (sameLines(lines, specLines(key, leaf.code))) { res.skipped.push({ key, draft_id: id, why: 'already_leaf' }); continue; }
-      if (!sameLines(lines, specLines(key, ACC_INV))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
+      if (specVariants(key, leaf.code).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'already_leaf' }); continue; }
+      if (!specVariants(key, ACC_INV).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
       const next = lines.map((l) => (String(l.code) === ACC_INV ? { ...l, code: leaf.code } : l));
       const nextJson = JSON.stringify(next);
       db.prepare(`UPDATE voucher_drafts SET lines_json=?${bump} WHERE id=?`).run(nextJson, id);
@@ -765,8 +808,8 @@ function runP3DraftsV3Migration(db, opts = {}) {
       if (postedAsJournal(db, key)) { res.skipped.push({ key, draft_id: id, why: 'posted' }); continue; }
       let lines;
       try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
-      if (sameLines(lines, specLines(key, ACC_INV))) { res.skipped.push({ key, draft_id: id, why: 'already_1104' }); continue; }
-      if (!sameLines(lines, specLines(key, LEGACY_LEAF))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
+      if (specVariants(key, ACC_INV).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'already_1104' }); continue; }
+      if (!specVariants(key, LEGACY_LEAF).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
       const next = lines.map((l) => (String(l.code) === LEGACY_LEAF ? { ...l, code: ACC_INV } : l));
       const nextJson = JSON.stringify(next);
       db.prepare(`UPDATE voucher_drafts SET lines_json=?${bump} WHERE id=?`).run(nextJson, id);
@@ -785,6 +828,90 @@ function runP3DraftsV3Migration(db, opts = {}) {
   return res;
 }
 
+// ── v4 (FR-P334-B): حذف سطر ledger#1273 از پیش‌نویس #2 ──────────
+
+const SETTINGS_KEY_V4 = 'p3_recon_drafts_v4';
+const RULE_V4 = 'p3_draft_v4';
+const V4_ROW_KEY = 'undoc_adjust_drop_1273';
+const V4_INV_CODES = [ACC_INV, LEGACY_LEAF];
+
+function stripLedger1273(desc) {
+  return String(desc || '')
+    .replace(/\s*[،,]\s*ledger#1273(?:\s*\([^)]*\))?/g, '')
+    .replace(/ledger#1273(?:\s*\([^)]*\))?\s*/g, '');
+}
+
+function logV4(db, runId, col, oldValue, newValue, reason) {
+  db.prepare(`
+    INSERT INTO wh_data_corrections (run_id, phase, rule, tbl, row_key, col, old_value, new_value, reason)
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(runId, PHASE, RULE_V4, 'voucher_drafts', V4_ROW_KEY, col, oldValue, newValue, reason);
+}
+
+/**
+ * مهاجرت بوت FR-P334-B (فقط مرکز، یک تراکنش، نشانگر settings `p3_recon_drafts_v4`؛ بعد از v3).
+ * پیش‌نویس #2 (marker p3_draft/undoc_adjust_146335856 + برچسب) اگر ثبت نشده و سطرهایش دقیقاً همان
+ * چهار سطر قدیمی است (موجودی روی 1104 یا 110401 = 146,335,856؛ سطر ledger#1273 = 66,679,942) ⇒
+ * سطر 1273 حذف، بستانکار موجودی 79,655,914، ذکر ledger#1273 از شرح حذف (برچسب می‌ماند)، version+1،
+ * لاگ rule=p3_draft_v4 / row_key=undoc_adjust_drop_1273 (قبل/بعد). فقط voucher_drafts + wh_data_corrections.
+ * حالت سه‌سطری 79,655,914 ⇒ فقط نشانگر. هر عدم‌انطباق/ثبت‌شده ⇒ بدون نوشتن و بدون نشانگر (هشدار).
+ */
+function runP3DraftsV4Migration(db, opts = {}) {
+  if (opts.isDevice) return { skipped: 'device' };
+  if (!tableExists(db, 'voucher_drafts') || !tableExists(db, 'wh_data_corrections') || !tableExists(db, 'journal_entries')) {
+    return { skipped: 'schema' };
+  }
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(SETTINGS_KEY_V4);
+  if (flag && flag.value === '1') return { skipped: 'done' };
+  const runId = opts.runId || `p3v4-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const res = { key: UNDOC_KEY, draft_id: null, state: null, why: null, changed: false };
+  const skip = (why, extra, quiet) => {
+    Object.assign(res, { state: 'skipped', why }, extra || {});
+    if (!quiet && !opts.silent) console.warn(`p3_recon_drafts_v4: پیش‌نویس #2 دست‌نخورده — ${why}`);
+  };
+  const mark = () => db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(SETTINGS_KEY_V4, '1');
+  db.transaction(() => {
+    const id = markerDraftId(db, UNDOC_KEY);
+    if (!id) { skip('no_marker', null, true); return; }
+    res.draft_id = id;
+    const d = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(id);
+    if (!d) { skip(postedAsJournal(db, UNDOC_KEY) ? 'posted' : 'missing'); return; }
+    if (!String(d.description || '').includes(tag(UNDOC_KEY))) { skip('tag_mismatch'); return; }
+    if (postedAsJournal(db, UNDOC_KEY)) { skip('posted'); return; }
+    let lines;
+    try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
+    if (V4_INV_CODES.some((c) => sameLines(lines, specLines(UNDOC_KEY, c)))) {
+      res.state = 'already_trimmed';
+      mark();
+      return;
+    }
+    const inv = V4_INV_CODES.find((c) => sameLines(lines, legacyUndocLines(c)));
+    const idx = Array.isArray(lines) ? lines.findIndex((l) => String(l.code) === ACC_SHORTAGE
+      && Math.round(n(l.debit)) === LEDGER1273.amount && String(l.description || '').includes(`ledger#${LEDGER1273.id}`)) : -1;
+    if (!inv || idx !== 2) { skip('lines_mismatch', { lines_seen: normLines(lines) }); return; }
+    const target = specLines(UNDOC_KEY, inv);
+    const next = lines.filter((_, i) => i !== idx)
+      .map((l) => (String(l.code) === inv ? { ...l, credit: UNDOC_TOTAL, description: target[target.length - 1].description } : l));
+    const bal = next.reduce((t, l) => t + Math.round(n(l.debit)) - Math.round(n(l.credit)), 0);
+    if (!sameLines(next, target) || bal !== 0) { skip('trim_unbalanced'); return; }
+    const nextDesc = stripLedger1273(d.description);
+    if (!nextDesc.includes(tag(UNDOC_KEY)) || nextDesc.includes(`ledger#${LEDGER1273.id}`)) { skip('description_unparseable'); return; }
+    const nextJson = JSON.stringify(next);
+    const bump = colSet(db, 'voucher_drafts').has('version') ? ', version=COALESCE(version,0)+1' : '';
+    db.prepare(`UPDATE voucher_drafts SET lines_json=?, description=?${bump} WHERE id=?`).run(nextJson, nextDesc, id);
+    const why = `FR-P334-B: حذف ledger#1273 (${LEDGER1273.amount}) از پیش‌نویس #${id}؛ موجودی ${inv} ${UNDOC_LEGACY_TOTAL} → ${UNDOC_TOTAL} (برگشت رسمی کاردکس FR-P334-A، تصمیم حامد)`;
+    logV4(db, runId, 'lines_json', d.lines_json, nextJson, why);
+    logV4(db, runId, 'description', d.description, nextDesc, why);
+    mark();
+    Object.assign(res, {
+      state: 'trimmed', changed: true, inventory_code: inv,
+      before: { lines: lines.length, credit_rial: UNDOC_LEGACY_TOTAL },
+      after: { lines: next.length, credit_rial: UNDOC_TOTAL },
+    });
+  })();
+  return res;
+}
+
 module.exports = {
   buildPlan,
   buildP3Report,
@@ -792,6 +919,7 @@ module.exports = {
   runP3DraftMigration,
   runP3DraftsV2Migration,
   runP3DraftsV3Migration,
+  runP3DraftsV4Migration,
   isSupersededP3Draft,
   p3DraftKeyFor,
   p3PostingOptionsForDraft,
@@ -804,10 +932,20 @@ module.exports = {
   computeZeroInboundCogsShare,
   gl1104ApprovedRial,
   specLines,
+  legacyUndocLines,
+  legacyUndocDescription,
   SETTINGS_KEY,
   SETTINGS_KEY_V2,
   SETTINGS_KEY_V3,
+  SETTINGS_KEY_V4,
   RULE_V3,
+  RULE_V4,
+  V4_ROW_KEY,
+  UNDOC_KEY,
+  UNDOC_TOTAL,
+  UNDOC_LEGACY_TOTAL,
+  LEDGER1273,
+  OFFICIAL_KARDEX_REVERSAL_LEDGER_IDS,
   OPENINGS_2021_2023_KEY,
   OPENINGS_2021_2023,
   OPENINGS_2021_2023_TOTAL,
