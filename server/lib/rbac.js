@@ -29,6 +29,9 @@ const RESOURCES = [
   'cheque',
   // Phase 2 cross-warehouse — override موجودی منفی فروش (action approve)
   'inventory_negative',
+  // P4 — field-level cost visibility (action view). Default: admin + accounting only.
+  // Cashier (store_retail) / sales / production roles never see purchase cost, margin, profit.
+  'cost_visibility',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
@@ -37,6 +40,7 @@ const CLOSED_DEFAULT_NONE = new Set([
   'sales_cross_warehouse',
   'cheque',
   'inventory_negative',
+  'cost_visibility',
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
@@ -95,6 +99,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     fixed_assets: ACC_FULL,
     moadian: VIEW_ONLY,
     cheque: CHEQUE_OPERATE,
+    cost_visibility: { ...NONE, view: true },
     // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
     // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },

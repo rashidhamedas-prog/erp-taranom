@@ -19,6 +19,7 @@ const {
   recomputePurchaseInvoiceSettledBalances,
 } = require('../lib/purchase-payments');
 const { reverseJournalEntry } = require('../lib/void-journal');
+const { canSeeCostVisibility } = require('../lib/cost-visibility');
 
 function getSetting(db, key) {
   const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
@@ -157,6 +158,10 @@ router.get('/:id', auth, adminOrAccounting, (req, res) => {
 
 router.get('/:id/print', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  // P4: purchase print carries unit prices (= cost) → needs cost_visibility:view
+  if (!canSeeCostVisibility(db, req.user)) {
+    return res.status(403).send('دسترسی مشاهدهٔ بها (cost_visibility) ندارید');
+  }
   const raw = String(req.params.id || '').trim();
   const asId = parseInt(raw, 10);
   const purchasePrintSql = `SELECT p.*, s.name as supplier_name, s.phone as supplier_phone, s.address as supplier_address,

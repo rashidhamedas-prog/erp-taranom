@@ -3211,6 +3211,8 @@ async function boot(){
   initAppUpdate();
   bindBarcodeWedgeListener();
   window.__canSeeCost = !!(ME.role==='admin' || ME.role==='accounting' || canPerm('production_cost','view'));
+  /* P4: بهای خرید/میانگین/سود در انبار، کاردکس و کالاها — فقط با cost_visibility:view (admin/حسابداری پیش‌فرض) */
+  window.__canSeeCostVis = !!(ME.role==='admin' || canPerm('cost_visibility','view'));
   initOmnibox();
   initNotifications();
   if(typeof applyAppLanguage==='function') applyAppLanguage();
@@ -10093,7 +10095,7 @@ async function prodModal(id){
             <div class="pfv2-grid">
               <div class="fg pfv2-field"><label for="p-price">قیمت فروش عمده (ریال) ${pfv2Hlp('قیمت فروش عمده هر واحد. هنگام صدور فاکتور قابل ویرایش است.')}</label><input id="p-price" type="text" inputmode="numeric" class="money" value="${moneyInit(p.price)}"></div>
               <div class="fg pfv2-field"><label for="p-retail">قیمت فروش تک (ریال) ${pfv2Hlp('قیمت خرده‌فروشی — از فرمول قیمت‌گذاری تولید هم قابل پر شدن خودکار است.')}</label><input id="p-retail" type="text" inputmode="numeric" class="money" value="${moneyInit(p.retail_price||p.retail_price_rial||0)}"></div>
-              <div class="fg pfv2-field"><label for="p-cost">بهای تمام‌شده (ریال) ${pfv2Hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
+              <div class="fg pfv2-field" ${window.__canSeeCostVis===false?'hidden':''}><label for="p-cost">بهای تمام‌شده (ریال) ${pfv2Hlp('قیمت تمام‌شده تولید/خرید هر واحد. مبنای محاسبه بهای تمام‌شده کالای فروش‌رفته و سود ناخالص در گزارش سود و زیان است.')}</label><input id="p-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(p.cost)}"></div>
               <div class="fg pfv2-field"><label for="p-costing">روش ریالی‌کردن کالا ${pfv2Hlp('اگر خالی باشد از روش انبار یا تنظیمات سراسری پیروی می‌کند. اولویت کالا/انبار و سطح ارزش‌گذاری در «انبار ← ریالی و تعدیل بهای موجودی ← مبنای ریالی» تعیین می‌شود.')}</label>
                 <select id="p-costing">
                   <option value="" ${!p.costing_method?'selected':''}>پیروی از انبار / سراسری</option>
@@ -11650,7 +11652,7 @@ async function saveProduct(id){
   fd.append('code',el('p-code').value);
   fd.append('price',moneyVal('p-price'));
   fd.append('retail_price',moneyVal('p-retail'));
-  fd.append('cost',moneyVal('p-cost'));
+  if(window.__canSeeCostVis!==false) fd.append('cost',moneyVal('p-cost')); /* P4: بدون مجوز، بها ارسال/بازنویسی نشود */
   // P1: موجودی کالای موجود فقط با سند تعدیل؛ PUT عدد stock را نمی‌فرستد (۴۰۹ E_STOCK_VIA_DOCUMENT)
   if(!id) fd.append('stock',el('p-stock').value);
   fd.append('stock_alert',el('p-alert').value||5);
@@ -12730,7 +12732,8 @@ const RBAC_RES_FA={
   production_reports:'گزارش‌های تولید', portal:'پورتال عملیاتی', budgeting:'بودجه‌بندی',
   bank_reconciliation:'مغایرت‌گیری بانکی', banks:'بانک‌ها', orders:'سفارش‌ها', rfq:'استعلام بها',
   sales_cross_warehouse:'فروش از انبار دیگر',
-  inventory_negative:'موجودی منفی (تأیید)'
+  inventory_negative:'موجودی منفی (تأیید)',
+  cost_visibility:'مشاهدهٔ بها/سود (بهای خرید، میانگین، حاشیه)'
 };
 const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
 /* v522: معنای تیک‌ها در بخش‌های حساس + قابلیت‌های بدون صفحهٔ منو */
@@ -15462,7 +15465,7 @@ async function loadItemKardex(productId){
   if(!d){ box.innerHTML='<div class="empty">خطا در دریافت کاردکس</div>'; return; }
   const logs=d.logs||[];
   const unit=esc(d.product.unit||'عدد');
-  const canCost=!!window.__canSeeCost;
+  const canCost=!!(window.__canSeeCost && window.__canSeeCostVis!==false);
   /* ابطال: ردیف اصلی ← ردیف معکوس از روی reversal_of (بدون regex روی note) */
   const reversedByMap={};
   logs.forEach(x=>{ if(x.reversal_of) reversedByMap[String(x.reversal_of)]=x; });
@@ -15541,7 +15544,7 @@ async function loadItemKardex(productId){
           const stageBadge=(l.is_wip?' <span class="kardex-badge-wip">WIP</span>':'')+(l.warehouse_only?' <span class="kardex-badge-wip">فقط انباری</span>':'');
           const badge=isOpening?` <span class="muted" data-csp-style="${CSP.style(`font-size:10px;border:1px solid var(--border);border-radius:4px;padding:0 4px`)}">اول دوره</span>`:'';
           const groupBadge=isGroup?` <button type="button" class="btn sm ghost kardex-tog" data-kid="${esc(String(l.id))}" aria-expanded="false" data-csp-style="${CSP.style(`font-size:10px;padding:0 6px;min-height:24px`)}">▾ ${fmt(l.detail_count||l.details.length)} جزئیات</button>`:'';
-          const colSpan=window.__canSeeCost?10:8;
+          const colSpan=canCost?10:8;
           const detailRows=isGroup?l.details.map(d=>{
             const dIn=Number(d.qty_in)||0, dOut=Number(d.qty_out)||0;
             const dLabel=[d.color_name,d.size_name].filter(Boolean).join(' / ')||d.description||d.tx_no||'—';
@@ -15551,7 +15554,7 @@ async function loadItemKardex(productId){
               <td colspan="2">${esc(dLabel)}</td>
               <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(dIn)}</td>
               <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyOrDash(dOut)}</td>
-              <td colspan="${window.__canSeeCost?4:2}" class="muted">جزئیات رنگ/سایز</td>
+              <td colspan="${canCost?4:2}" class="muted">جزئیات رنگ/سایز</td>
             </tr>`;
           }).join(''):'';
           return `<tr id="kardex-row-${esc(String(l.id))}" class="${isRev?'kardex-row-reversed':''}${l.reversal_of?' kardex-row-reversal':''}">
@@ -15562,7 +15565,7 @@ async function loadItemKardex(productId){
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyOrDash(qIn)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyOrDash(qOut)}</td>
           <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(l.running_balance||0)}</td>
-          ${window.__canSeeCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut)?fmt(l.unit_cost_rial):'-'}</td>
+          ${canCost?`<td class="mono">${l.unit_cost_rial!=null&&(qIn||qOut)?fmt(l.unit_cost_rial):'-'}</td>
           <td class="mono">${l.amount_rial!=null&&(qIn||qOut||Math.abs(Number(l.amount_rial)||0)>0)?fmt(l.amount_rial):'-'}</td>`:''}
           <td class="muted">${esc(l.user_name||'-')}${kardexAdjustRowActions(l, productId)}</td>
         </tr>${detailRows}`;
@@ -15577,7 +15580,7 @@ async function loadItemKardex(productId){
           <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${fmtQtyFa(d.period_qty_in||0)}</td>
           <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${fmtQtyFa(d.period_qty_out||0)}</td>
           <td class="mono">${fmtQtyFa(d.closing_qty||0)}</td>
-          ${window.__canSeeCost?'<td></td><td></td>':''}
+          ${canCost?'<td></td><td></td>':''}
           <td></td>
         </tr></tfoot>
         </table>
@@ -23077,7 +23080,7 @@ const IVAL_TRIGGER_FA={
   schedule:'زمان‌بندی دوره‌ای',
 };
 const IVAL_QREASON_FA=Object.assign({},IVAL_TRIGGER_FA,{receipt_void:'ابطال رسید',landed_cost:'هزینه حمل',purchase_amend:'اصلاح خرید'});
-function ivalMoney(v){ return window.__canSeeCost===false?'—':fmt(Math.round(Number(v)||0)); }
+function ivalMoney(v){ return (window.__canSeeCost===false||window.__canSeeCostVis===false)?'—':fmt(Math.round(Number(v)||0)); }
 async function ivalPolicyHint(boxId,kind,productId){
   const box=el(boxId); if(!box) return;
   try{
@@ -30677,7 +30680,7 @@ function _accProductsRowsHtml(rows, canMut){
     <td class="muted">${esc(p.category_name||p.category||'-')}</td>
     <td class="mono" data-col-kind="qty" data-sort="${Number(p.stock)||0}">${fmtQtyFa(p.stock||0)}</td>
     <td class="mono" data-col-kind="avg" data-sort="${Number(p.price)||0}">${fmt(p.price||0)}</td>
-    <td class="mono" data-col-kind="avg" data-sort="${Number(p.cost)||0}">${fmt(p.cost||0)}</td>
+    <td class="mono" data-col-kind="avg" data-sort="${Number(p.cost)||0}">${window.__canSeeCostVis===false?'—':fmt(p.cost||0)}</td>
     <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
       ${canMut?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){accEditProduct((p.id))})}">✏️</button>
       <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteAccProduct((p.id))})}">🗑️</button>`:'—'}
@@ -39936,6 +39939,14 @@ function renderAdminGuide(){
         <li>حساب غیرکنترلی باید در دفتر کل <b>فعال و برگ</b> (بدون زیرمجموعه) باشد و با گروه کلید سازگار باشد؛ وگرنه ذخیره با خطای فارسی <span dir="ltr">E_COA_NOT_FOUND / E_COA_NOT_LEAF / E_COA_TYPE_MISMATCH</span> رد می‌شود.</li>
         <li>کلیدهای <b>کنترلی</b> (دریافتنی، پرداختنی، موجودی کالا، صندوق، بانک، اشخاص، WIP، سربار/دستمزد، و مرجوعی به تأمین‌کننده) می‌توانند معین غیربرگ باشند.</li>
         <li>پیش‌فرض‌های سیستم عوض نمی‌شوند؛ برای زیان واگذاری دارایی فقط کد پیشنهادی <span dir="ltr">6119</span> در راهنما آمده است. انتخاب برگ نهایی با مدیر/حسابدار است.</li>
+      </ul>`),
+    helpSec('🙈','مخفی‌سازی بها / نرخ خرید / سود (cost_visibility — v592)',`
+      <p>مجوز جدید <b dir="ltr">cost_visibility:view</b> («مشاهدهٔ بها/سود») تعیین می‌کند چه کسی <b>بهای خرید، میانگین بها، بهای واحد، سود، حاشیه و COGS</b> را می‌بیند. پیش‌فرض فقط <b>مدیر کل و حسابداری</b>؛ صندوقدار (نقش «فروشگاهی»)، فروش، مدیر فروش و تولید ندارند.</p>
+      <ul>
+        <li><b>سمت سرور:</b> برای کاربر بدون مجوز، کلیدهای <span dir="ltr">cost, average_cost_rial, unit_cost_rial, purchase_price, margin*, profit*, cogs*, landed*, opening_price</span> (و در کاردکس/ارزش‌گذاری <span dir="ltr">amount_rial</span>، در فاکتور/رسید خرید <span dir="ltr">price/sum</span> سطرها) از پاسخ‌های کالا، کاردکس، انبار، خرید، فروشگاه/POS، گزارش‌ها، گزارش‌های پیشرفته، اکسل و API v1 <b>حذف</b> می‌شود؛ قیمت فروش و تعداد دست‌نخورده می‌ماند. هدر <span dir="ltr">X-Cost-Redacted: 1</span> اعلام می‌کند پاسخ پالایش شده است.</li>
+        <li><b>خروجی اکسل و چاپ:</b> ستون‌های بها/سود در خروجی اکسل حذف می‌شود؛ چاپ فاکتور خرید برای کاربر بدون مجوز ۴۰۳ می‌دهد.</li>
+        <li><b>رابط:</b> ستون بهای کالا، ستون‌های بهای کاردکس و ارزش میانگین در گزارش ارزش‌گذاری «—» می‌شود؛ فیلد «بهای تمام‌شده» در فرم کالا پنهان است و ذخیره‌کردن کالا بها را بازنویسی نمی‌کند.</li>
+        <li><b>تنظیم:</b> «کاربران ← دسترسی‌ها» ردیف «مشاهدهٔ بها/سود» را برای هر نقش یا کاربر می‌توان روشن/خاموش کرد (مثلاً مدیر تولید). کلیدهای API v1 بدون دامنهٔ <span dir="ltr">cost</span> نیز بها نمی‌بینند.</li>
       </ul>`),
     helpSec('📒','موجودی فقط با سند — کاردکس تنها منبع (v591)',`
       <p>از این نسخه عدد موجودی هیچ‌جا «دستی» نوشته نمی‌شود؛ هر تغییر یک سند (ردیف کاردکس + سند حسابداری) است و کاردکس تنها منبع حقیقت موجودی است.</p>
