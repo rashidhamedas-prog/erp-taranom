@@ -4089,6 +4089,14 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.warn('store_walkin_customer seed:', e.message);
   }
+
+  // P3 — فقط پیش‌نویس (voucher_drafts) برای اصلاح 1104؛ هیچ سندی post نمی‌شود. منتظر تأیید حامد.
+  try {
+    const p3 = require('./lib/inventory/p3-recon-drafts').runP3DraftMigration(db, { isDevice: isDevice() });
+    if (p3 && p3.changed) console.log('✅ p3_recon_drafts_v1:', JSON.stringify(p3));
+  } catch (e) {
+    console.warn('p3_recon_drafts_v1:', e.message);
+  }
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding

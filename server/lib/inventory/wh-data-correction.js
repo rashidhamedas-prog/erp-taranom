@@ -1060,4 +1060,6 @@ module.exports = {
   invoiceCogsDiffs,
   SYNC_ASSESSMENT,
   parseXwhDiff,
+  insertDraft,
+  pickServiceUser,
 };
