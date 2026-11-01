@@ -171,8 +171,8 @@ function reverseSettlementInTx(db, settlement, userId, opts) {
       return null;
     }
   } catch (e) {
-    if (e && e.status) throw e;
-    /* fall through to cash/bank/cheque reverse if POS module unavailable */
+    // Only a missing POS module may fall through; any DB/void error must abort (no half-voided card JE).
+    if (!(e && e.code === 'MODULE_NOT_FOUND')) throw e;
   }
 
   // Lifecycle JEs first (clear/collection) so 1109 is restored before settlement GL.

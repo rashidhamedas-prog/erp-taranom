@@ -26,7 +26,7 @@ ok(voidSett.includes('reverseChequeRecordsForSettlement'), 'void-settlement expo
 ok(voidSett.includes("pay_type || '') === 'cheque'") || voidSett.includes("pay_type || '') === \"cheque\"")
   || voidSett.includes("=== 'cheque'"), 'cheque reverse uses notes receivable path');
 ok(voidInv.includes('reverseChequeRecordsForInvoice'), 'void-invoice clears cheque_records');
-ok(voidInv.includes('voidReceipt'), 'void-invoice voids POS receipts');
+ok(voidInv.includes('voidReceipt') || voidInv.includes('voidLivePosReceiptsForInvoice'), 'void-invoice voids POS receipts');
 ok(amend.includes('E_AMEND_SPLIT_COUNT') && !amend.includes('posLater.length'), 'amend blocks any later settlement (no POS orphan path)');
 ok(amend.includes('UPDATE cheque_records SET') && amend.includes('INSERT INTO cheque_records'), 'same-count amend syncs cheque_records');
 ok(!amend.includes("payType === 'cheque' ? '1109'"), 'amend no longer hardcodes 1109');

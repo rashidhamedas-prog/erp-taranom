@@ -1463,6 +1463,17 @@ router.post('/:id/convert', auth, (req, res) => {
 });
 
 // Standalone printable HTML page — templates from server/lib/invoice-print.js
+// P6-fix: read-only integrity view — every JE linked to the invoice (sale + each tender) and its balance.
+router.get('/:id/je-links', auth, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'accounting') {
+    return res.status(403).json({ error: 'دسترسی ندارید', code: 'E_FORBIDDEN' });
+  }
+  const db = getDB();
+  const inv = db.prepare('SELECT id FROM invoices WHERE id=?').get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'یافت نشد' });
+  res.json(require('../lib/invoice-je-links').collectInvoiceJeLinks(db, inv.id));
+});
+
 router.get('/:id/print', auth, (req, res) => {
   const db = getDB();
   let inv = loadInvoiceRow(db, req.params.id);
