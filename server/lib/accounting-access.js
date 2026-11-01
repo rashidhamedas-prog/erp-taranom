@@ -57,6 +57,7 @@ const ACC_ITEMS = {
   // would let a create-only user POST a void, so the route-level gate is authoritative.
   'acc-warehouse-ops': { apis: ['/api/warehouses/moves', '/api/inventory'] },
   'acc-stocktaking': { apis: ['/api/stocktaking'] },
+  'acc-opening-stock': { apis: ['/api/opening-stock', '/api/products', '/api/warehouses'] },
   'acc-inv-batches': { apis: ['/api/inventory'] },
   'acc-fabric-rolls': { apis: ['/api/inventory'] },
   'acc-inv-reservations': { apis: ['/api/inventory'] },

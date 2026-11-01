@@ -123,6 +123,13 @@ function unitTests() {
   const prod = (await req(C, 'POST', '/api/products', ct, { name: 'کالای ارزش‌گذاری', code: 'RV-1', price: 50000, cost: 20000, stock: 10 })).body;
   const sales = await req(C, 'POST', '/api/admin/users', ct, { name: 'فروش رله', username: 'relay-sales', password: 'SalesPass1405', role: 'field_sales', phone: '09120000077' });
   ok(prod && prod.id && sales.status === 200 && sales.body.id, 'central seeded product + non-accounting user');
+  // P2: موجودی اول دوره فقط با سند افتتاحیه؛ ثبت قطعی توسط کاربر دیگر (maker-checker).
+  const acctU = await req(C, 'POST', '/api/admin/users', ct, { name: 'حسابدار رله', username: 'relay-acct', password: 'AcctPass1405', role: 'accounting', phone: '09120000078' });
+  let acctTok = (await req(C, 'POST', '/api/auth/login', null, { username: 'relay-acct', password: 'AcctPass1405' })).body.token;
+  await req(C, 'POST', '/api/auth/change-password', acctTok, { oldPass: 'AcctPass1405', newPass: 'AcctPass1405-new' });
+  acctTok = (await req(C, 'POST', '/api/auth/login', null, { username: 'relay-acct', password: 'AcctPass1405-new' })).body.token;
+  const openPost = prod && prod.opening_doc ? await req(C, 'POST', `/api/opening-stock/${prod.opening_doc.id}/post`, acctTok, {}) : { status: 0, body: {} };
+  ok(acctU.status === 200 && openPost.status === 200, `opening doc posted by second user (${openPost.status} ${openPost.body.code || ''})`);
 
   console.log('— unpaired device → 503 —');
   const unp = await req(U, 'POST', '/api/inventory-valuation/revaluations/preview', ut, { basis: 'manual_unit', product_ids: [prod.id], unit_cost_rial: 25000, date: '1405/07/10' });

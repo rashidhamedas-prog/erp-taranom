@@ -73,6 +73,8 @@ function createQuickProduct(db, user, body) {
   const { resolveProductUnit } = require('./uom');
   const resolvedUnit = resolveProductUnit(db, body || {}, null);
 
+  // P2: موجودی اول دوره فقط از مسیر سند پیش‌نویس (opening_stock_docs) — کالا با موجودی صفر ساخته می‌شود.
+  const useOpeningDoc = openingStock > 0 && unitCostForOpening > 0 && !!defaultWarehouse;
   return db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO products (
@@ -82,7 +84,7 @@ function createQuickProduct(db, user, body) {
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       userId, catName, catId, prodCode, name, parseFloat(price) || 0, costRial,
-      openingStock, parseInt(stock_alert, 10) || 5, resolvedUnit.unit || 'عدد', defaultWarehouse,
+      useOpeningDoc ? 0 : openingStock, parseInt(stock_alert, 10) || 5, resolvedUnit.unit || 'عدد', defaultWarehouse,
       note || '', Math.max(1, parseInt(colors, 10) || 1), Math.max(1, parseInt(pack_size, 10) || 1),
       String(barcode || '').trim() || null, full_name || '', product_type || '', product_index || '',
       tax_id || '', parseFloat(consumer_price) || 0, location || '', openingPriceRial,
@@ -99,9 +101,19 @@ function createQuickProduct(db, user, body) {
     }
     if (defaultWarehouse) {
       db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-        .run(productId, defaultWarehouse, openingStock);
+        .run(productId, defaultWarehouse, useOpeningDoc ? 0 : openingStock);
     }
     try { assignProductTafsili(db, productId, name); } catch (_) { /* optional */ }
+    if (useOpeningDoc) {
+      require('./inventory/opening-stock').createSingleLineDraftForNewProduct(db, user, {
+        productId,
+        warehouseId: defaultWarehouse,
+        qty: openingStock,
+        unitCostRial: unitCostForOpening,
+        source: body.from_excel || body.src_system === 'excel' ? 'excel' : null,
+      });
+      return productId;
+    }
     if (openingStock > 0 && unitCostForOpening > 0) {
       const { postProductOpeningInventory } = require('./opening-post');
       postProductOpeningInventory(db, {

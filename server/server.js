@@ -619,6 +619,7 @@ app.use('/api/persons', require('./routes/persons'));
 app.use('/api/trust-checks', require('./routes/trust-checks'));
 app.use('/api/cheque-records', require('./routes/cheque-records'));
 app.use('/api/warehouses', require('./routes/warehouses'));
+app.use('/api/opening-stock', require('./routes/opening-stock'));
 app.use('/api/inventory', require('./routes/inventory'));
 if (isDevice()) app.use('/api/inventory-valuation', require('./middleware/device-online-relay'));
 app.use('/api/inventory-valuation', require('./routes/inventory-valuation'));
