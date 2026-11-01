@@ -11,7 +11,7 @@
     "capture:new-product": "node capture-new-product-ui.js"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.10.1",
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.54.2"
   }
 }
