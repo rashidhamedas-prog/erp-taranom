@@ -195,10 +195,10 @@ async function main() {
     const audited = db.prepare("SELECT COUNT(*) c FROM audit_log WHERE action='recon_fix'").get().c;
     ok(audited >= 1, 'fix audited');
     const fixId = fixed.body.applied[0].fix_id;
-    const revFix = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, { reason: 'تست ابطال' });
+    const revFix = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, { reason: 'تست ابطال', confirm: true });
     ok(revFix.status === 200 && revFix.body.fix.status === 'reversed', 'recon fix is voidable', revFix.body);
     ok(!liveJe(fixed.body.applied[0].je_id), 'voided fix JE is no longer live');
-    const revFix2 = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, {});
+    const revFix2 = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, { reason: 'تست ابطال دوباره', confirm: true });
     ok(revFix2.status === 409, 'double reverse → 409');
     // R1 is back to the injected diff; neutralise the injection for later checks
     const inj = db.prepare("SELECT id FROM journal_entries WHERE ref_type='manual_test' ORDER BY id DESC LIMIT 1").get();

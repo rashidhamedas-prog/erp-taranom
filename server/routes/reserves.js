@@ -4,6 +4,7 @@ const { auth, adminOrAccounting } = require('../middleware/auth');
 const { acct } = require('../lib/coa-map');
 const { postToLedger } = require('../lib/ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { JE_NOT_DRAFT } = require('../lib/je-live');
 const { todayJalali, j2g } = require('../jalali');
 const { postLegalReserve } = require('../lib/reserves/legal-reserve');
 const { firmSaleTypeSql } = require('../lib/sales-document');
@@ -27,6 +28,7 @@ function computeArBalance(db) {
     WHERE jl.account_code LIKE ?
       AND COALESCE(je.deleted_at, 0) = 0
       AND COALESCE(je.status, 'approved') <> 'reversed'
+      AND ${JE_NOT_DRAFT}
   `).get(receivable.code + '%');
   return Math.max(0, Math.round(row?.bal || 0));
 }

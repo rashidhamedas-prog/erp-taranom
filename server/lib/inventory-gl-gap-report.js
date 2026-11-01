@@ -9,6 +9,7 @@
  */
 
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
+const { jeNotDraftSql } = require('./je-live');
 
 const SAMPLE_LIMIT = 10;
 
@@ -115,7 +116,7 @@ function buildInventoryGlGapReport(db, opts) {
   const liveParts = [];
   if (hasJeDeleted) liveParts.push("COALESCE(e.deleted_at,0)=0");
   else liveParts.push('1=1');
-  if (hasJeStatus) liveParts.push("COALESCE(e.status,'approved') NOT IN ('reversed','void')");
+  if (hasJeStatus) liveParts.push("COALESCE(e.status,'approved') NOT IN ('reversed','void')", jeNotDraftSql('e'));
   const liveExpr = liveParts.join(' AND ');
 
   // ── GL by JE / ref_type ──

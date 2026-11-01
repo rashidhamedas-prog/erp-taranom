@@ -6,7 +6,7 @@
 'use strict';
 
 const { acct } = require('./coa-map');
-const { postToLedger } = require('./ledger');
+const { postToLedger, JE_NOT_DRAFT } = require('./ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const {
   firmSaleTypeSql, invoiceTypeLabel, isFirmSale, autoApproveNormalInvoice,
@@ -21,7 +21,7 @@ const JE_HAS_PAIR_REVERSE = `EXISTS (
   WHERE COALESCE(_rev.deleted_at,0)=0
     AND _rev.description LIKE ('ابطال سند #' || je.id || '%')
 )`;
-const JE_BALANCE = `${JE_NOT_DELETED} AND (
+const JE_BALANCE = `${JE_NOT_DELETED} AND ${JE_NOT_DRAFT} AND (
   COALESCE(je.status,'posted') NOT IN ('reversed','void')
   OR ${JE_HAS_PAIR_REVERSE}
 )`;

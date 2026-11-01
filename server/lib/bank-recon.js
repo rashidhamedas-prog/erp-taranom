@@ -8,6 +8,7 @@
 
 const { ensureLogicalPostable } = require('./coa-map');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
+const { JE_NOT_DRAFT } = require('./je-live');
 
 const ITEM_KINDS = new Set([
   'unclassified',
@@ -66,6 +67,7 @@ function computeBookBalance(db, bankId, asOfDate) {
     WHERE (jl.account_code = ? OR jl.account_code LIKE ?)
       AND COALESCE(je.deleted_at, 0) = 0
       AND COALESCE(je.status, 'posted') NOT IN ('reversed', 'void')
+      AND ${JE_NOT_DRAFT}
       AND (? = '' OR je.entry_date <= ?)
   `).get(code, code + '-%', asOfDate || '', asOfDate || '');
   return Math.round(row?.bal || 0);

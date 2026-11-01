@@ -3,6 +3,7 @@ const { postToLedger } = require('../ledger');
 const { rialToLedger } = require('../money');
 const { todayJalali } = require('../../jalali');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../money');
+const { JE_NOT_DRAFT } = require('../je-live');
 
 function existingLegalReserveBalance(db) {
   const reserveAcct = acct(db, 'coa_legal_reserve');
@@ -13,6 +14,7 @@ function existingLegalReserveBalance(db) {
     WHERE jl.account_code = ?
       AND COALESCE(je.deleted_at, 0) = 0
       AND COALESCE(je.status, 'approved') <> 'reversed'
+      AND ${JE_NOT_DRAFT}
   `).get(reserveAcct.code);
   return Math.max(0, Math.round(row?.bal || 0));
 }

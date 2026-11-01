@@ -2,7 +2,7 @@ const { XLSX, readWorkbook } = require('../lib/excel-safe');
 const router = require('express').Router();
 const { acct: coaAcct, suggestChildCode, validateChildCode, tryNormalizeAccountCode, E_COA_CODE_FORMAT } = require('../lib/coa-map');
 const { syncLiveTafsili } = require('../lib/coa-live');
-const { DELETED_FILTER, postToLedger } = require('../lib/ledger');
+const { DELETED_FILTER, JE_NOT_DRAFT, postToLedger } = require('../lib/ledger');
 const { rialToLedger, jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
 const {
   parseFeeRial, parseFeeCostCenterInput, resolveFeeCostCenterId,
@@ -138,7 +138,7 @@ function safeJalaliDate(v) {
   return /^\d{4}\/\d{1,2}\/\d{1,2}$/.test(s) ? s : null;
 }
 
-const JE_ALIVE = `${DELETED_FILTER} AND (
+const JE_ALIVE = `${DELETED_FILTER} AND ${JE_NOT_DRAFT} AND (
   COALESCE(je.status,'posted') NOT IN ('reversed','void')
   OR EXISTS (
     SELECT 1 FROM journal_entries _rev
@@ -2818,7 +2818,7 @@ router.get('/account-dashboard/:code', auth, adminOrAccounting, (req, res) => {
       COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) AS credit_rial
     FROM journal_lines jl
     JOIN journal_entries je ON jl.entry_id=je.id
-    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0${dateSql}
+    WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0 AND ${JE_NOT_DRAFT}${dateSql}
   `).get(code, ...dateParams);
   const debitNormal = ['asset', 'expense', 'cogs'].includes(account.type);
   const debit_rial = Math.round(Number(totals.debit_rial) || 0);

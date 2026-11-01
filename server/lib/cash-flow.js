@@ -26,6 +26,7 @@
  */
 
 const { acct } = require('./coa-map');
+const { JE_NOT_DRAFT } = require('./je-live');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 
 const SECTION_NAMES = ['operating', 'investing', 'financing'];
@@ -132,7 +133,7 @@ function jeAliveSql(db) {
     parts.push('COALESCE(je.deleted_at,0)=0');
   }
   if (tableHasColumn(db, 'journal_entries', 'status')) {
-    parts.push("COALESCE(je.status,'posted')<>'reversed'");
+    parts.push("COALESCE(je.status,'posted')<>'reversed'", JE_NOT_DRAFT);
   }
   return parts.join(' AND ');
 }

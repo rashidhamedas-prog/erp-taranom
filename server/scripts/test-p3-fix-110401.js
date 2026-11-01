@@ -299,7 +299,7 @@ async function main() {
     ok(preC.no_purge_collateral === false && pc.data.ready === false, 'preview flags purge collateral (#9500)', pc.data?.preconditions);
     const cc0 = changes();
     let threw = null;
-    try { recon.reverseFix(db, 1, { user: { id: hamed }, reason: 'test' }); } catch (e) { threw = e; }
+    try { recon.reverseFix(db, 1, { user: { id: hamed }, reason: 'test collateral', confirm: true }); } catch (e) { threw = e; }
     ok(threw && threw.code === 'E_RECON_REVERSE_COLLATERAL' && threw.status === 409 && changes() === cc0, 'reverseFix refuses collateral purge (no writes)', threw && threw.code);
     ok(q1('SELECT 1 FROM journal_entries WHERE id=9500') && q1('SELECT status FROM subledger_recon_fixes WHERE id=1').status === 'posted', 'collateral JE + fix #1 intact');
   } finally {

@@ -4,6 +4,7 @@
  * PRD-21 / PRD-22 / PRD-23
  */
 const { audit } = require('../../db');
+const { jeNotDraftFor } = require('../je-live');
 const { acct } = require('../coa-map');
 const { todayJalali, periodEndJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
@@ -63,7 +64,7 @@ function accountBalance(db, accountKeyOrCode, asOfDate) {
       COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
-    WHERE jl.account_code = ? AND COALESCE(je.deleted_at, 0) = 0
+    WHERE jl.account_code = ? AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
     ${dateSql}
   `).get(...params);
   return Math.round(Number(r?.bal) || 0);

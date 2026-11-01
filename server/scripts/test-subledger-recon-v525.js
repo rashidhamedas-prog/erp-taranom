@@ -168,7 +168,7 @@ async function main() {
     ok(check('inventory_vs_gl').status === 'ok', 'R1 ok after fix');
     const sus = check('suspense_accounts');
     ok(sus.status === 'ok', 'suspense check untouched (nothing on 9999)', sus);
-    const rev = await call('POST', `/api/accounting/subledger-recon/fixes/${applied.body.applied[0].fix_id}/reverse`, { reason: 'پاکسازی تست' });
+    const rev = await call('POST', `/api/accounting/subledger-recon/fixes/${applied.body.applied[0].fix_id}/reverse`, { reason: 'پاکسازی تست', confirm: true });
     ok(rev.status === 200 && !liveJe(jeId), 'fix reversible');
     const inj = db.prepare("SELECT id FROM journal_entries WHERE ref_type='manual_test' AND ref_id=525").get();
     require('../lib/void-journal').reverseJournalEntry(db, inj.id, { userId: ADMIN.id });

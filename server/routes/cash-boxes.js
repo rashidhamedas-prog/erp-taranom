@@ -4,6 +4,7 @@ const { getDB, audit, syncCashBoxAccount } = require('../db');
 const { auth, adminOrAccounting } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { jeNotDraftFor } = require('../lib/je-live');
 const { todayJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { getActiveFiscalYear } = require('../lib/fiscal-period');
@@ -237,7 +238,7 @@ function glBalanceOnCode(db, accountCode) {
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ?
-      AND COALESCE(je.deleted_at,0)=0
+      AND COALESCE(je.deleted_at,0)=0 AND ${jeNotDraftFor(db)}
   `).get(accountCode);
   return Math.round(Number(row && row.bal) || 0);
 }
@@ -356,7 +357,7 @@ router.get('/petty-cash/summary', auth, adminOrAccounting, (req, res) => {
     SELECT cb.*, COALESCE(SUM(jl.debit - jl.credit), 0) as balance
     FROM cash_boxes cb
     LEFT JOIN journal_lines jl ON jl.account_code = COALESCE(NULLIF(cb.coa_code,''), '1101-' || cb.id)
-    LEFT JOIN journal_entries je ON je.id = jl.entry_id AND COALESCE(je.deleted_at,0)=0
+    LEFT JOIN journal_entries je ON je.id = jl.entry_id AND COALESCE(je.deleted_at,0)=0 AND ${jeNotDraftFor(db)}
     WHERE cb.is_petty_cash=1 AND cb.active=1
     GROUP BY cb.id ORDER BY cb.name
   `).all();

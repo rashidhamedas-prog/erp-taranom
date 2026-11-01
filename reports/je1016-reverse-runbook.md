@@ -14,6 +14,8 @@
 
 مسیر واقعی API (router روی `/api/accounting/subledger-recon` mount است):
 `POST /api/accounting/subledger-recon/fixes/1/reverse` — مجوز `acc_subledger_recon:delete`، فقط سرور مرکزی.
+**بدنهٔ الزامی (FR-RECON):** `{"confirm": true, "reason": "<حداقل ۵ نویسه>"}` — بدون آن ۴۰۰ و **هیچ نوشتنی** نمی‌شود:
+`E_RECON_REVERSE_REASON_REQUIRED` (علت خالی/کوتاه) یا `E_RECON_REVERSE_CONFIRM_REQUIRED` (confirm ≠ `true`). علت در `subledger_recon_fixes.reverse_reason` و `audit_log` ثبت می‌شود.
 
 ### رفتار مسیر رسمی (`reverseFix` در `server/lib/subledger-recon.js`)
 در **یک** `db.transaction`:
@@ -27,7 +29,7 @@
 - **محافظ جدید (این PR):** `reverseJournalEntry` در حالت soft-void سندهایی با `ref_type LIKE '%_reversal' AND ref_id = <ref_id سند>` را **حذف فیزیکی** می‌کند. چون ref_id سند 1016 = شمارهٔ اصلاحیه (1) است، هر سند `*_reversal` نامرتبط با ref_id=1 قربانی می‌شد. اکنون `reverseFix` در این حالت با ۴۰۹ `E_RECON_REVERSE_COLLATERAL` متوقف می‌شود (بدون هیچ نوشتن).
 
 ## ۲. پیش‌شرط‌ها (همه باید برقرار باشد)
-1. این PR (P3-fix) merge و روی سرور ایران deploy شده باشد (پیش‌نمایش + محافظ collateral).
+1. این PR (P3-fix) و PR «FR-RECON» (الزام confirm + علت، حذف پیش‌نویس از مانده‌ها) merge و روی سرور ایران deploy شده باشند (پیش‌نمایش + محافظ collateral).
 2. **بکاپ تازه** درست قبل از اجرا: `cp server/crm.db /home/taranom/backups/crm.db.<YYYYMMDD-HHMMSS>` (+ `-wal`/`-shm`) — توسط اپراتور.
 3. پیش‌نمایش فقط‌خواندنی را بگیرید و بررسی کنید `ready: true`:
    ```
@@ -39,19 +41,40 @@
 5. هیچ پیش‌نویس P3 دیگری هم‌زمان ثبت نشود (اثرشان جداست؛ ترتیب را حامد تعیین کند).
 
 ## ۳. مراحل اجرا (فقط حامد)
-**UI:** حسابداری ← «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» ← بخش «فهرست اصلاحیه‌ها» ← ردیف **#1** (inventory_vs_gl / 1104 / −1,796,860,352 / #1016) ← دکمهٔ **ابطال** ← علت را وارد کنید، مثلاً: «برگشت JE1016 — تصمیم حامد P3-fix».
+
+### گام ۱ (اجباری، فقط‌خواندنی) — پیش‌نمایش و دروازهٔ توقف
+```
+GET /api/accounting/subledger-recon/fixes/1/reverse-preview
+Authorization: Bearer <توکن حامد>
+```
+از پاسخ دقیقاً این دو عدد را بخوانید:
+- `target_subtree.balance_after_rial` (درخت 1104) باید **دقیقاً `12680079142`** (۱۲,۶۸۰,۰۷۹,۱۴۲) باشد؛
+- `gap.after_rial` باید **دقیقاً `1682822289`** (‎+1,682,822,289) باشد؛
+- و `ready: true`.
+
+> ### ⛔ STOP
+> اگر `target_subtree.balance_after_rial ≠ 12,680,079,142` **یا** `gap.after_rial ≠ +1,682,822,289` **یا** `ready ≠ true`
+> ⇒ **ابطال نکنید**؛ خروجی کامل پیش‌نمایش را برای حامد بفرستید و منتظر تصمیم بمانید.
+> (از FR-RECON به بعد سندهای `status='draft'` — مثل سند پورسانت بازاریاب P9 — در این مانده‌ها شمرده نمی‌شوند؛
+> اگر عدد فقط به‌خاطر یک سند پیش‌نویس جدید فرق کرده، باز هم STOP و گزارش.)
+
+### گام ۲ — ابطال (فقط وقتی گام ۱ دقیقاً منطبق بود)
+**UI:** حسابداری ← «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» ← بخش «فهرست اصلاحیه‌ها» ← ردیف **#1** (inventory_vs_gl / 1104 / −1,796,860,352 / #1016) ← دکمهٔ **ابطال**.
+برنامه خودش اول پیش‌نمایش را می‌گیرد و ماندهٔ قبل/بعد درخت و اختلاف با کاردکس را نشان می‌دهد؛ اعداد را با گام ۱ مقایسه کنید،
+علت را وارد کنید (حداقل ۵ نویسه)، مثلاً «برگشت JE1016 — تصمیم حامد P3-fix»، و در پنجرهٔ «تأیید نهایی» OK بزنید.
 > مراقب باشید ردیف **#2** (JE 1017 / 1110) را نزنید.
 
-**API معادل:**
+**API معادل (بدنهٔ دقیق — هر دو فیلد الزامی):**
 ```
 POST /api/accounting/subledger-recon/fixes/1/reverse
 Content-Type: application/json
 Authorization: Bearer <توکن حامد>
 
-{"reason":"برگشت JE1016 — تصمیم حامد P3-fix"}
+{"confirm": true, "reason": "برگشت JE1016 — تصمیم حامد P3-fix"}
 ```
-پاسخ موفق: `{"ok":true,"fix":{"id":1,"status":"reversed","reversed_at":<epoch>,"reversed_by":<id حامد>,…}}`
-پاسخ‌های توقف: ۴۰۹ `E_RECON_FIX_REVERSED` (قبلاً ابطال شده)، ۴۰۹ `E_RECON_REVERSE_COLLATERAL` (سند نامرتبط در خطر حذف — STOP و گزارش)، ۴۰۳ (مجوز).
+پاسخ موفق: `{"ok":true,"fix":{"id":1,"status":"reversed","reversed_at":<epoch>,"reversed_by":<id حامد>,"reverse_reason":"برگشت JE1016 — تصمیم حامد P3-fix",…}}`
+پاسخ‌های توقف: ۴۰۰ `E_RECON_REVERSE_REASON_REQUIRED` / `E_RECON_REVERSE_CONFIRM_REQUIRED` (بدنه ناقص — هیچ چیز نوشته نشد)،
+۴۰۹ `E_RECON_FIX_REVERSED` (قبلاً ابطال شده)، ۴۰۹ `E_RECON_REVERSE_COLLATERAL` (سند نامرتبط در خطر حذف — STOP و گزارش)، ۴۰۳ (مجوز).
 
 ## ۴. نتایج مورد انتظار
 | شاخص | قبل | بعد |

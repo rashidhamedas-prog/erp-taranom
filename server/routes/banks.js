@@ -4,6 +4,7 @@ const { getDB, audit, syncBankAccount } = require('../db');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { postToLedger, rewriteJournalEntry } = require('../lib/ledger');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { jeNotDraftFor } = require('../lib/je-live');
 const { todayJalali } = require('../jalali');
 const { reverseJournalEntry } = require('../lib/void-journal');
 const { assertValidSheba } = require('../lib/treasury-guards');
@@ -227,7 +228,7 @@ function glBalanceOnCode(db, accountCode) {
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ?
-      AND COALESCE(je.deleted_at,0)=0
+      AND COALESCE(je.deleted_at,0)=0 AND ${jeNotDraftFor(db)}
   `).get(accountCode);
   return Math.round(Number(row && row.bal) || 0);
 }

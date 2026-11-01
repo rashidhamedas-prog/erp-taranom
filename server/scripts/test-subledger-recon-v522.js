@@ -205,7 +205,7 @@ async function main() {
     ok(faCheck.status === 'ok', 'R9 ok after deactivating one asset', faCheck);
 
     // reverse the fix → voucher + release voided, links restored
-    const rev = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, { reason: 'تست ابطال افتتاحیه' });
+    const rev = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, { reason: 'تست ابطال افتتاحیه', confirm: true });
     ok(rev.status === 200 && rev.body.fix.status === 'reversed', 'fix reversed', rev.body);
     ok(!liveJe(fixJeId) && !liveJe(del.body.opening_release_je_id), 'combined + release JEs voided');
     const after = db.prepare('SELECT id, acq_je_id, acq_funding, acq_release_je_id FROM fixed_assets WHERE id IN (?,?)').all(a1.body.id, a2.body.id);
@@ -284,7 +284,7 @@ async function main() {
     ok(rbac.canDo(dUser, 'acc_subledger_recon', 'edit', db) && !rbac.canDo(dUser, 'acc_subledger_recon', 'delete', db), 'delegated with edit grant: edit only');
     const d200 = await call('POST', '/api/accounting/subledger-recon/fixed_assets/fix', {});
     ok(d200.status === 200 && d200.body.dry_run === true, 'delegated with grant: fix dry run allowed', d200.body);
-    const dRev = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, {});
+    const dRev = await call('POST', `/api/accounting/subledger-recon/fixes/${fixId}/reverse`, { reason: 'تست مجوز ابطال', confirm: true });
     ok(dRev.status === 403, 'delegated without delete: reverse → 403', dRev.body);
     asAdmin();
 

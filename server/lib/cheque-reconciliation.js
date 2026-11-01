@@ -6,6 +6,7 @@
  */
 
 const { glBalanceOnCode } = require('./treasury-dashboard');
+const { jeNotDraftFor } = require('./je-live');
 const { sqlIsRegistered } = require('./cheque-lifecycle');
 const { acct } = require('./coa-map');
 
@@ -104,7 +105,7 @@ function glBalanceRial(db, code) {
         ),0) AS bal
         FROM journal_lines jl
         JOIN journal_entries je ON je.id=jl.entry_id
-        WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
+        WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0 AND ${jeNotDraftFor(db)}
       `).get(code);
       return Math.round(Number(row && row.bal) || 0);
     } catch (e2) {
@@ -287,7 +288,7 @@ function buildOpeningChequeReconciliation(db, directionRaw) {
     WHERE jl.account_code = ?
       AND je.ref_type = 'opening_cheque'
       AND cr.direction = ?
-      AND COALESCE(je.deleted_at, 0) = 0
+      AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
       AND ${alive.replace(/cheque_records/g, 'cr')}
   `).get(code, direction);
   const debit = Number(glRow && glRow.debit) || 0;
