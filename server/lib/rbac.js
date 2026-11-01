@@ -32,6 +32,9 @@ const RESOURCES = [
   // P4 — field-level cost visibility (action view). Default: admin + accounting only.
   // Cashier (store_retail) / sales / production roles never see purchase cost, margin, profit.
   'cost_visibility',
+  // P7 — qty-only supplier receipt (cashier). view/create; delete = void before costing.
+  // Costing (ریالی‌سازی) is NOT this resource: cost_visibility:view + acc_purchases:create.
+  'qty_receipt',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
@@ -41,6 +44,7 @@ const CLOSED_DEFAULT_NONE = new Set([
   'cheque',
   'inventory_negative',
   'cost_visibility',
+  'qty_receipt',
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
@@ -100,6 +104,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     moadian: VIEW_ONLY,
     cheque: CHEQUE_OPERATE,
     cost_visibility: { ...NONE, view: true },
+    qty_receipt: { ...NONE, view: true, create: true, delete: true },
     // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
     // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },
@@ -218,6 +223,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     banks: NONE,
     orders: NONE,
     rfq: NONE,
+    qty_receipt: { ...NONE, view: true, create: true },
   },
   production_manager: {
     customers: VIEW_ONLY,

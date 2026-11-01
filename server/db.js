@@ -3809,6 +3809,10 @@ function initSyncSchema(db, opts) {
   //   issue_type: internal_consume|sample_gift|scrap|consignment|return_to_supplier|other (issue docs only)
   //   inventory_ledger.variant_id: filled only by new movements
   ensureColumn(db, 'warehouse_docs', 'issue_type', 'TEXT');
+  // P7 qty-only supplier receipt (cashier): qty_only=1 → amounts hidden until costed via GRNI invoice;
+  // cost_pending=1 → entered kardex at 0 (no current average). Additive, old rows stay 0.
+  ensureColumn(db, 'warehouse_docs', 'qty_only', 'INTEGER DEFAULT 0');
+  ensureColumn(db, 'warehouse_docs', 'cost_pending', 'INTEGER DEFAULT 0');
   try {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
       ensureColumn(db, 'inventory_ledger', 'variant_id', 'INTEGER');

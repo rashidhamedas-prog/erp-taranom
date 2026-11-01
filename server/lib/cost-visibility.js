@@ -20,7 +20,7 @@ const COST_KEY_GLOBAL = /cost|margin|profit|cogs|landed/i;
 const COST_KEY_EXACT = /^(purchase_price(_rial)?|opening_price(_rial)?|buy_price(_rial)?)$/i;
 
 /** Extra keys hidden only under stock-valuation prefixes (kardex amounts, valuation totals). */
-const STOCK_VALUE_KEY = /^(amount_rial|value_rial|total_value_rial|stock_value_rial|inventory_value_rial|balance_value_rial|balance_amount_rial)$/i;
+const STOCK_VALUE_KEY = /^(amount_rial|amount_rial_total|provisional_rial|value_rial|total_value_rial|stock_value_rial|inventory_value_rial|balance_value_rial|balance_amount_rial)$/i;
 /** Purchase-document line pricing (price in purchases/receipts is cost, not sale price). */
 const PURCHASE_PRICE_KEY = /^(price|price_rial|unit_price|unit_price_rial|sum|line_total|line_amount)$/i;
 

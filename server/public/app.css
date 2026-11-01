@@ -2787,3 +2787,9 @@ input.neg-qty{border-color:var(--red,#c0392b)!important}
 .bc-label-form label{ display:flex; flex-direction:column; gap:4px; font-size:13px; }
 .bc-label-form select, .bc-label-form input{ min-height:40px; }
 .bc-label-actions{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:6px; }
+
+/* P7 qty-only receipt (v597) */
+.qr-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.qr-toolbar h3{margin:0 0 0 auto;font-size:15px}
+.qr-results{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.nowrap{white-space:nowrap}

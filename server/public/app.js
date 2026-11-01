@@ -1266,6 +1266,7 @@ function filterMainNavItem(it){
   const flags=CACHE.moduleFlags||CACHE.settings||{};
   // دستیار CRM (آمار شخصی) همیشه در منو است؛ فلگ فقط سرویس متنی ابری را می‌بندد
   if(it.id==='b2bOrders' && String(flags.feature_b2b_portal||'0')!=='1') return false;
+  if(it.id==='qty-receipts' && !qrCanView()) return false;
   return true;
 }
 function applyAppLanguage(){
@@ -2384,6 +2385,7 @@ const LU = (()=> {
     accounting:'wallet', messages:'chat', settings:'settings', backup:'archive', api:'plug',
     help:'book', catalog:'bag', 'my-rep':'briefcase', 'desktop-settings':'monitor',
     'store-quick-sale':'cart', 'expense-drafts':'receipt',
+    'store-quick-sale':'cart', 'qty-receipts':'download',
     'exit-acc-shell':'back', 'acc-dash':'dashboard', 'acc-general':'linechart',
     'acc-trial-balance':'scale', 'acc-balance-sheet':'landmark', 'acc-adv-reports':'chart',
     'acc-production':'factory', 'acc-receivables':'receipt', 'acc-sales-invoices':'file',
@@ -2468,6 +2470,7 @@ const NAV_ADMIN = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'store-quick-sale', icon:'🏪', label:'فروش سریع فروشگاهی'},
   {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه (تأیید)'},
+  {id:'qty-receipts', icon:'📥', label:'رسید مقداری کالا'},
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
   {id:'crm-dashboard', icon:'📉', label:'داشبورد و گزارش‌های CRM', group:'پیگیری CRM'},
@@ -2498,6 +2501,7 @@ const NAV_SALES = [
 ];
 const NAV_STORE = [
   {id:'store-quick-sale', icon:'🏪', label:'فروش سریع فروشگاهی'},
+  {id:'qty-receipts', icon:'📥', label:'رسید مقداری کالا'},
   {id:'invoices', icon:'🧾', label:'فاکتورهای من'},
   {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه'},
   {id:'help', icon:'📖', label:'راهنما'},
@@ -2506,6 +2510,7 @@ const NAV_ACCOUNTING = [
   {id:'dash', icon:'📊', label:'داشبورد'},
   {id:'store-quick-sale', icon:'🏪', label:'فروش سریع فروشگاهی'},
   {id:'expense-drafts', icon:'🧾', label:'هزینه روزانه (تأیید)'},
+  {id:'qty-receipts', icon:'📥', label:'رسید مقداری کالا'},
   {id:'accounting', icon:'💰', label:'حسابداری'},
   {id:'customers', icon:'👥', label:'مشتریان'},
   {id:'followups', icon:'📞', label:'پیگیری‌ها', group:'پیگیری CRM'},
@@ -10137,6 +10142,224 @@ ROUTES['store-quick-sale'] = async function(){
   }
 };
 
+/* ============================================================
+   P7 — رسید مقداری کالا (صندوقدار) + ریالی‌سازی (حسابدار)
+   صندوقدار هیچ مبلغی نمی‌بیند/نمی‌فرستد؛ سرور پاسخ را whitelist می‌کند.
+============================================================ */
+const _qr = { lines:[], opts:null, filter:'' };
+function qrCanView(){
+  if(!ME) return false;
+  return ME.role==='admin' || canPerm('qty_receipt','view') || canPerm('acc_warehouse_ops','view');
+}
+function qrCanCreate(){
+  return !!ME && (ME.role==='admin' || canPerm('qty_receipt','create') || canPerm('acc_warehouse_ops','create'));
+}
+function qrCanVoid(){
+  return !!ME && (ME.role==='admin' || canPerm('qty_receipt','delete') || canPerm('acc_warehouse_ops','delete'));
+}
+function qrCanCost(){
+  if(!ME) return false;
+  if(ME.role==='admin') return true;
+  return window.__canSeeCostVis===true && canPerm('cost_visibility','view') && canPerm('acc_purchases','create');
+}
+const QR_STATUS_FA={ awaiting_costing:'⏳ در انتظار ریالی‌سازی', costed:'✅ ریالی شده', reversed:'⛔ ابطال' };
+ROUTES['qty-receipts'] = renderQtyReceipts;
+async function renderQtyReceipts(){
+  if(!qrCanView()){ el('view').innerHTML='<div class="empty">دسترسی به رسید مقداری کالا ندارید</div>'; return; }
+  el('view').innerHTML='<div class="card"><div class="empty">در حال بارگذاری…</div></div>';
+  let docs=[];
+  try{
+    const qs=_qr.filter?('?status='+encodeURIComponent(_qr.filter)):'';
+    docs=await api('GET','/warehouses/qty-receipts'+qs)||[];
+  }catch(e){ docs=[]; }
+  const canCost=qrCanCost(), canVoid=qrCanVoid();
+  el('view').innerHTML=`<div class="card">
+    <div class="toolbar qr-toolbar">
+      <h3>📥 رسید مقداری کالا از تأمین‌کننده</h3>
+      ${qrCanCreate()?`<button class="btn green" data-csp-click="${CSP.bind('click',function(){qrNewModal()})}">➕ رسید جدید</button>`:''}
+      <select id="qr-filter" data-csp-change="${CSP.bind('change',function(){_qr.filter=this.value;renderQtyReceipts()})}">
+        <option value="" ${_qr.filter===''?'selected':''}>همه</option>
+        <option value="awaiting_costing" ${_qr.filter==='awaiting_costing'?'selected':''}>در انتظار ریالی‌سازی</option>
+        <option value="costed" ${_qr.filter==='costed'?'selected':''}>ریالی شده</option>
+      </select>
+    </div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr>
+      <th>تاریخ</th><th>شماره</th><th>تأمین‌کننده</th><th>انبار</th><th>خطوط</th><th>جمع تعداد</th><th>وضعیت</th><th>ثبت‌کننده</th><th class="no-sort">عملیات</th>
+    </tr></thead><tbody>${docs.map(d=>`<tr>
+      <td class="mono">${escDate(d.date)}</td>
+      <td class="mono">${esc(d.num||('#'+d.id))}</td>
+      <td>${esc(d.supplier_name||'-')}</td>
+      <td class="muted">${esc(d.warehouse_name||'-')}</td>
+      <td class="mono">${fmt(d.line_count||0)}</td>
+      <td class="mono">${fmtQtyFa(d.qty_total||0)}</td>
+      <td>${QR_STATUS_FA[d.costing_status]||esc(d.costing_status||'')}${d.purchase_invoice_num?` <span class="mono muted">${esc(d.purchase_invoice_num)}</span>`:''}</td>
+      <td class="muted">${esc(d.recorder||'-')}</td>
+      <td class="nowrap">
+        <button class="btn sm ghost" title="مشاهده" data-csp-click="${CSP.bind('click',function(){qrView(d.id)})}">👁</button>
+        ${canCost&&d.costing_status==='awaiting_costing'?`<button class="btn sm purple" data-csp-click="${CSP.bind('click',function(){qrCostModal(d.id)})}">💰 ریالی‌سازی</button>`:''}
+        ${canCost&&d.costing_status==='costed'&&d.purchase_invoice_id?`<button class="btn sm orange" data-csp-click="${CSP.bind('click',function(){qrUncost(d)})}">↩️ لغو ریالی‌سازی</button>`:''}
+        ${canVoid&&d.costing_status==='awaiting_costing'?`<button class="btn sm red" title="ابطال" data-csp-click="${CSP.bind('click',function(){qrVoid(d.id)})}">⛔</button>`:''}
+      </td>
+    </tr>`).join('')||emptyRow(9)}</tbody></table></div>
+  </div>`;
+}
+async function qrNewModal(){
+  try{ _qr.opts=await api('GET','/warehouses/qty-receipts/options'); }catch(e){ return; }
+  _qr.lines=[];
+  const o=_qr.opts||{warehouses:[],suppliers:[]};
+  const defWh=Number(ME&&ME.sales_warehouse_id)||0;
+  openModal(`
+    <div class="modal-head"><h3>📥 رسید مقداری کالا</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted">فقط تعداد ثبت می‌شود؛ مبلغ را حسابداری بعداً با «ریالی‌سازی» وارد می‌کند.</p>
+      <div class="form-grid">
+        <div class="fg"><label>تأمین‌کننده *</label><select id="qr-supplier"><option value="">— انتخاب —</option>${(o.suppliers||[]).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>انبار مقصد *</label><select id="qr-warehouse">${(o.warehouses||[]).map(w=>`<option value="${w.id}" ${Number(w.id)===defWh?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label>تاریخ</label><input id="qr-date" data-jdate value="${esc(todayJalali())}"></div>
+        <div class="fg"><label>یادداشت</label><input id="qr-note" placeholder="مثلاً شماره بارنامه"></div>
+        <div class="fg full"><label>افزودن کالا (نام / کد / بارکد / SKU)</label>
+          <input id="qr-q" placeholder="جستجو و Enter" data-csp-keydown="${CSP.bind('keydown',function(event){if(event.key==='Enter'){event.preventDefault();qrSearchProducts();}})}">
+          <div id="qr-results" class="qr-results"></div></div>
+        <div class="fg full" id="qr-lines">${qrLinesHtml()}</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn green" id="qr-save" data-csp-click="${CSP.bind('click',function(){qrSave()})}">💾 ثبت رسید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button>
+    </div>`);
+}
+async function qrSearchProducts(){
+  const q=(el('qr-q')&&el('qr-q').value||'').trim();
+  const box=el('qr-results'); if(!box) return;
+  if(!q){ box.innerHTML=''; return; }
+  let rows=[];
+  try{ rows=await api('GET','/warehouses/qty-receipts/products?q='+encodeURIComponent(q))||[]; }catch(e){ rows=[]; }
+  box.innerHTML=rows.length?rows.map(p=>`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){qrAddProduct(p)})}">${esc(p.name)}${p.code?' · '+esc(p.code):''}</button>`).join(' '):'<span class="muted">کالایی یافت نشد</span>';
+  if(rows.length===1) qrAddProduct(rows[0]);
+}
+async function qrAddProduct(p){
+  let variants=[];
+  try{ variants=await api('GET','/product-variants?include_default=0&product_id='+encodeURIComponent(p.id))||[]; }catch(_){ variants=[]; }
+  _qr.lines.push({ product_id:p.id, name:p.name, code:p.code||'', unit:p.unit||'', variants, variant_id:variants.length===1?variants[0].id:'', qty:1 });
+  if(el('qr-lines')) el('qr-lines').innerHTML=qrLinesHtml();
+  if(el('qr-results')) el('qr-results').innerHTML='';
+  if(el('qr-q')){ el('qr-q').value=''; el('qr-q').focus(); }
+}
+function qrLinesHtml(){
+  if(!_qr.lines.length) return '<div class="muted">هنوز کالایی اضافه نشده</div>';
+  return `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>کالا</th><th>رنگ/سایز</th><th>تعداد</th><th></th></tr></thead><tbody>${_qr.lines.map((l,i)=>`<tr>
+    <td class="mono">${fmt(i+1)}</td>
+    <td>${esc(l.name)}${l.code?` <span class="mono muted">${esc(l.code)}</span>`:''}</td>
+    <td>${l.variants.length?`<select data-csp-change="${CSP.bind('change',function(){_qr.lines[i].variant_id=this.value})}"><option value="">— انتخاب —</option>${l.variants.map(v=>`<option value="${v.id}" ${String(v.id)===String(l.variant_id)?'selected':''}>${esc(variantAttrsLabel(v.color_name,v.size_name)||v.sku||('#'+v.id))}</option>`).join('')}</select>`:'<span class="muted">—</span>'}</td>
+    <td><input type="number" min="0" step="any" value="${esc(String(l.qty))}" data-csp-input="${CSP.bind('input',function(){_qr.lines[i].qty=this.value})}"></td>
+    <td><button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){_qr.lines.splice(i,1);el('qr-lines').innerHTML=qrLinesHtml();})}">✕</button></td>
+  </tr>`).join('')}</tbody></table></div>`;
+}
+async function qrSave(){
+  const supplier_id=Number(el('qr-supplier')&&el('qr-supplier').value)||0;
+  const warehouse_id=Number(el('qr-warehouse')&&el('qr-warehouse').value)||0;
+  if(!supplier_id){ showToast('تأمین‌کننده را انتخاب کنید','error'); return; }
+  if(!warehouse_id){ showToast('انبار مقصد را انتخاب کنید','error'); return; }
+  if(!_qr.lines.length){ showToast('حداقل یک کالا اضافه کنید','error'); return; }
+  const bad=_qr.lines.find(l=>!(parseQty(l.qty)>0) || (l.variants.length && !l.variant_id));
+  if(bad){ showToast(`ردیف «${bad.name}»: تعداد و رنگ/سایز را کامل کنید`,'error'); return; }
+  const btn=el('qr-save'); if(btn) btn.disabled=true;
+  try{
+    const r=await api('POST','/warehouses/qty-receipts',{
+      supplier_id, warehouse_id,
+      date:el('qr-date')&&el('qr-date').value, note:el('qr-note')&&el('qr-note').value,
+      lines:_qr.lines.map(l=>({ product_id:l.product_id, variant_id:l.variant_id||null, qty:parseQty(l.qty) })),
+    });
+    showToast('رسید '+(r&&r.num||'')+' ثبت شد'+(r&&r.warning?' — '+r.warning:''));
+    closeModal();
+    renderQtyReceipts();
+  }catch(e){ if(btn) btn.disabled=false; }
+}
+async function qrView(id){
+  let d=null;
+  try{ d=await api('GET','/warehouses/qty-receipts/'+id); }catch(e){ return; }
+  if(!d) return;
+  const withCost=d.amount_rial_total!==undefined;
+  openModal(`
+    <div class="modal-head"><h3>👁 رسید مقداری ${esc(d.num||('#'+d.id))}</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted">تاریخ: <b class="mono">${escDate(d.date)}</b> · تأمین‌کننده: <b>${esc(d.supplier_name||'-')}</b> · انبار: <b>${esc(d.warehouse_name||'-')}</b> · وضعیت: <b>${QR_STATUS_FA[d.costing_status]||''}</b>${d.purchase_invoice_num?` · فاکتور خرید: <b class="mono">${esc(d.purchase_invoice_num)}</b>`:''}${d.note?` · یادداشت: ${esc(d.note)}`:''}</p>
+      ${withCost&&d.cost_pending?'<p class="muted">⚠️ این رسید با بهای ۰ وارد کاردکس شد (cost_pending) — تا ریالی‌سازی ارزش ندارد.</p>':''}
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>کالا</th><th>رنگ/سایز</th><th>تعداد</th>${withCost?'<th>بهای موقت واحد</th><th>مبلغ موقت</th>':''}</tr></thead><tbody>${(d.lines||[]).map((l,i)=>`<tr>
+        <td class="mono">${fmt(l.line_no||(i+1))}</td>
+        <td>${esc(l.product_name||'-')}${l.product_code?` <span class="mono muted">${esc(l.product_code)}</span>`:''}</td>
+        <td class="muted">${esc(variantAttrsLabel(l.color_name,l.size_name)||'-')}</td>
+        <td class="mono">${fmtQtyFa(l.qty)}</td>
+        ${withCost?`<td class="mono">${fmt(l.unit_cost_rial||0)}</td><td class="mono">${fmt(l.amount_rial||0)}</td>`:''}
+      </tr>`).join('')||emptyRow(withCost?6:4)}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      ${qrCanCost()&&d.costing_status==='awaiting_costing'?`<button class="btn purple" data-csp-click="${CSP.bind('click',function(){closeModal();qrCostModal(d.id)})}">💰 ریالی‌سازی</button>`:''}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">بستن</button>
+    </div>`);
+}
+async function qrCostModal(id){
+  let d=null;
+  try{ d=await api('GET','/warehouses/qty-receipts/'+id); }catch(e){ return; }
+  if(!d) return;
+  openModal(`
+    <div class="modal-head"><h3>💰 ریالی‌سازی رسید ${esc(d.num||('#'+d.id))}</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeModal()})}">×</button></div>
+    <div class="modal-body">
+      <p class="muted">فی خرید هر ردیف (${currencyUnit()}) را وارد کنید. یک فاکتور خرید نسیه به نام «${esc(d.supplier_name||'-')}» ساخته می‌شود؛ GRNI تسویه و ارزش کاردکس به فی واقعی اصلاح می‌شود (بدون ورود دوبارهٔ کالا).</p>
+      <div class="form-grid">
+        <div class="fg"><label>تاریخ فاکتور</label><input id="qrc-date" data-jdate value="${esc(todayJalali())}"></div>
+        <div class="fg"><label><input type="checkbox" id="qrc-vat-exempt"> معاف از ارزش افزوده</label></div>
+      </div>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کالا</th><th>رنگ/سایز</th><th>تعداد</th><th>بهای موقت واحد</th><th>فی خرید *</th></tr></thead><tbody>${(d.lines||[]).map(l=>`<tr>
+        <td>${esc(l.product_name||'-')}</td>
+        <td class="muted">${esc(variantAttrsLabel(l.color_name,l.size_name)||'-')}</td>
+        <td class="mono">${fmtQtyFa(l.qty)}</td>
+        <td class="mono">${l.unit_cost_rial!==undefined?fmt(l.unit_cost_rial||0):'—'}</td>
+        <td><input type="number" min="0" step="1" class="qrc-price" data-move="${l.move_id}" value="${l.unit_cost_rial?esc(String(l.unit_cost_rial)):''}"></td>
+      </tr>`).join('')}</tbody></table></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn purple" id="qrc-save" data-csp-click="${CSP.bind('click',function(){qrCostSave(d.id)})}">💾 ثبت فاکتور خرید</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeModal()})}">انصراف</button>
+    </div>`);
+}
+async function qrCostSave(id){
+  const inputs=[...document.querySelectorAll('#modalRoot .qrc-price')];
+  const rows=[];
+  for(const inp of inputs){
+    if(String(inp.value).trim()===''){ showToast('فی خرید همهٔ ردیف‌ها را وارد کنید','error'); inp.focus(); return; }
+    rows.push({ move_id:Number(inp.dataset.move), price:fromInputAmount(inp.value) });
+  }
+  const btn=el('qrc-save'); if(btn) btn.disabled=true;
+  try{
+    const r=await api('POST','/warehouses/qty-receipts/'+id+'/cost',{
+      rows, date:el('qrc-date')&&el('qrc-date').value, vat_exempt:el('qrc-vat-exempt')&&el('qrc-vat-exempt').checked?1:0,
+    });
+    showToast('ریالی شد — فاکتور خرید '+(r&&r.num||''));
+    closeModal();
+    renderQtyReceipts();
+  }catch(e){ if(btn) btn.disabled=false; }
+}
+async function qrUncost(d){
+  if(!confirm(`ریالی‌سازی رسید ${d.num} لغو شود؟\nفاکتور خرید ${d.purchase_invoice_num||''} ابطال، سند حسابداری و ارزش کاردکس برمی‌گردد و رسید دوباره «در انتظار ریالی‌سازی» می‌شود.`)) return;
+  try{
+    await api('DELETE','/purchases/'+d.purchase_invoice_id);
+    showToast('ریالی‌سازی لغو شد');
+    renderQtyReceipts();
+  }catch(e){}
+}
+async function qrVoid(id){
+  if(!confirm('رسید مقداری ابطال شود؟\nموجودی کاردکس و سند GRNI کامل برمی‌گردد.')) return;
+  try{
+    await api('POST','/warehouses/qty-receipts/'+id+'/void',{});
+    showToast('رسید ابطال شد');
+    renderQtyReceipts();
+  }catch(e){}
+}
+
 
 /* ============================================================
    PRODUCTS (admin)  /  CATALOG (salesperson)
@@ -13379,7 +13602,8 @@ const RBAC_RES_FA={
   bank_reconciliation:'مغایرت‌گیری بانکی', banks:'بانک‌ها', orders:'سفارش‌ها', rfq:'استعلام بها',
   sales_cross_warehouse:'فروش از انبار دیگر',
   inventory_negative:'موجودی منفی (تأیید)',
-  cost_visibility:'مشاهدهٔ بها/سود (بهای خرید، میانگین، حاشیه)'
+  cost_visibility:'مشاهدهٔ بها/سود (بهای خرید، میانگین، حاشیه)',
+  qty_receipt:'رسید مقداری کالا (صندوقدار؛ حذف = ابطال)'
 };
 const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
 /* v522: معنای تیک‌ها در بخش‌های حساس + قابلیت‌های بدون صفحهٔ منو */
@@ -40790,6 +41014,16 @@ function renderAdminGuide(){
         <li><b>کمبود موجودی فروش سریع:</b> تنظیم <code>store_insufficient_stock_mode</code> = <code>warn</code> (پیش‌فرض: فروش با هشدار و موجودی منفی) یا <code>block</code> (۴۲۲ <code>E_STORE_INSUFFICIENT_STOCK</code>). فقط مدیرکل/مدیر فروش.</li>
         <li><b>ابطال کامل:</b> ابطال فاکتور همهٔ اثرها (نقد، کارتخوان، چک، حساب مشتری) را برمی‌گرداند.</li>
       </ul>`),
+    helpSec('📥','رسید مقداری کالا (صندوقدار) و ریالی‌سازی (حسابدار) — v597',`
+      <p>منو: <b>📥 رسید مقداری کالا</b>. صندوقدار وقتی بار از تأمین‌کننده می‌رسد، فقط <b>تأمین‌کننده، انبار، کالا/رنگ‌سایز و تعداد</b> را ثبت می‌کند — هیچ مبلغی نمی‌بیند و هیچ مبلغی نمی‌فرستد (اگر هم بفرستد نادیده گرفته می‌شود).</p>
+      <ul>
+        <li><b>ورود به کاردکس:</b> کالا بلافاصله با <b>بهای موقت = میانگین فعلی کالا</b> وارد کاردکس می‌شود. اگر کالا میانگین ندارد با بهای ۰ وارد می‌شود و رسید پرچم <span dir="ltr">cost_pending</span> می‌گیرد.</li>
+        <li><b>سند حسابداری:</b> از مسیر موجود GRNI استفاده می‌شود: بدهکار موجودی انبار / بستانکار «کالای دریافتی فاکتورنشده» (<span dir="ltr">coa_grni</span>) به مبلغ موقت. اگر مبلغ موقت صفر باشد یا انبار ادواری باشد، سندی ساخته نمی‌شود.</li>
+        <li><b>ریالی‌سازی:</b> کاربری که هم «مشاهدهٔ بها» (<span dir="ltr">cost_visibility:view</span>) و هم «ایجاد فاکتور خرید» (<span dir="ltr">acc_purchases:create</span>) دارد، روی رسید «💰 ریالی‌سازی» را می‌زند و فی خرید هر ردیف را وارد می‌کند. نتیجه یک <b>فاکتور خرید</b> (بدون ورود دوبارهٔ کالا) است: GRNI به مبلغ موقت تسویه، بستانکار تأمین‌کننده به مبلغ فاکتور، و اختلاف با یک ردیف «فقط ارزش» در کاردکس جبران می‌شود؛ پس ارزش کاردکس = تعداد × فی واقعی. سازندهٔ رسید نمی‌تواند همان رسید را ریالی کند (تفکیک وظایف).</li>
+        <li><b>بعد از ریالی‌سازی</b> صندوقدار همچنان فقط تعداد و وضعیت «ریالی شده» را می‌بیند؛ هیچ API (فهرست، جزئیات، کاردکس، خرید) برای او مبلغ برنمی‌گرداند.</li>
+        <li><b>ابطال (کامل):</b> قبل از ریالی‌سازی، «⛔ ابطال» کاردکس و سند GRNI را کامل برمی‌گرداند. بعد از ریالی‌سازی ابتدا «↩️ لغو ریالی‌سازی» (= ابطال فاکتور خرید) را بزنید تا سند خرید و ردیف ارزش کاردکس برگردد و رسید دوباره «در انتظار ریالی‌سازی» شود؛ سپس در صورت نیاز رسید را ابطال کنید. هیچ ردیفی حذف فیزیکی نمی‌شود.</li>
+        <li><b>دسترسی‌ها:</b> ردیف «رسید مقداری کالا» در «کاربران ← دسترسی‌ها»: صندوقدار پیش‌فرض مشاهده + ایجاد؛ حسابداری مشاهده + ایجاد + حذف (= ابطال). رسیدهای مقداری در فهرست «رسیدهای GRNI باز» فاکتور خرید هم دیده می‌شوند.</li>
+      </ul>`),
     helpSec('📒','موجودی فقط با سند — کاردکس تنها منبع (v591)',`
       <p>از این نسخه عدد موجودی هیچ‌جا «دستی» نوشته نمی‌شود؛ هر تغییر یک سند (ردیف کاردکس + سند حسابداری) است و کاردکس تنها منبع حقیقت موجودی است.</p>
       <ul>
@@ -42031,6 +42265,9 @@ function renderSalesGuide(){
         <li>اگر حسابدار رد کند، دلیل رد کنار ردیف نشان داده می‌شود.</li>
         <li>تأیید، رد و ساخت دستهٔ جدید فقط با حسابدار است؛ شما فقط دسته را انتخاب می‌کنید.</li>
       </ul>`),
+    helpSec('📥','رسید مقداری کالا از تأمین‌کننده (v597)',`
+      <p>اگر منوی <b>📥 رسید مقداری کالا</b> را دارید: «➕ رسید جدید» ← تأمین‌کننده و انبار را انتخاب کنید ← کالا را با نام/کد/بارکد جستجو و اضافه کنید ← برای کالای رنگ‌سایزدار، رنگ/سایز را انتخاب کنید ← تعداد را وارد و ثبت کنید. کالا همان لحظه به موجودی انبار اضافه می‌شود.</p>
+      <p>مبلغ و فی خرید را وارد نمی‌کنید و نمی‌بینید؛ حسابداری بعداً رسید را «ریالی» می‌کند. وضعیت هر رسید در فهرست («در انتظار ریالی‌سازی» / «ریالی شده» / «ابطال») دیده می‌شود. ابطال رسید با حسابداری است.</p>`),
     helpSec('📦','فروش از انبار دیگر (v567)',`
       <p>برای فروش یک ردیف از انبار غیر از انبار سربرگ فاکتور، دسترسی <b>«فروش از انبار دیگر»</b> لازم است (مدیر دارد؛ بقیه را مدیر در دسترسی کاربران فعال می‌کند). بدون آن، انتخابگر انبار ردیف قفل است و پیام «برای فروش از انبار دیگر دسترسی لازم است» دیده می‌شود. نمایندگان همیشه روی انبار خودشان هستند.</p>
       <p>دکمهٔ <b>📦</b> کنار انبار هر ردیف، موجودی همهٔ انبارها را نشان می‌دهد و (با دسترسی) با یک کلیک انبار ردیف را عوض می‌کند. اگر کالا در انبار سربرگ صفر باشد ولی جای دیگر موجود باشد، روی کارت کالا بج «در انبار دیگر: n» می‌آید.</p>`),

@@ -109,6 +109,7 @@ const PATH_TABLE_MAP = [
   ['/api/transfers', 'account_transfers'],
   ['/api/trust-checks', 'trust_checks'],
   // Warehouse docs BEFORE batch BEFORE moves BEFORE generic /api/warehouses
+  ['/api/warehouses/qty-receipts', 'warehouse_docs'],
   ['/api/warehouses/moves/docs', 'warehouse_docs'],
   ['/api/warehouses/moves/batch', 'warehouse_docs'],
   ['/api/warehouses/moves', 'warehouse_moves'],
@@ -217,6 +218,8 @@ function tableForPath(path) {
   if (path.startsWith('/api/production/cutting-lays/') && /\/link-order/.test(path)) return 'cutting_lays';
   // Periodic close/reopen: mid-path :id — must not fall through to generic warehouses.
   if (path.startsWith('/api/warehouses/') && /\/period-close/.test(path)) return 'warehouse_period_closes';
+  // P7 costing creates a purchase invoice: /api/warehouses/qty-receipts/:id/cost
+  if (path.startsWith('/api/warehouses/qty-receipts/') && /\/cost$/.test(path)) return 'purchase_invoices';
   // Returns P2c allocate — mid-path :id/allocate must tag return_credit_allocations
   if (path.startsWith('/api/accounting/sales-returns/') && /\/allocate/.test(path)) {
     return 'return_credit_allocations';
