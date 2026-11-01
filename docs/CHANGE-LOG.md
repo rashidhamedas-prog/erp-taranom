@@ -1,5 +1,6 @@
 ### ۱۴۰۵/۰۸/۱۰ — P6 (پیش‌نویس): تسویه چندروشی + کارتخوان coa_code/mode/slot + سقف اعتبار + حالت کمبود موجودی فروش سریع (SW v594)
-- **شاخه:** `feat/p6-settlement-card-readers` (پایه: main 13fc3773)؛ منبع: `P6-settlement-card-readers.md`. **فقط PR پیش‌نویس — merge/deploy نشده.**
+- **Deploy:** ✅ #121 → a7a99dfb — overlay Iran — بکاپ /home/taranom/backups/crm.db.20261101-104309 (+wal/shm) — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v594 — leaf=warn — GL1104=10,883,218,790 · k34+35=10,997,256,853 · (GL−K)=−114,038,063
+- **شاخه:** `feat/p6-settlement-card-readers` (پایه: main 13fc3773)؛ منبع: `P6-settlement-card-readers.md`. **فقط PR پیش‌نویس — merged #121.**
 - **اسکیما (افزایشی، بدون جدول جدید ⇒ بدون `sync_seq_backfill`):** `pos_terminals.coa_code/mode/shortcut_slot`، `pos_receipts.trace/last4`، `customers.credit_limit_rial` (NULL = بی‌حد). `SYNCABLE_TABLES` دست‌نخورده.
 - **کارتخوان:** `coa_code` با `normalizeAccountCode` (خالی = حالت قبلی «در راه» ۱۱۱۸؛ تنظیم `pos_empty_coa_mode=bank` ⇒ حساب بانک)، `mode` = `manual|integrated|both`، `shortcut_slot` ۱..۹ یکتا بین فعال‌ها. آداپتر `lib/pos-adapter.js`: `requestPayment(terminal, amount)→{status, trace, last4}`؛ دستی پیش‌فرض، متصل فقط stub پشت `POS_INTEGRATED_STUB=1`/`pos_integrated_enabled`. trace/last4 اختیاری.
 - **pay_splits (قرارداد جدید):** `{method: cash|card|cheque|credit, amount, cash_box_id|terminal_id|cheque:{sayad_id,bank_name,due_date}, trace?, last4?}` (قالب قدیمی `pay_type` سالم). Σ ≤ باقی‌مانده: غیرنقد بیشتر ⇒ ۴۲۲ `E_PAY_SPLIT_OVER`؛ نقد اضافه = باقی (`change_rial`). `credit` ⇒ بدهکار مشتری (`credit_rial`). چک از ماژول چک (`cheque_records`) بدون استعلام صیاد. `idempotency_key` = `client_request_id`. فروش بی‌نام + اعتبار ⇒ ۴۰۰ `E_WALKIN_NO_CREDIT`.
@@ -10,7 +11,6 @@
 - **تست:** `scripts/test-p6-settlement-card-readers.js` (۸۸ assertion؛ `npm run test:p6-settlement-card-readers` داخل `npm test`). `test-sms` ✅. `test-sync` و ده‌ها تست قدیمی روی این ماشین در baseline (main) هم رد می‌شوند؛ شمار pass/fail شش تست مرتبط (store-quick-sale-v383، pos-stitch-p8، pos-choices-v319، store-qs-harden-v505، invoice-cheque-pos-v344، invoice-void-cheque-v227) با main یکسان است.
 - **Help:** بند ادمین «تسویه چندروشی + کارتخوان + سقف اعتبار (v594)» و بند فروش «تسویه چندروشی در فروش». **SW:** `erp-taranom-v594`، `app.js?v=592`.
 - **فایل‌ها:** `db.js`، `lib/{pos,pos-adapter,invoice-payments,store-quick-sale,sales-document,party-credit}.js`، `routes/{invoices,customers,settings}.js`، `public/{app.js,index.html,sw.js}`، `scripts/test-p6-settlement-card-readers.js`، `package.json`.
-- **Deploy:** ⏸ عمداً انجام نشده (درخواست کاربر: فقط شاخه + PR، بدون merge/deploy).
 
 ### ۱۴۰۵/۰۸/۰۸ — P4: مخفی‌سازی بها/نرخ خرید/سود (RBAC فیلد، پیش‌نویس) (SW v593)
 - **Deploy:** ✅ #116 → 71398def — overlay Iran — بکاپ /home/taranom/backups/crm.db.20261101-103518 (+wal/shm) — pm2 restart بدون --update-env — health 200 — title ERP ترنم — SW erp-taranom-v593 — leaf=warn — GL1104=10,883,218,790 · k34+35=10,997,256,853 · (GL−K)=−114,038,063
