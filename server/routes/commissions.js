@@ -12,11 +12,18 @@
  *   GET  /transfers                                انتقال‌ها
  *   POST /transfers                                انتقال به حقوق (کارمند) / سند پیش‌نویس (غیرکارمند)
  *   POST /transfers/:id/void                       ابطال کامل R13
+ *   GET  /beneficiaries                            اشخاص دارای قاعده + نوع ذی‌نفع/فلگ‌ها (P9-fix)
+ *   PUT  /beneficiaries/:personId                  نوع ذی‌نفع employee|agent + insurance/payroll_tax_applicable
+ *   GET  /review?month=YYYY/MM                     بازبینی ماهانه: فلگ خاموش / نمایندهٔ با نرخ ۰ / تعارض موتور
+ *   GET  /account-suggestions                      پیشنهاد حساب از کدینگ موجود (فقط خواندنی)
+ *   GET|PUT /settings                              نرخ کسر مالیات نماینده (PUT فقط مدیر، مرکز)
+ * تعارض موتور (انگیزه فروش قدیمی فعال) ⇒ ۴۰۹ E_COMMISSION_ENGINE_CONFLICT.
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth, adminOrAccounting } = require('../middleware/auth');
+const { auth, adminOrAccounting, adminOnly, centralOnly } = require('../middleware/auth');
 const CM = require('../lib/commissions-multi');
+const CB = require('../lib/commission-beneficiary');
 
 function sendErr(res, e) {
   const status = e && e.status ? e.status : 500;
@@ -95,6 +102,43 @@ router.post('/transfers/:id/void', auth, adminOrAccounting, (req, res) => {
     const row = CM.voidTransfer(getDB(), req.params.id, req.user.id, (req.body || {}).reason);
     audit(req.user.id, 'reverse', 'commission_transfer', row.id, `ابطال ${row.doc_no}`);
     res.json(row);
+  } catch (e) { sendErr(res, e); }
+});
+
+// ── P9-fix: ذی‌نفع، بازبینی ماهانه، پیشنهاد حساب، نرخ کسر مالیات نماینده ──
+
+router.get('/beneficiaries', auth, adminOrAccounting, (req, res) => {
+  try { res.json({ rows: CB.listBeneficiaries(getDB()), agent_tax_rate_pct: CB.agentTaxRatePct(getDB()) }); } catch (e) { sendErr(res, e); }
+});
+
+router.put('/beneficiaries/:personId', auth, adminOrAccounting, (req, res) => {
+  try {
+    const row = CB.updateBeneficiary(getDB(), req.params.personId, req.body || {});
+    audit(req.user.id, 'update', 'person', row.person_id,
+      `ذی‌نفع پورسانت: ${row.beneficiary_type} بیمه=${row.insurance_applicable} مالیات=${row.payroll_tax_applicable}`);
+    res.json(row);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/review', auth, adminOrAccounting, (req, res) => {
+  try { res.json(CB.reviewReport(getDB(), req.query.month)); } catch (e) { sendErr(res, e); }
+});
+
+router.get('/account-suggestions', auth, adminOrAccounting, (req, res) => {
+  try { res.json(CB.accountSuggestions(getDB())); } catch (e) { sendErr(res, e); }
+});
+
+router.get('/settings', auth, adminOrAccounting, (req, res) => {
+  try { res.json({ agent_tax_rate_pct: CB.agentTaxRatePct(getDB()) }); } catch (e) { sendErr(res, e); }
+});
+
+router.put('/settings', auth, adminOnly, centralOnly, (req, res) => {
+  try {
+    const db = getDB();
+    const before = CB.agentTaxRatePct(db);
+    const after = CB.setAgentTaxRatePct(db, (req.body || {}).agent_tax_rate_pct);
+    audit(req.user.id, 'update', 'settings', null, `${CB.AGENT_TAX_KEY}: ${before}% → ${after}%`);
+    res.json({ agent_tax_rate_pct: after });
   } catch (e) { sendErr(res, e); }
 });
 

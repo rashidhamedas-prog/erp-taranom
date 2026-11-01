@@ -57,7 +57,9 @@ router.post('/users', auth, adminOnly, centralOnly, async (req, res) => {
   if (exists) return res.status(400).json({ error: 'این نام کاربری قبلاً ثبت شده' });
   const hash = await hashPassword(password);
   // must_change_password=1 → رمزی که مدیر تعیین کرده موقتی است و در اولین ورود عوض می‌شود
-  const created = db.transaction(() => {
+  let created;
+  try {
+  created = db.transaction(() => {
     const result = db.prepare(`
       INSERT INTO users (name,username,password,phone,role,commission_cash,commission_cheque,commission_basis,monthly_target,quarterly_target,annual_target,bonus_pct,commission_fixed,penalty_pct,supervisor_commission_pct,incentive_locked,must_change_password,
         rep_code,rep_subtype,territory,supervisor_id,employment_status,bank_name,bank_account,bank_iban,rep_opening_balance,sales_warehouse_id,sales_cash_box_id)
@@ -76,8 +78,14 @@ router.post('/users', auth, adminOnly, centralOnly, async (req, res) => {
     ensureUserParty(db, result.lastInsertRowid, req.body);
     const showPhone = show_phone_on_invoice === 0 || show_phone_on_invoice === false || show_phone_on_invoice === '0' ? 0 : 1;
     db.prepare('UPDATE users SET show_phone_on_invoice=? WHERE id=?').run(showPhone, result.lastInsertRowid);
+    const CB = require('../lib/commission-beneficiary');
+    if (CB.incentiveActiveForUser(db, result.lastInsertRowid)) CB.assertNoP9ForUser(db, result.lastInsertRowid);
     return result;
   })();
+  } catch (e) {
+    if (e && e.code === 'E_COMMISSION_ENGINE_CONFLICT') return res.status(409).json({ error: e.message, code: e.code });
+    throw e;
+  }
   if (req.body.branch_id != null && req.body.branch_id !== '') {
     getDB().prepare('UPDATE users SET branch_id=? WHERE id=?').run(parseInt(req.body.branch_id, 10) || null, created.lastInsertRowid);
   }
@@ -118,6 +126,21 @@ router.put('/users/:id', auth, adminOnly, centralOnly, async (req, res) => {
 
   if (existing.incentive_locked && rateChanged && !force) {
     return res.status(409).json({ locked: true, message: 'نرخ انگیزه فروش این کارشناس قفل شده است. لطفاً تأیید کنید.' });
+  }
+
+  {
+    // P9-fix: برای هر شخص فقط یک موتور — فعال/تغییر انگیزه فروش برای شخصی با قاعدهٔ فعال P9 ممنوع.
+    const CB = require('../lib/commission-beneficiary');
+    const nextRates = { active: nextActive, commission_cash: newCash, commission_cheque: newCheque, commission_fixed: fixed, supervisor_commission_pct: supComm };
+    const wasActive = CB.incentiveActiveForUser(db, existing.id);
+    const willActive = CB.incentiveActiveForUser(db, existing.id, nextRates);
+    const touched = rateChanged || Math.abs(fixed - (existing.commission_fixed || 0)) > 0.001
+      || Math.abs(supComm - (existing.supervisor_commission_pct || 0)) > 0.001;
+    if (willActive && (!wasActive || touched)) {
+      try { CB.assertNoP9ForUser(db, existing.id); } catch (e) {
+        return res.status(e.status || 409).json({ error: e.message, code: e.code });
+      }
+    }
   }
 
   if (password) {

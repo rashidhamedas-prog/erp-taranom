@@ -857,6 +857,11 @@ router.post('/:id/commission-rules', auth, adminOrAccounting, (req, res) => {
   if (!['product', 'category', 'brand', 'customer'].includes(scope_type)) {
     return res.status(400).json({ error: 'نوع محدوده نامعتبر' });
   }
+  if ((parseFloat(rate_cash) || 0) > 0 || (parseFloat(rate_cheque) || 0) > 0) {
+    try { require('../lib/commission-beneficiary').assertNoP9ForUser(db, repId); } catch (e) {
+      return res.status(e.status || 409).json({ error: e.message, code: e.code });
+    }
+  }
   const r = db.prepare(`INSERT INTO rep_commission_rules (rep_id,scope_type,scope_id,scope_label,rate_cash,rate_cheque) VALUES (?,?,?,?,?,?)`)
     .run(repId, scope_type, scope_id ? parseInt(scope_id) : null, scope_label || '', parseFloat(rate_cash) || 0, parseFloat(rate_cheque) || 0);
   res.json({ id: r.lastInsertRowid, ok: true });
@@ -873,6 +878,11 @@ router.post('/:id/commission-tiers', auth, adminOrAccounting, (req, res) => {
   const repId = +req.params.id;
   if (!repGuard(db, repId)) return res.status(404).json({ error: 'نماینده یافت نشد' });
   const { from_amount, to_amount, rate_cash, rate_cheque } = req.body;
+  if ((parseFloat(rate_cash) || 0) > 0 || (parseFloat(rate_cheque) || 0) > 0) {
+    try { require('../lib/commission-beneficiary').assertNoP9ForUser(db, repId); } catch (e) {
+      return res.status(e.status || 409).json({ error: e.message, code: e.code });
+    }
+  }
   const r = db.prepare(`INSERT INTO rep_commission_tiers (rep_id,from_amount,to_amount,rate_cash,rate_cheque) VALUES (?,?,?,?,?)`)
     .run(repId, parseFloat(from_amount) || 0, to_amount != null ? parseFloat(to_amount) : null, parseFloat(rate_cash) || 0, parseFloat(rate_cheque) || 0);
   res.json({ id: r.lastInsertRowid, ok: true });

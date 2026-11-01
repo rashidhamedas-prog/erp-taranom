@@ -209,8 +209,11 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     ? 1
     : (Number(input.production_bonus_sso_exempt) ? 1 : 0);
 
-  // P9: پورسانت فروش کارمند — ردیف متغیر مشمول بیمه و مالیات حقوق
+  // P9: پورسانت فروش کارمند — ردیف متغیر حقوق. P9-fix: بیمه/مالیاتِ همین ردیف فقط وقتی فلگ کارمند
+  // (insurance_applicable / payroll_tax_applicable) روشن است؛ خاموش ⇒ این مبلغ از پایهٔ بیمه/مالیات بیرون می‌ماند.
   const commission = int(input.commission_rial || 0, 'پورسانت');
+  const commissionInsured = input.commission_insurance_applicable == null ? 1 : (Number(input.commission_insurance_applicable) ? 1 : 0);
+  const commissionTaxed = input.commission_tax_applicable == null ? 1 : (Number(input.commission_tax_applicable) ? 1 : 0);
 
   const seniorityDaysX100 = int(input.seniority_days_x100 || 0, 'روز پایه سنوات');
   const seniorityDaily = Math.max(0, Math.round(Number(eff._seniority_daily_rial) || 0));
@@ -224,7 +227,8 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
 
   // معافیت‌های بیمه خودکار: حق اولاد + ماموریت + (پاداش تولید در صورت مجوز)
   const autoInsuranceExempt = child + mission
-    + (productionBonusSsoExempt ? productionBonus : 0);
+    + (productionBonusSsoExempt ? productionBonus : 0)
+    + (commissionInsured ? 0 : commission);
   const manualInsuranceExempt = int(input.insurance_exempt_rial || 0, 'معاف از بیمه');
   const insuranceExempt = Math.min(gross, autoInsuranceExempt + manualInsuranceExempt);
 
@@ -245,7 +249,7 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     || String(eff.tax_exemption_type || '') === 'tax_exempt'
     || int(eff.tax_exemption_percent_bp, 'درصد معافیت مالیاتی') >= 10000;
   // ماموریت از درآمد مشمول مالیات کسر می‌شود (ماده ۹۱)
-  const taxExemptItems = mission;
+  const taxExemptItems = mission + (commissionTaxed ? 0 : commission);
   const taxableIncome = fullyExempt
     ? 0
     : Math.max(0, gross - taxExemptItems - employeeInsurance - periodTaxExemption);
@@ -276,6 +280,8 @@ function calculatePayroll({ structure, period, brackets, input, laborSettings })
     mission_allowance_rial: mission,
     production_bonus_rial: productionBonus,
     commission_rial: commission,
+    commission_insurance_applicable: commissionInsured,
+    commission_tax_applicable: commissionTaxed,
     overtime_pay_rial: overtimePay,
     night_shift_pay_rial: nightPay,
     friday_pay_rial: fridayPay,

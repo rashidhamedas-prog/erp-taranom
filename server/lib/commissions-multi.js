@@ -11,8 +11,11 @@
  *   کاربر ثبت‌کنندهٔ فاکتور (users.person_id) با سهم ۱۰۰٪. درصد از قاعدهٔ seller:
  *   product > product_group > invoice(scope_id = همین فاکتور) > invoice(scope_id خالی = پیش‌فرض).
  *
- * انتقال: کارمند (کد پرسنلی/شمارهٔ کارمندی) → ردیف «پورسانت» در حقوق همان دوره (مشمول بیمه و مالیات)؛
- *   غیرکارمند → سند پیش‌نویس: بدهکار هزینهٔ پورسانت / بستانکار حساب شخص. هیچ پرداخت خودکاری ساخته نمی‌شود.
+ * انتقال (P9-fix، بر اساس persons.commission_beneficiary_type — lib/commission-beneficiary.js):
+ *   employee → ردیف «پورسانت» در حقوق همان دوره؛ بیمه/مالیات فقط اگر فلگ‌های کارمند روشن باشد؛
+ *   agent → سند پیش‌نویس: بدهکار هزینهٔ پورسانت (کامل) / بستانکار حساب شخص (منهای کسر مالیات نماینده)
+ *   [/ بستانکار مالیات پرداختنی اگر commission_agent_tax_rate > ۰]. هیچ پرداخت خودکاری ساخته نمی‌شود.
+ *   شخصی که هم P9 و هم «انگیزه فروش» فعال دارد (دادهٔ قدیمی) در محاسبه رد و در engine_conflicts گزارش می‌شود.
  * ابطال (R13): انتقالِ حقوقیِ مصرف‌نشده یا سند پیش‌نویس/ثبت‌شده کامل برمی‌گردد؛ حذف فیزیکی ندارد.
  */
 const { allocateNumber } = require('../db');
@@ -191,8 +194,17 @@ function documentContributions(db, ctx, { inv, lines, sign, ruleDate, kind, docI
   return out;
 }
 
-/** Raw per-line contributions for [from, to]. */
-function computeContributions(db, { from, to } = {}) {
+/**
+ * Per-line contributions for [from, to]. Persons where both P9 and the legacy «انگیزه فروش» are active
+ * (legacy data) are skipped — commissionReport lists them in engine_conflicts.
+ */
+function computeContributions(db, range = {}) {
+  const conflicts = require('./commission-beneficiary').engineConflicts(db);
+  const all = computeContributionsRaw(db, range);
+  return conflicts.size ? all.filter((c) => !conflicts.has(c.person_id)) : all;
+}
+
+function computeContributionsRaw(db, { from, to } = {}) {
   const f = normDate(from);
   const t = normDate(to);
   const ctx = { rules: loadRules(db), products: new Map() };
@@ -242,10 +254,18 @@ function transferredFor(db, personId, from, to) {
 function commissionReport(db, { from, to, person_id: onlyPerson, detail } = {}) {
   const f = normDate(from);
   const t = normDate(to);
-  const contribs = computeContributions(db, { from: f, to: t });
+  const conflicts = require('./commission-beneficiary').engineConflicts(db);
+  const contribs = computeContributionsRaw(db, { from: f, to: t });
   const byPerson = new Map();
+  const skipped = new Map();
   for (const c of contribs) {
     if (onlyPerson && Number(onlyPerson) !== c.person_id) continue;
+    if (conflicts.has(c.person_id)) {
+      const s = skipped.get(c.person_id) || { ...conflicts.get(c.person_id), skipped_rial: 0 };
+      s.skipped_rial += c.amount;
+      skipped.set(c.person_id, s);
+      continue;
+    }
     let p = byPerson.get(c.person_id);
     if (!p) {
       p = { person_id: c.person_id, sales_base_rial: 0, returns_base_rial: 0, supervisor_rial: 0, seller_rial: 0, returns_deduction_rial: 0, lines: [] };
@@ -265,10 +285,12 @@ function commissionReport(db, { from, to, person_id: onlyPerson, detail } = {}) 
   for (const p of byPerson.values()) {
     const person = personOf(db, p.person_id) || { id: p.person_id, name: `#${p.person_id}` };
     const total = p.supervisor_rial + p.seller_rial - p.returns_deduction_rial;
+    const ben = person.id ? require('./commission-beneficiary').beneficiaryOf(db, person) : null;
     const row = {
       person_id: p.person_id,
       name: person.name,
       is_employee: isEmployee(person) ? 1 : 0,
+      beneficiary_type: ben ? ben.beneficiary_type : 'agent',
       sales_base_rial: round(p.sales_base_rial),
       returns_base_rial: round(p.returns_base_rial),
       net_base_rial: round(p.sales_base_rial - p.returns_base_rial),
@@ -284,7 +306,8 @@ function commissionReport(db, { from, to, person_id: onlyPerson, detail } = {}) 
     rows.push(row);
   }
   rows.sort((a, b) => b.total_rial - a.total_rial || a.person_id - b.person_id);
-  return { from: f, to: t, rows, total_rial: rows.reduce((a, r) => a + r.total_rial, 0) };
+  const engineConflicts = [...skipped.values()].map((s) => ({ ...s, skipped_rial: round(s.skipped_rial) }));
+  return { from: f, to: t, rows, total_rial: rows.reduce((a, r) => a + r.total_rial, 0), engine_conflicts: engineConflicts };
 }
 
 // ── locks: rules/parties may not change under a live transfer ──
@@ -378,6 +401,7 @@ function listRules(db, { person_id, include_inactive } = {}) {
 function createRule(db, body, userId) {
   return db.transaction(() => {
     const r = validateRule(db, body);
+    require('./commission-beneficiary').assertNoIncentiveForPerson(db, r.person_id);
     assertNoOverlap(db, r, 0);
     assertNoLiveTransfer(db, [r.person_id], r.from_date, r.to_date);
     const id = db.prepare(`
@@ -394,6 +418,7 @@ function updateRule(db, id, body, userId) {
     if (!old) throw httpErr(404, 'قاعده یافت نشد');
     if (!Number(old.active)) throw httpErr(409, 'قاعدهٔ غیرفعال قابل ویرایش نیست', 'E_RULE_INACTIVE');
     const r = validateRule(db, { ...old, ...body });
+    require('./commission-beneficiary').assertNoIncentiveForPerson(db, r.person_id);
     assertNoOverlap(db, r, old.id);
     assertNoLiveTransfer(db, [old.person_id, r.person_id], old.from_date && r.from_date ? (old.from_date < r.from_date ? old.from_date : r.from_date) : '',
       old.to_date && r.to_date ? (old.to_date > r.to_date ? old.to_date : r.to_date) : '');
@@ -453,6 +478,8 @@ function setInvoiceParties(db, invoiceId, list, userId) {
       if (seen.has(k)) throw httpErr(400, 'یک شخص با یک نقش دو بار آمده است', 'E_DUP');
       seen.add(k);
     }
+    const { assertNoIncentiveForPerson } = require('./commission-beneficiary');
+    for (const p of rows) assertNoIncentiveForPerson(db, p.person_id);
     for (const role of ROLES) {
       const sum = rows.filter((p) => p.role === role).reduce((a, p) => a + p.share_pct, 0);
       if (sum > 0 && Math.abs(sum - 100) > 0.001) {
@@ -496,6 +523,12 @@ function personCreditAccount(db, person) {
   return acct(db, 'coa_rep_commission_payable');
 }
 
+/** Withholding tax on agent commission → existing payroll tax payable key (mapping is never changed here). */
+function agentTaxAccount(db) {
+  const { acct } = require('./coa-map');
+  return acct(db, 'coa_payroll_tax_payable');
+}
+
 function createTransfer(db, body, userId) {
   const from = normDate(body.from);
   const to = normDate(body.to);
@@ -504,12 +537,21 @@ function createTransfer(db, body, userId) {
   const personId = Number(body.person_id);
   const person = personOf(db, personId);
   if (!person) throw httpErr(404, 'شخص یافت نشد');
-  const employee = isEmployee(person);
+  const CB = require('./commission-beneficiary');
+  const conflict = CB.engineConflicts(db).get(personId);
+  if (conflict) {
+    throw httpErr(409, `برای «${person.name}» هم «انگیزه فروش» و هم پورسانت P9 فعال است (دادهٔ قدیمی)؛ انتقال انجام نشد — ابتدا یکی را غیرفعال کنید`, CB.ENGINE_CONFLICT);
+  }
+  const ben = CB.beneficiaryOf(db, person);
+  const employee = ben.beneficiary_type === 'employee';
   let target = String(body.target || 'auto');
   if (target === 'auto') target = employee ? 'payroll' : 'voucher';
   if (!['payroll', 'voucher'].includes(target)) throw httpErr(400, 'مقصد باید payroll یا voucher باشد', 'E_TARGET');
   if (target === 'payroll' && !employee) {
-    throw httpErr(400, 'این شخص کد پرسنلی/شمارهٔ کارمندی ندارد؛ برای غیرکارمند فقط سند پیش‌نویس ساخته می‌شود', 'E_NOT_EMPLOYEE');
+    throw httpErr(400, 'نوع ذی‌نفع این شخص «نماینده آزاد» است؛ پورسانت از حقوق رد نمی‌شود و فقط سند پیش‌نویس ساخته می‌شود', 'E_NOT_EMPLOYEE');
+  }
+  if (target === 'voucher' && employee) {
+    throw httpErr(400, 'نوع ذی‌نفع این شخص «کارمند» است؛ پورسانت فقط به‌صورت ردیف حقوق همان ماه منتقل می‌شود (نه سند مستقیم)', 'E_EMPLOYEE_PAYROLL_ONLY');
   }
 
   return db.transaction(() => {
@@ -541,10 +583,15 @@ function createTransfer(db, body, userId) {
     }
 
     const docNo = allocateNumber(db, 'commission_transfer', 'CMT');
+    const taxRate = target === 'voucher' ? CB.agentTaxRatePct(db) : 0;
+    const taxRial = taxRate > 0 ? Math.min(amount, Math.round(amount * taxRate / 100)) : 0;
     const detail = {
       supervisor_rial: row.supervisor_rial, seller_rial: row.seller_rial,
       returns_deduction_rial: row.returns_deduction_rial, sales_base_rial: row.sales_base_rial,
       returns_base_rial: row.returns_base_rial, line_count: (row.lines || []).length,
+      beneficiary_type: ben.beneficiary_type,
+      insurance_applicable: ben.insurance_applicable, payroll_tax_applicable: ben.payroll_tax_applicable,
+      agent_tax_rate_pct: taxRate, withholding_tax_rial: taxRial,
     };
     const id = db.prepare(`
       INSERT INTO commission_transfers
@@ -556,12 +603,22 @@ function createTransfer(db, body, userId) {
       target === 'payroll' ? 'pending' : 'voucher', periodId, Number(body.cost_center_id) || null,
       String(body.note || '').slice(0, 300), userId || null
     ).lastInsertRowid;
+    db.prepare('UPDATE commission_transfers SET beneficiary_type=?, tax_rate_pct=?, withholding_tax_rial=? WHERE id=?')
+      .run(ben.beneficiary_type, taxRate, taxRial, id);
 
     if (target === 'voucher') {
       const { postToLedger } = require('./ledger');
       const exp = expenseAccount(db);
       const cr = personCreditAccount(db, person);
       const ccId = Number(body.cost_center_id) || null;
+      const lines = [
+        { code: exp.code, name: exp.name, debit: amount / 10, credit: 0, cost_center_id: ccId },
+        { code: cr.code, name: cr.name, debit: 0, credit: (amount - taxRial) / 10 },
+      ];
+      if (taxRial > 0) {
+        const tax = agentTaxAccount(db);
+        lines.push({ code: tax.code, name: tax.name, debit: 0, credit: taxRial / 10 });
+      }
       const jeId = postToLedger(db, {
         sourceType: 'commission_transfer', sourceId: id,
         date: normDate(body.date) || to,
@@ -569,10 +626,7 @@ function createTransfer(db, body, userId) {
         createdBy: userId,
         costCenterId: ccId,
         status: 'draft',
-        lines: [
-          { code: exp.code, name: exp.name, debit: amount / 10, credit: 0, cost_center_id: ccId },
-          { code: cr.code, name: cr.name, debit: 0, credit: amount / 10 },
-        ],
+        lines,
       });
       db.prepare('UPDATE commission_transfers SET je_id=? WHERE id=?').run(jeId, id);
     }
@@ -649,15 +703,16 @@ function releaseFromPayroll(db, payrollRecordId) {
 
 /** Pickers for the commissions page (persons, product groups, open payroll periods, cost centers). */
 function commissionMeta(db) {
+  const CB = require('./commission-beneficiary');
   const persons = db.prepare(`
-    SELECT id, name, personnel_code, employee_no FROM persons WHERE COALESCE(active,1)=1 ORDER BY name LIMIT 2000
-  `).all().map((p) => ({ id: p.id, name: p.name, is_employee: isEmployee(p) ? 1 : 0 }));
+    SELECT * FROM persons WHERE COALESCE(active,1)=1 ORDER BY name LIMIT 2000
+  `).all().map((p) => ({ id: p.id, name: p.name, is_employee: isEmployee(p) ? 1 : 0, beneficiary_type: CB.beneficiaryOf(db, p).beneficiary_type }));
   const groups = db.prepare('SELECT id, name FROM product_categories ORDER BY name').all();
   const periods = tableExists(db, 'payroll_periods')
     ? db.prepare("SELECT id, label, status FROM payroll_periods WHERE status<>'closed' ORDER BY fiscal_year DESC, month_no DESC LIMIT 24").all()
     : [];
   const costCenters = db.prepare('SELECT id, code, name FROM cost_centers WHERE COALESCE(active,1)=1 ORDER BY code, name').all();
-  return { persons, groups, payroll_periods: periods, cost_centers: costCenters };
+  return { persons, groups, payroll_periods: periods, cost_centers: costCenters, agent_tax_rate_pct: CB.agentTaxRatePct(db) };
 }
 
 module.exports = {
@@ -666,6 +721,7 @@ module.exports = {
   invoiceNetLines,
   returnNetLines,
   computeContributions,
+  computeContributionsRaw,
   commissionReport,
   listRules,
   createRule,

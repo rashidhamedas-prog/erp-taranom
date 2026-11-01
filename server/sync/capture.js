@@ -165,6 +165,8 @@ const PATH_TABLE_MAP = [
   ['/api/commissions/rules', 'commission_rules'],
   ['/api/commissions/invoice-parties', 'invoice_commission_parties'],
   ['/api/commissions/transfers', 'commission_transfers'],
+  ['/api/commissions/beneficiaries', 'persons'],
+  ['/api/commissions/settings', 'settings'],
   ['/api/payroll/employee-groups', 'employee_groups'],
   ['/api/payroll/group-salary-structures', 'group_salary_structures'],
   ['/api/payroll/payments', 'payroll_payments'],
