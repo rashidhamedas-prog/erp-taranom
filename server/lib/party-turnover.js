@@ -13,6 +13,7 @@
  *   ثبت می‌شود، پس سند بانک در همین گردش دیده می‌شود. linked_rep_id فقط لینک خلاصه است.
  */
 const { linkedCustomerIds, linkedSupplierIds } = require('./parties-sync');
+const { JE_NOT_DRAFT } = require('./je-live');
 const { personLedgerLineRial, personLedgerAliveSql } = require('./person-ledger-money');
 const { sortReportRows, sumDebitCredit } = require('./report-order');
 const { partySignedBalanceDetailMap } = require('./party-books');
@@ -489,6 +490,7 @@ function buildMergedPersonTurnover(db, party, partyId, detail) {
       WHERE jl.account_code = ?
         AND COALESCE(je.deleted_at,0)=0
         AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+        AND ${JE_NOT_DRAFT}
       ORDER BY je.entry_date ASC, je.id ASC, jl.id ASC
     `).all(String(coa));
     for (const r of glRows) {

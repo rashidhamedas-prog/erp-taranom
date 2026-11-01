@@ -16,9 +16,10 @@
  */
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { DELETED_FILTER } = require('./ledger');
+const { JE_NOT_DRAFT } = require('./je-live');
 
-/** Same liveness rule as routes/accounting.js JE_ALIVE (reversed/void are dead unless paired). */
-const JE_ALIVE = `${DELETED_FILTER} AND (
+/** Same liveness rule as routes/accounting.js JE_ALIVE (reversed/void are dead unless paired; drafts never count). */
+const JE_ALIVE = `${DELETED_FILTER} AND ${JE_NOT_DRAFT} AND (
   COALESCE(je.status,'posted') NOT IN ('reversed','void')
   OR EXISTS (
     SELECT 1 FROM journal_entries _rev

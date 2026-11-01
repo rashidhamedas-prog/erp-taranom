@@ -27,7 +27,8 @@
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { personLedgerAliveSql } = require('./person-ledger-money');
 
-const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')`;
+const { JE_NOT_DRAFT } = require('./je-live');
+const JE_ALIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void') AND ${JE_NOT_DRAFT}`;
 
 /** Document families and the role book that owns them. */
 const SALES_REFS = [

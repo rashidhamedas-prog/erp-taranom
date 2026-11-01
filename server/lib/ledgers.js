@@ -6,13 +6,13 @@
  * No writes. No new tables.
  */
 
-const { DELETED_FILTER } = require('./ledger');
+const { DELETED_FILTER, JE_NOT_DRAFT } = require('./ledger');
 const { jlDebitRial, jlCreditRial, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 const { stripCostFields } = require('./production/access');
 const { personLedgerLineRial } = require('./person-ledger-money');
 const { sortReportRows, reportDateKey } = require('./report-order');
 
-const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
+const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed' AND ${JE_NOT_DRAFT}`;
 
 const ENTITY_TYPES = ['person', 'bank', 'cash', 'petty', 'account'];
 

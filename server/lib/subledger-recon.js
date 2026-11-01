@@ -21,11 +21,12 @@
 
 const { acct } = require('./coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL, rialToLedger } = require('./money');
+const { JE_NOT_DRAFT } = require('./je-live');
 
 const SAMPLE_SIZE = 20;
 const DEAD_STATUSES = ['reversed', 'void', 'voided', 'cancelled', 'canceled', 'deleted', 'rejected'];
 const DEAD_SQL = `(${DEAD_STATUSES.map((s) => `'${s}'`).join(',')})`;
-const JE_LIVE = "COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void')";
+const JE_LIVE = `COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'posted') NOT IN ('reversed','void') AND ${JE_NOT_DRAFT}`;
 
 const CHECKS = [
   ['inventory_vs_gl', 'تطبیق ارزش موجودی انبار با دفتر کل'],
@@ -120,6 +121,7 @@ function ensureReconSchema(db) {
   addColumn(db, 'rep_advances', 'reversed_by', 'INTEGER');
   addColumn(db, 'rep_expenses', 'reversed_at', 'INTEGER');
   addColumn(db, 'rep_expenses', 'reversed_by', 'INTEGER');
+  addColumn(db, 'subledger_recon_fixes', 'reverse_reason', 'TEXT');
 }
 
 const _ensured = new WeakSet();
@@ -1992,11 +1994,28 @@ function postInventoryValueAdjustmentJe(db, {
   });
 }
 
+function isConfirmed(v) {
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
 function requireConfirm(opts) {
-  const confirm = opts.confirm === true || opts.confirm === 1 || opts.confirm === '1' || opts.confirm === 'true';
   const reason = String(opts.reason || '').trim();
-  if (!confirm || reason.length < 3) {
+  if (!isConfirmed(opts.confirm) || reason.length < 3) {
     throw err('برای ثبت سند اصلاحی تأیید صریح (confirm) و دلیل الزامی است', 400, 'E_RECON_CONFIRM_REQUIRED');
+  }
+  return reason;
+}
+
+const REVERSE_REASON_MIN = 5;
+
+/** Same body convention as requireConfirm ({confirm:true, reason}); checked before any read/write. */
+function requireReverseConfirm(opts) {
+  const reason = String((opts && opts.reason) || '').trim();
+  if (reason.length < REVERSE_REASON_MIN) {
+    throw err(`علت ابطال اصلاحیه الزامی است (حداقل ${REVERSE_REASON_MIN} نویسه)`, 400, 'E_RECON_REVERSE_REASON_REQUIRED');
+  }
+  if (!isConfirmed(opts && opts.confirm)) {
+    throw err('برای ابطال اصلاحیه تأیید صریح (confirm: true) الزامی است', 400, 'E_RECON_REVERSE_CONFIRM_REQUIRED');
   }
   return reason;
 }
@@ -2191,8 +2210,13 @@ function listFixes(db, { limit } = {}) {
   return db.prepare('SELECT * FROM subledger_recon_fixes ORDER BY id DESC LIMIT ?').all(lim);
 }
 
-/** R13: cancel a recon adjustment = void its JE + mark fix reversed (atomic). */
-function reverseFix(db, fixId, { user, reason } = {}) {
+/**
+ * R13: cancel a recon adjustment = void its JE + mark fix reversed (atomic).
+ * Requires {confirm:true, reason} (requireReverseConfirm) — validated before anything is read or written.
+ */
+function reverseFix(db, fixId, opts = {}) {
+  const reason = requireReverseConfirm(opts);
+  const { user } = opts;
   ensureReconSchemaOnce(db);
   const fix = db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fixId);
   if (!fix) throw err('اصلاحیه یافت نشد', 404, 'E_RECON_FIX_NOT_FOUND');
@@ -2207,10 +2231,10 @@ function reverseFix(db, fixId, { user, reason } = {}) {
   }
   db.transaction(() => {
     if (fix.code === 'fixed_assets') unlinkFixedAssetOpening(db, fix, { userId, reason });
-    if (fix.je_id) reverseJournalEntry(db, fix.je_id, { userId, reason: reason || `ابطال اصلاحیه تطبیق #${fix.id}` });
-    db.prepare("UPDATE subledger_recon_fixes SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=? WHERE id=?")
-      .run(userId || null, fix.id);
-    writeAudit(db, userId, 'recon_fix_reverse', 'subledger_recon_fix', fix.id, { je_id: fix.je_id, reason: reason || '' });
+    if (fix.je_id) reverseJournalEntry(db, fix.je_id, { userId, reason });
+    db.prepare("UPDATE subledger_recon_fixes SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reverse_reason=? WHERE id=?")
+      .run(userId || null, reason, fix.id);
+    writeAudit(db, userId, 'recon_fix_reverse', 'subledger_recon_fix', fix.id, { je_id: fix.je_id, reason, confirm: true });
   })();
   return db.prepare('SELECT * FROM subledger_recon_fixes WHERE id=?').get(fix.id);
 }
@@ -2431,6 +2455,8 @@ module.exports = {
   applyFix,
   listFixes,
   reverseFix,
+  requireReverseConfirm,
+  REVERSE_REASON_MIN,
   previewReverseFix,
   reversePurgeCandidates,
   postInventoryValueAdjustmentJe,

@@ -14,6 +14,7 @@ const { todayJalali } = require('../jalali');
 const { LEDGER_LIVE_SQL } = require('./inventory/layer-reconcile');
 const { COGS_JE_REF_TYPES, cogsAccountCodes } = require('./inventory/cogs-per-invoice');
 const { jlDebitRial, jlCreditRial } = require('./money');
+const { jeNotDraftSql } = require('./je-live');
 
 const APPROX_LABEL = 'تقریبی؛ قبل از بستن دوره';
 const SALE_LEDGER_SOURCES = ['invoice', 'sale', 'sales_invoice'];
@@ -353,7 +354,7 @@ function buildDailyPnl(db, query = {}) {
     const jlCols = colSet(db, 'journal_lines');
     const live = [];
     if (jeCols.has('deleted_at')) live.push('COALESCE(e.deleted_at,0)=0');
-    if (jeCols.has('status')) live.push("COALESCE(e.status,'approved') NOT IN ('reversed','void')");
+    if (jeCols.has('status')) live.push("COALESCE(e.status,'approved') NOT IN ('reversed','void')", jeNotDraftSql('e'));
     const acctCol = jlCols.has('account_code') ? 'account_code' : 'code';
     const ph = COGS_JE_REF_TYPES.map(() => '?').join(',');
     for (const l of db.prepare(`

@@ -6,6 +6,7 @@ const warehouseReportView = requireWarehouseReportView({ orDelegatedAccounting: 
 const { j2g, todayJalali } = require('../jalali');
 const { acct } = require('../lib/coa-map');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { JE_NOT_DRAFT } = require('../lib/je-live');
 const { firmSaleTypeSql } = require('../lib/sales-document');
 const { buildCashFlowReport } = require('../lib/cash-flow');
 const { buildTreasuryDashboard } = require('../lib/treasury-dashboard');
@@ -74,7 +75,7 @@ function buildVatReturnReport(db, query) {
     SELECT COALESCE(SUM(${SQL_JL_CREDIT_RIAL} - ${SQL_JL_DEBIT_RIAL}), 0) v
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
     WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
-      AND COALESCE(je.status,'approved')<>'reversed'
+      AND COALESCE(je.status,'approved')<>'reversed' AND ${JE_NOT_DRAFT}
       ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
   `).get(vatOutput, ...dateParams)?.v || 0;
 
@@ -82,7 +83,7 @@ function buildVatReturnReport(db, query) {
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) v
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
     WHERE jl.account_code=? AND COALESCE(je.deleted_at,0)=0
-      AND COALESCE(je.status,'approved')<>'reversed'
+      AND COALESCE(je.status,'approved')<>'reversed' AND ${JE_NOT_DRAFT}
       ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
   `).get(vatInput, ...dateParams)?.v || 0;
 
@@ -150,7 +151,7 @@ function sumBalanceByPrefix(db, prefix) {
     SELECT COALESCE(SUM(${SQL_JL_DEBIT_RIAL} - ${SQL_JL_CREDIT_RIAL}), 0) v
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
     WHERE jl.account_code LIKE ? AND COALESCE(je.deleted_at,0)=0
-      AND COALESCE(je.status,'approved')<>'reversed'
+      AND COALESCE(je.status,'approved')<>'reversed' AND ${JE_NOT_DRAFT}
   `).get(prefix + '%')?.v || 0;
 }
 
@@ -508,7 +509,7 @@ router.get('/dynamic-statement/:reportName', auth, adminOrAccounting, (req, res)
     SELECT jl.account_code,
            SUM(${SQL_JL_DEBIT_RIAL}-${SQL_JL_CREDIT_RIAL}) balance_rial
     FROM journal_lines jl JOIN journal_entries je ON je.id=jl.entry_id
-    WHERE COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'approved')<>'reversed'
+    WHERE COALESCE(je.deleted_at,0)=0 AND COALESCE(je.status,'approved')<>'reversed' AND ${JE_NOT_DRAFT}
       ${dateWhere.length ? 'AND ' + dateWhere.join(' AND ') : ''}
     GROUP BY jl.account_code
   `).all(...dateParams);

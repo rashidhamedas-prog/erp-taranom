@@ -8,6 +8,7 @@
 
 const { LEGACY, KIND_KEY, isPostableCode, acct } = require('./coa-map');
 const policy = require('./coa-leaf-policy');
+const { JE_NOT_DRAFT } = require('./je-live');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 
 /** Settings keys that intentionally map to control (non-leaf) accounts. */
@@ -55,6 +56,7 @@ function liveJeClause(db) {
   return [
     jeCols.has('deleted_at') ? 'COALESCE(je.deleted_at,0)=0' : null,
     jeCols.has('status') ? "COALESCE(je.status,'approved') NOT IN ('reversed','void')" : null,
+    jeCols.has('status') ? JE_NOT_DRAFT : null,
   ].filter(Boolean).join(' AND ') || '1=1';
 }
 

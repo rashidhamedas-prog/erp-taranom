@@ -2,6 +2,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { JE_NOT_DRAFT } = require('../lib/je-live');
 const { g2j, j2g } = require('../jalali');
 
 const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
@@ -239,6 +240,7 @@ router.get('/:id/variance', auth, permit('view'), (req, res) => {
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE COALESCE(je.deleted_at, 0) = 0
       AND COALESCE(je.status, 'approved') <> 'reversed'
+      AND ${JE_NOT_DRAFT}
       AND (substr(je.entry_date, 1, 4) = ? OR (je.entry_date >= ? AND je.entry_date < ?))
     GROUP BY jl.account_code, je.entry_date
   `).all(String(year), gBounds.start, gBounds.end);

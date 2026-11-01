@@ -4,6 +4,8 @@ const { createJournalEntry, allocateNumber } = require('../db');
 const { assertFiscalYearWritable, resolveFiscalYearForDate } = require('./fiscal-period');
 const { tomanToRial } = require('./money');
 
+const { JE_NOT_DRAFT, jeNotDraftSql, jeNotDraftFor } = require('./je-live');
+
 const DELETED_FILTER = 'COALESCE(je.deleted_at,0)=0';
 
 function validateBalancedLines(lines) {
@@ -317,4 +319,6 @@ function rewriteJournalEntry(db, opts) {
   return existing.id;
 }
 
-module.exports = { postToLedger, rewriteJournalEntry, validateBalancedLines, stampCostCenter, DELETED_FILTER };
+module.exports = {
+  postToLedger, rewriteJournalEntry, validateBalancedLines, stampCostCenter, DELETED_FILTER, JE_NOT_DRAFT, jeNotDraftSql, jeNotDraftFor,
+};

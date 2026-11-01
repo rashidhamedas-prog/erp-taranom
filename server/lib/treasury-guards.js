@@ -8,6 +8,7 @@
  */
 
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
+const { JE_NOT_DRAFT } = require('./je-live');
 
 function httpErr(status, message, code) {
   const e = new Error(message);
@@ -44,6 +45,7 @@ function glBalanceOnCode(db, accountCode) {
       WHERE jl.account_code = ?
         AND COALESCE(je.deleted_at,0)=0
         AND COALESCE(je.status,'posted') NOT IN ('reversed','void')
+        AND ${JE_NOT_DRAFT}
     `).get(code);
     return Math.round(Number(row && row.bal) || 0);
   } catch (_) {

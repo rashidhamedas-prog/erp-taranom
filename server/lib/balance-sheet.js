@@ -5,7 +5,7 @@
  * (COA type or inferred from code prefix), assets = liabilities + equity
  * where equity includes computed retained earnings (revenue − cogs − expense).
  */
-const { DELETED_FILTER } = require('./ledger');
+const { DELETED_FILTER, jeNotDraftFor } = require('./ledger');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('./money');
 
 function inferCoaType(code, acc) {
@@ -35,8 +35,8 @@ function buildBalanceSheet(db, { asOf } = {}) {
   const safeDate = (v) => (v && /^[\d/]+$/.test(v) ? v : null);
   const s = safeDate(asOf);
   const dateWhere = s
-    ? `WHERE je.entry_date <= '${s}' AND ${DELETED_FILTER}`
-    : `WHERE ${DELETED_FILTER}`;
+    ? `WHERE je.entry_date <= '${s}' AND ${DELETED_FILTER} AND ${jeNotDraftFor(db)}`
+    : `WHERE ${DELETED_FILTER} AND ${jeNotDraftFor(db)}`;
   const rows = db.prepare(`
     SELECT jl.account_code, COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) d, COALESCE(SUM(${SQL_JL_CREDIT_RIAL}),0) c
     FROM journal_lines jl JOIN journal_entries je ON jl.entry_id=je.id

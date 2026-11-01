@@ -3,6 +3,7 @@ const { getDB, audit } = require('../db');
 const { postToLedger } = require('../lib/ledger');
 const { acct } = require('../lib/coa-map');
 const { rialToLedger, SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../lib/money');
+const { jeNotDraftFor } = require('../lib/je-live');
 const { auth, adminOnly, centralOnly } = require('../middleware/auth');
 const { todayJalali } = require('../jalali');
 const { purgeTransactionalData, isWorkspaceClean } = require('../lib/clean-slate');
@@ -30,7 +31,7 @@ function yearPnLNetRial(db, fyId) {
       FROM journal_lines jl
       JOIN journal_entries je ON jl.entry_id=je.id
       JOIN chart_of_accounts coa ON coa.code=jl.account_code
-      WHERE COALESCE(je.deleted_at,0)=0
+      WHERE COALESCE(je.deleted_at,0)=0 AND ${jeNotDraftFor(db)}
         AND (? IS NULL OR je.fiscal_year_id=?)
         AND LOWER(COALESCE(coa.type,'')) IN ('income','expense','revenue')
     `).get(fyId || null, fyId || null).net || 0;
@@ -40,7 +41,7 @@ function yearPnLNetRial(db, fyId) {
     SELECT COALESCE(SUM((${SQL_JL_CREDIT_RIAL}) - (${SQL_JL_DEBIT_RIAL})), 0) as net
     FROM journal_lines jl
     JOIN journal_entries je ON jl.entry_id=je.id
-    WHERE COALESCE(je.deleted_at,0)=0
+    WHERE COALESCE(je.deleted_at,0)=0 AND ${jeNotDraftFor(db)}
       AND (? IS NULL OR je.fiscal_year_id=?)
       AND (
         jl.account_code LIKE '4%'

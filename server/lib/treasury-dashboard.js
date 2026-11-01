@@ -12,6 +12,7 @@ const {
   sumCashBankBalanceRial,
 } = require('./cash-flow');
 const { todayJalali } = require('../jalali');
+const { JE_NOT_DRAFT } = require('./je-live');
 
 function tableExists(db, name) {
   try {
@@ -35,7 +36,7 @@ function jeAliveSql(db) {
     parts.push('COALESCE(je.deleted_at,0)=0');
   }
   if (tableHasColumn(db, 'journal_entries', 'status')) {
-    parts.push("COALESCE(je.status,'posted') NOT IN ('reversed','void')");
+    parts.push("COALESCE(je.status,'posted') NOT IN ('reversed','void')", JE_NOT_DRAFT);
   }
   return parts.join(' AND ');
 }

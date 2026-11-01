@@ -6,6 +6,7 @@
  */
 
 const { postToLedger } = require('../ledger');
+const { JE_NOT_DRAFT } = require('../je-live');
 const { reverseJournalEntry } = require('../void-journal');
 const { acct: coaAcct } = require('../coa-map');
 const { todayJalali } = require('../../jalali');
@@ -74,6 +75,7 @@ function liabilityBalanceRial(db, coaKey) {
     WHERE jl.account_code=?
       AND COALESCE(je.status,'posted') NOT IN ('reversed','void','cancelled')
       AND COALESCE(je.deleted_at,0)=0
+      AND ${JE_NOT_DRAFT}
   `).get(acct.code);
   return Math.max(0, Math.round(Number(row && row.bal) || 0));
 }

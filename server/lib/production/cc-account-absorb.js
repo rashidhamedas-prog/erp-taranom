@@ -3,12 +3,12 @@
  * Selective subsidiary-account → cost-center overhead absorption maps.
  * Base options: period_debit | ending_balance | budget.
  */
-const { DELETED_FILTER } = require('../ledger');
+const { DELETED_FILTER, JE_NOT_DRAFT } = require('../ledger');
 const { SQL_JL_DEBIT_RIAL, SQL_JL_CREDIT_RIAL } = require('../money');
 const { clampAbsorbPct } = require('./overhead');
 
 const BASE_TYPES = Object.freeze(['period_debit', 'ending_balance', 'budget']);
-const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed'`;
+const JE_ALIVE = `${DELETED_FILTER} AND COALESCE(je.status,'posted')<>'reversed' AND ${JE_NOT_DRAFT}`;
 
 function absorbErr(code, status, message) {
   const e = new Error(message);

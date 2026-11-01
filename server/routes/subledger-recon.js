@@ -81,11 +81,15 @@ router.get('/fixes/:id/reverse-preview', ...reverseFix, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// Body: {"confirm": true, "reason": "<≥5 chars>"} — otherwise 400 E_RECON_REVERSE_{REASON,CONFIRM}_REQUIRED, nothing written.
 router.post('/fixes/:id/reverse', ...reverseFix, (req, res) => {
   try {
+    const b = req.body || {};
+    recon.requireReverseConfirm(b);
     const fix = recon.reverseFix(dbReady(), +req.params.id, {
       user: req.user,
-      reason: (req.body && req.body.reason) || '',
+      reason: b.reason,
+      confirm: b.confirm,
     });
     res.json({ ok: true, fix });
   } catch (e) { sendErr(res, e); }
