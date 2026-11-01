@@ -4127,6 +4127,13 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.warn('p3_recon_drafts_v3:', e.message);
   }
+  // FR-P334-B — پیش‌نویس ثبت‌نشدهٔ #2: حذف سطر ledger#1273 (برگشت رسمی کاردکس FR-P334-A)؛ بعد از v3 (فقط مرکز).
+  try {
+    const p3v4 = require('./lib/inventory/p3-recon-drafts').runP3DraftsV4Migration(db, { isDevice: isDevice() });
+    if (p3v4 && p3v4.changed) console.log('✅ p3_recon_drafts_v4:', JSON.stringify(p3v4));
+  } catch (e) {
+    console.warn('p3_recon_drafts_v4:', e.message);
+  }
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding

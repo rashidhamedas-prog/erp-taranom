@@ -303,8 +303,8 @@ async function main() {
         ok(!draftRow(id), `HTTP: draft ${key} consumed`);
       }
     }
-    ok(P3.gl1104ApprovedRial(db) - glBefore === expected && expected === -146335856 + 71232000 + 10759000 + 14733111,
-      'GL 1104 moved by exactly the drafts effect (−49,611,745)', { expected, delta: P3.gl1104ApprovedRial(db) - glBefore });
+    ok(P3.gl1104ApprovedRial(db) - glBefore === expected && expected === -79655914 + 71232000 + 10759000 + 14733111,
+      'GL 1104 moved by exactly the drafts effect (+17,068,197; ledger#1273 not drafted)', { expected, delta: P3.gl1104ApprovedRial(db) - glBefore });
     ok(P3.runP3DraftsV3Migration(db, {}).skipped === 'done', 'v3 after posting: still done (no recreation)');
   } finally {
     server.close();

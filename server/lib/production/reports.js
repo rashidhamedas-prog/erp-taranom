@@ -5,6 +5,7 @@
  */
 const crypto = require('crypto');
 const { acct } = require('../coa-map');
+const { jeNotDraftFor } = require('../je-live');
 const { hasPermission } = require('../rbac');
 const { todayJalali, nowHHMM, addDaysToJalali } = require('../../jalali');
 const close = require('./close');
@@ -194,7 +195,7 @@ function costSheet(db, { orderId }) {
       FROM journal_entries je
       JOIN journal_lines jl ON jl.entry_id = je.id
       WHERE je.ref_type LIKE 'production_%' AND je.ref_id = ?
-        AND COALESCE(je.deleted_at, 0) = 0
+        AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
       GROUP BY je.id ORDER BY je.id
     `).all(oid);
   } catch { journals = []; }
@@ -469,7 +470,7 @@ function wipReport(db, { date } = {}) {
     FROM journal_lines jl
     JOIN journal_entries je ON je.id = jl.entry_id
     WHERE jl.account_code = ? AND je.entry_date <= ?
-      AND COALESCE(je.deleted_at, 0) = 0
+      AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
   `).get(wipCode, asOf)?.bal || 0;
 
   const rows = db.prepare(`
@@ -559,7 +560,7 @@ function overheadVariance(db, { period } = {}) {
                COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) bal
         FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = ? AND jl.detail_account_id = ?
-          AND je.entry_date BETWEEN ? AND ? AND COALESCE(je.deleted_at, 0) = 0
+          AND je.entry_date BETWEEN ? AND ? AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
       `).get(ohCtrl, r.coa_tafsili_oh, from, to)?.bal) || 0);
     }
     if (!appliedOh && r.coa_tafsili_oh) {
@@ -568,7 +569,7 @@ function overheadVariance(db, { period } = {}) {
                COALESCE(SUM(COALESCE(NULLIF(jl.debit_rial,0), ROUND(jl.debit), 0)), 0) bal
         FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
         WHERE jl.account_code = ? AND jl.detail_account_id = ?
-          AND je.entry_date BETWEEN ? AND ? AND COALESCE(je.deleted_at, 0) = 0
+          AND je.entry_date BETWEEN ? AND ? AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
       `).get(ohApplied, r.coa_tafsili_oh, from, to)?.bal) || 0);
     }
     const variance = actualOh - appliedOh;
@@ -824,7 +825,7 @@ function monthlyProfit(db, { period } = {}) {
              COALESCE(SUM(COALESCE(NULLIF(jl.credit_rial,0), ROUND(jl.credit), 0)), 0) b
       FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
       WHERE jl.account_code = ? AND je.entry_date BETWEEN ? AND ?
-        AND COALESCE(je.deleted_at, 0) = 0
+        AND COALESCE(je.deleted_at, 0) = 0 AND ${jeNotDraftFor(db)}
     `).get(code, from, to)?.b) || 0);
   };
 
