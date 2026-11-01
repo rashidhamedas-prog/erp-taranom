@@ -156,7 +156,7 @@ function assertActiveAccount(db, code) {
   return { acc };
 }
 
-function assertPostableAccount(db, code) {
+function assertPostableAccount(db, code, opts = {}) {
   const acc = db.prepare('SELECT * FROM chart_of_accounts WHERE code=?').get(code);
   if (!acc) return { error: `کد حساب ${code} یافت نشد` };
   const hasChild = db.prepare(
@@ -165,7 +165,7 @@ function assertPostableAccount(db, code) {
   if (acc.is_active === 0) {
     return { error: `حساب ${acc.code} غیرفعال است`, code: 'E_COA_INACTIVE' };
   }
-  if (hasChild) {
+  if (hasChild && !require('../lib/coa-leaf-policy').isExemptControlPosting(db, acc.code, opts)) {
     return {
       error: `حساب ${acc.code} سطح پست نیست؛ معین/تفصیلی برگ را انتخاب کنید`,
       code: 'E_COA_NOT_POSTABLE',
@@ -2094,7 +2094,7 @@ router.delete('/sales-returns/:id', auth, adminOrAccounting, (req, res) => {
 // that person's own ledger, mirroring how customer/supplier sub-ledgers
 // work against their own control accounts (1103/2101).
 // ============================================================
-function validateAndBuildVoucherLines(db, lines) {
+function validateAndBuildVoucherLines(db, lines, opts = {}) {
   let totalDebit = 0, totalCredit = 0;
   const cleanLines = [];
   const personPostings = [];
@@ -2141,7 +2141,7 @@ function validateAndBuildVoucherLines(db, lines) {
       // children in live books — coerce to healed leaf before postable guard.
       const { coerceSystemPostableCode } = require('../lib/coa-map');
       const lineCode = coerceSystemPostableCode(db, l.code);
-      const posted = assertPostableAccount(db, lineCode);
+      const posted = assertPostableAccount(db, lineCode, opts);
       if (posted.error) return posted;
       const acc = posted.acc;
       cleanLines.push({
@@ -2713,13 +2713,15 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
     }
     assertMakerChecker(req.user, draft.created_by);
     const lines = JSON.parse(draft.lines_json || '[]');
-    const built = validateAndBuildVoucherLines(db, lines);
+    const p3Opts = require('../lib/inventory/p3-recon-drafts').p3PostingOptionsForDraft(db, draft) || {};
+    const built = validateAndBuildVoucherLines(db, lines, p3Opts);
     if (built.error) return res.status(400).json({ error: built.error, code: built.code });
     const entryId = db.transaction(() => {
       const entryId = postToLedger(db, {
         sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
         description: draft.description || 'سند دستی', createdBy: req.user.id,
         voucherType: 'manual',
+        exemptControlCodes: p3Opts.exemptControlCodes,
         lines: built.cleanLines.map(l => ({
           ...l, debit: rialToLedger(l.debit), credit: rialToLedger(l.credit),
         })),

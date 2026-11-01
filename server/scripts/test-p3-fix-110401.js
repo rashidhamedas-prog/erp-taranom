@@ -3,6 +3,9 @@
  * P3-fix — پیش‌نویس‌های P3 روی 110401 + منسوخ‌کردن پیش‌نویس دستی JE1016 + پیش‌نمایش برگشت رسمی fix #1.
  * Run: node server/scripts/test-p3-fix-110401.js
  *
+ * FR-P3: resolver now targets 1104; v2 is exercised with { leafCode: '110401' } to replay production
+ * history, and the reboot asserts v3 moves the drafts back to 1104 (details: test-fr-p3-1104-openings.js).
+ *
  * Isolated temp DB. Covers: v2 migration rewrites seeded v1 drafts 1104→110401 (only unposted,
  * unchanged, tagged drafts) and marks the JE1016 draft superseded (no delete); idempotent; no leaf →
  * no marker; posted / edited drafts untouched; posting the superseded draft → 409; new install
@@ -125,22 +128,25 @@ for (const key of ['undoc_adjust_146335856', 'opening_je490_offset', 'opening_le
 const draftRow = (id) => q1('SELECT * FROM voucher_drafts WHERE id=?', id);
 const snapDrafts = () => db.prepare('SELECT id, description, lines_json, version FROM voucher_drafts ORDER BY id').all();
 
-// ── v2 without a leaf → no marker, nothing touched ──
-const noLeafBefore = JSON.stringify(snapDrafts());
-const v2a = P3.runP3DraftsV2Migration(db, {});
-ok(v2a.skipped === 'no_leaf', 'v2 with no 110401: skipped no_leaf', v2a);
-ok(!q1('SELECT 1 FROM settings WHERE key=?', P3.SETTINGS_KEY_V2) && JSON.stringify(snapDrafts()) === noLeafBefore, 'no_leaf: no marker, no draft change');
+// ── FR-P3: v2 default target is now 1104 → no rewrite, only JE1016 superseded (rolled back) ──
+rollback(() => {
+  const v2a = P3.runP3DraftsV2Migration(db, {});
+  ok(v2a.rewritten.length === 0 && v2a.skipped.filter((s) => s.why === 'already_leaf').length === 3
+    && v2a.superseded.length === 1, 'v2 (FR-P3 target 1104): no rewrite, JE1016 superseded', v2a);
+});
+ok(!q1('SELECT 1 FROM settings WHERE key=?', P3.SETTINGS_KEY_V2), 'rolled back: no v2 marker');
 ok(P3.runP3DraftsV2Migration(db, { isDevice: true }).skipped === 'device', 'v2 device: skipped');
 
-// ── add the leaf 110401 ──
+// ── add 110401 (production shape); resolver stays on 1104 (FR-P3) ──
 db.prepare("INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active) VALUES ('110401','موجودی کالا','asset','1104',1)").run();
 const leaf = P3.resolveInventoryLeaf(db);
-ok(leaf.code === '110401' && leaf.source === 'single_child', 'leaf resolver: single active child 110401', leaf);
+ok(leaf.code === '1104' && leaf.source === 'hamed_decision_1104', 'leaf resolver: 1104 even with child 110401 (FR-P3)', leaf);
 db.prepare("INSERT INTO chart_of_accounts (code,name,type,parent_code,is_active) VALUES ('1104010001','کالا ۱','asset','110401',1)").run();
 const leafProd = P3.resolveInventoryLeaf(db);
-ok(leafProd.code === '110401' && leafProd.source === 'hamed_decision' && !!leafProd.warning,
-  'leaf resolver: 110401 kept even with product sub-accounts (production shape)', leafProd);
+ok(leafProd.code === '1104' && !!leafProd.warning, 'leaf resolver: 1104 with product sub-accounts (production shape)', leafProd);
 db.prepare("DELETE FROM chart_of_accounts WHERE code='1104010001'").run();
+// production history: P3-fix ran v2 with target 110401
+const LEGACY = { leafCode: '110401' };
 
 // ── gap calc includes 110401 ──
 const gl0 = P3.gl1104ApprovedRial(db);
@@ -154,7 +160,7 @@ rollback(() => {
   const desc = draftRow(id).description;
   db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(id); // what «ثبت پیش‌نویس» does
   je(9001, 'manual_voucher', null, '1405/08/10', [{ code: '1104', dr: 10759000 }, { code: '3102', cr: 10759000 }], desc);
-  const r = P3.runP3DraftsV2Migration(db, {});
+  const r = P3.runP3DraftsV2Migration(db, LEGACY);
   ok(r.skipped.some((s) => s.key === 'opening_ledger1977' && s.why === 'posted'), 'posted P3 draft → skipped posted', r.skipped);
   ok(r.rewritten.length === 2, 'others still rewritten', r.rewritten);
 });
@@ -165,7 +171,7 @@ rollback(() => {
   lines[0].debit = 71232001;
   db.prepare('UPDATE voucher_drafts SET lines_json=? WHERE id=?').run(JSON.stringify(lines), id);
   const before = draftRow(id).lines_json;
-  const r = P3.runP3DraftsV2Migration(db, {});
+  const r = P3.runP3DraftsV2Migration(db, LEGACY);
   ok(r.skipped.some((s) => s.key === 'opening_je490_offset' && s.why === 'lines_changed'), 'edited lines → skipped lines_changed', r.skipped);
   ok(draftRow(id).lines_json === before, 'edited draft lines untouched');
 });
@@ -176,7 +182,7 @@ const vBefore = Object.fromEntries(Object.entries(v1Ids).map(([k, id]) => [k, Nu
 const otherBefore = JSON.stringify(draftRow(otherId));
 const jeBefore = { je: count('journal_entries'), jl: count('journal_lines') };
 const vdCount = count('voucher_drafts');
-const v2 = P3.runP3DraftsV2Migration(db, {});
+const v2 = P3.runP3DraftsV2Migration(db, LEGACY);
 ok(v2.rewritten.length === 3 && v2.rewritten.every((r) => r.to === '110401'), 'v2: 3 drafts rewritten 1104 → 110401', v2);
 ok(v2.superseded.length === 1 && v2.superseded[0].draft_id === v1Ids.je1016_reverse, 'v2: JE1016 draft marked superseded', v2.superseded);
 ok(q1('SELECT value FROM settings WHERE key=?', P3.SETTINGS_KEY_V2)?.value === '1', 'v2 marker = 1');
@@ -197,36 +203,42 @@ ok(count("wh_data_corrections WHERE rule='p3_draft_v2'") === 4, 'v2 changes logg
 
 // ── idempotent ──
 const after1 = JSON.stringify(snapDrafts());
-ok(P3.runP3DraftsV2Migration(db, {}).skipped === 'done', 'v2 second run: done');
+ok(P3.runP3DraftsV2Migration(db, LEGACY).skipped === 'done', 'v2 second run: done');
 rollback(() => {
   db.prepare('DELETE FROM settings WHERE key=?').run(P3.SETTINGS_KEY_V2);
-  const r = P3.runP3DraftsV2Migration(db, {});
+  const r = P3.runP3DraftsV2Migration(db, LEGACY);
   ok(r.rewritten.length === 0 && r.superseded.length === 0
     && r.skipped.filter((s) => s.why === 'already_leaf').length === 3
     && r.skipped.some((s) => s.why === 'already_superseded'), 'v2 forced re-run: nothing changes', r);
 });
-dbMods.initDB();
-ok(JSON.stringify(snapDrafts()) === after1, 'reboot (v1+v2): drafts unchanged');
+ok(JSON.stringify(snapDrafts()) === after1, 'v2 forced re-run left drafts unchanged');
+dbMods.initDB(); // boot runs FR-P3 v3: 110401 → 1104
+for (const key of ['undoc_adjust_146335856', 'opening_je490_offset', 'opening_ledger1977']) {
+  const lines = JSON.parse(draftRow(v1Ids[key]).lines_json);
+  ok(!lines.some((l) => l.code === '110401') && lines.some((l) => l.code === '1104'), `reboot (v3): ${key} back on 1104`);
+}
+ok(draftRow(v1Ids.je1016_reverse).description.startsWith(P3.SUPERSEDED_PREFIX), 'reboot: JE1016 draft still superseded');
 ok(P3.createP3Drafts(db, {}).created.length === 0, 'v1 never recreates any draft');
 ok(P3.isSupersededP3Draft(db, v1Ids.je1016_reverse) && !P3.isSupersededP3Draft(db, v1Ids.opening_je490_offset), 'superseded lookup by draft id');
 
-// ── new install: 3 drafts directly on 110401, no JE1016 draft ──
+// ── new install: 3 drafts directly on 1104, no JE1016 draft ──
 rollback(() => {
-  db.prepare("DELETE FROM wh_data_corrections WHERE rule IN ('p3_draft','p3_draft_v2')").run();
+  db.prepare("DELETE FROM wh_data_corrections WHERE rule IN ('p3_draft','p3_draft_v2','p3_draft_v3')").run();
   db.prepare("DELETE FROM voucher_drafts WHERE description LIKE '%[p3:%'").run();
-  db.prepare('DELETE FROM settings WHERE key IN (?,?)').run(P3.SETTINGS_KEY, P3.SETTINGS_KEY_V2);
+  db.prepare('DELETE FROM settings WHERE key IN (?,?,?)').run(P3.SETTINGS_KEY, P3.SETTINGS_KEY_V2, P3.SETTINGS_KEY_V3);
   const r = P3.runP3DraftMigration(db, {});
   ok(r.created.length === 3 && !r.created.some((c) => c.key === 'je1016_reverse'), 'new install: 3 drafts, no JE1016 draft', r);
   const ds = db.prepare("SELECT lines_json FROM voucher_drafts WHERE description LIKE '%[p3:%'").all().map((d) => JSON.parse(d.lines_json));
-  ok(ds.length === 3 && ds.every((ls) => ls.some((l) => l.code === '110401') && !ls.some((l) => l.code === '1104')), 'new install: inventory lines on 110401');
-  ok(r.warnings.length === 0, 'new install: no non-postable warning (110401 is a leaf)', r.warnings);
+  ok(ds.length === 3 && ds.every((ls) => ls.some((l) => l.code === '1104') && !ls.some((l) => l.code === '110401')), 'new install: inventory lines on 1104');
+  // JE #101 put a line on 110401 → «whole balance on 1104» no longer holds → exemption closed → warning only
+  ok(r.warnings.length === 3, 'new install: 110401 carries a line ⇒ 1104 exemption closed (warning, draft still saved)', r.warnings);
   const v = P3.runP3DraftsV2Migration(db, {});
   ok(v.rewritten.length === 0 && v.skipped.filter((s) => s.why === 'already_leaf').length === 3, 'new install + v2: nothing to rewrite', v);
 });
 
 // ── report ──
 const rep = P3.buildP3Report(db);
-ok(rep.inventory_leaf.code === '110401', 'report: leaf 110401');
+ok(rep.inventory_leaf.code === '1104', 'report: inventory account 1104 (FR-P3)');
 ok(rep.gl_1104_live_rial === P3.gl1104ApprovedRial(db) && rep.gap_gl_minus_kardex_rial === rep.gl_1104_live_rial - rep.kardex_34_35_rial, 'report: gap = GL subtree − kardex 34+35');
 
 // ── HTTP: post guard + preview ──

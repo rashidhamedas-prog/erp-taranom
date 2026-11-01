@@ -77,7 +77,7 @@ insert('users', { name: 'حامد رشید', username: 'hamed', password: 'x', r
 for (const [id, name] of [[34, 'محصول'], [35, 'کیمیا']]) {
   insert('warehouses', { id, name, code: 'W' + id, active: 1, allow_negative: 1, is_default: 0, warehouse_type: 'finished_goods', inventory_system: 'perpetual' });
 }
-for (const pid of [109, 115, 131, 334, 335, 500]) {
+for (const pid of [109, 115, 131, 183, 334, 335, 340, 341, 500]) {
   insert('products', { id: pid, user_id: tech, name: 'کالا ' + pid, code: 'P3-' + pid, price: 1, cost: 0, stock: 0, warehouse_id: 34, average_cost_rial: 0, unit: 'عدد' });
 }
 function je(id, refType, date, lines, status = 'approved') {
@@ -101,6 +101,9 @@ led(1979, { event_type: 'adjustment', source_type: 'stock_adjust', product_id: 1
 led(1273, { event_type: 'adjustment', source_type: 'stock_adjust', product_id: 334, warehouse_id: 34, qty_out: 3, amount_rial: 66679942 });
 led(1230, { event_type: 'opening', source_type: 'opening_inventory', product_id: 335, warehouse_id: 34, qty_in: 12, amount_rial: 71232000, je_id: 490 });
 led(1977, { event_type: 'opening', source_type: 'opening_inventory', product_id: 109, warehouse_id: 35, qty_in: 2, amount_rial: 10759000 });
+for (const r of P3.OPENINGS_2021_2023) {
+  led(r.id, { event_type: 'opening', source_type: 'opening_inventory', product_id: r.product_id, warehouse_id: r.warehouse_id, qty_in: r.qty, amount_rial: r.amount });
+}
 // zero-inbound transfer 34→35 then a sale in 35 (report-only COGS share)
 led(2001, { event_type: 'opening', source_type: 'opening_inventory', product_id: 500, warehouse_id: 34, qty_in: 2, amount_rial: 20000, je_id: 100 });
 led(2002, { event_type: 'transfer_out', source_type: 'warehouse_transfer', source_id: 77, product_id: 500, warehouse_id: 34, qty_out: 2, amount_rial: 20000 });
@@ -113,8 +116,8 @@ const base = snap();
 let r1 = P3.runP3DraftMigration(db, {});
 ok(!r1.skipped.some((s) => s.key === 'je1016_reverse') && !r1.created.some((s) => s.key === 'je1016_reverse'),
   'JE1016 reverse draft: superseded, neither created nor skipped', r1);
-ok(r1.created.length === 3, '3 other drafts created', r1.created);
-ok(q1('SELECT value FROM settings WHERE key=?', P3.SETTINGS_KEY)?.value === '1', 'marker done (3 drafts)');
+ok(r1.created.length === 4, '4 other drafts created (incl. openings 2021–2023)', r1.created);
+ok(q1('SELECT value FROM settings WHERE key=?', P3.SETTINGS_KEY)?.value === '1', 'marker done (4 drafts)');
 
 // ── device skip ──
 ok(P3.runP3DraftMigration(db, { isDevice: true }).skipped === 'device', 'device role: skipped');
@@ -139,10 +142,10 @@ const r2 = P3.runP3DraftMigration(db, {});
 ok(r2.skipped === 'done', 'second migration run: done marker → no-op', r2);
 const r2b = P3.createP3Drafts(db, {});
 ok(r2b.created.length === 0, 'JE1016 facts valid → still no JE1016 manual draft', r2b);
-ok(r2b.already.length === 3, 'previous drafts not recreated (idempotent)', r2b.already);
+ok(r2b.already.length === 4, 'previous drafts not recreated (idempotent)', r2b.already);
 
 const drafts = p3Drafts();
-ok(drafts.length === 3, '3 P3 drafts in voucher_drafts', drafts.length);
+ok(drafts.length === 4, '4 P3 drafts in voucher_drafts', drafts.length);
 const byKey = new Map(drafts.map((d) => [d.description.match(/\[p3:([^\]]+)\]/)[1], { ...d, lines: JSON.parse(d.lines_json) }]));
 const sideSum = (d, code, side) => d.lines.filter((l) => l.code === code).reduce((t, l) => t + Number(l[side] || 0), 0);
 ok(!byKey.has('je1016_reverse'), 'no JE1016 reverse draft');
@@ -153,6 +156,10 @@ const o490 = byKey.get('opening_je490_offset');
 ok(o490 && sideSum(o490, '1104', 'debit') === 71232000 && sideSum(o490, '3102', 'credit') === 71232000, 'JE490: Dr 1104 / Cr 3102 = 71,232,000');
 const o1977 = byKey.get('opening_ledger1977');
 ok(o1977 && sideSum(o1977, '1104', 'debit') === 10759000 && sideSum(o1977, '3102', 'credit') === 10759000, 'ledger1977: Dr 1104 / Cr 3102 = 10,759,000');
+const o2021 = byKey.get('opening_ledger2021_2023');
+ok(o2021 && sideSum(o2021, '1104', 'debit') === 14733111 && sideSum(o2021, '3102', 'credit') === 14733111
+  && o2021.lines.filter((l) => l.code === '1104').length === 3, 'ledger2021–2023: 3× Dr 1104 / Cr 3102 = 14,733,111');
+ok(!drafts.some((d) => /ledger#2003\b/.test(d.description + d.lines_json)), 'ledger#2003 never referenced');
 ok(drafts.every((d) => d.created_by === tech), 'maker = technical user (not Hamed)');
 
 const after = snap();
@@ -162,7 +169,7 @@ ok(after.led === base.led && after.tombs === base.tombs, 'no DELETE/tombstone; k
 ok(!q1("SELECT 1 FROM journal_entries WHERE description LIKE '%[p3:%'"), 'no journal entry carries a P3 tag');
 
 const rep = P3.buildP3Report(db);
-ok(rep.gl_1104_if_all_drafts_posted_rial - rep.gl_1104_live_rial === -146335856 + 71232000 + 10759000, 'hypothetical GL1104 effect = −64,344,856 (JE1016 excluded)', rep.drafts_effect_1104_rial);
+ok(rep.gl_1104_if_all_drafts_posted_rial - rep.gl_1104_live_rial === -146335856 + 71232000 + 10759000 + 14733111, 'hypothetical GL1104 effect = −49,611,745 (JE1016 excluded)', rep.drafts_effect_1104_rial);
 ok(rep.plan.find((s) => s.key === 'je1016_reverse').superseded === true, 'report: JE1016 plan entry superseded → official route');
 ok(rep.cogs_zero_inbound.pairs === 1 && rep.cogs_zero_inbound.totals.delta_cogs_sales_rial === 10000, 'COGS share (report only) computed', rep.cogs_zero_inbound.totals);
 ok(rep.cogs_zero_inbound.draft === null, 'COGS share: no draft');
@@ -179,7 +186,7 @@ try {
 // ── second boot creates nothing ──
 const vd0 = count('voucher_drafts');
 dbMods.initDB();
-ok(count('voucher_drafts') === vd0 && p3Drafts().length === 3, 'second boot creates nothing');
+ok(count('voucher_drafts') === vd0 && p3Drafts().length === 4, 'second boot creates nothing');
 
 // ── script: report readonly, apply refuses live path ──
 db.pragma('wal_checkpoint(TRUNCATE)');
@@ -195,7 +202,7 @@ fs.copyFileSync(dbFile, path.join(liveDir, 'crm.db'));
 const applyRun = spawnSync(process.execPath, [script, '--mode=apply', '--db', path.join(liveDir, 'crm.db')], { encoding: 'utf8', env });
 ok(applyRun.status === 2 && /i-have-p3-approval/.test(applyRun.stderr), 'apply refuses live production path', applyRun.stderr);
 const dryRun = spawnSync(process.execPath, [script, '--mode=dry-run', '--db', dbFile], { encoding: 'utf8', env });
-ok(dryRun.status === 0 && /already=3/.test(dryRun.stdout), 'dry-run on sandbox: nothing new (already=3)', dryRun.stderr || dryRun.stdout);
+ok(dryRun.status === 0 && /already=4/.test(dryRun.stdout), 'dry-run on sandbox: nothing new (already=4)', dryRun.stderr || dryRun.stdout);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 try { dbMods.closeDB(); } catch (_) {}

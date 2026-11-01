@@ -151,7 +151,8 @@ function postToLedger(db, opts) {
   }
 
   // v585 Phase 1: every line must be a postable leaf. warn → log + banner; enforce → throw (rollback).
-  assertLeafLines(db, normalized, { sourceType, sourceId });
+  // exemptControlCodes: FR-P3 draft post only (coa-leaf-policy CONTROL_POSTING_EXEMPT_CODES).
+  assertLeafLines(db, normalized, { sourceType, sourceId, exemptControlCodes: opts.exemptControlCodes });
 
   const fiscalYearId = resolveFiscalYearForDate(db, date);
   let voucherNumber = null;
