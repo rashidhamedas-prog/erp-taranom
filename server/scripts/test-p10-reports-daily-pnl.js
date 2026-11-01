@@ -5,7 +5,7 @@
  *
  * Fixture: one day of sales (kardex / journal / estimate COGS sources), a sales return,
  * a purchase, expenses (posted/approved/overhead/reversed) and rep expenses → exact numbers.
- * RBAC: cashier sees qty only (no amount keys) and gets 403 on daily-pnl.
+ * RBAC: cashier sees qty + sales amounts (P10-fix sales_amount:view), no purchase/cost, and gets 403 on daily-pnl.
  */
 const fs = require('fs');
 const path = require('path');
@@ -206,8 +206,10 @@ console.log('\n══ P10 reports: quick item movement + daily P&L ══\n');
     const pnl = `/api/reports/daily-pnl?date=${encodeURIComponent(D)}`;
     const c1 = await get(qim, 'cashier');
     ok('cashier quick-item-movement → 200 with qty', c1.status === 200 && c1.json.totals.sold_qty === 6, c1.status);
-    ok('cashier → amounts_visible=false and no amount/cost/profit keys', c1.json.amounts_visible === false
-      && !/_amount_rial|cost|profit|margin|cogs/i.test(JSON.stringify(Object.keys(c1.json.rows[0]))) && !/_amount_rial/.test(JSON.stringify(c1.json)));
+    // P10-fix (Hamed): cashier has sales_amount:view → sales amounts only; purchase/cost/profit still hidden.
+    ok('cashier → sales amounts only, no purchase/cost/profit keys', c1.json.sales_amounts_visible === true
+      && c1.json.purchase_amounts_visible === false && c1.json.totals.net_sales_amount_rial === 4600
+      && !/purchase_(returns_)?amount_rial|cost|profit|margin|cogs/i.test(JSON.stringify(c1.json)));
     const c2 = await get(pnl, 'cashier');
     ok('cashier daily-pnl → 403 E_COST_VISIBILITY', c2.status === 403 && c2.json.code === 'E_COST_VISIBILITY', c2.status);
     const f1 = await get(qim, 'fs');

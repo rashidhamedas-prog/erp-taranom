@@ -4,7 +4,7 @@
  * فقط‌خواندنی (SELECT). مبالغ به ریال.
  *
  * - buildQuickItemMovement: تعداد فروش/برگشت فروش/خرید/برگشت خرید به تفکیک کالا × رنگ/سایز،
- *   از سطرهای اسناد زنده. مبالغ فقط وقتی showAmounts=true (cost_visibility:view).
+ *   از سطرهای اسناد زنده. مبالغ فروش با sales_amount:view یا cost_visibility:view؛ مبالغ خرید فقط cost_visibility:view.
  * - buildDailyPnl: فروش خالص (بدون ارزش افزوده) − COGS (کاردکس زنده ← سند COGS ← برآورد)
  *   = سود ناخالص؛ − هزینه‌های ثبت/تأییدشدهٔ دوره = سود عملیاتی ساده. «تقریبی؛ قبل از بستن دوره».
  */
@@ -124,7 +124,13 @@ const MOVE_KINDS = {
   purchase_return: { qty: 'purchase_returned_qty', amount: 'purchase_returns_amount_rial' },
 };
 
-function buildQuickItemMovement(db, query = {}, { showAmounts = false } = {}) {
+/**
+ * showAmounts (cost_visibility:view) → همهٔ مبالغ؛ showSalesAmounts (sales_amount:view) → فقط مبالغ فروش/برگشت فروش.
+ * مبالغ خرید/برگشت خرید فقط با showAmounts.
+ */
+function buildQuickItemMovement(db, query = {}, { showAmounts = false, showSalesAmounts = false } = {}) {
+  const showSale = !!(showAmounts || showSalesAmounts);
+  const showPurchase = !!showAmounts;
   const { from, to } = resolveRange(query);
   const type = ['sale', 'purchase', 'both'].includes(String(query.type || '')) ? String(query.type) : 'both';
   const f = {
@@ -230,10 +236,12 @@ function buildQuickItemMovement(db, query = {}, { showAmounts = false } = {}) {
       net_purchased_qty: r3(r.purchased_qty - r.purchase_returned_qty),
       doc_count: r.docs.size,
     };
-    if (showAmounts) {
+    if (showSale) {
       out.sales_amount_rial = Math.round(r.sales_amount_rial);
       out.returns_amount_rial = Math.round(r.returns_amount_rial);
       out.net_sales_amount_rial = Math.round(r.sales_amount_rial - r.returns_amount_rial);
+    }
+    if (showPurchase) {
       out.purchase_amount_rial = Math.round(r.purchase_amount_rial);
       out.purchase_returns_amount_rial = Math.round(r.purchase_returns_amount_rial);
     }
@@ -248,8 +256,11 @@ function buildQuickItemMovement(db, query = {}, { showAmounts = false } = {}) {
 
   const totals = rows.reduce((t, r) => {
     for (const k of ['sold_qty', 'returned_qty', 'net_sold_qty', 'purchased_qty', 'purchase_returned_qty', 'net_purchased_qty']) t[k] = r3(t[k] + r[k]);
-    if (showAmounts) {
-      for (const k of ['sales_amount_rial', 'returns_amount_rial', 'net_sales_amount_rial', 'purchase_amount_rial', 'purchase_returns_amount_rial']) t[k] = (t[k] || 0) + r[k];
+    if (showSale) {
+      for (const k of ['sales_amount_rial', 'returns_amount_rial', 'net_sales_amount_rial']) t[k] = (t[k] || 0) + r[k];
+    }
+    if (showPurchase) {
+      for (const k of ['purchase_amount_rial', 'purchase_returns_amount_rial']) t[k] = (t[k] || 0) + r[k];
     }
     return t;
   }, { sold_qty: 0, returned_qty: 0, net_sold_qty: 0, purchased_qty: 0, purchase_returned_qty: 0, net_purchased_qty: 0 });
@@ -258,10 +269,14 @@ function buildQuickItemMovement(db, query = {}, { showAmounts = false } = {}) {
     generated_at: new Date().toISOString(),
     from, to, type,
     filters: { warehouse_id: f.warehouse_id || null, branch_id: f.branch_id || null, product_id: f.product_id || null, q: search || null },
-    amounts_visible: !!showAmounts,
-    unit_note: showAmounts
+    amounts_visible: showSale || showPurchase,
+    sales_amounts_visible: showSale,
+    purchase_amounts_visible: showPurchase,
+    unit_note: showPurchase
       ? 'تعداد از سطرهای اسناد زنده (فاکتور قطعی فروش، برگشت فروش، فاکتور خرید، برگشت خرید). مبلغ = جمع سطر قبل از تخفیف سربرگ و ارزش افزوده (ریال).'
-      : 'فقط تعداد نمایش داده می‌شود؛ مشاهدهٔ مبالغ نیاز به مجوز «مشاهدهٔ بها/سود» دارد.',
+      : showSale
+        ? 'مبلغ فروش/برگشت فروش = جمع سطر قبل از تخفیف سربرگ و ارزش افزوده (ریال). مبلغ خرید نیاز به مجوز «مشاهدهٔ بها/سود» دارد.'
+        : 'فقط تعداد نمایش داده می‌شود؛ مبلغ فروش نیاز به مجوز «مشاهدهٔ مبلغ فروش» و مبلغ خرید نیاز به «مشاهدهٔ بها/سود» دارد.',
     count: rows.length,
     totals,
     rows,

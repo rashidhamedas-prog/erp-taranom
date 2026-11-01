@@ -3,6 +3,7 @@ const { getDB } = require('../db');
 const { auth, adminOnly, adminOrAccounting, requirePermission } = require('../middleware/auth');
 const { firmSaleTypeSql } = require('../lib/sales-document');
 const { canSeeCostVisibility } = require('../lib/cost-visibility');
+const { canDo } = require('../lib/rbac');
 const { buildQuickItemMovement, buildDailyPnl } = require('../lib/reports-p10');
 const { buildVatReturnReport, buildSeasonal169Report } = require('./adv-reports');
 
@@ -157,11 +158,15 @@ router.get('/debt', auth, adminOnly, (req, res) => {
 });
 
 // P10 — گزارش سریع حرکت کالا: تعداد برای همهٔ دارندگان reports:view (مثل صندوقدار)،
-// مبالغ فقط با cost_visibility:view (کلیدهای مبلغ اصلاً ساخته نمی‌شوند).
+// مبالغ فروش با sales_amount:view یا cost_visibility:view؛ مبالغ خرید فقط cost_visibility:view
+// (کلیدهای مبلغ غیرمجاز اصلاً ساخته نمی‌شوند).
 router.get('/quick-item-movement', auth, requirePermission('reports', 'view'), (req, res) => {
   try {
     const db = getDB();
-    res.json(buildQuickItemMovement(db, req.query, { showAmounts: canSeeCostVisibility(db, req.user) }));
+    res.json(buildQuickItemMovement(db, req.query, {
+      showAmounts: canSeeCostVisibility(db, req.user),
+      showSalesAmounts: canDo(req.user, 'sales_amount', 'view', db),
+    }));
   } catch (e) {
     if (!e.status || e.status >= 500) console.error('GET /reports/quick-item-movement', e && e.message);
     res.status(e.status || 500).json({ error: e.message || 'خطا در گزارش حرکت کالا', code: e.code });
