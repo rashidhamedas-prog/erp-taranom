@@ -757,11 +757,13 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
     && Math.round(Number(row.amount_rial) || 0) !== 0;
   // Opening / هم‌ترازی seeds were posted with skipStock — reverse must not touch warehouse_stock.
   const noteFa = String(row.note || '').replace(/\u200c/g, '').replace(/ي/g, 'ی');
-  const alignSeed = String(row.source_type || '') === 'opening_inventory'
+  // P2: سند افتتاحیه انبار (opening_stock_doc) موجودی را واقعاً جابه‌جا کرده — برگشت آن باید اثر موجودی داشته باشد.
+  const alignSeed = String(row.source_type || '') !== 'opening_stock_doc' && (
+    String(row.source_type || '') === 'opening_inventory'
     || String(row.source_type || '') === 'stock_reconcile'
     || String(row.event_type || '') === 'opening'
     || /هم[\u200c\s]*ترازی\s*کاردکس/.test(noteFa)
-    || /^موجودی اول دوره/.test(noteFa);
+    || /^موجودی اول دوره/.test(noteFa));
   const skip = skipStock === true || valueOnly || alignSeed;
   // Value-only reversal removes exactly what reached the header (by value, never a snapshot).
   let applyValueRial;

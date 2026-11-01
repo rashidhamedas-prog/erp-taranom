@@ -268,6 +268,9 @@ const SYNCABLE_TABLES = [
   { name: 'bank_branches',                     upsertKey: 'id' },
   // Phase 2A — برگ‌های دسته‌چک (append-only)
   { name: 'cheque_book_leaves',                upsertKey: 'id' },
+  // P2 — اسناد موجودی اول دوره (append-only؛ post/void روی مرکز replay می‌شود)
+  { name: 'opening_stock_docs',                upsertKey: 'id' },
+  { name: 'opening_stock_lines',               upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -648,6 +651,12 @@ const FK_COLUMNS = [
   ['product_unit_conversions', 'product_id'],
   ['product_unit_conversions', 'from_unit_id'],
   ['product_unit_conversions', 'to_unit_id'],
+  ['opening_stock_docs', 'je_id'],
+  ['opening_stock_lines', 'doc_id'],
+  ['opening_stock_lines', 'product_id'],
+  ['opening_stock_lines', 'warehouse_id'],
+  ['opening_stock_lines', 'variant_id'],
+  ['opening_stock_lines', 'ledger_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

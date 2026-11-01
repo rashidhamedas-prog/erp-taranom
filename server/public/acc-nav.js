@@ -47,6 +47,7 @@ const ACC_TAB_RESOLVE = {
   'acc-variant-stock-report': 'variant-stock-report',
   'acc-inv-reconcile': 'inv-reconcile',
   'acc-stocktaking': 'stocktaking',
+  'acc-opening-stock': 'opening-stock',
   'acc-inv-batches': 'inv-batches',
   'acc-fabric-rolls': 'fabric-rolls',
   'acc-fabric-roll-kardex': 'fabric-roll-kardex',
@@ -174,6 +175,7 @@ const ACC_NAV_SECTIONS = [
     { title: 'عملیات', items: [
       { id: 'acc-warehouse-ops', icon: '📦', label: 'رسید، حواله و انتقال' },
       { id: 'acc-stocktaking', icon: '📋', label: 'انبارگردانی' },
+      { id: 'acc-opening-stock', icon: '📥', label: 'اسناد افتتاحیهٔ انبار' },
       { id: 'acc-inv-batches', icon: '🏷️', label: 'بچ / سریال' },
       { id: 'acc-fabric-rolls', icon: '🧵', label: 'دریافت مواد' },
       { id: 'acc-inv-reservations', icon: '🔒', label: 'رزرو موجودی' },

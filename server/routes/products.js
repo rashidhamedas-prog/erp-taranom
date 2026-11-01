@@ -522,7 +522,15 @@ router.post('/quick', auth, adminOrAccounting, (req, res) => {
     throw e;
   }
   audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${(req.body && req.body.name) || ''}`);
-  res.json(db.prepare('SELECT * FROM products WHERE id=?').get(pid));
+  const quickRow = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+  try {
+    const od = db.prepare(`
+      SELECT d.id, d.doc_no, d.status FROM opening_stock_docs d
+      JOIN opening_stock_lines l ON l.doc_id=d.id WHERE l.product_id=? ORDER BY d.id DESC LIMIT 1
+    `).get(pid);
+    if (od) quickRow.opening_doc = od;
+  } catch (_) { /* table optional */ }
+  res.json(quickRow);
 });
 
 // Create product — multipart form-data for optional image(s) (admin/accounting)
@@ -581,13 +589,16 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
       throw e;
     }
   }
+  // P2: موجودی اول دوره فقط از مسیر سند (opening_stock_docs) — کالا با موجودی صفر ساخته می‌شود و
+  // یک پیش‌نویس تک‌خطی می‌سازیم؛ موجودی/کاردکس/JE با ثبت قطعیِ کاربر دیگر (maker-checker) اعمال می‌شود.
+  const useOpeningDoc = stockOpen > 0 && openingUnit > 0 && !!defaultWarehouse;
   const result = db.prepare(
     `INSERT INTO products (
       user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
       pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
       location,opening_price,sms_code,tax_stuff_id
     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, stockOpen,
+  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, useOpeningDoc ? 0 : stockOpen,
         parseInt(stock_alert) || 5, unitVal, note || '', image,
         parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
         (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
@@ -598,10 +609,25 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   }
   if (defaultWarehouse) {
     db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(result.lastInsertRowid, defaultWarehouse.id, stockOpen);
+      .run(result.lastInsertRowid, defaultWarehouse.id, useOpeningDoc ? 0 : stockOpen);
+  }
+  let openingDoc = null;
+  if (useOpeningDoc) {
+    try {
+      openingDoc = require('../lib/inventory/opening-stock').createSingleLineDraftForNewProduct(db, req.user, {
+        productId: result.lastInsertRowid,
+        warehouseId: defaultWarehouse.id,
+        qty: stockOpen,
+        unitCostRial: openingUnit,
+        source: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
+      });
+    } catch (e) {
+      if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+      throw e;
+    }
   }
   try {
-    const openQty = stockOpen;
+    const openQty = useOpeningDoc ? 0 : stockOpen;
     const unitCost = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
     if (openQty > 0 && unitCost > 0) {
       const { postProductOpeningInventory } = require('../lib/opening-post');
@@ -672,6 +698,7 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
   row.images = listProductImages(db, row.id);
+  if (openingDoc) row.opening_doc = openingDoc;
   try {
     const completeness = require('../lib/production/product-completeness');
     const ready = completeness.assessProduct(db, result.lastInsertRowid, 'activate');

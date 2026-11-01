@@ -2316,6 +2316,54 @@ function initSyncSchema(db, opts) {
     `);
   } catch (_) { /* */ }
 
+  // P2 — سند موجودی اول دوره (additive / idempotent). پیش‌نویس هیچ اثری روی موجودی/دفتر ندارد؛
+  // post توسط opening-stock.js. lines.active=1 فقط برای سطرهای سند posted (ایندکس یکتای جزئی).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS opening_stock_docs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_no TEXT,
+      fiscal_year_id INTEGER,
+      date TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted','void')),
+      created_by INTEGER,
+      posted_by INTEGER,
+      je_id INTEGER,
+      note TEXT DEFAULT '',
+      created_at INTEGER DEFAULT (strftime('%s','now')),
+      posted_at INTEGER,
+      voided_by INTEGER,
+      voided_at INTEGER,
+      void_reason TEXT DEFAULT ''
+    );
+    CREATE TABLE IF NOT EXISTS opening_stock_lines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_id INTEGER NOT NULL,
+      fiscal_year_id INTEGER,
+      product_id INTEGER NOT NULL,
+      warehouse_id INTEGER NOT NULL,
+      variant_id INTEGER,
+      qty REAL NOT NULL,
+      unit_cost_rial INTEGER NOT NULL,
+      ledger_id INTEGER,
+      active INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER DEFAULT (strftime('%s','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_opening_stock_lines_doc ON opening_stock_lines(doc_id);
+    CREATE INDEX IF NOT EXISTS idx_opening_stock_docs_status ON opening_stock_docs(status);
+  `);
+  try {
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_opening_stock_active
+      ON opening_stock_lines (COALESCE(fiscal_year_id,0), product_id, warehouse_id, COALESCE(variant_id,0))
+      WHERE active=1
+    `);
+  } catch (e) { console.warn('⚠️ ایندکس یکتای افتتاحیه انبار ایجاد نشد:', e.message); }
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_opening_stock_docs_no ON opening_stock_docs(doc_no)'); }
+  catch (e) { console.warn('⚠️ ایندکس یکتای شمارهٔ سند افتتاحیه انبار ایجاد نشد:', e.message); }
+  if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('opening_stock')) {
+    db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('opening_stock');
+  }
+
   // ---- Accounting module foundation (spec phase 1) ----
   db.exec(`
     CREATE TABLE IF NOT EXISTS detail_categories (
@@ -3689,6 +3737,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v32','1')").run();
+    }
+    // v33: opening_stock_docs + opening_stock_lines (P2 اسناد افتتاحیهٔ انبار)
+    const backfillV33 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v33'").get();
+    if (!backfillV33 || backfillV33.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v33 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v33','1')").run();
     }
   }
 
