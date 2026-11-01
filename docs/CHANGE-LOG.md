@@ -1,4 +1,4 @@
-### ۱۴۰۵/۰۸/۱۰ — P7-fix: برگشت کامل ریالی‌سازی رسید مقداری + ردپای ممیزی + حساب تأمین‌کننده (vNEXT)
+### ۱۴۰۵/۰۸/۱۰ — P7-fix: برگشت کامل ریالی‌سازی رسید مقداری + ردپای ممیزی + حساب تأمین‌کننده (v601)
 - **Deploy:** ❌ merge نشده / deploy نشده (فقط PR).
 - **شاخه:** `fix/p7-cost-cancel-audit` از origin/main `ed69dea6`. تصمیم الزام‌آور حامد: «P7: approved مثل بقیهٔ فاکتورهای خرید قبول، به شرط مسیر برگشت/ابطال و ثبت audit» ⇒ JE فاکتور خرید ریالی‌سازی همچنان `approved` می‌ماند (تصمیم باز (۱) P7 بسته شد).
 - **شکاف‌های پیداشده و رفع‌شده:**
@@ -11,7 +11,7 @@
 - **نتیجهٔ تست‌ها (Node 20.19.5):** p7-cost-cancel-audit ۷۸/۰، p7-qty-receipt ۶۲/۰، warehouse-grni-invoice-v400 ۲۰/۰، cost-visibility-p4 ۵۲/۰، audit-8d-sod ۲۳/۰، subledger-recon-v521 ۱۳۱/۰، test-sms ۲۲/۰، p1-kardex-ssot ۵۶/۰، device-relay-v522 ۵۳/۰، public-encoding OK، csp-bind-events OK، `_diag-sync-gaps-b16e78` mismatches=[]، `node --check` + `new Function(app.js)` ✅.
 - **سینک:** جدول/مسیر جدید نیست (`tables.js` / `PATH_TABLE_MAP` دست‌نخورده). `ledger_leaf_enforcement` دست‌نخورده. SW و `?v=` index.html عمداً دست‌نخورده (هنگام merge/deploy بالا برود).
 - **باز (برای حامد/حسابدار):** فاکتورهای خرید GRNI ساخته‌شده **قبل از** این PR ردیف `supplier_ledger` ندارند (گردش تأمین‌کننده کمتر از پرداختنی GL)؛ backfill داده جدا و با تأیید انجام شود — این PR دادهٔ موجود را تغییر نمی‌دهد. اصلاح درجای فاکتور خرید ریالی‌سازی (`PUT /purchases/:id`) فقط audit عمومی `purchase` دارد.
-- **Help:** بند ادمین «رسید مقداری: برگشت کامل ریالی‌سازی و ردپای ممیزی (vNEXT)».
+- **Help:** بند ادمین «رسید مقداری: برگشت کامل ریالی‌سازی و ردپای ممیزی (v601)».
 - **فایل‌ها:** `server/lib/inventory/qty-receipt.js`، `server/lib/warehouse-grni-invoice.js`، `server/routes/purchases.js`، `server/scripts/test-p7-cost-cancel-audit.js` (جدید)، `server/package.json`، `server/public/app.js`، `docs/CHANGE-LOG.md`.
 
 ### ۱۴۰۵/۰۸/۱۰ — Ops: پایان پکیج inventory-retail-master + حذف server/_recover (SW v600)
