@@ -1,3 +1,27 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P1: خروج WIP بستهٔ برش با بهای خود بسته (amountRial) + ابطال در reverseOrder (SW v611)
+- **Commit:** squash روی main (#163) ([PR #163](https://github.com/rashidhamedas-prog/erp-taranom/pull/163))؛ commit شاخه `ec0eae03` (`fix/prodcycle-p1-wip-pack-amount`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** `relieveStagedPackQty` خروج بسته از انبار WIP (مثلاً WH37، حساب 1111) را بدون `amountRial` ثبت می‌کرد ⇒ ارزش‌گذاری با میانگین FG ⇒ کاردکس WIP با مقدار صفر ولی ارزش منفی (پرود: −2,797,379,484 ریال).
+- **رفع:** هر خروج = سهم تناسبی `round(pack.amount_rial × take / pack.qty)`؛ خروج پایانی بسته دقیقاً باقی‌ماندهٔ مبلغ. مقدار/مبلغ تخلیه‌شدهٔ هر بسته از `inventory_ledger` (`source_type='cutting_pack'`، `qty_out>0`، posted، غیرمعکوس) خوانده می‌شود ⇒ رسید جزئی بعدی بستهٔ تخلیه‌شده را دوباره کم نمی‌کند. بستهٔ مبلغ صفر ⇒ `allowZeroCost`.
+- **ابطال (R13):** تابع جدید `reverseStagedPackRelief` در `reverseOrder` (و `purgeOrder`) بسته‌ها را با همان مبلغ به WIP برمی‌گرداند. کامنت «no kardex row» در `ledger.js` اصلاح شد.
+- **Help:** راهنمای مدیر، بخش بستهٔ برش سفارش‌دار (بند P1).
+- **تست:** جدید `test-prodcycle-p1-wip-pack` ۲۶/۲۶ (روی main قبلی ۱۳ شکست)؛ prodcycle-p5 ۲۶/۲۶، pack-double-fg-v399 ۱۷/۱۷، prod-void-kardex-v402 ۱۷/۱۷، prod-02-cutting ۳۹/۳۹، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های g1-v278، pack-po-wip-v279، cut-pack-flow-v378، production-close* و test-sync از قبل روی main.
+- **داده:** هیچ. P8: ۱۱ ردیف تاریخی WH37 (۱۴۵۶–۱۴۶۳، ۱۴۷۹–۱۴۸۱؛ PO-0014/PO-0015) با میانگین FG ⇒ اسکریپت dry-run. `voidCuttingPack` پس از تخلیه هنوز گارد ندارد (خارج از دامنه).
+- **SW:** `erp-taranom-v611`؛ `app.js?v=611`.
+- **فایل‌ها:** `server/lib/production/{cutting,engine}.js`، `server/lib/inventory/ledger.js` (کامنت)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p1-wip-pack.js` (جدید)، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P5: بستانکار دستمزد قطعه‌ای/ساعتی تولید بر اساس نقش شخص — هرگز حساب دارایی (SW v610)
+- **Commit:** squash روی main (#162) ([PR #162](https://github.com/rashidhamedas-prog/erp-taranom/pull/162))؛ commit شاخه `ef68617b` (`fix/prodcycle-p5-labor-credit`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** دستمزد عملیات تولیدِ دارای «شخص» بی‌قید به `persons.coa_code` ← `parties.coa_code` بستانکار می‌شد؛ برای شخص ۱۳۲ این حساب `110301000015` (دارایی ۱۱۰۳) بود.
+- **رفع:** `resolveLaborPayableForPerson(db, person, { allocate })` در `lib/payroll/person-account.js`: **کارمند** (monthly/daily/hourly، یا سابقهٔ payroll_records/salary_structures، یا monthly_salary_rial>0) ⇒ `coa_payroll_payable` (۲۱۰۴)؛ **پیمانکار/نامشخص** ⇒ تفصیلی پرداختنی خود شخص (حساب بدهی شخص ← `persons.labor_payable_coa_code` ← بدهی طرف‌حساب ← تفصیلی تأمین‌کنندهٔ متصل ← تفصیلی جدید زیر `coa_payable` ۲۱۰۱ که روی `persons.labor_payable_coa_code` ذخیره می‌شود). نقش `employee` در party_roles به‌تنهایی کارمند نمی‌کند؛ نامشخص ⇒ لاگ `[labor-payable]` با flagged. نگاشت به دارایی (۱۱۰۳/۱۱۰۶/type=asset) ⇒ ۴۲۲ `E_LABOR_PAYABLE_ASSET` (rollback). `allocate:false` (پیش‌نمایش/heal dry-run) چیزی در کدینگ نمی‌نویسد. `healPieceLaborPersonPayable` از resolver جدید استفاده می‌کند. `resolvePersonPayableAccount` (حقوق) و `person_ledger` بدون تغییر.
+- **اسکیما/سینک:** ستون `persons.labor_payable_coa_code` (ensureColumn در `lib/production/schema.js`)؛ جدول جدید ندارد (`persons` از قبل سینک می‌شود).
+- **Help:** راهنمای مدیر — حساب بستانکار دستمزد بر اساس نقش.
+- **تست:** جدید `test-prodcycle-p5-labor-credit` ۲۶/۲۶؛ v501 ۱۸/۱۸، overhead-labor ۳۸/۳۸، coa-keys-v586 ۴۴/۴۴، sms ۲۲/۲۲؛ test-sync، payroll-v300 و cache-bust v499 از قبل روی main fail (پیش‌موجود).
+- **داده:** هیچ. برای P8: reclass ۵۸۹٬۶۰۰٬۰۰۰ ریال JE 747/750/775/934 (Dr 110301000015 / Cr پرداختنی صحیح)؛ پیش از آن `employment_type` شخص ۱۳۲ بررسی شود.
+- **SW:** `erp-taranom-v610`؛ `app.js?v=610`.
+- **فایل‌ها:** `server/lib/payroll/person-account.js`، `server/lib/production/{labor,schema}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p5-labor-credit.js` (جدید)، `server/scripts/test-bom-labor-person-je-v499.js`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۲ — opening-stock: موجودی اول دوره جدا از موجودی کل (`product_opening_stock`) + اصلاحیهٔ رسمی + مسدودسازی مسیرهای قدیمی (SW v609)
 - **Commit:** squash `ec9834d2` روی `main` ([PR #161](https://github.com/rashidhamedas-prog/erp-taranom/pull/161))؛ alias `claude/claude-md-docs-2ssrpy` هم‌تیپ. CI: core-and-dr / sync-security / playwright-critical / production / web-api-security / embedded-and-static سبز؛ dependency-audit، playwright-money (`@playwright/test` نصب نیست) و production-tests (TS-07 `cheque_book_leaves.serial`) همان قرمزهای ازقبل‌موجود روی main.
 - **Deploy:** ✅ `21b81a80` (کد = `ec9834d2` #161) روی ایران ۱۴:۲۸ پس از «GO deploy opening-stock» (audit-kardex v608 از ۱۴:۰۵ تمام‌شده؛ هم‌زمان نبود) — overlay ۳۷ فایل از `caa8929d` (گارد drift: همهٔ فایل‌های M = v608، فایل‌های A وجود نداشتند)، تأیید هش git هر ۳۷ فایل، بکاپ `~/backups/crm.db.v609-pre-opening-stock-20261102-105829` (+ `.consistent` integrity ok + `-wal` + `-shm`)، `node --check` + `new Function(app.js)` روی سرور، `ensure-sharp-runtime` OK، `pm2 restart erp-taranom` بدون `--update-env`، health HTTP 200، `image_engine` sharp 0.33.5، SW `erp-taranom-v609`، `app.js?v=609`؛ `/api/inventory/opening-duplicates` و `/opening-stock` بدون توکن 401.
