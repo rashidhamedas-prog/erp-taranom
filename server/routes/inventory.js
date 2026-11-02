@@ -198,6 +198,38 @@ router.post('/ledger/:id/reverse-correction', auth, reverseCorrectionGate, (req,
   } catch (e) { sendErr(res, e); }
 });
 
+// audit-kardex K2: assign a warehouse to NULL-warehouse sale_return rows (static batch paths before /ledger/:id/…).
+{
+  const AW = () => require('../lib/inventory/ledger-assign-warehouse');
+  const { centralOnlyStrict } = require('../middleware/auth');
+  const awQuery = (q) => ({
+    warehouseId: AW().parseWarehouseArg(q.warehouse_id),
+    overrides: AW().parseOverrides(q.overrides),
+    force: q.force === '1' || q.force === 'true',
+  });
+  router.get('/ledger/assign-warehouse-preview', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try {
+      const db = getDB();
+      const ids = req.query.ids ? AW().parseIds(String(req.query.ids)) : AW().candidateIds(db);
+      res.json(ids.length ? AW().previewBatch(db, ids, awQuery(req.query)) : { ids: [], count: 0, ready: false, blockers: [], rows: [], gl_effect_rial: 0 });
+    } catch (e) { sendErr(res, e); }
+  });
+  router.post('/ledger/assign-warehouse', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try { res.json(AW().assignWarehouse(getDB(), { body: req.body, user: req.user, audit, batch: true })); } catch (e) { sendErr(res, e); }
+  });
+  router.get('/ledger/:id/assign-warehouse-preview', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try {
+      const p = AW().previewBatch(getDB(), [+req.params.id], awQuery(req.query));
+      const r = p.rows[0];
+      if (r.blocker && r.blocker.code === 'E_LEDGER_NOT_FOUND') return res.status(404).json({ error: r.blocker.error, code: r.blocker.code });
+      res.json({ ...r, batch: { ready: p.ready, blockers: p.blockers, totals: p.totals } });
+    } catch (e) { sendErr(res, e); }
+  });
+  router.post('/ledger/:id/assign-warehouse', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try { res.json(AW().assignWarehouse(getDB(), { ledgerId: +req.params.id, body: req.body, user: req.user, audit })); } catch (e) { sendErr(res, e); }
+  });
+}
+
 router.get('/stock-kardex-mismatch', auth, adminOrAccounting, (req, res) => {
   try {
     const { stockKardexMismatch } = require('../lib/inventory/stock-kardex-mismatch');

@@ -1959,6 +1959,8 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'sales_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'purchase_returns', 'vat_amount', 'REAL NOT NULL DEFAULT 0');
   ensureColumn(db, 'sales_returns', 'reason_code', "TEXT DEFAULT ''");
+  // audit-kardex K2: header destination warehouse (edit default; open returns must have one)
+  ensureColumn(db, 'sales_returns', 'warehouse_id', 'INTEGER');
   ensureColumn(db, 'purchase_returns', 'reason_code', "TEXT DEFAULT ''");
   // v369 — return discounts (line+header from invoice + extra on return)
   for (const tbl of ['sales_returns', 'purchase_returns']) {

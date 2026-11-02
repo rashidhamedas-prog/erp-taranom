@@ -31,6 +31,39 @@ function lineKey(r) {
   return r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
 }
 
+function singleWarehouse(rows) {
+  const set = [...new Set((rows || []).map((r) => Number(r.warehouse_id)).filter((w) => w > 0))];
+  return set.length === 1 ? set[0] : null;
+}
+
+/**
+ * audit-kardex K2: last fallbacks for a return line without warehouse (after line → invoice line →
+ * header → invoice header): the same return before edit (stored rows, then its own kardex rows), then the
+ * invoice's original sale kardex rows for this product. Never products.warehouse_id (a guess).
+ */
+function fallbackReturnWarehouse(db, { productId, variantId, invoiceId, priorRows, returnId }) {
+  const prior = (priorRows || []).filter((r) => r && Number(r.product_id) === Number(productId));
+  const byKey = variantId ? prior.filter((r) => Number(r.variant_id) === Number(variantId)) : prior;
+  const fromPrior = singleWarehouse(byKey.length ? byKey : prior);
+  if (fromPrior) return fromPrior;
+  if (returnId) {
+    const w = singleWarehouse(db.prepare(`
+      SELECT DISTINCT warehouse_id FROM inventory_ledger
+      WHERE source_type='sales_return' AND source_id=? AND product_id=? AND event_type='sale_return'
+        AND warehouse_id IS NOT NULL
+    `).all(returnId, productId));
+    if (w) return w;
+  }
+  if (invoiceId) {
+    return singleWarehouse(db.prepare(`
+      SELECT DISTINCT warehouse_id FROM inventory_ledger
+      WHERE source_type='invoice' AND source_id=? AND product_id=? AND event_type='sale'
+        AND reversed_of IS NULL AND COALESCE(qty_out,0)>0 AND warehouse_id IS NOT NULL
+    `).all(invoiceId, productId));
+  }
+  return null;
+}
+
 /**
  * Build validated line rows + amounts (shared by create/amend).
  * @param {object} opts
@@ -40,7 +73,7 @@ function lineKey(r) {
  */
 function buildSalesReturnLines(db, {
   custId, invoiceId, rows, warehouseId, excludeReturnId = null,
-  extraDiscAmt = 0, extraDiscPct = 0,
+  extraDiscAmt = 0, extraDiscPct = 0, priorRows = null,
 }) {
   if (!custId) throw httpErr(400, 'مشتری الزامی است', 'E_SR_CUST');
 
@@ -135,6 +168,16 @@ function buildSalesReturnLines(db, {
       discAmt = r.disc_amt != null ? rial(parseMoneyInput(r.disc_amt))
         : (r.disc_amount != null ? rial(parseMoneyInput(r.disc_amount)) : rial(qty * price * disc / 100));
     }
+    const variantId = (origLine && origLine.variant_id) || r.variant_id || null;
+    let lineWarehouse = lineWh || parentWhId || null;
+    if (!lineWarehouse && perpetualDocsEnabled(db)) {
+      lineWarehouse = fallbackReturnWarehouse(db, {
+        productId: pid, variantId, invoiceId, priorRows, returnId: excludeReturnId,
+      });
+      if (!lineWarehouse) {
+        throw httpErr(400, `انبار مقصد برگشت برای «${prod.name}» مشخص نیست — انبار را انتخاب کنید`, 'E_SR_WH_REQUIRED');
+      }
+    }
     const sum = rial(qty * price - discAmt);
     goodsAmountA += sum;
     const avgRial = productUnitCostRial(prod);
@@ -147,10 +190,10 @@ function buildSalesReturnLines(db, {
       disc,
       disc_amt: discAmt,
       sum,
-      warehouse_id: lineWh || parentWhId || null,
+      warehouse_id: lineWarehouse,
       unit_cost: avgRial,
       cost_rial: avgRial,
-      variant_id: (origLine && origLine.variant_id) || r.variant_id || null,
+      variant_id: variantId,
       color_name: (origLine && (origLine.color_name || origLine.color)) || r.color_name || '',
       size_name: (origLine && origLine.size_name) || r.size_name || '',
     });
@@ -452,6 +495,13 @@ function autoAllocateSalesReturn(db, retId, userId) {
   }
 }
 
+/** sales_returns.warehouse_id (header choice) — default for the next edit. */
+function persistHeaderWarehouse(db, id, warehouseId) {
+  try {
+    db.prepare('UPDATE sales_returns SET warehouse_id=? WHERE id=?').run(warehouseId || null, id);
+  } catch (_) { /* minimal test schemas without the column */ }
+}
+
 /**
  * Create posted sales return. Returns id.
  */
@@ -485,6 +535,7 @@ function createSalesReturn(db, body, user) {
       goodsAmount, hdrDiscAmt, extraDiscAmt, extraDiscPct || 0, vatAmount
     );
     const id = result.lastInsertRowid;
+    persistHeaderWarehouse(db, id, parentWhId);
     postSalesReturnEffects(db, {
       retId: id,
       custId,
@@ -560,8 +611,10 @@ function updateSalesReturn(db, id, body, user) {
     custId,
     invoiceId,
     rows: body.rows,
-    warehouseId: body.warehouse_id !== undefined ? body.warehouse_id : null,
+    warehouseId: body.warehouse_id != null && String(body.warehouse_id).trim() !== ''
+      ? body.warehouse_id : (row.warehouse_id || null),
     excludeReturnId: row.id,
+    priorRows: (() => { try { return JSON.parse(row.rows || '[]'); } catch (_) { return []; } })(),
     extraDiscAmt: body.extra_disc_amt != null ? body.extra_disc_amt
       : (body.disc_extra_amt != null ? body.disc_extra_amt : row.extra_disc_amt),
     extraDiscPct: body.extra_disc_pct != null ? body.extra_disc_pct
@@ -588,6 +641,7 @@ function updateSalesReturn(db, id, body, user) {
       vatAmount, goodsAmount, hdrDiscAmt, extraDiscAmt, extraDiscPct || 0,
       row.id
     );
+    persistHeaderWarehouse(db, row.id, parentWhId);
 
     postSalesReturnEffects(db, {
       retId: row.id,
