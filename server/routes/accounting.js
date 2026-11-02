@@ -2678,12 +2678,115 @@ router.delete('/vouchers/templates/:id', auth, adminOrAccounting, (req, res) => 
 });
 
 // ---- Voucher drafts (draft mode — saved but not yet posted to the ledger) ----
+const P3_SUPERSEDED_ERROR = 'این پیش‌نویس منسوخ است — برگشت JE1016 فقط از مسیر رسمی «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» (اصلاحیه #1 → ابطال) انجام می‌شود';
+const COA_NOT_POSTABLE_HINT = 'حساب انتخاب‌شده سطح پست نیست — یک حساب برگ (معین/تفصیلی) انتخاب کنید یا برای اصلاح P3 از 1104 با خطوط اصلی استفاده کنید';
+
+function parseDraftLinesJson(json) {
+  try { const v = JSON.parse(json || '[]'); return Array.isArray(v) ? v : []; } catch (_) { return []; }
+}
+function draftTotalDebit(lines) {
+  return (lines || []).reduce((t, l) => t + Math.round(Number(l && l.debit) || 0), 0);
+}
+function draftErr(status, code, error, extra) {
+  const e = new Error(error);
+  e.status = status; e.code = code;
+  if (extra) e.extra = extra;
+  return e;
+}
+function sendDraftErr(res, e, fallback) {
+  const code = e.code || null;
+  const body = { error: e.message || fallback, code };
+  if (code === 'E_COA_NOT_POSTABLE' || code === 'E_ACCOUNT_NOT_LEAF') body.hint = COA_NOT_POSTABLE_HINT;
+  if (e.extra) Object.assign(body, e.extra);
+  return res.status(e.status || 400).json(body);
+}
+
 router.get('/vouchers/drafts', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
+  const P3 = require('../lib/inventory/p3-recon-drafts');
   const rows = db.prepare(`
     SELECT d.*, u.name as created_by_name FROM voucher_drafts d LEFT JOIN users u ON d.created_by=u.id ORDER BY d.created_at DESC
   `).all();
-  res.json(rows.map(r => ({ ...r, lines: JSON.parse(r.lines_json || '[]') })));
+  res.json(rows.map((r) => {
+    const lines = parseDraftLinesJson(r.lines_json);
+    const superseded = P3.isSupersededP3Draft(db, r.id);
+    const ex = superseded ? { key: null, exempt: false } : P3.p3ExemptionStatus(db, r, lines);
+    return {
+      ...r, lines, version: Number(r.version || 0), total_debit: draftTotalDebit(lines),
+      p3_key: ex.key || null, p3_exempt: !!ex.exempt, superseded,
+    };
+  }));
+});
+// بررسی readonly «قابل ثبت بودن» پیش‌نویس (همان اعتبارسنجی مسیر post؛ هیچ نوشتنی ندارد).
+router.get('/vouchers/drafts/:id/check', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const r = require('../lib/inventory/p3-recon-drafts').checkDraftPostable(db, req.params.id);
+  if (r.code === 'E_NOT_FOUND') return res.status(404).json({ ok: false, code: 'E_NOT_FOUND', error: 'پیش‌نویس یافت نشد' });
+  const out = { ...r };
+  if (r.code === 'E_P3_DRAFT_SUPERSEDED') out.error = P3_SUPERSEDED_ERROR;
+  if (r.code === 'E_COA_NOT_POSTABLE' || r.code === 'E_ACCOUNT_NOT_LEAF') out.hint = COA_NOT_POSTABLE_HINT;
+  res.json(out);
+});
+/**
+ * ویرایش پیش‌نویس با قفل خوش‌بینانه (version). اعتبارسنجی همان مسیر post (تراز + برگ)؛ هر خطا ⇒ ۴۰۰ بدون نوشتن.
+ * پیش‌نویس P3: برچسب [p3:key] در شرح حفظ می‌شود؛ معافیت 1104 فقط وقتی سطرهای جدید همان سطرهای مهرشده باشند.
+ * version را تریگر سینک (AFTER UPDATE) یک واحد بالا می‌برد.
+ */
+router.put('/vouchers/drafts/:id', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const P3 = require('../lib/inventory/p3-recon-drafts');
+    const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
+    if (!draft) throw draftErr(404, 'E_NOT_FOUND', 'پیش‌نویس یافت نشد');
+    if (P3.isSupersededP3Draft(db, draft.id)) throw draftErr(409, 'E_P3_DRAFT_SUPERSEDED', P3_SUPERSEDED_ERROR);
+    const body = req.body || {};
+    const curVersion = Number(draft.version || 0);
+    const sentVersion = body.version == null || body.version === '' ? NaN : Number(body.version);
+    const conflict = () => draftErr(409, 'E_DRAFT_VERSION_CONFLICT',
+      'این پیش‌نویس در این فاصله توسط کاربر دیگری تغییر کرده است — صفحه را تازه کنید و دوباره ویرایش کنید',
+      { current_version: Number((db.prepare('SELECT version FROM voucher_drafts WHERE id=?').get(draft.id) || {}).version || 0) });
+    if (!Number.isFinite(sentVersion) || sentVersion !== curVersion) throw conflict();
+    const lines = body.lines;
+    if (!Array.isArray(lines) || !lines.length) throw draftErr(400, 'E_VOUCHER_INVALID', 'حداقل یک ردیف لازم است');
+    const p3Key = P3.p3DraftKeyFor(db, draft);
+    let description = body.description === undefined ? String(draft.description || '') : String(body.description || '');
+    if (p3Key && !description.includes(`[p3:${p3Key}]`)) description = `${description.trim()} [p3:${p3Key}]`.trim();
+    const date = body.date === undefined ? (draft.date || '') : String(body.date || '');
+    const costCenterId = body.cost_center_id === undefined ? (draft.cost_center_id || null) : (body.cost_center_id || null);
+    const opts = P3.p3PostingOptionsForLines(db, draft, lines) || {};
+    const built = validateAndBuildVoucherLines(db, lines, opts);
+    if (built.error) throw draftErr(400, built.code || 'E_VOUCHER_INVALID', built.error);
+    try {
+      require('../lib/coa-leaf-policy').assertLinesPostable(db, built.cleanLines, { sourceType: 'manual_voucher', ...opts });
+    } catch (e) {
+      throw draftErr(400, e.code || 'E_ACCOUNT_NOT_LEAF', e.message);
+    }
+    const before = { date: draft.date || '', description: draft.description || '', cost_center_id: draft.cost_center_id || null, lines: parseDraftLinesJson(draft.lines_json) };
+    const after = { date, description, cost_center_id: costCenterId, lines };
+    const diff = {};
+    for (const k of Object.keys(after)) {
+      if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) diff[k] = { before: before[k], after: after[k] };
+    }
+    const saved = db.transaction(() => {
+      const r = db.prepare(`
+        UPDATE voucher_drafts SET date=?, description=?, lines_json=?, cost_center_id=?
+        WHERE id=? AND COALESCE(version,0)=?
+      `).run(date, description, JSON.stringify(lines), costCenterId, draft.id, curVersion);
+      if (r.changes !== 1) throw conflict();
+      const row = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(draft.id);
+      audit(req.user.id, 'voucher_draft_update', 'voucher_draft', draft.id, JSON.stringify({
+        version_before: curVersion, version_after: Number(row.version || 0), p3_key: p3Key, changed: diff,
+      }), req);
+      return row;
+    })();
+    const ex = P3.p3ExemptionStatus(db, saved);
+    res.json({
+      ok: true, id: saved.id, version: Number(saved.version || 0), description: saved.description,
+      total_debit: draftTotalDebit(lines), p3_key: ex.key || null, p3_exempt: !!ex.exempt,
+    });
+  } catch (e) {
+    return sendDraftErr(res, e, 'خطا در ویرایش پیش‌نویس');
+  }
 });
 router.post('/vouchers/drafts', auth, adminOrAccounting, (req, res) => {
   const { date, description, cost_center_id, lines } = req.body;
@@ -2693,10 +2796,32 @@ router.post('/vouchers/drafts', auth, adminOrAccounting, (req, res) => {
     .run(date || '', description || '', JSON.stringify(lines), cost_center_id || null, req.user.id);
   res.json({ id: result.lastInsertRowid, ok: true });
 });
+// حذف پیش‌نویس (سند دفتری نیست ⇒ حذف ردیف) — maker-checker یا مدیر؛ پیش‌نویس P3 فقط مدیر؛ منسوخ ⇒ ۴۰۹؛ ممیزی با snapshot کامل.
 router.delete('/vouchers/drafts/:id', auth, adminOrAccounting, (req, res) => {
-  const db = getDB();
-  db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(req.params.id);
-  res.json({ ok: true });
+  try {
+    const db = getDB();
+    const P3 = require('../lib/inventory/p3-recon-drafts');
+    const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
+    if (!draft) throw draftErr(404, 'E_NOT_FOUND', 'پیش‌نویس یافت نشد');
+    if (P3.isSupersededP3Draft(db, draft.id)) throw draftErr(409, 'E_P3_DRAFT_SUPERSEDED', P3_SUPERSEDED_ERROR);
+    const p3Key = P3.p3DraftKeyFor(db, draft);
+    const isAdmin = req.user && req.user.role === 'admin';
+    if (p3Key && !isAdmin) {
+      throw draftErr(403, 'E_P3_DRAFT_ADMIN_ONLY', 'حذف پیش‌نویس اصلاحی P3 فقط با مدیر سیستم مجاز است');
+    }
+    if (!isAdmin) assertMakerChecker(req.user, draft.created_by);
+    db.transaction(() => {
+      db.prepare('DELETE FROM voucher_drafts WHERE id=?').run(draft.id);
+      audit(req.user.id, 'voucher_draft_delete', 'voucher_draft', draft.id, JSON.stringify({
+        date: draft.date || '', description: draft.description || '', lines: parseDraftLinesJson(draft.lines_json),
+        cost_center_id: draft.cost_center_id || null, created_by: draft.created_by, version: Number(draft.version || 0),
+        p3_key: p3Key || null,
+      }), req);
+    })();
+    res.json({ ok: true });
+  } catch (e) {
+    return sendDraftErr(res, e, 'خطا در حذف پیش‌نویس');
+  }
 });
 // Posting a draft runs it through the exact same validation/posting path as
 // a normal voucher, then removes the draft — maker-checker (۸D): سازنده ≠ ثبت‌کننده.
@@ -2706,16 +2831,18 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
     const draft = db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(req.params.id);
     if (!draft) return res.status(404).json({ error: 'پیش‌نویس یافت نشد' });
     if (require('../lib/inventory/p3-recon-drafts').isSupersededP3Draft(db, draft.id)) {
-      return res.status(409).json({
-        error: 'این پیش‌نویس منسوخ است — برگشت JE1016 فقط از مسیر رسمی «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» (اصلاحیه #1 → ابطال) انجام می‌شود',
-        code: 'E_P3_DRAFT_SUPERSEDED',
-      });
+      return res.status(409).json({ error: P3_SUPERSEDED_ERROR, code: 'E_P3_DRAFT_SUPERSEDED' });
     }
     assertMakerChecker(req.user, draft.created_by);
     const lines = JSON.parse(draft.lines_json || '[]');
     const p3Opts = require('../lib/inventory/p3-recon-drafts').p3PostingOptionsForDraft(db, draft) || {};
     const built = validateAndBuildVoucherLines(db, lines, p3Opts);
-    if (built.error) return res.status(400).json({ error: built.error, code: built.code });
+    if (built.error) {
+      return res.status(400).json({
+        error: built.error, code: built.code,
+        ...(built.code === 'E_COA_NOT_POSTABLE' ? { hint: COA_NOT_POSTABLE_HINT } : {}),
+      });
+    }
     const entryId = db.transaction(() => {
       const entryId = postToLedger(db, {
         sourceType: 'manual_voucher', sourceId: null, date: draft.date || todayJalali(),
@@ -2739,7 +2866,7 @@ router.post('/vouchers/drafts/:id/post', auth, adminOrAccounting, (req, res) => 
     audit(req.user.id, 'create', 'journal_voucher', entryId, `ثبت سند از پیش‌نویس: ${draft.description || ''}`);
     res.json({ id: entryId, ok: true });
   } catch (e) {
-    return res.status(e.status || 400).json({ error: e.message || 'خطا در ثبت پیش‌نویس', code: e.code });
+    return sendDraftErr(res, e, 'خطا در ثبت پیش‌نویس');
   }
 });
 

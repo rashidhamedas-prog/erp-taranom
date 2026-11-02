@@ -20,8 +20,13 @@
  *
  * FR-P334-B (تصمیم حامد): ledger#1273 (کالا 334، WIP) با برگشت رسمی کاردکس (FR-P334-A) حل می‌شود ⇒
  * پیش‌نویس #2 فقط ledger#1978/1979 (79,655,914)؛ مهاجرت v4 سطر 1273 را از پیش‌نویس ثبت‌نشدهٔ موجود حذف می‌کند.
+ *
+ * FR-POS-DRAFTS-A: معافیت 1104 به «سطرها» گره خورده است نه فقط به شناسهٔ پیش‌نویس — هش کانونی سطرها
+ * (canonicalLinesHash) هنگام ساخت/بازنویسی در wh_data_corrections (rule='p3_draft_hash') مهر می‌شود و
+ * p3PostingOptionsForDraft فقط وقتی معافیت می‌دهد که هش سطرهای فعلی با هش مهرشده برابر باشد.
  */
 
+const crypto = require('crypto');
 const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
 
 const RULE = 'p3_draft';
@@ -134,6 +139,44 @@ function draftMarker(db, key) {
   return db.prepare(`
     SELECT new_value FROM wh_data_corrections WHERE rule=? AND row_key=? ORDER BY id DESC LIMIT 1
   `).get(RULE, key) || null;
+}
+
+// ── هش کانونی سطرها (معافیت 1104 فقط برای همان سطرهای مهرشده) ──
+
+const RULE_HASH = 'p3_draft_hash';
+const SETTINGS_KEY_HASH = 'p3_recon_drafts_lines_hash_v1';
+
+/** sha256 روی آرایهٔ مرتب [code, round(debit), round(credit), person_id|null]؛ شرح سطر اثری ندارد. */
+function canonicalLinesHash(lines) {
+  const arr = (Array.isArray(lines) ? lines : []).map((l) => {
+    const x = l && typeof l === 'object' ? l : {};
+    const pid = x.person_id == null || x.person_id === '' || x.person_id === 0 ? null : String(x.person_id);
+    return [String(x.code == null ? '' : x.code).trim(), Math.round(n(x.debit)), Math.round(n(x.credit)), pid];
+  });
+  return crypto.createHash('sha256').update(JSON.stringify(arr)).digest('hex');
+}
+
+function storedLinesHash(db, key) {
+  if (!key || !tableExists(db, 'wh_data_corrections')) return null;
+  const r = db.prepare(`
+    SELECT new_value FROM wh_data_corrections WHERE rule=? AND row_key=? AND col='lines_hash' ORDER BY id DESC LIMIT 1
+  `).get(RULE_HASH, key);
+  return r && r.new_value ? String(r.new_value) : null;
+}
+
+/** مهر هش سطرهای پیش‌نویس P3 (فقط وقتی تغییر کرده). opts.onlyIfMissing ⇒ هش موجود بازنویسی نمی‌شود. */
+function stampLinesHash(db, key, draftId, lines, opts = {}) {
+  if (!key || !tableExists(db, 'wh_data_corrections')) return null;
+  const prev = storedLinesHash(db, key);
+  if (prev && opts.onlyIfMissing) return prev;
+  const hash = canonicalLinesHash(lines);
+  if (prev === hash) return hash;
+  db.prepare(`
+    INSERT INTO wh_data_corrections (run_id, phase, rule, tbl, row_key, col, old_value, new_value, reason)
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(opts.runId || `p3hash-${new Date().toISOString().replace(/[:.]/g, '-')}`, PHASE, RULE_HASH, 'voucher_drafts',
+    key, 'lines_hash', prev, hash, `${opts.reason || 'مهر هش سطرهای پیش‌نویس P3'} (draft #${draftId == null ? '-' : draftId})`);
+  return hash;
 }
 
 function accountState(db, code) {
@@ -594,6 +637,7 @@ function createP3Drafts(db, opts = {}) {
         description: s.description, lines: s.lines, amount: s.amount,
       });
       const d = ctx.drafts[ctx.drafts.length - 1];
+      stampLinesHash(db, s.key, Number(d.id), s.lines, { runId: ctx.runId, reason: 'ساخت پیش‌نویس P3' });
       out.created.push({ key: s.key, draft_id: Number(d.id), amount_rial: s.amount });
     }
   };
@@ -633,6 +677,23 @@ function sameLines(a, b) {
   const x = normLines(a);
   const y = normLines(b);
   return x.length === y.length && x.every((r, i) => r[0] === y[i][0] && r[1] === y[i][1] && r[2] === y[i][2]);
+}
+
+/** همهٔ شکل‌های شناخته‌شدهٔ سطرهای یک کلید P3 روی 1104 و برگ قدیمی 110401. */
+function knownSpecVariants(key) {
+  return [ACC_INV, LEGACY_LEAF].flatMap((c) => specVariants(key, c) || []).filter(Boolean);
+}
+
+/** سطرها دقیقاً (با هش کانونی، شامل person_id) یکی از شکل‌های شناخته‌شده‌اند؟ */
+function matchesKnownSpec(key, lines) {
+  const h = canonicalLinesHash(lines);
+  return knownSpecVariants(key).some((s) => canonicalLinesHash(s) === h);
+}
+
+/** مهر هش فقط وقتی هشی نیست و سطرها دقیقاً شکل شناخته‌شده‌اند. */
+function stampIfSpec(db, key, draftId, lines, runId) {
+  if (storedLinesHash(db, key) || !matchesKnownSpec(key, lines)) return null;
+  return stampLinesHash(db, key, draftId, lines, { runId, reason: 'مهر هش سطرهای شناخته‌شدهٔ P3' });
 }
 
 function markerDraftId(db, key) {
@@ -686,12 +747,17 @@ function runP3DraftsV2Migration(db, opts = {}) {
       if (postedAsJournal(db, key)) { res.skipped.push({ key, draft_id: id, why: 'posted' }); continue; }
       let lines;
       try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
-      if (specVariants(key, leaf.code).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'already_leaf' }); continue; }
+      if (specVariants(key, leaf.code).some((s) => sameLines(lines, s))) {
+        stampIfSpec(db, key, id, lines, runId);
+        res.skipped.push({ key, draft_id: id, why: 'already_leaf' });
+        continue;
+      }
       if (!specVariants(key, ACC_INV).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
       const next = lines.map((l) => (String(l.code) === ACC_INV ? { ...l, code: leaf.code } : l));
       const nextJson = JSON.stringify(next);
       db.prepare(`UPDATE voucher_drafts SET lines_json=?${bump} WHERE id=?`).run(nextJson, id);
       logV2(db, runId, key, 'lines_json', d.lines_json, nextJson, `P3-fix: ${ACC_INV} → ${leaf.code}`);
+      stampLinesHash(db, key, id, next, { runId, reason: `P3-fix v2: ${ACC_INV} → ${leaf.code}` });
       res.rewritten.push({ key, draft_id: id, from: ACC_INV, to: leaf.code });
     }
     const jid = markerDraftId(db, JE1016_DRAFT_KEY);
@@ -738,9 +804,33 @@ function p3DraftKeyFor(db, draft) {
   return null;
 }
 
-/** گزینهٔ ثبت برای مسیر «ثبت پیش‌نویس»: فقط پیش‌نویس P3 معافیت 1104 می‌گیرد؛ بقیه null. */
+function parseDraftLines(d) {
+  try { const v = JSON.parse((d && d.lines_json) || '[]'); return Array.isArray(v) ? v : []; }
+  catch (_) { return []; }
+}
+
+/**
+ * وضعیت معافیت P3 برای سطرهای داده‌شده (پیش‌فرض: سطرهای فعلی پیش‌نویس).
+ * معافیت فقط وقتی برقرار است که کلید P3 معتبر باشد و هش سطرها = هش مهرشده.
+ */
+function p3ExemptionStatus(db, draft, lines) {
+  const d = draft && typeof draft === 'object' ? draft
+    : (tableExists(db, 'voucher_drafts') ? db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(Number(draft)) : null);
+  const key = d ? p3DraftKeyFor(db, d) : null;
+  if (!key) return { key: null, stored: null, current: null, exempt: false };
+  const stored = storedLinesHash(db, key);
+  const current = canonicalLinesHash(Array.isArray(lines) ? lines : parseDraftLines(d));
+  return { key, stored, current, exempt: !!stored && stored === current };
+}
+
+/** گزینهٔ ثبت برای مسیر «ثبت پیش‌نویس»: فقط پیش‌نویس P3 با سطرهای دست‌نخورده (هش برابر) معافیت 1104 می‌گیرد. */
 function p3PostingOptionsForDraft(db, draft) {
-  return p3DraftKeyFor(db, draft) ? P3_POSTING_OPTIONS : null;
+  return p3ExemptionStatus(db, draft).exempt ? P3_POSTING_OPTIONS : null;
+}
+
+/** همان گزینه برای سطرهای جدید (ویرایش PUT) — معافیت فقط اگر سطرهای جدید همان سطرهای مهرشده باشند. */
+function p3PostingOptionsForLines(db, draft, lines) {
+  return p3ExemptionStatus(db, draft, lines).exempt ? P3_POSTING_OPTIONS : null;
 }
 
 /**
@@ -808,12 +898,17 @@ function runP3DraftsV3Migration(db, opts = {}) {
       if (postedAsJournal(db, key)) { res.skipped.push({ key, draft_id: id, why: 'posted' }); continue; }
       let lines;
       try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
-      if (specVariants(key, ACC_INV).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'already_1104' }); continue; }
+      if (specVariants(key, ACC_INV).some((s) => sameLines(lines, s))) {
+        stampIfSpec(db, key, id, lines, runId);
+        res.skipped.push({ key, draft_id: id, why: 'already_1104' });
+        continue;
+      }
       if (!specVariants(key, LEGACY_LEAF).some((s) => sameLines(lines, s))) { res.skipped.push({ key, draft_id: id, why: 'lines_changed' }); continue; }
       const next = lines.map((l) => (String(l.code) === LEGACY_LEAF ? { ...l, code: ACC_INV } : l));
       const nextJson = JSON.stringify(next);
       db.prepare(`UPDATE voucher_drafts SET lines_json=?${bump} WHERE id=?`).run(nextJson, id);
       logV3(db, runId, key, 'lines_json', d.lines_json, nextJson, `FR-P3: ${LEGACY_LEAF} → ${ACC_INV} (تصمیم حامد)`);
+      stampLinesHash(db, key, id, next, { runId, reason: `FR-P3 v3: ${LEGACY_LEAF} → ${ACC_INV}` });
       res.rewritten.push({ key, draft_id: id, from: LEGACY_LEAF, to: ACC_INV });
     }
     const made = createP3Drafts(db, { ...opts, onlyKeys: [OPENINGS_2021_2023_KEY] });
@@ -881,6 +976,7 @@ function runP3DraftsV4Migration(db, opts = {}) {
     let lines;
     try { lines = JSON.parse(d.lines_json || '[]'); } catch (_) { lines = null; }
     if (V4_INV_CODES.some((c) => sameLines(lines, specLines(UNDOC_KEY, c)))) {
+      stampIfSpec(db, UNDOC_KEY, id, lines, runId);
       res.state = 'already_trimmed';
       mark();
       return;
@@ -902,12 +998,53 @@ function runP3DraftsV4Migration(db, opts = {}) {
     const why = `FR-P334-B: حذف ledger#1273 (${LEDGER1273.amount}) از پیش‌نویس #${id}؛ موجودی ${inv} ${UNDOC_LEGACY_TOTAL} → ${UNDOC_TOTAL} (برگشت رسمی کاردکس FR-P334-A، تصمیم حامد)`;
     logV4(db, runId, 'lines_json', d.lines_json, nextJson, why);
     logV4(db, runId, 'description', d.description, nextDesc, why);
+    stampLinesHash(db, UNDOC_KEY, id, next, { runId, reason: 'FR-P334-B v4: حذف ledger#1273' });
     mark();
     Object.assign(res, {
       state: 'trimmed', changed: true, inventory_code: inv,
       before: { lines: lines.length, credit_rial: UNDOC_LEGACY_TOTAL },
       after: { lines: next.length, credit_rial: UNDOC_TOTAL },
     });
+  })();
+  return res;
+}
+
+// ── backfill هش سطرها (FR-POS-DRAFTS-A) ─────────────────────────
+
+/**
+ * مهاجرت بوت (فقط مرکز، یک تراکنش، نشانگر settings `p3_recon_drafts_lines_hash_v1`؛ بعد از v4).
+ * برای هر پیش‌نویس P3 موجود (marker + برچسب، غیر از JE1016 منسوخ) که هش ندارد: اگر سطرهای فعلی دقیقاً
+ * یکی از شکل‌های شناخته‌شده (specVariants روی 1104/110401) باشد ⇒ هش مهر می‌شود؛ وگرنه مهر نمی‌شود
+ * (معافیت 1104 از دست می‌رود) و هشدار چاپ می‌شود. بدون پیش‌نویس P3 ⇒ بدون نشانگر.
+ */
+function runP3DraftsLinesHashBackfill(db, opts = {}) {
+  if (opts.isDevice) return { skipped: 'device' };
+  if (!tableExists(db, 'voucher_drafts') || !tableExists(db, 'wh_data_corrections')) return { skipped: 'schema' };
+  const flag = db.prepare('SELECT value FROM settings WHERE key=?').get(SETTINGS_KEY_HASH);
+  if (flag && flag.value === '1') return { skipped: 'done' };
+  const keys = db.prepare("SELECT DISTINCT row_key FROM wh_data_corrections WHERE rule=? AND col='id'").all(RULE)
+    .map((r) => String(r.row_key || '')).filter((k) => k && k !== JE1016_DRAFT_KEY);
+  if (!keys.length) return { skipped: 'no_p3_drafts' };
+  const runId = opts.runId || `p3hash-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const res = { stamped: [], already: [], unmatched: [], skipped: [], changed: false };
+  db.transaction(() => {
+    for (const key of keys) {
+      const id = markerDraftId(db, key);
+      const d = id ? db.prepare('SELECT * FROM voucher_drafts WHERE id=?').get(id) : null;
+      if (!d) { res.skipped.push({ key, draft_id: id, why: 'missing' }); continue; }
+      if (!String(d.description || '').includes(tag(key))) { res.skipped.push({ key, draft_id: id, why: 'tag_mismatch' }); continue; }
+      if (storedLinesHash(db, key)) { res.already.push({ key, draft_id: id }); continue; }
+      const lines = parseDraftLines(d);
+      if (!matchesKnownSpec(key, lines)) {
+        res.unmatched.push({ key, draft_id: id });
+        if (!opts.silent) console.warn(`p3_recon_drafts_lines_hash_v1: سطرهای پیش‌نویس #${id} (${key}) با شکل شناخته‌شده منطبق نیست — هش مهر نشد و معافیت 1104 برقرار نیست`);
+        continue;
+      }
+      stampLinesHash(db, key, id, lines, { runId, reason: 'backfill هش سطرهای P3' });
+      res.stamped.push({ key, draft_id: id });
+    }
+    db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)').run(SETTINGS_KEY_HASH, '1');
+    res.changed = res.stamped.length > 0 || !flag;
   })();
   return res;
 }
@@ -923,6 +1060,15 @@ module.exports = {
   isSupersededP3Draft,
   p3DraftKeyFor,
   p3PostingOptionsForDraft,
+  p3PostingOptionsForLines,
+  p3ExemptionStatus,
+  canonicalLinesHash,
+  storedLinesHash,
+  stampLinesHash,
+  matchesKnownSpec,
+  runP3DraftsLinesHashBackfill,
+  RULE_HASH,
+  SETTINGS_KEY_HASH,
   checkDraftPostable,
   resolveInventoryLeaf,
   inventorySubtreeCodes,
