@@ -1799,27 +1799,16 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       throw err('E_SHARE_NOT_100', 422, { sum: sumShare });
     }
 
-    // Analytical exclusive pull (same as rollUp) so JE matches cost tab when possible
-    // Joint multiproduct run: explode without forProductId (all shared+exclusive)
-    let exclusiveByProduct = {};
-    let exclusiveTotal = 0;
-    try {
-      const exAll = explodeBom(db, {
-        bomId: po.bom_id, qty: qtyStart, priceBasis: 'average',
-        yieldOverride: bom?.has_routing ? 100 : null,
-        sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
-        forProductId: explodeProductScopeForOrder(db, po),
-      });
-      for (const L of exAll.lines || []) {
-        if (String(L.product_scope || 'shared') !== 'exclusive' || !L.scoped_product_id) continue;
-        const pid = Number(L.scoped_product_id);
-        const amt = Math.round(Number(L.amount_rial) || 0);
-        exclusiveByProduct[pid] = (exclusiveByProduct[pid] || 0) + amt;
-        exclusiveTotal += amt;
-      }
-    } catch (_) { exclusiveByProduct = {}; exclusiveTotal = 0; }
-    if (exclusiveTotal > wipNet) exclusiveTotal = wipNet;
-    const sharedPool = Math.max(0, wipNet - exclusiveTotal);
+    const residuePid = shareOuts.some(o => Number(o.product_id) === Number(po.product_id))
+      ? Number(po.product_id)
+      : (shareOuts.some(o => Number(o.product_id) === Number(bom?.product_id))
+        ? Number(bom.product_id) : Number(shareOuts[0].product_id));
+    const split = require('./order-cost-split').splitOrderCost(db, po, {
+      total: wipNet,
+      products: shareOuts.map(o => ({ product_id: o.product_id, pct: o.cost_share_percent })),
+      residueProductId: residuePid,
+    });
+    const splitByPid = new Map(split.rows.map(r => [r.product_id, r]));
     const baseQty = Number(bom?.base_qty) || 1;
 
     const allocations = shareOuts.map(o => {
@@ -1841,28 +1830,20 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
           detail: 'تعداد رسید هر محصول اصلی باید مثبت باشد',
         });
       }
-      const excl = Math.round(exclusiveByProduct[pid] || 0);
-      const pct = shareOuts.length === 1 ? 100 : (Number(o.cost_share_percent) || 0);
-      const sharedPart = Math.round(sharedPool * pct / 100);
+      const s = splitByPid.get(pid) || { fabric_rial: 0, exclusive_rial: 0, shared_rial: 0, amount_rial: 0 };
       return {
         product_id: pid,
         output_type: 'main',
         qty: q,
-        exclusive_rial: excl,
-        shared_rial: sharedPart,
-        amount_rial: excl + sharedPart,
+        fabric_rial: s.fabric_rial,
+        exclusive_rial: s.exclusive_rial,
+        shared_rial: s.shared_rial,
+        amount_rial: s.amount_rial,
         is_order_product: isOrderProduct,
         is_main: true,
       };
     });
-    let assigned = allocations.reduce((s, a) => s + a.amount_rial, 0);
-    const remAlloc = allocations.find(a => a.is_order_product)
-      || allocations.find(a => Number(a.product_id) === Number(bom?.product_id))
-      || allocations[0];
-    if (remAlloc && assigned !== wipNet) {
-      remAlloc.amount_rial += wipNet - assigned;
-      remAlloc.shared_rial += wipNet - assigned;
-    }
+    const mainAlloc = allocations.find(a => Number(a.product_id) === residuePid) || allocations[0];
 
     // Each main product keeps its own color×size. A shared last stage outputs
     // the sum; that sum is not the target of any one product's matrix.

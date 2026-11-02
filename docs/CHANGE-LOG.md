@@ -1,3 +1,14 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P2: تسهیم برش مشترک بر پایهٔ `cutting_batch_allocations` + مراحل اختصاصی (SW v612)
+- **Commit:** squash روی main (#164) ([PR #164](https://github.com/rashidhamedas-prog/erp-taranom/pull/164))؛ commit شاخه `b8e7b9da` (`fix/prodcycle-p2-shared-cut-alloc`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** رسید نهایی سفارش چندمحصولی (برش مشترک) بها را ۵۰/۵۰ بر پایهٔ تعداد تقسیم می‌کرد؛ برگهٔ بها برای سفارش چندفرمولی بدون تخصیص ۰٪ نشان می‌داد.
+- **رفع (`lib/production/order-cost-split.js` جدید: `splitOrderCost`، `sharedCutFabricByProduct`، `exclusiveStageCostByProduct`، `explodeExclusiveByProduct`):** (۱) پارچهٔ هر محصول = Σ `cutting_batch_allocations.amount_rial` لایه/برش‌های ابطال‌نشدهٔ سفارش؛ (۲) مراحل `product_scope='exclusive'` (دستمزد + سربار + پیمانکاری + مواد مستقیم؛ مواد = بیشینهٔ مواد مراحل اختصاصی و اقلام exclusive فرمول) مستقیم به همان محصول؛ (۳) باقی‌مانده به نسبت تعداد (چندفرمولی) یا ٪ فرمول (چندمحصولی تک‌فرمولی)؛ (۴) بدون ردیف تخصیص ⇒ رفتار قبلی؛ (۵) Σ رسیدها دقیقاً = خالص WIP (گرد کردن روی محصول سفارش). `costSheet` همان helper ⇒ نمایش = رسید. ارجاع تعریف‌نشدهٔ `mainAlloc` در finalize رفع شد.
+- **Help:** راهنمای مدیر، بخش برش مشترک.
+- **تست:** جدید `test-prodcycle-p2-shared-alloc` ۲۷/۲۷ (A=928,034,535 / B=1,058,957,063؛ Σ = WIP)؛ prodcycle-p1 ۲۶/۲۶، p5 ۲۶/۲۶، prod-cut-shared ۵۱/۵۱، cutting-alloc-basis-v470 ۲۲/۲۲، production-reports ۳۴/۳۴، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های multiproduct-v420/v423، scope-v418/v458، bom-advanced، finalize-matrix-v463، production-close، peer-boms-v475، journey-adr006-v471 و test-sync از قبل روی main.
+- **داده:** سفارش‌های بسته دست نخوردند؛ PO-0014 ⇒ P8.
+- **SW:** `erp-taranom-v612`؛ `app.js?v=612`.
+- **فایل‌ها:** `server/lib/production/order-cost-split.js` (جدید)، `server/lib/production/{engine-advanced,reports}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p2-shared-alloc.js` (جدید)، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P1: خروج WIP بستهٔ برش با بهای خود بسته (amountRial) + ابطال در reverseOrder (SW v611)
 - **Commit:** squash روی main (#163) ([PR #163](https://github.com/rashidhamedas-prog/erp-taranom/pull/163))؛ commit شاخه `ec0eae03` (`fix/prodcycle-p1-wip-pack-amount`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
