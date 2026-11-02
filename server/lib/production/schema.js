@@ -218,6 +218,8 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'persons')) {
     ensureColumn(db, 'persons', 'cost_center_id', 'INTEGER');
     ensureColumn(db, 'persons', 'labor_method', "TEXT DEFAULT 'piece'");
+    // Contractor AP leaf for piece/hourly wages when persons.coa_code is an asset (1103/1106).
+    ensureColumn(db, 'persons', 'labor_payable_coa_code', 'TEXT');
   }
   if (tableExists(db, 'bom_operations')) {
     ensureColumn(db, 'bom_operations', 'person_id', 'INTEGER');

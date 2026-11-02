@@ -4,8 +4,8 @@
  * ستون‌های بهای سفارش از اسناد زنده ساخته می‌شوند، نه از جمع‌های افزایشی.
  *
  * ماندهٔ WIP فقط ضایعاتی را کم می‌کند که واقعاً از WIP خارج شده‌اند
- * (production_waste + اتلاف لایهٔ کلاسیک با بستانکار WIP).
- * اتلاف طولی برش مشترک (ADR-005: بستانکار مواد، نه WIP) در ماندهٔ بستن نیست.
+ * (production_waste + اتلاف لایه با بستانکار WIP — کلاسیک و برش مشترک از P6).
+ * اتلاف طولی برش مشترک قدیمی (ADR-005: بستانکار مواد، نه WIP) در ماندهٔ بستن نیست.
  *
  * اگر ستون‌ها با اسناد یکی باشند ولی رسید ≠ خالص WIP، تطبیق رسید
  * (الگوی ADR-006 / v466) مانده را صفر می‌کند.
@@ -34,24 +34,45 @@ function sumOf(db, sql, params) {
   }
 }
 
-/** اتلاف لایهٔ کلاسیک: وارد WIP شده و با PRD-09 از WIP خارج می‌شود. */
+function wipAccountCode(db) {
+  try {
+    return String(require('../coa-map').acct(db, 'coa_wip').code || '1111');
+  } catch (_) {
+    return '1111';
+  }
+}
+
+/**
+ * شرط SQL «اتلاف این لایه وارد WIP شده و با PRD-09 از WIP خارج شده».
+ * لایهٔ کلاسیک همیشه؛ برش مشترک فقط وقتی سند اتلافش بستانکار WIP است (P6 به بعد) —
+ * برش مشترک قدیمی (بستانکار مواد) بیرون می‌ماند. یک پارامتر می‌گیرد: کد حساب WIP.
+ */
+function layWasteInWipSql(alias) {
+  const a = alias ? `${alias}.` : '';
+  return `((${a}batch_id IS NULL OR ${a}batch_id=0) OR EXISTS (
+    SELECT 1 FROM journal_lines jl
+    WHERE jl.entry_id=${a}waste_journal_id AND jl.account_code=? AND COALESCE(jl.credit,0)>0
+  ))`;
+}
+
+/** اتلاف لایه که از WIP خارج شده (کلاسیک + برش مشترک P6). */
 function classicLayWasteRial(db, orderId) {
   return sumOf(db, `
     SELECT COALESCE(SUM(waste_amount_rial),0) AS s
     FROM cutting_lays
     WHERE production_order_id=? AND COALESCE(status,'posted')='posted'
-      AND (batch_id IS NULL OR batch_id=0)
-  `, [orderId]);
+      AND ${layWasteInWipSql('')}
+  `, [orderId, wipAccountCode(db)]);
 }
 
-/** اتلاف طولی برش مشترک: هرگز وارد WIP نشده (بستانکار مواد). */
+/** اتلاف طولی برش مشترک قدیمی (قبل از P6): بستانکار مواد، هرگز وارد WIP نشده. */
 function sharedLayWasteRial(db, orderId) {
   return sumOf(db, `
     SELECT COALESCE(SUM(waste_amount_rial),0) AS s
     FROM cutting_lays
     WHERE production_order_id=? AND COALESCE(status,'posted')='posted'
-      AND batch_id IS NOT NULL AND batch_id!=0
-  `, [orderId]);
+      AND NOT ${layWasteInWipSql('')}
+  `, [orderId, wipAccountCode(db)]);
 }
 
 function stageAbnormalWasteRial(db, orderId) {
@@ -558,6 +579,8 @@ module.exports = {
   wipEffectiveAbnormalWasteRial,
   classicLayWasteRial,
   sharedLayWasteRial,
+  layWasteInWipSql,
+  wipAccountCode,
   extraAbnormalMaterialRial,
   wipResidualFromDocs,
 };

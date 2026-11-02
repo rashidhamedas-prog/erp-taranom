@@ -34,7 +34,7 @@ ok(laborSrc.includes('absorbLaborJournal'), 'labor.absorbLaborJournal');
 ok(laborSrc.includes('writePersonLaborLedger'), 'labor.writePersonLaborLedger');
 ok(laborSrc.includes('healPieceLaborPersonPayable'), 'labor.healPieceLaborPersonPayable');
 ok(laborSrc.includes('laborCreditsPerson'), 'labor.laborCreditsPerson');
-ok(laborSrc.includes('resolvePersonPayableAccount'), 'uses person payable resolver');
+ok(laborSrc.includes('resolveLaborPayableForPerson'), 'uses role-based labor payable resolver (P5)');
 ok(/side\.mode === 'person'/.test(laborSrc) || laborSrc.includes("mode: 'person'"), 'person credit mode used in absorb');
 ok(engAdvSrc.includes('absorbLaborJournal'), 'engine-advanced uses absorbLaborJournal');
 ok(engAdvSrc.includes('retirePersonLaborForEntries'), 'engine-advanced retires person ledger');
@@ -209,7 +209,10 @@ const lines = db.prepare(`
 const crLine = lines.find((l) => Number(l.credit) > 0);
 const drLine = lines.find((l) => Number(l.debit) > 0);
 ok(drLine && Number(drLine.debit) > 0, 'Dr WIP line');
-ok(crLine && String(crLine.account_code) === coa, 'Cr person payable leaf', crLine?.account_code);
+// P5: person has an asset leaf (1106) and no payroll → contractor AP leaf, never the asset.
+const laborLeaf = db.prepare('SELECT labor_payable_coa_code c FROM persons WHERE id=?').get(personId)?.c;
+ok(crLine && String(crLine.account_code) !== coa, 'Cr not the asset person leaf (P5)', crLine?.account_code);
+ok(crLine && laborLeaf && String(crLine.account_code) === String(laborLeaf), 'Cr person contractor AP leaf', { cr: crLine?.account_code, laborLeaf });
 ok(!!db.prepare(`
   SELECT id FROM person_ledger WHERE person_id=? AND ref_type='production_labor' AND ref_id=?
 `).get(personId, laborRow.id), 'person_ledger credit written');
@@ -320,7 +323,7 @@ ok(applied.healed === 1, 'heal apply one', applied);
 const healedCr = db.prepare(`
   SELECT account_code FROM journal_lines WHERE entry_id=? AND COALESCE(credit,0)>0
 `).get(fakeJe.je_id);
-ok(String(healedCr?.account_code) === coa, 'heal reclassed credit to person', healedCr?.account_code);
+ok(String(healedCr?.account_code) === String(laborLeaf), 'heal reclassed credit to person AP leaf', healedCr?.account_code);
 ok(!!db.prepare(`
   SELECT id FROM person_ledger WHERE person_id=? AND ref_type='production_labor' AND ref_id=?
 `).get(personId, e4.id), 'heal wrote person_ledger');
