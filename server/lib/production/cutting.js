@@ -472,30 +472,51 @@ function assertOrderCutQtyMatches(db, po) {
 /**
  * Linked cutting packs stage bundle qty in a WIP warehouse (warehouseOnly).
  * Order receipt / finalize must take that qty out of WIP without a second
- * products.stock hit.
+ * products.stock hit. The exit is valued at the pack's own cost (never the FG
+ * average); the last exit of a pack takes the exact remaining amount.
  */
+const PACK_RELIEF_SQL = `
+  FROM inventory_ledger
+  WHERE source_type='cutting_pack' AND source_id=? AND event_type='cutting_pack'
+    AND COALESCE(qty_out,0)>0 AND status='posted' AND reversed_of IS NULL
+`;
+
 function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, receiptId }) {
   const has = db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
   ).get();
   if (!has) return;
   const packs = db.prepare(`
-    SELECT id, warehouse_id, qty FROM cutting_packs
+    SELECT id, warehouse_id, qty, amount_rial FROM cutting_packs
     WHERE production_order_id=? AND product_id=? AND status='posted' AND COALESCE(qty,0)>0
     ORDER BY id
   `).all(orderId, productId);
+  const relievedOf = db.prepare(`
+    SELECT COALESCE(SUM(qty_out),0) AS q, COALESCE(SUM(amount_rial),0) AS a ${PACK_RELIEF_SQL}
+  `);
   let left = Number(qtyGood) || 0;
   for (const p of packs) {
     if (!(left > 0)) break;
     const wh = Number(p.warehouse_id) || 0;
     if (!wh) continue;
-    const take = Math.min(left, Number(p.qty) || 0);
-    if (!(take > 0)) continue;
+    const packQty = Number(p.qty) || 0;
+    const done = relievedOf.get(p.id);
+    const remainingQty = packQty - (Number(done.q) || 0);
+    const take = Math.min(left, remainingQty);
+    if (!(take > 1e-9)) continue;
+    const packAmt = Math.round(Number(p.amount_rial) || 0);
+    const remainingAmt = Math.max(0, packAmt - Math.round(Number(done.a) || 0));
+    const amount = take >= remainingQty - 1e-9
+      ? remainingAmt
+      : Math.min(remainingAmt, Math.round(packAmt * take / packQty));
     postInventoryMovement(db, {
       eventType: 'cutting_pack',
       productId,
       warehouseId: wh,
       qtyOut: take,
+      unitCostRial: Math.round(amount / take),
+      amountRial: amount,
+      allowZeroCost: amount <= 0,
       sourceType: 'cutting_pack',
       sourceId: p.id,
       date: date || '',
@@ -512,6 +533,29 @@ function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, r
     } catch (_) { /* no apparel layer */ }
     left -= take;
   }
+}
+
+/** Undo every WIP pack exit of an order (receipt reversal): mirror rows put the packs back in WIP at the same amounts. */
+function reverseStagedPackRelief(db, { orderId, userId, date, note }) {
+  const has = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
+  ).get();
+  if (!has) return 0;
+  const rows = db.prepare(`
+    SELECT il.id FROM inventory_ledger il
+    JOIN cutting_packs p ON p.id = il.source_id
+    WHERE p.production_order_id=? AND il.source_type='cutting_pack' AND il.event_type='cutting_pack'
+      AND COALESCE(il.qty_out,0)>0 AND il.status='posted' AND il.reversed_of IS NULL
+    ORDER BY il.id DESC
+  `).all(orderId);
+  for (const r of rows) {
+    reverseInventoryMovement(db, r.id, {
+      createdBy: userId || null,
+      date: date || '',
+      note: note || 'ابطال تخلیه WIP بسته برش',
+    });
+  }
+  return rows.length;
 }
 
 function attachPacks(db, row) {
@@ -2191,6 +2235,7 @@ module.exports = {
   assertFabricCuttingPathForFgReceipt,
   assertOrderCutQtyMatches,
   relieveStagedPackQty,
+  reverseStagedPackRelief,
   layFgCoveredByOrder,
   fabricLineFromBom,
   isMeterUnit,
