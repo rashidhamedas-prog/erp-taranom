@@ -51,6 +51,7 @@ const PROD_SEQUENCES = [
   { key: 'cutting_pack', prefix: 'PK' },
   { key: 'cutting_batch', prefix: 'CB' },
   { key: 'cost_revaluation', prefix: 'CRV' },
+  { key: 'cc_absorb', prefix: 'CCA' },
 ];
 
 const PRODUCTION_SETTINGS = {
@@ -218,6 +219,8 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'persons')) {
     ensureColumn(db, 'persons', 'cost_center_id', 'INTEGER');
     ensureColumn(db, 'persons', 'labor_method', "TEXT DEFAULT 'piece'");
+    // Contractor AP leaf for piece/hourly wages when persons.coa_code is an asset (1103/1106).
+    ensureColumn(db, 'persons', 'labor_payable_coa_code', 'TEXT');
   }
   if (tableExists(db, 'bom_operations')) {
     ensureColumn(db, 'bom_operations', 'person_id', 'INTEGER');
@@ -1714,6 +1717,8 @@ function ensureSharedCutSchema(db) {
     ensureColumn(db, 'cutting_lays', 'qty_unit', 'TEXT');
     ensureColumn(db, 'cutting_lays', 'marker_unit', 'TEXT');
     ensureColumn(db, 'cutting_lays', 'marker_factor', 'REAL');
+    // Order whose posted receipt absorbed this lay's covered-lay value delta (cutting_lay_fg_delta).
+    ensureColumn(db, 'cutting_lays', 'fg_delta_order_id', 'INTEGER');
   }
   if (tableExists(db, 'cutting_lay_rolls')) {
     ensureColumn(db, 'cutting_lay_rolls', 'opening_m', 'REAL DEFAULT 0');
@@ -1749,6 +1754,66 @@ function initProductionSchema(db) {
   seedCostCenters(db);
   seedWarehouses(db);
   seedAccounts(db);
+  ensureOverheadCloseP3(db);
+}
+
+/**
+ * P3 — سربار/بستن دوره:
+ *  - cost_center_rates.rate_pct: نرخ درصدی صریح برای محرک‌های ریالی (۲۰۰٬۰۰۰ ریال/میلیون ⇒ ۲۰٪).
+ *  - یکتایی جذب ثبت‌شده برای (سفارش، مرحله، محرک، مرکز). ردیف‌های بدون مرحله (موتور قدیمی،
+ *    چند رسید جزئی روی یک سفارش) عمداً بیرون از ایندکس می‌مانند.
+ *  - cc_absorb_postings: اجرای واقعی جذب معین‌ها (61030x → 5202) — فقط سرور مرکزی.
+ */
+function ensureOverheadCloseP3(db) {
+  if (tableExists(db, 'cost_center_rates')) {
+    ensureColumn(db, 'cost_center_rates', 'rate_pct', 'REAL');
+    try {
+      db.prepare(`
+        UPDATE cost_center_rates
+        SET rate_pct = ROUND(total_rate_rial / 10000.0, 4)
+        WHERE rate_pct IS NULL
+          AND driver IN ('direct_labor_rial','material_rial','labor_rial')
+          AND COALESCE(total_rate_rial,0) > 0
+      `).run();
+    } catch (e) { console.warn('rate_pct migrate:', e.message); }
+  }
+  if (tableExists(db, 'production_overhead_applications')) {
+    try {
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_oh_posted_stage_driver_cc
+        ON production_overhead_applications(order_id, COALESCE(stage_id,0), driver, cost_center_id)
+        WHERE status='posted' AND stage_id IS NOT NULL
+      `);
+    } catch (e) {
+      console.warn('ux_oh_posted_stage_driver_cc (تکرار جذب ثبت‌شده — ابتدا بررسی شود):', e.message);
+    }
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cc_absorb_postings (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      doc_no          TEXT DEFAULT '',
+      period_label    TEXT NOT NULL,
+      cost_center_id  INTEGER NOT NULL,
+      map_id          INTEGER NOT NULL,
+      account_code    TEXT NOT NULL,
+      base_type       TEXT DEFAULT '',
+      base_rial       INTEGER DEFAULT 0,
+      absorb_pct      REAL DEFAULT 100,
+      amount_rial     INTEGER NOT NULL,
+      je_id           INTEGER,
+      reversal_je_id  INTEGER,
+      status          TEXT DEFAULT 'posted',
+      reverse_reason  TEXT DEFAULT '',
+      created_by      INTEGER,
+      created_at      INTEGER DEFAULT (strftime('%s','now')),
+      reversed_by     INTEGER,
+      reversed_at     INTEGER
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_cc_absorb_posted
+      ON cc_absorb_postings(period_label, map_id) WHERE status='posted';
+    CREATE INDEX IF NOT EXISTS ix_cc_absorb_period
+      ON cc_absorb_postings(period_label, cost_center_id);
+  `);
 }
 
 module.exports = {

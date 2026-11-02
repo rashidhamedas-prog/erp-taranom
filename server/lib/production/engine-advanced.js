@@ -12,7 +12,7 @@ const {
   issueFromStock, updateMovingAverage, receiveScrap, reverseIssueStock, setting, getWhQty,
 } = require('./costing');
 const {
-  getOverheadRate, coerceDriver, appliedOverheadRial,
+  getOverheadRate, coerceDriver, appliedOverheadRial, findPostedApplication,
   bumpRateApplied, reverseAppliedOverheadCounters,
 } = require('./overhead');
 const {
@@ -462,7 +462,18 @@ function applyStageOverhead(db, {
     driver,
   });
   const rateRial = Math.round(num(rate.total_rate_rial));
-  const amount = appliedOverheadRial(rate, driverQty);
+  const amount = appliedOverheadRial(rate, driverQty, driver);
+
+  const dup = findPostedApplication(db, {
+    orderId: po.id, stageId: stage.id, driver, costCenterId: stage.cost_center_id,
+  });
+  if (dup) {
+    return {
+      id: dup.id, amount_rial: 0, existing: true,
+      existing_amount_rial: Math.round(num(dup.amount_rial)),
+      driver, driver_qty: num(dup.driver_qty), rate_rial: Math.round(num(dup.rate_rial)), rate_id: dup.rate_id,
+    };
+  }
 
   let docNo = '';
   try { docNo = allocateNumber(db, 'overhead_apply', 'OH'); }
@@ -1363,16 +1374,17 @@ function postStageCore(db, {
     if (je5) jes.push(je5);
   }
 
-  // اتلاف لایهٔ کلاسیک قبلاً با PRD-09 از WIP خارج شده؛ در costOut کم شود
-  // تا رسید = خالص WIP. اتلاف برش مشترک وارد WIP نشده و اینجا کم نمی‌شود.
+  // اتلاف لایه که قبلاً با PRD-09 از WIP خارج شده؛ در costOut کم شود تا رسید = خالص WIP.
+  // برش مشترک قدیمی (بستانکار مواد) وارد WIP نشده و اینجا کم نمی‌شود.
   const classicLayWaste = (() => {
     try {
+      const { layWasteInWipSql, wipAccountCode } = require('./order-cost-reconcile');
       const row = db.prepare(`
         SELECT COALESCE(SUM(waste_amount_rial),0) AS s
         FROM cutting_lays
         WHERE stage_id=? AND COALESCE(status,'posted')='posted'
-          AND (batch_id IS NULL OR batch_id=0)
-      `).get(stageId);
+          AND ${layWasteInWipSql('')}
+      `).get(stageId, wipAccountCode(db));
       return Math.round(Number(row && row.s) || 0);
     } catch (_) { return 0; }
   })();
@@ -1699,7 +1711,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const open = stages.filter(s => !['done', 'skipped'].includes(s.status));
     if (open.length) throw err('E_STAGES_OPEN', 409, { open: open.map(s => s.seq) });
 
-    const date = String(body.date || po.date || todayJalali()).trim();
+    const RDG = require('./receipt-date-guard');
+    const date = String(body.date || RDG.defaultReceiptDate(db, orderId, po.date || todayJalali())).trim();
+    RDG.assertReceiptNotBeforeLastActivity(db, orderId, date);
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
     const jes = [];
@@ -1799,27 +1813,16 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
       throw err('E_SHARE_NOT_100', 422, { sum: sumShare });
     }
 
-    // Analytical exclusive pull (same as rollUp) so JE matches cost tab when possible
-    // Joint multiproduct run: explode without forProductId (all shared+exclusive)
-    let exclusiveByProduct = {};
-    let exclusiveTotal = 0;
-    try {
-      const exAll = explodeBom(db, {
-        bomId: po.bom_id, qty: qtyStart, priceBasis: 'average',
-        yieldOverride: bom?.has_routing ? 100 : null,
-        sizeBreakdown: safeJson(po.size_breakdown), color: po.color,
-        forProductId: explodeProductScopeForOrder(db, po),
-      });
-      for (const L of exAll.lines || []) {
-        if (String(L.product_scope || 'shared') !== 'exclusive' || !L.scoped_product_id) continue;
-        const pid = Number(L.scoped_product_id);
-        const amt = Math.round(Number(L.amount_rial) || 0);
-        exclusiveByProduct[pid] = (exclusiveByProduct[pid] || 0) + amt;
-        exclusiveTotal += amt;
-      }
-    } catch (_) { exclusiveByProduct = {}; exclusiveTotal = 0; }
-    if (exclusiveTotal > wipNet) exclusiveTotal = wipNet;
-    const sharedPool = Math.max(0, wipNet - exclusiveTotal);
+    const residuePid = shareOuts.some(o => Number(o.product_id) === Number(po.product_id))
+      ? Number(po.product_id)
+      : (shareOuts.some(o => Number(o.product_id) === Number(bom?.product_id))
+        ? Number(bom.product_id) : Number(shareOuts[0].product_id));
+    const split = require('./order-cost-split').splitOrderCost(db, po, {
+      total: wipNet,
+      products: shareOuts.map(o => ({ product_id: o.product_id, pct: o.cost_share_percent })),
+      residueProductId: residuePid,
+    });
+    const splitByPid = new Map(split.rows.map(r => [r.product_id, r]));
     const baseQty = Number(bom?.base_qty) || 1;
 
     const allocations = shareOuts.map(o => {
@@ -1841,28 +1844,20 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
           detail: 'تعداد رسید هر محصول اصلی باید مثبت باشد',
         });
       }
-      const excl = Math.round(exclusiveByProduct[pid] || 0);
-      const pct = shareOuts.length === 1 ? 100 : (Number(o.cost_share_percent) || 0);
-      const sharedPart = Math.round(sharedPool * pct / 100);
+      const s = splitByPid.get(pid) || { fabric_rial: 0, exclusive_rial: 0, shared_rial: 0, amount_rial: 0 };
       return {
         product_id: pid,
         output_type: 'main',
         qty: q,
-        exclusive_rial: excl,
-        shared_rial: sharedPart,
-        amount_rial: excl + sharedPart,
+        fabric_rial: s.fabric_rial,
+        exclusive_rial: s.exclusive_rial,
+        shared_rial: s.shared_rial,
+        amount_rial: s.amount_rial,
         is_order_product: isOrderProduct,
         is_main: true,
       };
     });
-    let assigned = allocations.reduce((s, a) => s + a.amount_rial, 0);
-    const remAlloc = allocations.find(a => a.is_order_product)
-      || allocations.find(a => Number(a.product_id) === Number(bom?.product_id))
-      || allocations[0];
-    if (remAlloc && assigned !== wipNet) {
-      remAlloc.amount_rial += wipNet - assigned;
-      remAlloc.shared_rial += wipNet - assigned;
-    }
+    const mainAlloc = allocations.find(a => Number(a.product_id) === residuePid) || allocations[0];
 
     // Each main product keeps its own color×size. A shared last stage outputs
     // the sum; that sum is not the target of any one product's matrix.
@@ -2979,10 +2974,8 @@ function applyCuttingLayToStage(db, {
     stage = getStage(db, orderId, stage.id);
   }
 
-  // برش مشترک: amount از قبل خالص WIP است؛ waste بستانکار مواد است نه WIP.
-  const layMeta = db.prepare('SELECT batch_id FROM cutting_lays WHERE id=?').get(layId);
-  const sharedLay = !!(layMeta && layMeta.batch_id);
-  const netToWip = sharedLay ? Math.max(0, amount) : Math.max(0, amount - wasteAmt);
+  // amount = کل پارچهٔ واردشده به WIP؛ waste با PRD-09 از WIP خارج شده (کلاسیک و برش مشترک).
+  const netToWip = Math.max(0, amount - wasteAmt);
   if (stage.status === 'done') {
     db.prepare(`
       UPDATE production_order_stages SET
@@ -2990,7 +2983,7 @@ function applyCuttingLayToStage(db, {
         waste_abnormal_rial = COALESCE(waste_abnormal_rial,0) + ?,
         cost_out_rial = COALESCE(cost_out_rial,0) + ?
       WHERE id=?
-    `).run(amount, sharedLay ? 0 : wasteAmt, netToWip, stage.id);
+    `).run(amount, wasteAmt, netToWip, stage.id);
     const nxt = nextStage(db, orderId, stage.seq);
     if (nxt && netToWip) {
       db.prepare(`

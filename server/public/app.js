@@ -317,6 +317,7 @@ async function api(method, path, data, isFormData, silent){
           : (j.detail || 'کالای جایگزین‌شده در فرمول نیست یا نامعتبر است'),
         E_ISSUE_EMPTY:'حواله باید حداقل یک قلم داشته باشد',
         E_NO_MATERIAL_ISSUED:'ابتدا حواله مواد را ثبت کنید',
+        E_RECEIPT_BEFORE_LAST_ACTIVITY: j.error || ('تاریخ رسید تولید نمی‌تواند قبل از آخرین فعالیت سفارش'+(j.last_activity_date?(' ('+j.last_activity_date+')'):'')+' باشد'),
         E_STAGE_MATERIAL_NOT_ISSUED: j.detail || 'همهٔ اقلام فرمول این مرحله هنوز حواله نشده — اول «حواله مواد» بزنید',
         E_WRONG_ANALYSIS:'نوع آنالیز این سفارش با این عملیات سازگار نیست',
         E_NOT_RELEASED:'سفارش هنوز آزاد نشده است',
@@ -24230,14 +24231,16 @@ function qtyFmt(v){ return window.ProdUI?window.ProdUI.qty(v):fmtQtyFa(v||0); }
 ============================================================ */
 const OH_DRIVER_META={
   output_qty:{label:'تعداد خروجی',unit:'ریال سربار به ازای هر عدد خروجی',budgetUnit:'عدد خروجی برنامه‌ای ماه',sample:100,sampleLabel:'۱۰۰ عدد خروجی',tip:'محرک واقعی = تعداد شروع‌شدهٔ رسید (خوب+ضایعات).'},
-  direct_labor_rial:{label:'دستمزد مستقیم (پایه ریالی)',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'محرک واقعی = دستمزد جذب‌شدهٔ همین رسید ÷ ۱٬۰۰۰٬۰۰۰. حقوق ماهانه را اینجا بودجه نکنید — فیلد «دستمزد مستقیم / عدد» جداست.'},
-  labor_rial:{label:'دستمزد مستقیم (پایه ریالی)',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'محرک واقعی = دستمزد جذب‌شده ÷ ۱٬۰۰۰٬۰۰۰.'},
+  direct_labor_rial:{pct:true,label:'دستمزد مستقیم (پایه ریالی)',unit:'درصد از دستمزد مستقیم (مثلاً ۲۰٪)',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'سربار = دستمزد جذب‌شدهٔ همین رسید × درصد. پیش‌فرض ۲۰٪. حقوق ماهانه را اینجا بودجه نکنید — فیلد «دستمزد مستقیم / عدد» جداست.'},
+  labor_rial:{pct:true,label:'دستمزد مستقیم (پایه ریالی)',unit:'درصد از دستمزد مستقیم (مثلاً ۲۰٪)',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'سربار = دستمزد جذب‌شده × درصد.'},
   direct_labor_hours:{label:'ساعت کارگر',unit:'ریال سربار به ازای هر ساعت کارگر',budgetUnit:'ساعت کارگر برنامه‌ای ماه',sample:8,sampleLabel:'۸ ساعت کارگر',tip:'محرک واقعی از ثبت ساعات کارگر، وگرنه از مسیر BOM (setup+run×تعداد)×خدمه.'},
   machine_hours:{label:'ساعت ماشین',unit:'ریال سربار به ازای هر ساعت ماشین',budgetUnit:'ساعت ماشین برنامه‌ای ماه',sample:6,sampleLabel:'۶ ساعت ماشین',tip:'محرک واقعی از دقیقه ماشین رسید یا Σ(دقیقه/واحد مسیر)×تعداد ÷ ۶۰.'},
-  material_rial:{label:'مواد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال مواد',budgetUnit:'میلیون‌ریال مواد برنامه‌ای ماه',sample:50,sampleLabel:'۵۰ میلیون ریال مواد',tip:'محرک واقعی = مواد (+بسته‌بندی در تحلیل متغیر) ÷ ۱٬۰۰۰٬۰۰۰.'},
+  material_rial:{pct:true,label:'مواد مستقیم',unit:'درصد از مواد مستقیم (مثلاً ۲۰٪)',budgetUnit:'میلیون‌ریال مواد برنامه‌ای ماه',sample:50,sampleLabel:'۵۰ میلیون ریال مواد',tip:'سربار = مواد (+بسته‌بندی در تحلیل متغیر) × درصد. پیش‌فرض ۲۰٪.'},
   manual:{label:'دستی',unit:'ریال سربار به ازای واحد محرک دستی',budgetUnit:'واحد محرک دستی برنامه‌ای ماه',sample:1,sampleLabel:'۱ واحد دستی',tip:'محرک واقعی = فیلد «مقدار محرک دستی» روی سفارش تولید (manual_driver_qty).'}
 };
 function ohDriverMeta(d){ return OH_DRIVER_META[d]||OH_DRIVER_META.output_qty; }
+/** ویرایش نرخ سربار و ثبت جذب معین‌ها فقط مدیر و حسابداری (سرور هم همین را enforce می‌کند). */
+function ohRateEditor(){ return !!(ME && (ME.role==='admin' || ME.role==='accounting')); }
 function shiftJalaliYm(label,delta){
   const m=String(label||'').match(/^(\d{4})\/(\d{1,2})/);
   if(!m) return '';
@@ -24293,8 +24296,8 @@ async function renderProductionRatesTab(body){
       <div class="panel">
         <div class="panel-head"><h4>نرخ سربار دوره</h4>
           <div class="oh-actions">
-            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){prodRateEditModal()})}">ثبت نرخ</button>
-            ${canEditOh?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesBootstrap()})}">برآورد ۳ ماه</button>
+            ${ohRateEditor()?`<button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){prodRateEditModal()})}">ثبت نرخ</button>`:''}
+            ${ohRateEditor()?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesBootstrap()})}">برآورد ۳ ماه</button>
             <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesCopyPrev()})}">کپی ماه قبل</button>`:''}
             <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}"><input type="checkbox" id="pra-all" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){prodRatesLoad()})}"> لغوشده‌ها</label>
           </div>
@@ -24313,7 +24316,9 @@ async function renderProductionRatesTab(body){
             <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت</button>
             <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(){ccAccountMapsLoad()})}">بارگذاری</button>
             <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsPreview()})}">پیش‌نمایش دوره</button>
-            ${canEditOh?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>`:''}
+            ${ohRateEditor()?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>
+            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAbsorbRun()})}" title="سند: بدهکار ۵۲۰۲ / بستانکار معین‌های نگاشت‌شده">ثبت جذب واقعی (سند)</button>`:''}
+            <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAbsorbList()})}">اسناد جذب دوره</button>
           </div>
         </div>
         <div class="panel-body">
@@ -24533,15 +24538,15 @@ async function prodRatesLoad(){
       return `<tr>
       <td data-label="مرکز هزینه"><b>${esc(r.cc_code||'')}</b> ${esc(r.cc_name||'')}</td>
       <td data-label="محرک">${esc(meta.label)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.6`)}">${esc(meta.unit)}</div></td>
-      <td data-label="نرخ سربار" class="num">${money(r.total_rate_rial)}${pool?'<div class="oh-warn">شبیه بودجه ماه است نه نرخ</div>':''}</td>
+      <td data-label="نرخ سربار" class="num">${meta.pct&&r.rate_pct!=null?`<b>${fmt(Number(r.rate_pct))}٪</b>`:money(r.total_rate_rial)}${pool&&!meta.pct?'<div class="oh-warn">شبیه بودجه ماه است نه نرخ</div>':''}</td>
       <td data-label="ثابت" class="num">${money(r.fixed_rate_rial||0)}</td>
       <td data-label="متغیر" class="num">${money(r.var_rate_rial||0)}</td>
       <td data-label="دستمزد" class="num">${money(r.monthly_labor_rate_rial||0)}</td>
       <td data-label="جذب ٪" class="num">${fmt(Number(r.absorb_pct!=null?r.absorb_pct:100))}٪</td>
       <td data-label="وضعیت">${esc(statusFa[st]||st)}${r.is_estimated?' · برآوردی':''}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${st==='inactive'||st==='reversed'?'':`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal((r.cost_center_id))})}">ویرایش</button>`}
-        ${(st==='inactive'||st==='reversed')?'':((canPerm('production_cost','edit')||isAdmin())?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodRateVoid((r.id))})}" title="لغو نرخ">لغو</button>`:'')}
+        ${st==='inactive'||st==='reversed'||!ohRateEditor()?'':`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal((r.cost_center_id))})}">ویرایش</button>`}
+        ${(st==='inactive'||st==='reversed')?'':(ohRateEditor()?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodRateVoid((r.id))})}" title="لغو نرخ">لغو</button>`:'')}
       </td>
     </tr>`;
     }).join('')}
@@ -24579,6 +24584,7 @@ async function prodRatesCopyPrev(){
         budget_fixed_oh_rial:r.budget_fixed_oh_rial||0, budget_var_oh_rial:r.budget_var_oh_rial||0,
         budget_driver_qty:r.budget_driver_qty||0,
         total_rate_rial:r.total_rate_rial||0, fixed_rate_rial:r.fixed_rate_rial||0, var_rate_rial:r.var_rate_rial||0,
+        rate_pct:r.rate_pct!=null?r.rate_pct:undefined,
         monthly_labor_rate_rial:r.monthly_labor_rate_rial||0, absorb_pct:r.absorb_pct!=null?r.absorb_pct:100, note:r.note||('کپی از '+prev),
         is_estimated:r.is_estimated?1:0, status:'active',
       });
@@ -24639,6 +24645,14 @@ function prodRatePreviewSync(){
   }
   const absorb=Math.min(100,Math.max(0, el('prm-absorb')&&el('prm-absorb').value!==''?prodRateNum('prm-absorb'):100));
   const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+  const pctWrap=el('prm-pct-wrap');
+  if(pctWrap) pctWrap.style.display=meta.pct?'':'none';
+  const pctRaw=meta.pct&&el('prm-pct')&&el('prm-pct').value!==''?prodRateNum('prm-pct'):null;
+  if(pctRaw!=null){
+    const appliedPct=Math.round(meta.sample*1000000*(pctRaw/100)*(absorb/100));
+    box.innerHTML=`جذب نمونه: ${esc(meta.sampleLabel)} × ${fmt(pctRaw)}٪ × ${fmt(absorb)}٪ ≈ <b>${money(appliedPct)}</b>. سند اجرا: بدهکار WIP / بستانکار ۵۲۰۳.`;
+    return;
+  }
   const applied=Math.round(total*meta.sample*(absorb/100));
   const poolWarn=(!fromBudget && total>=20000000 && (driver==='direct_labor_rial'||driver==='material_rial'||driver==='output_qty'))
     ? '<div class="oh-warn">این عدد خیلی بزرگ است و شبیه بودجهٔ ماه است — برای برش آن را صفر کنید و حقوق را در دستمزد هر عدد بگذارید.</div>'
@@ -24697,6 +24711,8 @@ async function prodRateEditModal(ccId){
         <div class="form-grid">
           <div class="fg"><label>نرخ ثابت سربار</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('parts')})}"></div>
           <div class="fg"><label>نرخ متغیر سربار</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('parts')})}"></div>
+          <div class="fg full" id="prm-pct-wrap"><label>درصد سربار از مبنای ریالی (٪) — پیش‌فرض ۲۰</label><input id="prm-pct" type="number" min="0" max="1000" step="0.01" value="${existing&&existing.rate_pct!=null?esc(String(existing.rate_pct)):''}" placeholder="20" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}">
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.7`)}">برای محرک دستمزد/مواد ریالی: سربار = مبنا × درصد. درصد پر باشد بر «نرخ کل» مقدم است.</div></div>
           <div class="fg full"><label>نرخ کل سربار (نه حقوق ماه)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('total')})}"></div>
         </div>
       </div>
@@ -24781,9 +24797,11 @@ async function prodRateSave(){
       is_estimated:el('prm-est')?.checked?1:0,
       status:'active',
       rate_touch:document.querySelector('.oh-form')?.dataset.rateTouch||'',
+      rate_pct:(ohDriverMeta(el('prm-driver').value).pct&&el('prm-pct')&&el('prm-pct').value!=='')?prodRateNum('prm-pct'):undefined,
     });
     closeModal();
-    const shown=saved&&saved.total_rate_rial!=null?('نرخ ذخیره شد: '+fmt(saved.total_rate_rial)+' ریال'):'نرخ ذخیره شد';
+    const shown=saved&&saved.rate_pct!=null?('نرخ ذخیره شد: '+fmt(saved.rate_pct)+'٪')
+      :(saved&&saved.total_rate_rial!=null?('نرخ ذخیره شد: '+fmt(saved.total_rate_rial)+' ریال'):'نرخ ذخیره شد');
     showToast(saved?.warning||shown, saved?.warning?'error':'success');
     const costId=window._prodBomCostId;
     loadAccTab('production-rates');
@@ -24903,6 +24921,50 @@ async function ccAccountMapsApplyBudget(){
     const r=await api('POST','/production/cost-centers/account-maps/apply-budget',{cost_center_id:ccId,period_label:period});
     showToast(r?.warning||'بودجه نرخ از معین به‌روز شد', r?.warning?'error':'success');
     prodRatesLoad();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+/* P3 — اجرای واقعی جذب معین‌ها → کنترل سربار (5202)؛ یک‌بار برای هر دوره+نگاشت، با ابطال کامل */
+async function ccAbsorbRun(){
+  const ccId=+(el('cca-cc')?.value||0);
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  if(!ccId){ showToast('مرکز هزینه را انتخاب کنید','error'); return; }
+  if(!confirm('سند جذب واقعی دوره '+period+' ثبت شود؟ (بدهکار کنترل سربار ۵۲۰۲ / بستانکار معین‌های نگاشت‌شده — هر نگاشت فقط یک‌بار در دوره)')) return;
+  try{
+    const r=await api('POST','/production/cost-centers/absorb-postings/run',{cost_center_id:ccId,period_label:period});
+    showToast('سند جذب '+(r?.doc_no||'')+' ثبت شد — '+fmt(r?.total_rial||0)+' ریال');
+    ccAbsorbList();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function ccAbsorbList(){
+  const area=el('cca-area'); if(!area) return;
+  const ccId=+(el('cca-cc')?.value||0);
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  try{
+    const r=await api('GET','/production/cost-centers/absorb-postings?period='+encodeURIComponent(period)+(ccId?'&cost_center_id='+ccId:''));
+    const rows=r?.rows||[];
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    const docs={};
+    rows.forEach(x=>{ (docs[x.doc_no]=docs[x.doc_no]||[]).push(x); });
+    const keys=Object.keys(docs);
+    if(!keys.length){ area.innerHTML='برای این دوره سند جذب معین ثبت نشده.'; return; }
+    area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>سند</th><th>معین‌ها</th><th>جمع</th><th>وضعیت</th><th></th></tr></thead><tbody>
+      ${keys.map(k=>{ const g=docs[k]; const st=g[0].status; const tot=g.reduce((s,x)=>s+(+x.amount_rial||0),0);
+        return `<tr>
+        <td class="mono"><b>${esc(k)}</b><div class="muted">${esc(g[0].cc_code||'')} ${esc(g[0].cc_name||'')}</div></td>
+        <td>${g.map(x=>`<div class="mono">${esc(x.account_code)} — ${money(x.amount_rial)}</div>`).join('')}</td>
+        <td class="num">${money(tot)}</td>
+        <td>${st==='posted'?'ثبت‌شده':('ابطال‌شده'+(g[0].reverse_reason?(' — '+esc(g[0].reverse_reason)):''))}</td>
+        <td>${st==='posted'&&ohRateEditor()?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){ccAbsorbReverse(k)})}">ابطال</button>`:''}</td>
+      </tr>`; }).join('')}
+    </tbody></table></div>`;
+  }catch(e){ area.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
+}
+async function ccAbsorbReverse(docNo){
+  const reason=prompt('دلیل ابطال سند جذب '+docNo+':');
+  if(!reason||!reason.trim()) return;
+  try{
+    await api('POST','/production/cost-centers/absorb-postings/'+encodeURIComponent(docNo)+'/reverse',{reason:reason.trim()});
+    showToast('سند جذب ابطال شد'); ccAbsorbList();
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 function crvModeUi(){
@@ -27532,7 +27594,7 @@ async function prodOrderReconcileCost(id){
   const needCols=!!preview.can_align_columns || !preview.aligned;
   const needReceipt=!!preview.can_align_receipt || (!zeroAfter && !!preview.aligned);
   const sharedNote=Number(preview.shared_lay_waste_rial||0)>0
-    ? `<p class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.7;margin:8px 0 0')}">اتلاف طولی برش مشترک (${fmt(preview.shared_lay_waste_rial)} ریال) در ماندهٔ بستن نیست چون وارد کار در جریان نشده است.</p>`
+    ? `<p class="muted" data-csp-style="${CSP.style('font-size:12px;line-height:1.7;margin:8px 0 0')}">اتلاف طولی برش مشترک قدیمی (${fmt(preview.shared_lay_waste_rial)} ریال) در ماندهٔ بستن نیست چون وارد کار در جریان نشده است.</p>`
     : '';
   const gap=Number(preview.receipt_gap_rial)||0;
   const receiptHint=!zeroAfter
@@ -42700,7 +42762,8 @@ function renderAdminGuide(){
         <li><b>ویرایش چندمحصول (v471):</b> همان شماره لایه/برنامه با reverse+ثبت مجدد اتمی. ابطال همهٔ PACKهای WIP یک لایه با هم. پیوند سفارش روی لای و PACK.</li>
         <li><b>گیت مرحله:</b> بعد از برش، بدون پوشش لایه‌چینی (به اندازهٔ برنامه) مرحلهٔ بعد شروع/ثبت نمی‌شود.</li>
         <li><b>برگه بها:</b> اگر برش مشترک به سفارش وصل باشد سهم محصولات از تخصیص واقعی پارچه است نه فقط ٪ فرمول.</li>
-        <li><b>اصلاح بها (v503):</b> اگر بستن بگوید ماندهٔ WIP صفر نیست، «اصلاح بها» را بزنید. اول ستون‌های مواد/دستمزد/سربار/ضایعات با اسناد زنده یکی می‌شود. اگر ستون‌ها از قبل یکی بودند ولی مانده از خود رسید بود، همان دکمه رسید را با خالص WIP تطبیق می‌دهد (سهم انبار → بهای کالا، سهم فروش‌رفته → بهای تمام‌شده؛ مراحل باز نمی‌شوند). اتلاف طولی برش مشترک در ماندهٔ بستن نیست چون وارد WIP نشده.</li>
+        <li><b>تسهیم رسید نهایی سفارش چندمحصولی:</b> رسید هر محصول = سهم پارچهٔ خودش از تخصیص برش مشترک (<code>cutting_batch_allocations</code> لایه‌های ابطال‌نشدهٔ همان سفارش) + کل هزینهٔ مراحل اختصاصی همان محصول (مواد/دستمزد/سربار) + سهم از باقی‌مانده (دستمزد و سربار برش و سایر مشترک‌ها) به نسبت تعداد. اگر برش مشترکی به سفارش وصل نباشد، پارچه هم مثل قبل به نسبت تعداد تقسیم می‌شود. جمع رسیدها همیشه دقیقاً برابر ماندهٔ WIP است. برگهٔ بها همین تسهیم را نشان می‌دهد. سفارش‌های بسته‌شدهٔ قبلی خودکار عوض نمی‌شوند.</li>
+        <li><b>اصلاح بها (v503):</b> اگر بستن بگوید ماندهٔ WIP صفر نیست، «اصلاح بها» را بزنید. اول ستون‌های مواد/دستمزد/سربار/ضایعات با اسناد زنده یکی می‌شود. اگر ستون‌ها از قبل یکی بودند ولی مانده از خود رسید بود، همان دکمه رسید را با خالص WIP تطبیق می‌دهد (سهم انبار → بهای کالا، سهم فروش‌رفته → بهای تمام‌شده؛ مراحل باز نمی‌شوند). اتلاف طولی برش مشترک قدیمی (قبل از P6، بستانکار مواد) در ماندهٔ بستن نیست چون وارد WIP نشده؛ برش مشترک جدید مثل لایهٔ معمولی از WIP کم می‌شود.</li>
         <li>بعد از ورود انبار: بهای رسمی در رسید؛ اصلاح با ابطال رسید یا اختلاف‌بها / اصلاح بها (ADR-006).</li>
       </ul>`),
     helpSec('🔗','دامنه و آدرس سرور مرکزی',`
@@ -42934,11 +42997,13 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>نرخ سربار مراکز (v334 / v458):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. ویرایش «نرخ کل» یا «دستمزد / عدد» (مثلاً اتو و بسته‌بندی CC-60) بعد از ذخیره در همان ردیف جدول می‌ماند؛ قبلاً اگر ثابت برابر نرخ کل کپی شده بود، تغییر نرخ کل دور ریخته می‌شد. بودجه فقط وقتی نرخ را عوض می‌کند که خود بودجه را ویرایش کنید یا نرخ ذخیره‌شده با بودجه یکی باشد. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
         <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>
         <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> تب «جذب معین» (یا از ویرایش مرکز هزینه → «جذب از معین») — انتخاب معین با جستجوی کدینگ؛ درصد جذب و مبنا: گردش بدهکار / مانده پایان / بودجه. پیش‌نمایش و «اعمال به بودجه نرخ» همان‌جا.</li>
+        <li><b>سربار و بستن دوره — P3:</b> (۱) <b>محرک درصدی:</b> برای محرک دستمزد/مواد ریالی نرخ به‌صورت <b>درصد از مبنا</b> ثبت می‌شود (پیش‌فرض <b>۲۰٪</b>، قابل ویرایش برای هر مرکز). نرخ‌های قدیمی «ریال به ازای هر میلیون» خودکار به درصد تبدیل شدند (۲۰۰٬۰۰۰ ⇒ ۲۰٪)؛ محرک تعداد خروجی همچنان ریال به ازای هر عدد است. ثبت/ویرایش/لغو نرخ فقط <b>مدیر و حسابداری</b> و همه در گزارش ممیزی ثبت می‌شود. (۲) <b>یکتایی جذب:</b> برای هر سفارش + مرحله + محرک + مرکز فقط یک جذب ثبت‌شده مجاز است؛ تکرار، همان ردیف قبلی را برمی‌گرداند و سند دوباره نمی‌زند. جذب هم‌زمان کارگاه و اتو/بسته‌بندی روی یک مرحله درست است و مجاز می‌ماند. (۳) <b>ثبت جذب واقعی (سند):</b> در تب «جذب معین»، دکمهٔ «ثبت جذب واقعی (سند)» برای مرکز و دورهٔ انتخابی سند «بدهکار کنترل سربار ۵۲۰۲ (با مرکز هزینه) / بستانکار معین‌های 61030x نگاشت‌شده» به اندازهٔ مبنا × درصد جذب می‌زند؛ هر نگاشت در هر دوره فقط یک‌بار. «اسناد جذب دوره» فهرست را نشان می‌دهد و «ابطال» (با دلیل) سند را کامل برمی‌گرداند تا دوباره قابل اجرا باشد. (۴) <b>پیش‌نیاز بستن:</b> اگر ۵۲۰۳ (سربار جذب‌شده) مانده دارد ولی ۵۲۰۲ صفر است، بررسی پیش از بستن <b>خطا</b> می‌دهد تا اول جذب واقعی معین‌ها اجرا شود. (۵) <b>تسهیم انحراف (PRD-23):</b> مانده‌های ۵۲۱۲، ۵۲۱۳، ۵۲۱۴ و ۵۲۱۵ (از جمله ماندهٔ تعدیل بها روی ۵۲۱۴) همه به WIP/کالای ساخته‌شده/بهای فروش تسهیم می‌شوند تا حساب‌های کنترل در پایان صفر شوند. (۶) سهم کالای ساخته‌شده فقط بین <b>محصولات نهایی</b> تولیدشدهٔ دوره پخش می‌شود (رسید باقیماندهٔ برش و اضافه طاقه حساب نمی‌شود).</li>
         <li><b>تعدیل بها (v358):</b> تب «تعدیل بها» — اتومات یا دستی؛ بازمحاسبه بها/قیمت و سند Δ موجودی به ۵۲۱۴؛ ابطال کامل R13.</li>
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>
         <li>ویرایشگر فرمول چهار تب دارد: <b>اقلام</b> | <b>مسیر عملیات</b> | <b>خروجی‌ها</b> | <b>بهای تمام‌شده</b> (تب بها فقط با دسترسی <code>production_cost/view</code> — نقش‌هایی مثل اپراتور تولید و فروش میدان تب بها را نمی‌بینند).</li>
         <li><b>مسیر عملیات (v499):</b> «از الگوی ترنم» مسیر چندمرحله‌ای پیش‌فرض را می‌سازد؛ «مرتب‌سازی مجدد» ترتیب seq را بازچین می‌کند؛ افزودن/ویرایش/حذف دستی عملیات هم از همین تب ممکن است. در هر عملیات فیلد <b>شخص (بستانکار دستمزد)</b> را برای کارگر قطعه‌کار بگذارید: هنگام تکمیل مرحله/رسید، مبلغ = نرخ تعریف‌شدهٔ همان عملیات × تعداد. اگر روش <b>قطعه‌ای یا ساعتی</b> و شخص انتخاب شده باشد، سند PRD-03 بدهکار WIP و <b>بستانکار حساب همان شخص</b> است و ردیف در گردش شخص ثبت می‌شود؛ روش <b>ماهانه</b> یا بدون شخص → بستانکار کنترل ۵۲۰۱ و بدهی حقوق ماهانه فقط از مسیر حقوق (PRD-04). شرح سند محصول/تعداد/عملیات/شخص را کوتاه می‌نویسد. ابطال مرحله ردیف دفتر شخص را هم برمی‌دارد (R13). <b>جستجوی شخص (v451):</b> اگر چند ردیف <code>persons</code> با یک تلفن ساخته شده باشد (همگام قدیمی party→person فقط با <code>party_id</code>)، سلکتور و API <code>?for_picker=1</code> یک ردیف به‌ازای هر تلفن نشان می‌دهند؛ ساخت/ویرایش شخص با تلفن تکراری ۴۰۹ می‌دهد و heal بوت تکراری‌ها را غیرفعال می‌کند. با مسیر فعال (یا وجود عملیات/خروجی)، بازده سرفصل باید ۱۰۰٪ باشد و فعال‌سازی فرمول هم همین قانون را اعمال می‌کند (<b>V4-21</b>). اگر دو عملیات یک مرکز هزینه داشته باشند و مواد فقط به همان مرکز وصل باشد (بدون تخصیص <code>operation_id</code>)، اعتبارسنجی هشدار <code>W_CC_STAGE_OVERLAP</code> می‌دهد و مصرف مواد فقط روی <b>اولین</b> عملیات آن مرکز انجام می‌شود — برای جداسازی، از بخش «مواد این عملیات» / API تخصیص استفاده کنید یا برای عملیات فقط‌دستمزد مرکز بدون قلم مواد بگذارید.</li>
+        <li><b>حساب بستانکار دستمزد قطعه‌ای/ساعتی بر اساس نقش شخص (P5):</b> دستمزد تولید هرگز به حساب دارایی (مثل دریافتنی مشتری ۱۱۰۳ یا اشخاص متفرقه ۱۱۰۶) بستانکار نمی‌شود. <b>کارمند حقوق‌بگیر</b> (نوع استخدام ماهانه/روزانه/ساعتی در حقوق، یا سابقهٔ فیش/حکم حقوقی، یا حقوق ماهانهٔ ثبت‌شده) → <b>حقوق پرداختنی</b> (کلید <code>coa_payroll_payable</code>، پیش‌فرض ۲۱۰۴؛ اگر تفصیلی خود شخص زیر همان حساب باشد همان تفصیلی). <b>پیمانکار/قطعه‌کار</b> (نوع استخدام «پیمانکاری» یا بدون هیچ نشانهٔ استخدام) → <b>تفصیلی پرداختنی خود شخص</b>: حساب بدهی خود شخص/طرف‌حساب، وگرنه تفصیلی تأمین‌کنندهٔ متصل، وگرنه یک تفصیلی جدید زیر حساب‌های پرداختنی (کلید <code>coa_payable</code>، پیش‌فرض ۲۱۰۱) ساخته و روی شخص نگه داشته می‌شود. نقش «کارمند» در طرف‌حساب به‌تنهایی شخص را کارمند نمی‌کند؛ اگر نقش مشخص نباشد مسیر پیمانکار انتخاب و در لاگ سرور علامت می‌خورد. هر دو کلید از «تنظیمات ← نگاشت کدینگ» قابل تغییرند و اگر به حساب دارایی نگاشت شوند سند با <code>E_LABOR_PAYABLE_ASSET</code> رد می‌شود. ابطال مرحله، سند و ردیف دفتر شخص را با همان حساب برمی‌گرداند. اسناد قدیمی که دستمزد را به ۱۱۰۳ زده‌اند خودکار اصلاح نمی‌شوند (اصلاح جداگانه با پیش‌نمایش).</li>
         <li><b>شناسنامهٔ فرمول در برابر تعداد محصول (v434):</b> نام، مقدار پایه و بازده فرآیند روی سرفصل دستور می‌مانند و برای هر محصول تکرار نمی‌شوند. مقدار پایه مخرج مشترک مواد و خروجی‌هاست. بازده فرآیند فقط وقتی مسیر عملیات خاموش است اعمال می‌شود؛ با مسیر، روی ۱۰۰ قفل است و بازده هر مرحله جداست. تعداد هر محصول اصلی (از جمله لنگر) در <code>qty_per_base</code> همان خروجی ذخیره می‌شود. لنگر فقط محصولی است که مقدار سفارش، بقیه را با این نسبت مقیاس می‌کند.</li>
         <li><b>فرمول تک‌محصولی (v472 / ADR-006):</b> هر BOM فقط <b>یک محصول اصلی</b> دارد. تیک «چند محصول با یک برش مشترک» و افزودن محصول اصلی دوم از تعریف فرمول حذف شد. چند محصول روی یک قد الگو → <b>سفارش تولید</b> (فرمول چندمحصولی قدیمی هنوز خوانده می‌شود) و <b>لایه‌چینی چند محصول روی یک مارکر</b>. فرعی/ضایعات (by/scrap) در تب خروجی برای NRV مجاز است. سرور با <code>E_BOM_SINGLE_PRODUCT</code> ایجاد/افزودن محصول اصلی دوم را رد می‌کند.</li>
         <li><b>خروجی‌ها / میراث چندمحصولی (v416→v423):</b> فرمول‌های قدیمی با چند محصول اصلی همچنان برای سفارش‌های جاری کار می‌کنند؛ افزودن peer جدید ممنوع است. سهم٪ و تسهیم روی همان فرمول‌های قدیمی می‌ماند.</li>
@@ -42956,9 +43021,12 @@ helpSec('🔑','لایسنس و entitlement',`
           <b>v403 / v467 سفارش پارچهٔ متری:</b> اگر BOM پارچهٔ متری داشته باشد (حتی قبل از ورود اولین طاقه)، دکمهٔ «رسید» تا قبل از لایه‌چینی+PACK قفل است (<code>E_CUTTING_LAY_REQUIRED</code> / <code>E_CUTTING_PACK_REQUIRED</code>). ورود فروش‌پذیر فقط با رسید/نهایی‌سازی بعد از PACK. وقتی تولید به برنامه برسد وضعیت خودکار <code>completed</code> می‌شود (حتی اگر تیک جزئی مانده باشد).
           <b>v467 برگه بهای تمام‌شده:</b> برای سفارش پارچهٔ متری بدون لایه‌چینی فعال، برگه <b>موقت</b> است (<code>cost_final=false</code>) و بهای نهایی صادر نمی‌شود — ضایعات عادی در مواد، مازاد سقف به ۵۲۲۱، و انحراف متر واقعی در برابر استاندارد ماتریس روی برگه دیده می‌شود. WIP متوازن ≠ بهای نهایی.
           <b>v513 متر واقعی لایه‌چینی:</b> «متر واقعی مصرف‌شده» عدد اندازه‌گیری‌شده است و الزامی؛ فرم دیگر آن را بی‌صدا با «طول مارکر × لایه» پر نمی‌کند (اگر خالی بماند و متر طاقه‌ها هم خالی باشد، ثبت نمی‌شود). در حالت «چند محصول روی یک مارکر» یا کل متر واقعی را بزنید (به نسبت لایه بین طاقه‌ها پخش می‌شود) یا «متر واقعی پهن» هر طاقه را. سیستم سه عدد را جدا نگه می‌دارد: استاندارد فرمول (BOM یا متر استاندارد هر محصول)، مارکر × لایه، و واقعی (پهن + اتلاف). انحراف = واقعی − استاندارد فرمول. مازاد پهن تا سقف ٪ ضایعات عادی در بهای محصول می‌ماند و بیشتر از آن به‌همراه اتلاف طولی به ۵۲۲۱ می‌رود؛ همین اعداد در برگه بهای تمام‌شده دیده می‌شود.
+          <b>P6 سند ضایعات برش مشترک:</b> برش «چند محصول روی یک مارکر» حالا دقیقاً مثل لایه‌چینی معمولی ثبت می‌شود: کل پارچهٔ مصرفی (پهن + اتلاف طولی + سهم غیرعادی) یک‌جا بدهکار کار در جریان (۱۱۱۱) و بستانکار مواد اولیه (۱۱۱۰)، سپس ضایعات غیرعادی بدهکار ۵۲۲۱ و بستانکار <b>کار در جریان (۱۱۱۱)</b> — نه مواد اولیه. خالص ماندهٔ WIP و تسهیم بین محصولات همان بهای خالص است؛ خروج متر/ریال طاقه از انبار تغییری نکرده. ویرایش و ابطال هر دو سند را دقیقاً برعکس می‌کند. برش‌های مشترک قدیمی که ضایعات را بستانکار مواد زده‌اند همچنان «خارج از WIP» حساب می‌شوند تا اصلاح جداگانه.
           <b>v404 پوشش لایه با رسید سفارش:</b> اگر لایه‌چینی (با یا بدون PACK ابطال‌شده) با رسید FG همان سفارش هم‌پوشان باشد، وضعیت «رسید انبار محصول از سفارش …» نشان داده می‌شود و دکمهٔ PACK قفل است (<code>E_LAY_FG_COVERED</code>) تا «منتظر PACK» کاذب پیش نیاید.
           بدون سفارش باز = cut-to-stock مستقیم به FG. سرور اگر یک سفارش باز برای همان کالا باشد خودکار پیوند می‌زند؛ چند سفارش باز → <code>E_PACK_PO_REQUIRED</code>؛ اگر قبلاً PACK فروش‌پذیر زده باشید و بخواهید سفارش را نهایی کنید → <code>E_STANDALONE_PACK_FG</code> (اول ابطال PACK). هرگز PACK فروش‌پذیر و finalize را برای یک بچ با هم نزنید.
           <br><b>ویرایش لایه‌چینی (R13 / v466):</b> روی هر ردیف فعال تب لایه‌چینی دکمهٔ «ویرایش» هست، از جمله ردیفی که «پوشش‌شده با رسید سفارش» است. همان شماره لایه می‌ماند؛ طاقه و سند قبلی برمی‌گردد و با متر/طاقه/رنگ/عرض/مرکز جدید ثبت می‌شود. کالا قفل است. اگر PACK مستقیم (ورود انبار بدون سفارش) دارد، اول همان PACK ابطال شود. اگر رسید سفارش قبلاً محصول را وارد کرده، تعداد قطعه و پیوند سفارش قفل است و اختلاف بهای خالص به همان رسید می‌رود: سهم موجودِ باقیمانده بهای کالا را عوض می‌کند و سهم فروش‌رفته به بهای تمام‌شده می‌رود. مرحله‌های انجام‌شده دوباره باز نمی‌شوند. از v468 همان ردیف دکمهٔ «ابطال لایه‌چینی» دارد: ردیف پاک نمی‌شود؛ طاقه، سند لایه، حوالهٔ برش و سهم بها از رسید سفارش برمی‌گردد. تعداد محصول و مراحل بعدی باز نمی‌شوند. اگر PACK مستقیم هنوز مانده، اول همان PACK ابطال شود.
+          <br><b>ابطال کامل سفارش و تعدیل لایه (R13):</b> سند «تعدیل بهای لایه‌چینی» (ویرایش/ابطال لایهٔ پوشش‌شده) حالا به شمارهٔ همان سفارش وصل است. «ابطال سفارش» (رسید محصول) و «حذف کامل سفارش» در همان تراکنش این سندها، ردیف‌های ارزشی کالای ساخته‌شده در کاردکس و سند تأیید تعدیل بها را هم باطل می‌کنند؛ حساب کار در جریان (۱۱۱۱) سفارش صفر می‌ماند. لایهٔ بدون سفارش فقط وقتی به سفارش نسبت داده می‌شود که همان کالا باشد، سفارش تنها سفارش تکمیل/بسته‌شدهٔ آن کالا باشد و رسیدش قبل از تاریخ لایه نباشد.
+          <br><b>تاریخ رسید تولید:</b> رسید/نهایی‌سازی سفارش نمی‌تواند تاریخی قبل از آخرین حواله مواد، لایه‌چینی، PACK، دستمزد یا سربار همان سفارش داشته باشد (<code>E_RECEIPT_BEFORE_LAST_ACTIVITY</code>). اگر تاریخ خالی بماند، تاریخ آخرین فعالیت (یا تاریخ سفارش اگر دیرتر است) گذاشته می‌شود.
           <br><b>v498 تب PACK فعال:</b> سه تب جدا — «لایه‌چینی»، «منتظر PACK» (صف ثبت)، «PACK فعال» (سندهای PACK زنده‌ای که ابطال‌پذیرند). اگر ویرایش لایه به خاطر PACK زنده قفل شود، سیستم به تب PACK فعال می‌برد. حتی وقتی سفارش قبلاً رسید محصول خورده، دکمهٔ «ابطال رسید محصول» برای PACK انبار زنده دیده می‌شود (پوشش سفارش ≠ نبود PACK). اصلاح PACK = ابطال + ثبت مجدد (بدون amend همان شماره).
           <br>داشبورد مرحله ۳ = لایه‌چینی؛ مرحله ۵ = PACK / رسید (صف منتظرها + PACK فعال).
           <br><b>v378 مسیر برش:</b> بعد از لایه‌چینی «اقدام بعدی» PACK است. تابلوی خط لایه‌های منتظر PACK را در «برش / WIP» می‌آورد. پارچهٔ لایه‌چینی در حواله با E_FABRIC_ALREADY_CUT قفل است.
@@ -42988,6 +43056,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>بازگشایی دوره تولید (v279):</b> اگر بعد از بستن، میانگین بهای کالا یا اسناد بستن تغییر کرده باشد، reopen با <code>E_CLOSE_SNAPSHOT_DRIFT</code> رد می‌شود و هیچ برگشت جزئی انجام نمی‌دهد. دلیل بازگشایی الزامی است.</li>
         <li><b>«اجرای تولید» قدیمی بسته شد (v280):</b> صفحهٔ قدیمی تحلیل هزینه، موجودی و بهای کالا را مستقیم تغییر می‌داد — بدون سند حسابداری، بدون کالای در جریان ساخت و بدون قفل دورهٔ تولید. با نصب مدول تولید، ثبت و ابطال از آن مسیر با <code>E_LEGACY_PRODUCTION_DISABLED</code> (۴۰۹) رد می‌شود و ردیف‌های قبلی فقط‌خواندنی می‌مانند؛ تولید جدید فقط از <b>سفارش‌های تولید</b> (یا لایه‌چینی/رسید محصول) ثبت می‌شود. اگر برای تعمیر داده یا پخش دوبارهٔ outbox یک دستگاه لازم شد، <b>admin</b> می‌تواند در تنظیمات سربار تولید گزینهٔ «اجرای تولید قدیمی مجاز باشد» را موقتاً روشن کند؛ حتی در آن حالت هم ثبت در ماه بستهٔ تولید با <code>E_PERIOD_CLOSED</code> رد می‌شود. مهاجرت ردیف‌های تاریخی به دفتر انبار یک کار جداگانه است.</li>
         <li><b>بسته برش سفارش‌دار = WIP (v281/v399):</b> با پیوند به سفارش، مقدار فقط در انبار WIP/CUT می‌نشیند و <code>products.stock</code> / واریانت فروش‌پذیر تا finalize تغییر نمی‌کند؛ نبود انبار WIP → <code>E_WIP_WAREHOUSE_REQUIRED</code>. اگر سفارش باز برای کالا باشد و لایه بدون سفارش PACK شود، سرور خودکار پیوند می‌زند یا <code>E_PACK_PO_REQUIRED</code> می‌دهد. finalize با PACK فروش‌پذیر یتیم برای همان کالا → <code>E_STANDALONE_PACK_FG</code>.</li>
+        <li><b>خروج WIP بسته با بهای خود بسته (P1):</b> هنگام رسید/نهایی‌سازی، تخلیهٔ بسته از انبار WIP به نسبت تعداد از <b>مبلغ همان بسته</b> ارزش‌گذاری می‌شود (نه میانگین محصول)؛ آخرین خروج هر بسته دقیقاً باقی‌ماندهٔ مبلغ را می‌برد تا ریالی در WIP نماند، و رسیدهای جزئی بعدی از بستهٔ تخلیه‌شده دوباره کم نمی‌کنند. پس ارزش کاردکس WIP هر سفارش = مبلغ بسته‌های هنوز تخلیه‌نشده و بعد از رسید کامل صفر است. ابطال سفارش (reverseOrder) بسته‌ها را با همان مبلغ به WIP برمی‌گرداند.</li>
         <li><b>ماتریس سایز در فرمول:</b> تولید → فرمول تولید → ویرایش → تب <b>اقلام</b> → دکمهٔ 📐 روی همان ردیف ماده. فقط سایزهایی که مصرف متفاوت از مقدار پایه دارند را پر کنید؛ خالی = مقدار پایه. سایزها از کارت کالا (رنگ×سایز) خوانده می‌شوند. پس از ذخیرهٔ ماتریس، «ذخیره اقلام» را بزنید.</li>
         <li><b>حواله مواد مرحله (v282):</b> مواد از تخصیص عملیات فرمول می‌آید. اگر لیست خالی بود، در فرمول → مسیر عملیات، اول عملیات را ذخیره کنید و قلم را به همان عملیات وصل کنید؛ یا «نگاشت خودکار از مرکز هزینه» را بزنید. اگر هیچ وصلی نباشد، مواد روی <b>اولین مرحله</b> می‌آید. پیام خالی حالا علت را می‌گوید.</li>
         <li><b>کسری مواد در مرحله (v462):</b> اگر هنگام «ثبت خروجی» (آنالیز ثابت: حواله خودکار) یا «حواله مواد» (آنالیز متغیر) موجودی یک قلم کمتر از نیاز همان مرحله باشد، برای همان قلم یک کالای دیگر و مقدار پوشش انتخاب کنید. اصل تا سقف موجودی حواله می‌شود و مانده از جایگزین. استاندارد فرمول روی قلم اصلی می‌ماند؛ در پوشش جزئی مقدار استاندارد جایگزین صفر است. اگر پوشش ناقص باشد ثبت انجام نمی‌شود. ابطال مرحله موجودی هر دو کالا را برمی‌گرداند. انحراف همچنان سند حسابداری ندارد.</li>

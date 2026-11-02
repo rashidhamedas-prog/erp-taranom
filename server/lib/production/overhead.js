@@ -188,10 +188,62 @@ function listPlantCostCenters(db) {
   `).all();
 }
 
-function appliedOverheadRial(rate, driverQty) {
-  const rateRial = roundRial(rate && rate.total_rate_rial);
+/** محرک‌های ریالی: مقدار محرک = مبنای ریالی ÷ ۱٬۰۰۰٬۰۰۰ (نرخ قدیمی = ریال به ازای هر میلیون). */
+const RIAL_DRIVERS = Object.freeze(['direct_labor_rial', 'material_rial']);
+const DEFAULT_RATE_PCT = 20;
+
+function isRialDriver(d) {
+  return RIAL_DRIVERS.includes(coerceDriver(d));
+}
+
+function normalizeRatePct(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 1000) {
+    throw rateErr('E_RATE_PCT', 400, 'درصد سربار باید بین ۰ و ۱۰۰۰ باشد');
+  }
+  return Math.round(n * 10000) / 10000;
+}
+
+/** نرخ قدیمی (ریال به ازای هر میلیون ریال مبنا) ↔ درصد: ۲۰۰٬۰۰۰ ⇔ ۲۰٪ */
+function pctFromRatePerMillion(totalRateRial) {
+  const t = Number(totalRateRial) || 0;
+  return t > 0 ? Math.round((t / 10000) * 10000) / 10000 : null;
+}
+
+function ratePerMillionFromPct(pct) {
+  return Math.round((Number(pct) || 0) * 10000);
+}
+
+/** درصد مؤثر فقط وقتی محرکِ اعمال‌شده ریالی است و نرخ درصد صریح دارد. */
+function effectiveRatePct(rate, driver) {
+  if (!rate || rate.rate_pct == null || rate.rate_pct === '') return null;
+  const d = driver != null ? driver : rate.driver;
+  if (!isRialDriver(d)) return null;
+  const n = Number(rate.rate_pct);
+  return Number.isFinite(n) ? n : null;
+}
+
+function appliedOverheadRial(rate, driverQty, driver) {
   const qty = Number(driverQty) || 0;
+  const pct = effectiveRatePct(rate, driver);
+  if (pct != null) {
+    const baseRial = Math.round(qty * 1_000_000);
+    return Math.round(baseRial * (pct / 100) * absorbMultiplier(rate));
+  }
+  const rateRial = roundRial(rate && rate.total_rate_rial);
   return Math.round(rateRial * qty * absorbMultiplier(rate));
+}
+
+/** P3 — یک جذب ثبت‌شده برای (سفارش، مرحله، محرک، مرکز)؛ تکرار = برگرداندن همان ردیف. */
+function findPostedApplication(db, { orderId, stageId, driver, costCenterId }) {
+  if (!orderId || stageId == null || !costCenterId) return null;
+  return db.prepare(`
+    SELECT * FROM production_overhead_applications
+    WHERE order_id=? AND COALESCE(stage_id,0)=? AND driver=? AND cost_center_id=?
+      AND status='posted'
+    LIMIT 1
+  `).get(orderId, Number(stageId) || 0, driver, costCenterId) || null;
 }
 
 function appliedMonthlyLaborRial(rate, qty) {
@@ -289,6 +341,13 @@ function enrichOverheadRate(row) {
     }
   } else if (out.absorb_pct == null || out.absorb_pct === '') {
     out.absorb_pct = 100;
+  }
+  const pct = row.rate_pct == null || row.rate_pct === '' ? null : Number(row.rate_pct);
+  if (isRialDriver(out.driver) && Number.isFinite(pct)) {
+    out.rate_pct = pct;
+    out.total_rate_rial = ratePerMillionFromPct(pct);
+  } else {
+    out.rate_pct = null;
   }
   return out;
 }
@@ -620,7 +679,24 @@ function applyOverhead(db, {
     manualDriverQty: ctx.manualDriverQty,
   });
   const rateRial = Math.round(Number(rate.total_rate_rial) || 0);
-  const amount = appliedOverheadRial(rate, driverQty);
+  const amount = appliedOverheadRial(rate, driverQty, driver);
+
+  const dup = findPostedApplication(db, {
+    orderId: po.id, stageId, driver, costCenterId: po.cost_center_id,
+  });
+  if (dup) {
+    return {
+      id: dup.id,
+      amount_rial: 0,
+      existing: true,
+      existing_amount_rial: Math.round(Number(dup.amount_rial) || 0),
+      driver,
+      driver_qty: Number(dup.driver_qty) || 0,
+      rate_rial: Math.round(Number(dup.rate_rial) || 0),
+      is_estimated: Number(rate.is_estimated) || 0,
+      rate_id: dup.rate_id,
+    };
+  }
 
   let docNo = '';
   try {
@@ -670,6 +746,7 @@ function postPlantOverhead(db, ctx) {
   const skip = new Set((ctx.skipCcIds || []).map((id) => Number(id)));
   if (po.cost_center_id) skip.add(Number(po.cost_center_id));
   const lines = [];
+  const skipped = [];
   let total = 0;
   for (const cc of listPlantCostCenters(db)) {
     if (skip.has(Number(cc.id))) continue;
@@ -677,8 +754,15 @@ function postPlantOverhead(db, ctx) {
     if (!rate) continue;
     const driver = coerceDriver(rate.driver || cc.driver || 'output_qty');
     const driverQty = plantDriverQty(driver, ctx);
-    const amount = appliedOverheadRial(rate, driverQty);
+    const amount = appliedOverheadRial(rate, driverQty, driver);
     if (!(amount > 0)) continue;
+    const dup = findPostedApplication(db, {
+      orderId: po.id, stageId: ctx.stageId || 0, driver, costCenterId: cc.id,
+    });
+    if (dup) {
+      skipped.push({ id: dup.id, cost_center_id: cc.id, amount_rial: Math.round(Number(dup.amount_rial) || 0) });
+      continue;
+    }
     let docNo = '';
     try { docNo = allocateNumber(db, 'overhead_apply', 'OH'); }
     catch { docNo = `OH-${Date.now()}`; }
@@ -699,7 +783,7 @@ function postPlantOverhead(db, ctx) {
     lines.push({ id, amount_rial: amount, cost_center_id: cc.id, name: cc.name });
     total += amount;
   }
-  return { amount_rial: total, lines };
+  return { amount_rial: total, lines, skipped };
 }
 
 module.exports = {
@@ -722,5 +806,13 @@ module.exports = {
   appliedOverheadRial,
   appliedMonthlyLaborRial,
   estimateCuttingCapacity,
+  findPostedApplication,
+  isRialDriver,
+  normalizeRatePct,
+  pctFromRatePerMillion,
+  ratePerMillionFromPct,
+  effectiveRatePct,
+  RIAL_DRIVERS,
+  DEFAULT_RATE_PCT,
   OH_DRIVERS,
 };
