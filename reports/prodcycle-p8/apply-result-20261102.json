@@ -1,0 +1,1095 @@
+{
+  "generated_at": "2026-11-02T19:08:28.494Z",
+  "backup": "/home/taranom/backups/crm.db.pre-p8-apply-20261102-223550.consistent",
+  "steps": [
+    {
+      "step": "a person132 contractor",
+      "audit_id": 4042,
+      "undo": "UPDATE persons SET employment_type=NULL WHERE id=132 (+audit)"
+    },
+    {
+      "step": "b1 p8a item1 (333 legacy kardex)",
+      "audit_id": 4043,
+      "undo": "P8A_ALLOW_LIVE=1 node server/scripts/p8a-item1-p333-legacy-kardex.js --undo=4043 --i-have-approval --reason=..."
+    },
+    {
+      "step": "b2 p9 relabel 333 m→yd",
+      "audit_ids": [
+        4044,
+        4045,
+        4046,
+        4047
+      ],
+      "group_key": "p9-rru-mvzmr3wj-d2553558",
+      "relabel_ids": [
+        11,
+        12,
+        13,
+        14
+      ],
+      "undo": "node server/scripts/p9-roll-unit-relabel.js --reverse=p9-rru-mvzmr3wj-d2553558 --i-have-approval --reason=..."
+    },
+    {
+      "step": "c p8a item2 (WH37 exits)",
+      "audit_id": 4048,
+      "undo": "... p8a-item2-wh37-pack-exit.js --undo=4048 ..."
+    },
+    {
+      "step": "d p8a item4 (fg_delta 675/676/714)",
+      "audit_id": 4049,
+      "undo": "... p8a-item4-orphan-fgdelta.js --undo=4049 ..."
+    },
+    {
+      "step": "e p8a item3 (PO-0014 split)",
+      "audit_id": 4050,
+      "je_id": 1202,
+      "undo": "... p8a-item3-po14-receipt-split.js --undo=4050 ..."
+    },
+    {
+      "step": "f p8b shared waste order 19",
+      "audit_id": 4051,
+      "voided_je": [
+        802,
+        803,
+        804,
+        805,
+        806,
+        807,
+        816,
+        817,
+        810,
+        811
+      ],
+      "new_je": [
+        1203,
+        1204,
+        1205,
+        1206,
+        1207,
+        1208,
+        1209,
+        1210,
+        1211,
+        1212
+      ],
+      "undo": "node server/scripts/p8b-shared-waste-reclass.js --db=<crm.db> --order=19 --reverse --i-have-approval --reason=..."
+    },
+    {
+      "step": "g p8b labor reclass option B",
+      "audit_id": 4052,
+      "je_id": 1213,
+      "voucher": "JV-1213",
+      "undo": "node server/scripts/p8b-labor-payable-reclass.js --db=<crm.db> --person=132 --reverse --i-have-approval --reason=..."
+    }
+  ],
+  "verify": {
+    "person132": "PASS (see step log)",
+    "item1": "PASS (see step log)",
+    "p9": "PASS (see step log)",
+    "item2": "PASS (see step log)",
+    "item4": "PASS (see step log)",
+    "item3": "PASS (see step log)",
+    "waste": "PASS (see step log)",
+    "labor": "PASS (see step log)"
+  },
+  "metrics": {
+    "kardex_count": [
+      2206,
+      2245
+    ],
+    "kardex_sum_qty_in": [
+      86625.876,
+      88673.28
+    ],
+    "kardex_sum_qty_out": [
+      19457.024,
+      21248.158
+    ],
+    "je_count": [
+      1167,
+      1179
+    ],
+    "journal_lines_count": [
+      2495,
+      2531
+    ],
+    "tb_approved_dr": [
+      141404816201,
+      142458228565
+    ],
+    "tb_approved_cr": [
+      141404816201,
+      142458228565
+    ],
+    "tb_approved_diff": [
+      0,
+      0
+    ],
+    "unbalanced_live_je": [
+      0,
+      0
+    ],
+    "gl_1104": [
+      13011907142,
+      13146912953,
+      135005811
+    ],
+    "gl_1110": [
+      1933299574,
+      1933299574,
+      0
+    ],
+    "gl_1111": [
+      1264548548,
+      1009210942,
+      -255337606
+    ],
+    "gl_5101": [
+      2777574725,
+      2897906520,
+      120331795
+    ],
+    "gl_5221": [
+      220700687,
+      220700687,
+      0
+    ],
+    "gl_110301000015": [
+      -243372000,
+      -23372000,
+      220000000
+    ],
+    "gl_210101000006": [
+      0,
+      -220000000,
+      -220000000
+    ],
+    "kardex_WH33_val": [
+      522322975,
+      1450880673,
+      928557698
+    ],
+    "kardex_WH34_val": [
+      10673629680,
+      10808635491,
+      135005811
+    ],
+    "kardex_WH35_val": [
+      2389071462,
+      2389071462,
+      0
+    ],
+    "kardex_WH37_val": [
+      -2797379484,
+      0,
+      2797379484
+    ],
+    "p333_WH33": [
+      {
+        "qty": -237.36,
+        "val": -860040017,
+        "rows": 24
+      },
+      {
+        "qty": 18.91,
+        "val": 68517681,
+        "rows": 14
+      }
+    ],
+    "p333_opening_stock": [
+      [
+        {
+          "id": 333,
+          "warehouse_id": 33,
+          "status": "needs_review",
+          "qty": 239.44
+        }
+      ],
+      [
+        {
+          "id": 333,
+          "warehouse_id": 33,
+          "status": "void",
+          "qty": 239.44
+        }
+      ]
+    ],
+    "p333_bucket": [
+      [
+        {
+          "qty": 2.0799999999999272,
+          "value_rial": 7536582
+        }
+      ],
+      [
+        {
+          "qty": 18.91,
+          "value_rial": 68517681
+        }
+      ]
+    ],
+    "p333_batch_units": [
+      [
+        {
+          "id": 2,
+          "batch_no": "LOT-0002",
+          "unit": "m"
+        },
+        {
+          "id": 3,
+          "batch_no": "LOT-0003",
+          "unit": "m"
+        },
+        {
+          "id": 5,
+          "batch_no": "LOT-0005",
+          "unit": "m"
+        },
+        {
+          "id": 4,
+          "batch_no": "LOT-0004",
+          "unit": "m"
+        },
+        {
+          "id": 1,
+          "batch_no": "LOT-0001",
+          "unit": "m"
+        }
+      ],
+      [
+        {
+          "id": 2,
+          "batch_no": "LOT-0002",
+          "unit": "yd"
+        },
+        {
+          "id": 3,
+          "batch_no": "LOT-0003",
+          "unit": "yd"
+        },
+        {
+          "id": 5,
+          "batch_no": "LOT-0005",
+          "unit": "yd"
+        },
+        {
+          "id": 4,
+          "batch_no": "LOT-0004",
+          "unit": "yd"
+        },
+        {
+          "id": 1,
+          "batch_no": "LOT-0001",
+          "unit": "m"
+        }
+      ]
+    ],
+    "stage54": [
+      [
+        131840590,
+        659202950,
+        0,
+        815932404
+      ],
+      [
+        131840590,
+        875904176,
+        216701226,
+        815932404
+      ]
+    ],
+    "person132_employment_type": [
+      null,
+      "contractor"
+    ]
+  },
+  "boot_changed_data": false,
+  "before": {
+    "kardex": {
+      "count": 2206,
+      "sum_qty_in": 86625.876,
+      "sum_qty_out": 19457.024,
+      "max_id": 2387
+    },
+    "je": {
+      "count": 1167,
+      "max_id": 1201,
+      "status_counts": [
+        {
+          "s": "approved",
+          "n": 783
+        }
+      ]
+    },
+    "lines": {
+      "count": 2495
+    },
+    "trial_balance": {
+      "approved": {
+        "dr": 141404816201,
+        "cr": 141404816201,
+        "diff": 0
+      },
+      "live": {
+        "dr": 141404816201,
+        "cr": 141404816201,
+        "diff": 0
+      }
+    },
+    "unbalanced_live_je": [],
+    "gl": {
+      "1104": {
+        "exact": {
+          "dr": 19421886361,
+          "cr": 6409979219,
+          "net": 13011907142
+        },
+        "prefix": {
+          "dr": 19421886361,
+          "cr": 6409979219,
+          "net": 13011907142
+        }
+      },
+      "1110": {
+        "exact": {
+          "dr": 4400229925,
+          "cr": 2466930351,
+          "net": 1933299574
+        },
+        "prefix": {
+          "dr": 4400229925,
+          "cr": 2466930351,
+          "net": 1933299574
+        }
+      },
+      "1111": {
+        "exact": {
+          "dr": 3905077253,
+          "cr": 2640528705,
+          "net": 1264548548
+        },
+        "prefix": {
+          "dr": 3905077253,
+          "cr": 2640528705,
+          "net": 1264548548
+        }
+      },
+      "5101": {
+        "exact": {
+          "dr": 3825946430,
+          "cr": 1048371705,
+          "net": 2777574725
+        },
+        "prefix": {
+          "dr": 3825946430,
+          "cr": 1048371705,
+          "net": 2777574725
+        }
+      },
+      "5221": {
+        "exact": {
+          "dr": 220700687,
+          "cr": 0,
+          "net": 220700687
+        },
+        "prefix": {
+          "dr": 220700687,
+          "cr": 0,
+          "net": 220700687
+        }
+      },
+      "110301000015": {
+        "dr": 437024000,
+        "cr": 680396000,
+        "net": -243372000
+      },
+      "210101000006": {
+        "dr": 0,
+        "cr": 0,
+        "net": 0
+      }
+    },
+    "kardex_wh": {
+      "33": {
+        "qty": 63810.748,
+        "val": 522322975,
+        "rows": 151
+      },
+      "34": {
+        "qty": 1754,
+        "val": 10673629680,
+        "rows": 567
+      },
+      "35": {
+        "qty": 442,
+        "val": 2389071462,
+        "rows": 428
+      },
+      "37": {
+        "qty": 0,
+        "val": -2797379484,
+        "rows": 22
+      }
+    },
+    "p333": {
+      "kardex_by_wh": {
+        "33": {
+          "qty": -237.36,
+          "val": -860040017,
+          "rows": 24
+        }
+      },
+      "product": {
+        "id": 333,
+        "name": "پارچه مموری لایکو دوزی",
+        "stock": 18.91,
+        "average_cost_rial": 3623357,
+        "unit": "یارد"
+      },
+      "warehouse_stock": [
+        {
+          "warehouse_id": 33,
+          "qty": 18.91
+        }
+      ],
+      "bucket": [
+        {
+          "product_id": 333,
+          "warehouse_id": 33,
+          "qty": 2.0799999999999272,
+          "value_rial": 7536582,
+          "avg_rial": 3623357,
+          "last_ledger_id": 1733,
+          "updated_at": 1792671910,
+          "sync_seq": 728182,
+          "version": 1
+        }
+      ],
+      "opening_stock": [
+        {
+          "id": 333,
+          "warehouse_id": 33,
+          "status": "needs_review",
+          "qty": 239.44
+        }
+      ],
+      "batches": [
+        {
+          "id": 2,
+          "batch_no": "LOT-0002",
+          "unit": "m"
+        },
+        {
+          "id": 3,
+          "batch_no": "LOT-0003",
+          "unit": "m"
+        },
+        {
+          "id": 5,
+          "batch_no": "LOT-0005",
+          "unit": "m"
+        },
+        {
+          "id": 4,
+          "batch_no": "LOT-0004",
+          "unit": "m"
+        },
+        {
+          "id": 1,
+          "batch_no": "LOT-0001",
+          "unit": "m"
+        }
+      ]
+    },
+    "order19": {
+      "order": {
+        "id": 19,
+        "order_no": "PO-0019",
+        "product_id": 336,
+        "bom_id": 32,
+        "bom_version": 22,
+        "analysis_type": "variable_adv",
+        "production_mode": "MTS",
+        "sales_order_id": null,
+        "b2b_order_id": null,
+        "customer_id": null,
+        "qty_planned": 84,
+        "qty_produced": 0,
+        "qty_waste_normal": 0,
+        "qty_waste_abnormal": 0,
+        "qty_scrap_salable": 0,
+        "qty_rework": 0,
+        "size_breakdown": "",
+        "color": "",
+        "warehouse_raw_id": 33,
+        "warehouse_fg_id": 34,
+        "cost_center_id": 5,
+        "coa_wip_tafsili": null,
+        "status": "in_progress",
+        "priority": 5,
+        "planned_start": "",
+        "planned_end": "",
+        "actual_start": "1405/07/15",
+        "actual_end": "",
+        "date": "1405/07/15",
+        "period_label": "1405/07",
+        "fiscal_year_id": 7,
+        "material_cost_rial": 681121488,
+        "packaging_cost_rial": 0,
+        "labor_cost_rial": 125688864,
+        "overhead_cost_rial": 202400590,
+        "subcontract_cost_rial": 0,
+        "rework_cost_rial": 0,
+        "abnormal_waste_rial": 216701226,
+        "scrap_credit_rial": 0,
+        "byproduct_credit_rial": 0,
+        "total_cost_rial": 0,
+        "unit_cost_rial": 0,
+        "variance_applied_rial": 0,
+        "std_material_rial": 0,
+        "std_labor_rial": 0,
+        "std_overhead_rial": 0,
+        "std_total_rial": 0,
+        "std_unit_rial": 0,
+        "estimate_id": null,
+        "note": "",
+        "closed_by": null,
+        "closed_at": null,
+        "cancelled_reason": "",
+        "created_by": 21,
+        "created_at": 1792599803,
+        "updated_at": 1793623758,
+        "sync_seq": 900593,
+        "version": 86,
+        "has_matrix_lines": 1,
+        "manual_driver_qty": 0,
+        "completeness_waive_reason": "",
+        "fg_plan_json": "[{\"product_id\":336,\"qty\":84,\"bom_id\":32},{\"product_id\":337,\"qty\":84,\"bom_id\":33}]"
+      },
+      "stage54": {
+        "id": 54,
+        "order_id": 19,
+        "seq": 10,
+        "cost_center_id": 3,
+        "operation_id": 59,
+        "operation_name": "برش",
+        "status": "done",
+        "qty_in": 168,
+        "qty_out": 168,
+        "qty_waste_normal": 0,
+        "qty_waste_abnormal": 0,
+        "qty_rework": 0,
+        "qty_scrap_salable": 0,
+        "labor_hours": 0,
+        "machine_hours": 0,
+        "driver": "material_rial",
+        "driver_qty": 659.20295,
+        "material_in_rial": 0,
+        "material_added_rial": 659202950,
+        "labor_rial": 24888864,
+        "overhead_rial": 131840590,
+        "subcontract_rial": 0,
+        "waste_abnormal_rial": 0,
+        "scrap_credit_rial": 0,
+        "cost_out_rial": 815932404,
+        "unit_cost_out_rial": 4856741,
+        "is_subcontract": 0,
+        "supplier_id": null,
+        "started_at": "",
+        "ended_at": "1405/08/07",
+        "qc_passed": 1,
+        "qc_note": "",
+        "note": "متوقف",
+        "created_by": 21,
+        "created_at": 1792599805,
+        "sync_seq": 900358,
+        "version": 19,
+        "product_scope": "shared",
+        "scoped_product_id": null,
+        "qty_planned_in": 168
+      }
+    },
+    "person132": {
+      "id": 132,
+      "name": "مهدیه ابراهیمی",
+      "employment_type": null,
+      "coa_code": "110301000015"
+    },
+    "audit_max_id": 4041,
+    "recent_activity": {
+      "je_last5": [
+        {
+          "id": 1201,
+          "entry_date": "1405/08/11",
+          "ref_type": "production_overhead",
+          "ref_id": 19,
+          "created_at": 1793623758
+        },
+        {
+          "id": 1200,
+          "entry_date": "1405/08/11",
+          "ref_type": "production_overhead",
+          "ref_id": 19,
+          "created_at": 1793623758
+        },
+        {
+          "id": 1199,
+          "entry_date": "1405/08/11",
+          "ref_type": "production_material_issue",
+          "ref_id": 19,
+          "created_at": 1793623755
+        },
+        {
+          "id": 1198,
+          "entry_date": "1405/08/11",
+          "ref_type": "production_overhead",
+          "ref_id": 19,
+          "created_at": 1793623751
+        },
+        {
+          "id": 1197,
+          "entry_date": "1405/08/11",
+          "ref_type": "production_labor",
+          "ref_id": 40,
+          "created_at": 1793623751
+        }
+      ],
+      "ledger_last5": [
+        {
+          "id": 2387,
+          "date": "1405/08/11",
+          "event_type": "production_issue",
+          "source_type": "production_issue",
+          "source_id": 19,
+          "created_at": 1793623755
+        },
+        {
+          "id": 2386,
+          "date": "1405/08/11",
+          "event_type": "production_issue",
+          "source_type": "production_issue",
+          "source_id": 19,
+          "created_at": 1793623749
+        },
+        {
+          "id": 2385,
+          "date": "1405/08/11",
+          "event_type": "production_issue",
+          "source_type": "production_issue",
+          "source_id": 19,
+          "created_at": 1793623742
+        },
+        {
+          "id": 2384,
+          "date": "1405/08/11",
+          "event_type": "reversal",
+          "source_type": "production_issue",
+          "source_id": 19,
+          "created_at": 1793623571
+        },
+        {
+          "id": 2383,
+          "date": "1405/08/11",
+          "event_type": "reversal",
+          "source_type": "production_issue",
+          "source_id": 19,
+          "created_at": 1793623568
+        }
+      ]
+    }
+  },
+  "after": {
+    "kardex": {
+      "count": 2245,
+      "sum_qty_in": 88673.28,
+      "sum_qty_out": 21248.158,
+      "max_id": 2426
+    },
+    "je": {
+      "count": 1179,
+      "max_id": 1213,
+      "status_counts": [
+        {
+          "s": "approved",
+          "n": 782
+        }
+      ]
+    },
+    "lines": {
+      "count": 2531
+    },
+    "trial_balance": {
+      "approved": {
+        "dr": 142458228565,
+        "cr": 142458228565,
+        "diff": 0
+      },
+      "live": {
+        "dr": 142458228565,
+        "cr": 142458228565,
+        "diff": 0
+      }
+    },
+    "unbalanced_live_je": [],
+    "gl": {
+      "1104": {
+        "exact": {
+          "dr": 19421886361,
+          "cr": 6274973408,
+          "net": 13146912953
+        },
+        "prefix": {
+          "dr": 19421886361,
+          "cr": 6274973408,
+          "net": 13146912953
+        }
+      },
+      "1110": {
+        "exact": {
+          "dr": 4400229925,
+          "cr": 2466930351,
+          "net": 1933299574
+        },
+        "prefix": {
+          "dr": 4400229925,
+          "cr": 2466930351,
+          "net": 1933299574
+        }
+      },
+      "1111": {
+        "exact": {
+          "dr": 3866440873,
+          "cr": 2857229931,
+          "net": 1009210942
+        },
+        "prefix": {
+          "dr": 3866440873,
+          "cr": 2857229931,
+          "net": 1009210942
+        }
+      },
+      "5101": {
+        "exact": {
+          "dr": 3857995174,
+          "cr": 960088654,
+          "net": 2897906520
+        },
+        "prefix": {
+          "dr": 3857995174,
+          "cr": 960088654,
+          "net": 2897906520
+        }
+      },
+      "5221": {
+        "exact": {
+          "dr": 220700687,
+          "cr": 0,
+          "net": 220700687
+        },
+        "prefix": {
+          "dr": 220700687,
+          "cr": 0,
+          "net": 220700687
+        }
+      },
+      "110301000015": {
+        "dr": 1077024000,
+        "cr": 1100396000,
+        "net": -23372000
+      },
+      "210101000006": {
+        "dr": 420000000,
+        "cr": 640000000,
+        "net": -220000000
+      }
+    },
+    "kardex_wh": {
+      "33": {
+        "qty": 64067.018,
+        "val": 1450880673,
+        "rows": 141
+      },
+      "34": {
+        "qty": 1754,
+        "val": 10808635491,
+        "rows": 564
+      },
+      "35": {
+        "qty": 442,
+        "val": 2389071462,
+        "rows": 428
+      },
+      "37": {
+        "qty": 0,
+        "val": 0,
+        "rows": 22
+      }
+    },
+    "p333": {
+      "kardex_by_wh": {
+        "33": {
+          "qty": 18.91,
+          "val": 68517681,
+          "rows": 14
+        }
+      },
+      "product": {
+        "id": 333,
+        "name": "پارچه مموری لایکو دوزی",
+        "stock": 18.91,
+        "average_cost_rial": 3623357,
+        "unit": "یارد"
+      },
+      "warehouse_stock": [
+        {
+          "warehouse_id": 33,
+          "qty": 18.91
+        }
+      ],
+      "bucket": [
+        {
+          "product_id": 333,
+          "warehouse_id": 33,
+          "qty": 18.91,
+          "value_rial": 68517681,
+          "avg_rial": 3623357,
+          "last_ledger_id": 2397,
+          "updated_at": 1793646387,
+          "sync_seq": 905321,
+          "version": 12
+        }
+      ],
+      "opening_stock": [
+        {
+          "id": 333,
+          "warehouse_id": 33,
+          "status": "void",
+          "qty": 239.44
+        }
+      ],
+      "batches": [
+        {
+          "id": 2,
+          "batch_no": "LOT-0002",
+          "unit": "yd"
+        },
+        {
+          "id": 3,
+          "batch_no": "LOT-0003",
+          "unit": "yd"
+        },
+        {
+          "id": 5,
+          "batch_no": "LOT-0005",
+          "unit": "yd"
+        },
+        {
+          "id": 4,
+          "batch_no": "LOT-0004",
+          "unit": "yd"
+        },
+        {
+          "id": 1,
+          "batch_no": "LOT-0001",
+          "unit": "m"
+        }
+      ]
+    },
+    "order19": {
+      "order": {
+        "id": 19,
+        "order_no": "PO-0019",
+        "product_id": 336,
+        "bom_id": 32,
+        "bom_version": 22,
+        "analysis_type": "variable_adv",
+        "production_mode": "MTS",
+        "sales_order_id": null,
+        "b2b_order_id": null,
+        "customer_id": null,
+        "qty_planned": 84,
+        "qty_produced": 0,
+        "qty_waste_normal": 0,
+        "qty_waste_abnormal": 0,
+        "qty_scrap_salable": 0,
+        "qty_rework": 0,
+        "size_breakdown": "",
+        "color": "",
+        "warehouse_raw_id": 33,
+        "warehouse_fg_id": 34,
+        "cost_center_id": 5,
+        "coa_wip_tafsili": null,
+        "status": "in_progress",
+        "priority": 5,
+        "planned_start": "",
+        "planned_end": "",
+        "actual_start": "1405/07/15",
+        "actual_end": "",
+        "date": "1405/07/15",
+        "period_label": "1405/07",
+        "fiscal_year_id": 7,
+        "material_cost_rial": 897822714,
+        "packaging_cost_rial": 0,
+        "labor_cost_rial": 125688864,
+        "overhead_cost_rial": 202400590,
+        "subcontract_cost_rial": 0,
+        "rework_cost_rial": 0,
+        "abnormal_waste_rial": 216701226,
+        "scrap_credit_rial": 0,
+        "byproduct_credit_rial": 0,
+        "total_cost_rial": 0,
+        "unit_cost_rial": 0,
+        "variance_applied_rial": 0,
+        "std_material_rial": 0,
+        "std_labor_rial": 0,
+        "std_overhead_rial": 0,
+        "std_total_rial": 0,
+        "std_unit_rial": 0,
+        "estimate_id": null,
+        "note": "",
+        "closed_by": null,
+        "closed_at": null,
+        "cancelled_reason": "",
+        "created_by": 21,
+        "created_at": 1792599803,
+        "updated_at": 1793646451,
+        "sync_seq": 905592,
+        "version": 88,
+        "has_matrix_lines": 1,
+        "manual_driver_qty": 0,
+        "completeness_waive_reason": "",
+        "fg_plan_json": "[{\"product_id\":336,\"qty\":84,\"bom_id\":32},{\"product_id\":337,\"qty\":84,\"bom_id\":33}]"
+      },
+      "stage54": {
+        "id": 54,
+        "order_id": 19,
+        "seq": 10,
+        "cost_center_id": 3,
+        "operation_id": 59,
+        "operation_name": "برش",
+        "status": "done",
+        "qty_in": 168,
+        "qty_out": 168,
+        "qty_waste_normal": 0,
+        "qty_waste_abnormal": 0,
+        "qty_rework": 0,
+        "qty_scrap_salable": 0,
+        "labor_hours": 0,
+        "machine_hours": 0,
+        "driver": "material_rial",
+        "driver_qty": 659.20295,
+        "material_in_rial": 0,
+        "material_added_rial": 875904176,
+        "labor_rial": 24888864,
+        "overhead_rial": 131840590,
+        "subcontract_rial": 0,
+        "waste_abnormal_rial": 216701226,
+        "scrap_credit_rial": 0,
+        "cost_out_rial": 815932404,
+        "unit_cost_out_rial": 4856741,
+        "is_subcontract": 0,
+        "supplier_id": null,
+        "started_at": "",
+        "ended_at": "1405/08/07",
+        "qc_passed": 1,
+        "qc_note": "",
+        "note": "متوقف",
+        "created_by": 21,
+        "created_at": 1792599805,
+        "sync_seq": 905590,
+        "version": 20,
+        "product_scope": "shared",
+        "scoped_product_id": null,
+        "qty_planned_in": 168
+      }
+    },
+    "person132": {
+      "id": 132,
+      "name": "مهدیه ابراهیمی",
+      "employment_type": "contractor",
+      "coa_code": "110301000015"
+    },
+    "audit_max_id": 4052,
+    "recent_activity": {
+      "je_last5": [
+        {
+          "id": 1213,
+          "entry_date": "1405/08/11",
+          "ref_type": "p8b_labor_payable_reclass",
+          "ref_id": 132,
+          "created_at": 1793646459
+        },
+        {
+          "id": 1212,
+          "entry_date": "1405/07/15",
+          "ref_type": "production_waste",
+          "ref_id": 34,
+          "created_at": 1793646451
+        },
+        {
+          "id": 1211,
+          "entry_date": "1405/07/15",
+          "ref_type": "production_material_issue",
+          "ref_id": 34,
+          "created_at": 1793646451
+        },
+        {
+          "id": 1210,
+          "entry_date": "1405/07/15",
+          "ref_type": "production_waste",
+          "ref_id": 33,
+          "created_at": 1793646451
+        },
+        {
+          "id": 1209,
+          "entry_date": "1405/07/15",
+          "ref_type": "production_material_issue",
+          "ref_id": 33,
+          "created_at": 1793646451
+        }
+      ],
+      "ledger_last5": [
+        {
+          "id": 2426,
+          "date": "1405/07/05",
+          "event_type": "production_receipt",
+          "source_type": "p8a_receipt_split",
+          "source_id": 14,
+          "created_at": 1793646417
+        },
+        {
+          "id": 2425,
+          "date": "1405/07/05",
+          "event_type": "production_receipt",
+          "source_type": "p8a_receipt_split",
+          "source_id": 14,
+          "created_at": 1793646417
+        },
+        {
+          "id": 2424,
+          "date": "1405/08/11",
+          "event_type": "reversal",
+          "source_type": "cutting_lay_fg_delta",
+          "source_id": 18,
+          "created_at": 1793646409
+        },
+        {
+          "id": 2423,
+          "date": "1405/08/11",
+          "event_type": "reversal",
+          "source_type": "cutting_lay_fg_delta",
+          "source_id": 13,
+          "created_at": 1793646409
+        },
+        {
+          "id": 2422,
+          "date": "1405/08/11",
+          "event_type": "reversal",
+          "source_type": "cutting_lay_fg_delta",
+          "source_id": 13,
+          "created_at": 1793646409
+        }
+      ]
+    }
+  }
+}
