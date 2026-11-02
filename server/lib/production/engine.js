@@ -785,7 +785,9 @@ function postReceiptFixed(db, { orderId, body, userId }) {
     }
     require('./product-completeness').assertOrderReady(db, orderId, 'finalize');
 
-    const date = String(body.date || po.date || todayJalali()).trim();
+    const RDG = require('./receipt-date-guard');
+    const date = String(body.date || RDG.defaultReceiptDate(db, orderId, po.date || todayJalali())).trim();
+    RDG.assertReceiptNotBeforeLastActivity(db, orderId, date);
     const period = jalaliPeriod(date);
     const fy = assertFiscalYearWritable(db, date);
     if (!fy.ok) throw err('E_PERIOD_CLOSED', 409, { detail: fy.error });
@@ -1398,6 +1400,9 @@ function reverseOrder(db, orderId, userId, reason = '') {
     const date = todayJalali();
     const jeIds = new Set();
 
+    // R13: covered-lay value deltas absorbed by these receipts (JE + FG value rows) go first.
+    require('./cutting').reverseOrderFgDeltas(db, { orderId, userId, reason, date });
+
     // Collect JEs in reverse order of posting
     for (const r of receipts) if (r.je_id) jeIds.add(r.je_id);
     const wastes = db.prepare(`SELECT * FROM production_waste WHERE order_id=? AND status='posted'`).all(orderId);
@@ -1952,7 +1957,9 @@ function postReceiptVariable(db, { orderId, body, userId }) {
     `).get(orderId);
     if (!issued || Math.abs(Number(issued.s)) < 1) throw err('E_NO_MATERIAL_ISSUED', 422);
 
-    const date = String(body.date || po.date || todayJalali()).trim();
+    const RDG = require('./receipt-date-guard');
+    const date = String(body.date || RDG.defaultReceiptDate(db, orderId, po.date || todayJalali())).trim();
+    RDG.assertReceiptNotBeforeLastActivity(db, orderId, date);
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
 
@@ -2277,6 +2284,9 @@ function purgeOrder(db, orderId, userId, reason = '') {
     `).get(orderId).c;
     if ((postedIssues || postedReceipts) && po.status !== 'cancelled') {
       reverseOrder(db, orderId, userId, why);
+    } else {
+      // Order reversed before fg_delta was part of the reverse: void what is still live.
+      require('./cutting').reverseOrderFgDeltas(db, { orderId, userId, reason: why });
     }
 
     db.prepare(`

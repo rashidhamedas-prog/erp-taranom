@@ -684,6 +684,7 @@ const FK_COLUMNS = [
   ['product_opening_stock', 'variant_id'],
   ['product_opening_stock', 'ledger_id'],
   ['product_opening_stock', 'je_id'],
+  ['cutting_lays', 'fg_delta_order_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

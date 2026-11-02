@@ -1,3 +1,17 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P4: ابطال کامل تعدیل بهای لایه (fg_delta) با سفارش + گارد تاریخ رسید تولید (SW v614)
+- **Commit:** squash روی main (#165) ([PR #165](https://github.com/rashidhamedas-prog/erp-taranom/pull/165))؛ commit شاخه `99b92448` (`fix/prodcycle-p4-reverse-fgdelta`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** سندهای `cutting_lay_fg_delta` به سفارش پیوند نداشتند ⇒ `reverseOrder`/`purgeOrder` آن‌ها را نمی‌دید و بدهکار WIP (۱۱۱۱)، بستانکار FG (۱۱۰۴)/بهای فروش (۵۱۰۱) و ردیف‌های ارزشی WH34 یتیم می‌ماندند (الگوی JE 675/676/714)؛ رسید تولید می‌توانست قبل از آخرین فعالیت سفارش تاریخ بخورد.
+- **پیوند سفارش:** ستون `cutting_lays.fg_delta_order_id` (ensureColumn) در هر `absorbCoveredLayDelta`؛ سند fg_delta `src_doc_no = order_no` + شمارهٔ سفارش در شرح/کاردکس. `FK_COLUMNS` (append-only) به‌روز شد.
+- **ابطال کامل (R13):** `reverseOrderFgDeltas` (داخل تراکنش فراخواننده): لغو سند تأیید تعدیل بها (`value-approval`)، معکوس ردیف‌های ارزشی FG با `reverseInventoryMovement`، soft-void سندهای fg_delta؛ idempotent. از `reverseOrder` و `purgeOrder` (حتی سفارش cancelled). ردیف قدیمی بی‌پیوند فقط وقتی امن (لایهٔ لینک به همین سفارش، یا تنها سفارش رسیددار همان کالا) و نسبت‌دهی ثبت می‌شود. حدس «تنها سفارش تکمیل‌شده» سخت‌گیرتر (همان کالا + مقدار رسید کافی + تاریخ رسید ≥ لایه؛ voided/cancelled هرگز)؛ `covered_attribution = linked|recorded|guess`.
+- **گارد تاریخ رسید (`receipt-date-guard.js` جدید):** رسید ثابت/متغیر/نهایی‌سازی پیشرفته قبل از آخرین حوالهٔ مواد/لایه‌چینی/PACK/دستمزد/سربار posted ⇒ ۴۲۲ `E_RECEIPT_BEFORE_LAST_ACTIVITY`؛ تاریخ خالی = دیرترینِ تاریخ سفارش و آخرین فعالیت (علت PO-0015)؛ نرمال‌سازی ارقام فارسی.
+- **Help:** دو بند در راهنمای مدیر + پیام خطا در نقشهٔ خطاهای تولید.
+- **ادغام:** بدون تعارض؛ در `reverseOrder` هم `reverseOrderFgDeltas` (P4) و هم `reverseStagedPackRelief` (P1) فراخوانی می‌شوند.
+- **تست:** جدید `test-prodcycle-p4-reverse-fgdelta` ۴۸/۴۸؛ prodcycle-p1/p2/p5/p6 سبز، lay-covered-void-v468 ۲۴/۲۴، lay-fg-covered-v404 ۱۰/۱۰، prod-void-kardex-v402 ۱۷/۱۷، prod-02-cutting ۳۹/۳۹، lay-covered-edit-v466 ۲۷/۲۷، pack-double-fg-v399 ۱۷/۱۷، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. production-close، v420/v463/fixed/variable-advanced، v278، v279 و test-sync از قبل روی main fail.
+- **داده:** هیچ. P8: `reverseOrderFgDeltas` برای PO-0010/PO-0012 (JE 675/676/714) داخل `db.transaction` پس از dry-run در تراکنش rollback‌شده؛ رسید ۱۳ سفارش PO-0015 (۱۴۰۵/۰۷/۰۵) با گارد ناسازگار است (گارد فقط روی ثبت جدید).
+- **SW:** `erp-taranom-v614`؛ `app.js?v=614`.
+- **فایل‌ها:** `server/lib/production/{cutting,engine,engine-advanced,schema}.js`، `server/lib/production/receipt-date-guard.js` (جدید)، `server/sync/tables.js` (FK_COLUMNS)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p4-reverse-fgdelta.js` (جدید)، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P6: ضایعات غیرعادی برش مشترک بستانکار کار در جریان (1111) (SW v613)
 - **Commit:** squash روی main (#166) ([PR #166](https://github.com/rashidhamedas-prog/erp-taranom/pull/166))؛ commit شاخه `e65c9d33` (`fix/prodcycle-p6-waste-wip`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»

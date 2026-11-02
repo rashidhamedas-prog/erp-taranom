@@ -1716,6 +1716,8 @@ function ensureSharedCutSchema(db) {
     ensureColumn(db, 'cutting_lays', 'qty_unit', 'TEXT');
     ensureColumn(db, 'cutting_lays', 'marker_unit', 'TEXT');
     ensureColumn(db, 'cutting_lays', 'marker_factor', 'REAL');
+    // Order whose posted receipt absorbed this lay's covered-lay value delta (cutting_lay_fg_delta).
+    ensureColumn(db, 'cutting_lays', 'fg_delta_order_id', 'INTEGER');
   }
   if (tableExists(db, 'cutting_lay_rolls')) {
     ensureColumn(db, 'cutting_lay_rolls', 'opening_m', 'REAL DEFAULT 0');
