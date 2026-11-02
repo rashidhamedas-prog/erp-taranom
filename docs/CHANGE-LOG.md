@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P9: واحد طاقه و مواد = واحد خود کالا + dry-run اصلاح برچسب (SW v618)
-- **Commit:** squash روی main (#172) ([PR #172](https://github.com/rashidhamedas-prog/erp-taranom/pull/172))؛ commit شاخه `71df3fc6` (`feat/prodcycle-p9-product-units`).
+- **Commit:** squash `5dc63b22` روی `main` (#172) ([PR #172](https://github.com/rashidhamedas-prog/erp-taranom/pull/172))؛ commit شاخه `71df3fc6` (`feat/prodcycle-p9-product-units`).
 - **Deploy:** ⏳ در حال deploy
 - **قابلیت:** هر طاقه و مادهٔ اولیه همه‌جا به واحد کارت همان کالا نمایش داده و ثبت می‌شود (کالای ۳۳۳ «پارچه مموری لایکو دوزی» = یارد). helperهای جدید در `server/lib/uom.js`: `productRollUnit`، `rollTokenMatchesProduct`، `assertRollUnitMatchesProduct` (خطای `E_FABRIC_UNIT_MISMATCH` با پیام فارسی) و `resolveMaterialEntry`؛ تبدیل فقط با ضریب کاتالوگ (YD = 0.9144 m).
 - **دریافت طاقه/مواد و اول دوره P7:** تبدیل به واحد کالا + اعتبارسنجی پس از تبدیل؛ مادهٔ attr با واحد هم‌بعد (مثلاً گرم برای کالای کیلویی) تبدیل می‌شود و `entry_unit_id/entry_factor` روی بچ می‌ماند، واحد بی‌ربط رد می‌شود؛ ویرایش مالی طاقه برچسب را به واحد کالا برمی‌گرداند؛ ثبت قطعی P7 اگر کارت کالا پس از پیش‌نویس عوض شده باشد رد می‌شود. فهرست طاقه: `unit_label` = واحد کالا، برچسب ذخیره‌شده در `batch_unit_label`، `unit_mismatch` همچنان؛ کاردکس طاقه `unit_label` هر ردیف + `mixed_units`.
@@ -12,7 +12,7 @@
 - **فایل‌ها:** `server/lib/uom.js`، `server/lib/inventory/{fabric-rolls,opening-rolls}.js`، `server/lib/production/{lay-unit,cutting,shared-cut,engine}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/p9-roll-unit-relabel.js` (جدید)، `server/scripts/test-prodcycle-p9-units.js` (جدید)، `server/scripts/test-{lay-unit-single-v515,lay-unit-v514,roll-fabric-kg-label-v510,roll-unit-relabel-v515}.js`، `reports/prodcycle-p9/roll-unit-relabel-dryrun-20261102.csv`، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle: تسهیم سربار واقعی 61030x بین کارگاه (cc1) و اتو/بسته‌بندی (cc8) + محدودیت ویرایش + dry-run داده (SW v617)
-- **Commit:** squash روی main (#171) ([PR #171](https://github.com/rashidhamedas-prog/erp-taranom/pull/171))؛ commit شاخه `5ab8865e` (`feat/prodcycle-oh-split-cc1-cc8`).
+- **Commit:** squash `83897700` روی `main` (#171) ([PR #171](https://github.com/rashidhamedas-prog/erp-taranom/pull/171))؛ commit شاخه `5ab8865e` (`feat/prodcycle-oh-split-cc1-cc8`).
 - **Deploy:** ⏳ در حال deploy
 - **قابلیت:** نسبت تسهیم قابل تنظیم (تنظیم `oh_actual_split`، JSON مثل `{"1":50,"8":50}`، پیش‌فرض ۵۰/۵۰) که `applySplit` آن را در یک تراکنش روی `cost_center_account_maps` اعمال می‌کند (upsert برای هر مرکز + غیرفعال‌سازی نگاشت همان معین در مراکز دیگر — بدون حذف فیزیکی، R13) + audit قبل/بعد.
 - **اجرای دوره (`runAbsorbPeriod`):** یک سند PRD-06 برای همهٔ مراکز: یک بد 5202 برای هر مرکز (با `cost_center_id`) و یک بس برای هر معین؛ سهم هر مرکز `round(مبنا×٪)` و باقیماندهٔ گرد کردن به آخرین مرکز (ترتیب seq). `runAbsorb` تک‌مرکز هم از همین محاسبه استفاده می‌کند؛ در مبنای `ending_balance` اسناد جذب همان دوره از مانده کنار گذاشته می‌شوند.
