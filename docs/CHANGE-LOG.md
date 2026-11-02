@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P8b: اسکریپت‌های اصلاح GL (dry-run + گزارش) دستمزد/ضایعات مشترک/پارچهٔ متفرقه (فقط اسکریپت)
+- **Commit:** شاخه `chore/prodcycle-p8b-dryrun` (`ac007037` + merge `origin/main`) — squash روی `main` ([PR #174](https://github.com/rashidhamedas-prog/erp-taranom/pull/174)).
+- **Deploy:** scripts overlay (فقط `server/scripts/p8b-*`، `lib/p8b-common.js`، `p8-combined-report.js`، تست و `reports/prodcycle-p8/`)؛ بدون restart؛ بدون تغییر SW.
+- **اسکریپت‌ها:** `p8b-labor-payable-reclass.js` (گزینهٔ B: انتقال سطرهای JE دستمزد و پرداخت شخص از 110301000015 به 210101000006)، `p8b-shared-waste-reclass.js` (ضایعات برش مشترک سفارش ۱۹؛ خالص صفر روی 1110/1111/5221)، `p8b-misc-fabric-payable.js` (فقط گزارش)، `p8-combined-report.js` (قبل/بعد ترکیبی). پیش‌فرض dry-run؛ apply با `--apply --i-have-approval --reason=...`، تراکنشی، با audit و reverse.
+- **تست:** `test-prodcycle-p8b` ۶۲/۶۲ (fixture apply/reverse)؛ sms ۲۲/۲۲.
+- **فایل‌ها:** `server/scripts/{p8b-*.js,lib/p8b-common.js,p8-combined-report.js,test-prodcycle-p8b.js}`، `reports/prodcycle-p8/{before-after*.csv,p8-before.json,p8b-*}`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P8a: اسکریپت‌های اصلاح دادهٔ کاردکس/انبار (dry-run + CSV) اقلام ۱–۵ (فقط اسکریپت)
 - **Commit:** شاخه `chore/prodcycle-p8a-dryrun` (`86efbe0d` + merge `origin/main`) — squash روی `main` ([PR #175](https://github.com/rashidhamedas-prog/erp-taranom/pull/175)).
 - **Deploy:** scripts overlay (فقط `server/scripts/p8a-*`، `server/scripts/lib/p8a-*`، تست و `reports/prodcycle-p8/`)؛ بدون restart؛ بدون تغییر SW.
