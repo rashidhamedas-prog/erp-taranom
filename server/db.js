@@ -2366,6 +2366,13 @@ function initSyncSchema(db, opts) {
     db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('opening_stock');
   }
 
+  // موجودی اول دوره جدا از موجودی کل — یک ردیف به ازای (سال مالی، کالا، واریانت، انبار).
+  // منبع حقیقت مقدار هنوز کاردکس است؛ این جدول «کدام ردیف کاردکس افتتاحیه است» را نگه می‌دارد.
+  // حذف فیزیکی ندارد: ابطال = status='void'. needs_review = چند ردیف افتتاحیهٔ زنده (candidate_ledger_ids).
+  // DDL (جدول + ایندکس یکتای جزئی ux_product_opening_stock WHERE status<>'void') در یک‌جا نگه داشته می‌شود
+  // چون اسکریپت مهاجرت هم روی DB قدیمی همان را اجرا می‌کند.
+  require('./lib/inventory/product-opening-stock').ensureSchema(db);
+
   // P9 — پورسانت چندنفره (additive / idempotent): قاعده‌ها، طرف‌های فاکتور، انتقال به حقوق/سند.
   // حذف فیزیکی ندارد: قاعده/طرف با active=0، انتقال با status='void'.
   db.exec(`
@@ -3875,6 +3882,33 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v35','1')").run();
+    }
+    // v36: product_opening_stock (موجودی اول دوره جدا از موجودی کل)
+    const backfillV36 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v36'").get();
+    if (!backfillV36 || backfillV36.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v36 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v36','1')").run();
+    }
+    // موجودی اول دوره: مهاجرت یک‌بارهٔ کاردکس → product_opening_stock (پیش‌فرض خاموش؛
+    // فقط با settings.product_opening_stock_migrate_enabled='1' یا PRODUCT_OPENING_STOCK_MIGRATE=1).
+    try {
+      const POS = require('./lib/inventory/product-opening-stock');
+      if (POS.bootMigrationWanted(db)) {
+        const rep = POS.migrateProductOpeningStock(db, { dryRun: false, userId: null });
+        console.log('✅ product_opening_stock_migrate_v1:', JSON.stringify({
+          combos_total: rep.combos_total, created: rep.created, skipped_existing: rep.skipped_existing,
+        }));
+      }
+    } catch (e) {
+      console.warn('product_opening_stock_migrate_v1:', e && e.message ? e.message : e);
     }
   }
 

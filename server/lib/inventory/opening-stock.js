@@ -14,6 +14,8 @@
  * (ایندکس یکتای جزئی روی opening_stock_lines.active=1) → 409 E_OPENING_DUPLICATE.
  * حذف فیزیکی ممنوع — پیش‌نویس هم با void بسته می‌شود.
  */
+const { assertNoLiveOpening } = require('./opening-guard');
+
 const SOURCE = 'opening_stock_doc';
 const PERM_RESOURCE = 'acc_warehouse_ops';
 
@@ -240,6 +242,8 @@ function createDraft(db, body, user) {
     for (const l of lines) {
       const hit = findActiveDuplicate(db, ctx.fiscalYearId, l, null);
       if (hit) throw dupErr(l, hit);
+      // نگهبان مشترک: افتتاحیهٔ زندهٔ دیگر (کاردکس قدیمی / product_opening_stock / رسید افتتاحیه) ⇒ 409 E_OPENING_EXISTS
+      assertNoLiveOpening(db, { productId: l.product_id, warehouseId: l.warehouse_id, variantId: l.variant_id, fiscalYearId: ctx.fiscalYearId });
     }
     const docNo = nextDocNo(db);
     const note = String((body && body.note) || '').trim().slice(0, 300);
@@ -287,6 +291,7 @@ function postDoc(db, id, user) {
       const l = validateLine(db, r, i);
       const hit = findActiveDuplicate(db, doc.fiscal_year_id, l, doc.id);
       if (hit) throw dupErr(l, hit);
+      assertNoLiveOpening(db, { productId: l.product_id, warehouseId: l.warehouse_id, variantId: l.variant_id, fiscalYearId: doc.fiscal_year_id });
       return { row: r, l };
     });
     require('./cycle-count').assertWarehouseNotCounting(db, [...new Set(checked.map((c) => c.l.warehouse_id))], { label: 'موجودی اول دوره' });
@@ -323,7 +328,7 @@ function postDoc(db, id, user) {
         throw e;
       }
       if (!claimed.changes) throw osErr('E_OPENING_STATE', 409, 'وضعیت ردیف تغییر کرده است');
-      byWh.push({ warehouseId: l.warehouse_id, amountRial: Math.round(Number(led.amount_rial) || 0), ledgerId: led.id });
+      byWh.push({ warehouseId: l.warehouse_id, amountRial: Math.round(Number(led.amount_rial) || 0), ledgerId: led.id, l });
     }
 
     const invLines = L.inventoryAmountLinesByWarehouse(db, byWh);
@@ -341,6 +346,14 @@ function postDoc(db, id, user) {
     });
     const upLed = db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?');
     for (const b of byWh) upLed.run(jeId, b.ledgerId);
+    const POS = require('./product-opening-stock');
+    for (const b of byWh) {
+      POS.recordFromOpeningDoc(db, {
+        fiscalYearId: doc.fiscal_year_id, productId: b.l.product_id, variantId: b.l.variant_id, warehouseId: b.l.warehouse_id,
+        qty: b.l.qty, unitCostRial: b.l.unit_cost_rial, valueRial: b.amountRial, ledgerId: b.ledgerId, jeId,
+        userId: user ? user.id : null,
+      });
+    }
     db.prepare(`
       UPDATE opening_stock_docs
       SET status='posted', posted_by=?, posted_at=strftime('%s','now'), je_id=?
@@ -384,6 +397,7 @@ function voidDoc(db, id, user, { reason } = {}) {
         });
       }
       db.prepare('UPDATE opening_stock_lines SET active=0 WHERE doc_id=?').run(id);
+      require('./product-opening-stock').voidFromOpeningDoc(db, rows.map((r) => r.ledger_id), user ? user.id : null);
     }
     db.prepare(`
       UPDATE opening_stock_docs

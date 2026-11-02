@@ -33,7 +33,7 @@ ok(ledSrc.includes('child_ids') && ledSrc.includes('invSumOut'), 'invoice enrich
 
 const openSrc = fs.readFileSync(path.join(__dirname, '../lib/opening-post.js'), 'utf8');
 ok(openSrc.includes('skipped_live') || openSrc.includes('skippedLive'), 'reconcile skips live SKUs');
-ok(openSrc.includes('hasLive'), 'hasLive gate present');
+ok(openSrc.includes('report_only'), 'reconcile is report-only (opening SSOT supersedes hasLive gate)');
 
 const dbSrc = fs.readFileSync(path.join(__dirname, '../db.js'), 'utf8');
 ok(dbSrc.includes('retireSpuriousKardexAlign') && dbSrc.includes('kardex_align_retire_v506'),
@@ -74,7 +74,7 @@ db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id
   .run(25, pid, whA);
 const gap = reconcileProductStockLedger(db, pid);
 ok((gap.count || 0) === 0, 'no align seed when SKU has live movements count=' + gap.count);
-ok((gap.skipped_live || 0) >= 1, 'skipped_live reported=' + gap.skipped_live);
+ok((gap.gaps || []).length >= 1, 'gap reported (report-only) n=' + (gap.gaps || []).length);
 
 const seedCount = db.prepare(`
   SELECT COUNT(*) c FROM inventory_ledger

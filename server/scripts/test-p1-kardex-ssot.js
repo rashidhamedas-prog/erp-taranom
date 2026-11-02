@@ -257,8 +257,8 @@ async function main() {
     ok(/\.neg-qty\s*\{/.test(css), 'app.css defines .neg-qty');
     ok(appJs.includes('neg-qty'), 'app.js renders negatives with neg-qty');
     ok(/id="p-stock"[^>]*\$\{p\.id\?'readonly'/.test(appJs) || appJs.includes('pfv2-stock-adjust-btn'), 'p-stock is read-only on edit + adjust button');
-    ok(appJs.includes('structure_only:!!id'), 'product form save sends structure_only matrix for existing products (no qty)');
-    ok(/if\(!id\) fd\.append\('stock'/.test(appJs), 'product edit PUT does not send stock');
+    ok(/structure_only:\s*true/.test(appJs) && !appJs.includes('structure_only:!!id'), 'product form save always sends structure_only matrix (no qty)');
+    ok(!/fd\.append\('stock'/.test(appJs), 'product form never sends stock (opening via opening stock table)');
     ok(!/Math\.max\(0, Math\.round\(parseQty\(inp\.value, 0\)\)\)/.test(appJs), 'matrix collector no longer clamps negatives to 0');
   } finally {
     server.close();

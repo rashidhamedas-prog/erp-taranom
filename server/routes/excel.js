@@ -538,7 +538,8 @@ function buildActions(db, entity, rows, hooks) {
         name, full_name: field(r, 'نام کامل کالا'),
         code: field(r, 'کد کالا'), barcode: field(r, 'بارکد'), category: field(r, 'دسته'),
         unit: field(r, 'واحد') || 'عدد', warehouse_id: wh?.id || null,
-        stock: Math.max(0, parseQty(field(r, 'موجودی'))),
+        // Blank «موجودی» = not provided (stock is never set from Excel; non-zero → E_STOCK_VIA_OPENING).
+        ...(text(field(r, 'موجودی')) !== '' ? { stock: Math.max(0, parseQty(field(r, 'موجودی'))) } : {}),
         stock_alert: Math.max(0, Math.trunc(num(field(r, 'هشدار موجودی')))) || 5,
         // UI stores product money as rial identity — do not /10
         price: Math.round(num(field(r, 'قیمت فروش (ریال)'))),

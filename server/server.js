@@ -630,6 +630,7 @@ app.use('/api/warehouses/qty-receipts', require('./routes/qty-receipts')); // P7
 app.use('/api/warehouses', require('./routes/warehouses'));
 app.use('/api/opening-stock', require('./routes/opening-stock'));
 app.use('/api/commissions', require('./routes/commissions'));
+app.use('/api/inventory', require('./routes/product-opening-stock')); // موجودی اول دوره — before generic /api/inventory
 app.use('/api/inventory', require('./routes/inventory'));
 if (isDevice()) app.use('/api/inventory-valuation', require('./middleware/device-online-relay'));
 app.use('/api/inventory-valuation', require('./routes/inventory-valuation'));

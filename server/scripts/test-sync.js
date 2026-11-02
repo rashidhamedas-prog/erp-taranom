@@ -198,7 +198,7 @@ const centralEnv = {
     'stolen device token cannot change signed user_id to admin');
 
   console.log('— seed central —');
-  const prodC = (await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000, stock: 100 })).body;
+  const prodC = (await req(C, 'POST', '/api/products', ct, { name: 'کالای اصلی', code: 'M-1', price: 50000, cost: 20000 })).body;
   // Firm invoices require header warehouse; use the product's own WH (ORDER BY id),
   // not GET /warehouses[0] which is ORDER BY name and can miss warehouse_stock.
   const whId = prodC.warehouse_id || 1;
