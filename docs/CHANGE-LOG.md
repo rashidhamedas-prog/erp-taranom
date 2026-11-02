@@ -1,3 +1,10 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P8a: اسکریپت‌های اصلاح دادهٔ کاردکس/انبار (dry-run + CSV) اقلام ۱–۵ (فقط اسکریپت)
+- **Commit:** شاخه `chore/prodcycle-p8a-dryrun` (`86efbe0d` + merge `origin/main`) — squash روی `main` ([PR #175](https://github.com/rashidhamedas-prog/erp-taranom/pull/175)).
+- **Deploy:** scripts overlay (فقط `server/scripts/p8a-*`، `server/scripts/lib/p8a-*`، تست و `reports/prodcycle-p8/`)؛ بدون restart؛ بدون تغییر SW.
+- **اسکریپت‌ها:** `p8a-all.js` (ترتیب ۱→۲→۴→۳)، `p8a-item1-p333-legacy-kardex.js` (ابطال ۱۰ ردیف کاردکس قدیمی کالای ۳۳۳ + اول دوره + اصلاح bucket)، `p8a-item2-wh37-pack-exit.js` (۱۱ ردیف خروج WH37؛ فقط کاردکس، بدون GL)، `p8a-item3-po14-receipt-split.js` (تفکیک رسیدهای PO-0014 بین PR-0011/PR-0012 + JE Dr5101/Cr1104)، `p8a-item4-orphan-fgdelta.js` (ابطال soft JEهای fg_delta یتیم 675/676/714 + برگشت ارزش WH34)، `p8a-item5-receipt13-date.js` (فقط گزارش). پیش‌فرض dry-run روی کپی/readonly؛ apply فقط با `--apply --i-have-approval --reason=...` + گارد live، تراکنشی، با audit و undo.
+- **تست:** `test-prodcycle-p8a` ۳۷/۳۷ (apply/undo روی fixture)؛ sms ۲۲/۲۲.
+- **فایل‌ها:** `server/scripts/{p8a-*.js,lib/p8a-common.js,lib/p8a-items.js,test-prodcycle-p8a.js}`، `reports/prodcycle-p8/p8a-*`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P9: واحد طاقه و مواد = واحد خود کالا + dry-run اصلاح برچسب (SW v618)
 - **Commit:** squash `5dc63b22` روی `main` (#172) ([PR #172](https://github.com/rashidhamedas-prog/erp-taranom/pull/172))؛ commit شاخه `71df3fc6` (`feat/prodcycle-p9-product-units`).
 - **Deploy:** ✅ روی ایران ۱۴۰۵/۰۸/۱۱ ۲۲:۲۰ (کد `5dc63b22`، main `d1a8f443`) — overlay ۲۵ فایل از `85a4e4eb` با گارد drift (فقط CHANGE-LOG قدیمی‌تر)، تأیید هش git، بکاپ `~/backups/crm.db.v618-pre-ohsplit-p9-20261102-185001` (+ `.consistent` integrity ok + tar فایل‌ها)، `ensure-sharp-runtime` OK، `pm2 restart` بدون `--update-env`، health 200، sharp 0.33.5، SW `erp-taranom-v618`، `app.js?v=618`. داده‌ها (نگاشت 61030x، طاقه‌های ۳۳۳) اعمال نشده‌اند — منتظر تأیید مالک
