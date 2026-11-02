@@ -1,8 +1,9 @@
 'use strict';
 /**
  * Give a stocked product a first moving-average when it was stored with qty and no cost.
- * Posts opening inventory (Dr inventory / Cr opening balance) only if that JE is missing
- * and no live opening exists for the product's warehouse (opening-guard).
+ * Posts the opening value JE (Dr inventory / Cr opening balance) only if that JE is missing,
+ * kardex already carries the qty, and no live opening exists (opening-guard).
+ * Never writes kardex rows; qty without kardex is reported (needs_opening_doc) for an opening document.
  * Does not change quantity. Refuses when average_cost_rial is already set (ADR-011).
  */
 const { postProductOpeningInventory } = require('../opening-post');
@@ -69,18 +70,24 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
         else throw e;
       }
     }
+    // P7: seed never writes an opening kardex row. Kardex already covers the qty ⇒ value JE only;
+    // otherwise the qty has no kardex at all ⇒ report it (needs_opening_doc) for «سند موجودی اول دوره».
+    let needsOpeningDoc = false;
     if (!jeId && qty > 0 && !alreadyCapitalized && !liveOpening) {
-      const { fiscalOpeningDate } = require('../opening-post');
-      jeId = postProductOpeningInventory(db, {
-        productId,
-        qty,
-        unitCostRial: unit,
-        userId,
-        date: date || fiscalOpeningDate(db),
-        description: `بهای اولیه موجودی — ${p.name}`,
-        // Value JE only when kardex already shows the qty — seed must not change qty.
-        skipLedger: kardexCoversStock,
-      });
+      if (kardexCoversStock) {
+        const { fiscalOpeningDate } = require('../opening-post');
+        jeId = postProductOpeningInventory(db, {
+          productId,
+          qty,
+          unitCostRial: unit,
+          userId,
+          date: date || fiscalOpeningDate(db),
+          description: `بهای اولیه موجودی — ${p.name}`,
+          skipLedger: true,
+        });
+      } else {
+        needsOpeningDoc = true;
+      }
     }
     const { catalogCostFromAvgRial } = require('./product-unit-cost');
     db.prepare('UPDATE products SET average_cost_rial=?, cost=? WHERE id=?')
@@ -95,6 +102,7 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
       je_id: jeId,
       journal_posted: !existing && !!jeId,
       live_opening: liveOpening,
+      needs_opening_doc: needsOpeningDoc,
     };
   })();
 }

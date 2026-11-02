@@ -260,6 +260,7 @@ function ensureExistingColumns(db) {
     ensureColumn(db, 'inventory_batches', 'entry_qty', 'REAL');
     ensureColumn(db, 'inventory_batches', 'entry_factor', 'REAL');
     ensureColumn(db, 'inventory_batches', 'entry_unit_cost_rial', 'INTEGER');
+    ensureColumn(db, 'inventory_batches', 'weight_kg', 'REAL');
     try {
       db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_inv_batches_idem ON inventory_batches(idempotency_key) WHERE idempotency_key IS NOT NULL AND idempotency_key <> ''");
     } catch (_) { /* ignore */ }

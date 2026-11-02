@@ -684,6 +684,9 @@ const FK_COLUMNS = [
   ['product_opening_stock', 'variant_id'],
   ['product_opening_stock', 'ledger_id'],
   ['product_opening_stock', 'je_id'],
+  // P7 opening rolls (append-only)
+  ['opening_stock_lines', 'entry_unit_id'],
+  ['opening_stock_docs', 'amends_doc_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };
