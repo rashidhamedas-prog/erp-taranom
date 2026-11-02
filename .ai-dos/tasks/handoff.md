@@ -1,3 +1,7 @@
+## 2026-11-02 — ⚠️ هماهنگی deploy: v607 (FR-POS-DRAFTS) → audit-kardex = v608
+
+- v607 (#155 + #156) روی ایران deploy می‌شود. تسک **audit-kardex**: پایه = `origin/main` بعد از commit v607؛ SW خودت = **`erp-taranom-v608`**؛ پیش از deploy، ✅ v607 در CHANGE-LOG را چک کن (دو deploy هم‌زمان ممنوع).
+
 ## 2026-10-25 — Audit 7C red accounting regressions (SW v551) — no merge/deploy
 
 - Branch `ai/AUDIT-7C-red-regressions` off `origin/main` (v548 tip). Task `AUDIT-7C-RED-REGRESSIONS`.
