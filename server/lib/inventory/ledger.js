@@ -425,7 +425,8 @@ function postInventoryMovement(db, opts) {
   }
 
   const delta = qtyIn - qtyOut;
-  // WIP staging never touches the header: no products.stock, no average, no cost layer, no kardex row.
+  // WIP staging never touches the header: no products.stock, no average, no cost layer, no stock_logs
+  // row — but it IS an inventory_ledger row (warehouse kardex), so callers must pass its amount.
   const noHeader = !!skipStock || !!warehouseOnly;
 
   // Snapshot first (no mutation) so zero-cost outbound can fail before stock changes.

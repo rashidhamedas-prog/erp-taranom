@@ -472,30 +472,51 @@ function assertOrderCutQtyMatches(db, po) {
 /**
  * Linked cutting packs stage bundle qty in a WIP warehouse (warehouseOnly).
  * Order receipt / finalize must take that qty out of WIP without a second
- * products.stock hit.
+ * products.stock hit. The exit is valued at the pack's own cost (never the FG
+ * average); the last exit of a pack takes the exact remaining amount.
  */
+const PACK_RELIEF_SQL = `
+  FROM inventory_ledger
+  WHERE source_type='cutting_pack' AND source_id=? AND event_type='cutting_pack'
+    AND COALESCE(qty_out,0)>0 AND status='posted' AND reversed_of IS NULL
+`;
+
 function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, receiptId }) {
   const has = db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
   ).get();
   if (!has) return;
   const packs = db.prepare(`
-    SELECT id, warehouse_id, qty FROM cutting_packs
+    SELECT id, warehouse_id, qty, amount_rial FROM cutting_packs
     WHERE production_order_id=? AND product_id=? AND status='posted' AND COALESCE(qty,0)>0
     ORDER BY id
   `).all(orderId, productId);
+  const relievedOf = db.prepare(`
+    SELECT COALESCE(SUM(qty_out),0) AS q, COALESCE(SUM(amount_rial),0) AS a ${PACK_RELIEF_SQL}
+  `);
   let left = Number(qtyGood) || 0;
   for (const p of packs) {
     if (!(left > 0)) break;
     const wh = Number(p.warehouse_id) || 0;
     if (!wh) continue;
-    const take = Math.min(left, Number(p.qty) || 0);
-    if (!(take > 0)) continue;
+    const packQty = Number(p.qty) || 0;
+    const done = relievedOf.get(p.id);
+    const remainingQty = packQty - (Number(done.q) || 0);
+    const take = Math.min(left, remainingQty);
+    if (!(take > 1e-9)) continue;
+    const packAmt = Math.round(Number(p.amount_rial) || 0);
+    const remainingAmt = Math.max(0, packAmt - Math.round(Number(done.a) || 0));
+    const amount = take >= remainingQty - 1e-9
+      ? remainingAmt
+      : Math.min(remainingAmt, Math.round(packAmt * take / packQty));
     postInventoryMovement(db, {
       eventType: 'cutting_pack',
       productId,
       warehouseId: wh,
       qtyOut: take,
+      unitCostRial: Math.round(amount / take),
+      amountRial: amount,
+      allowZeroCost: amount <= 0,
       sourceType: 'cutting_pack',
       sourceId: p.id,
       date: date || '',
@@ -512,6 +533,29 @@ function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, r
     } catch (_) { /* no apparel layer */ }
     left -= take;
   }
+}
+
+/** Undo every WIP pack exit of an order (receipt reversal): mirror rows put the packs back in WIP at the same amounts. */
+function reverseStagedPackRelief(db, { orderId, userId, date, note }) {
+  const has = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
+  ).get();
+  if (!has) return 0;
+  const rows = db.prepare(`
+    SELECT il.id FROM inventory_ledger il
+    JOIN cutting_packs p ON p.id = il.source_id
+    WHERE p.production_order_id=? AND il.source_type='cutting_pack' AND il.event_type='cutting_pack'
+      AND COALESCE(il.qty_out,0)>0 AND il.status='posted' AND il.reversed_of IS NULL
+    ORDER BY il.id DESC
+  `).all(orderId);
+  for (const r of rows) {
+    reverseInventoryMovement(db, r.id, {
+      createdBy: userId || null,
+      date: date || '',
+      note: note || 'ابطال تخلیه WIP بسته برش',
+    });
+  }
+  return rows.length;
 }
 
 function attachPacks(db, row) {
@@ -914,25 +958,50 @@ function layFgCoveredByOrder(db, lay) {
     covered_order_id: null,
     covered_order_no: null,
     covered_receipt_qty: 0,
+    covered_attribution: null,
   };
   if (!lay || String(lay.status || '') === 'reversed') return out;
+  const loadPo = (id) => db.prepare(`
+    SELECT id, order_no, status, qty_produced, product_id
+    FROM production_orders WHERE id=?
+  `).get(Number(id));
   let po = null;
+  let attribution = null;
   if (lay.production_order_id) {
-    po = db.prepare(`
-      SELECT id, order_no, status, qty_produced, product_id
-      FROM production_orders WHERE id=?
-    `).get(Number(lay.production_order_id));
+    po = loadPo(lay.production_order_id);
+    attribution = 'linked';
+  }
+  if (!po && lay.fg_delta_order_id) {
+    // An earlier covered edit/void already recorded which order absorbed this lay.
+    po = loadPo(lay.fg_delta_order_id);
+    attribution = 'recorded';
   }
   if (!po && lay.product_id) {
-    // Legacy unlinked lays: exactly one completed/closed order for this FG
-    // with posted receipt covering the lay qty.
+    // Legacy unlinked lays: exactly one completed/closed order for this same FG
+    // whose posted receipts cover the lay qty and are not dated before the lay.
     const candidates = db.prepare(`
       SELECT id, order_no, status, qty_produced, product_id
       FROM production_orders
       WHERE product_id=? AND status IN ('completed','closed')
       ORDER BY id DESC
     `).all(Number(lay.product_id));
-    if (candidates.length === 1) po = candidates[0];
+    if (candidates.length === 1) {
+      const c = candidates[0];
+      const recs = db.prepare(`
+        SELECT qty, date FROM production_receipts WHERE order_id=? AND status='posted'
+      `).all(Number(c.id));
+      const recQty = recs.reduce((s, r) => s + (Number(r.qty) || 0), 0);
+      const { dateKey } = require('./receipt-date-guard');
+      const layKey = dateKey(lay.date);
+      const lastRecKey = recs.reduce((m, r) => (dateKey(r.date) > m ? dateKey(r.date) : m), '');
+      const need = Number(lay.qty_pieces) || 0;
+      if (Number(c.product_id) === Number(lay.product_id)
+        && recQty + 1e-9 >= need
+        && (!layKey || !lastRecKey || lastRecKey >= layKey)) {
+        po = c;
+        attribution = 'guess';
+      }
+    }
   }
   if (!po || !['completed', 'closed', 'done'].includes(String(po.status || ''))) return out;
   const rec = db.prepare(`
@@ -946,6 +1015,7 @@ function layFgCoveredByOrder(db, lay) {
   out.covered_order_id = Number(po.id);
   out.covered_order_no = po.order_no || null;
   out.covered_receipt_qty = receiptQty;
+  out.covered_attribution = attribution;
   return out;
 }
 
@@ -1436,6 +1506,8 @@ function absorbCoveredLayDelta(db, {
   const newNet = Math.max(0, Math.round(Number(newAmount)) - Math.round(Number(newWaste)));
   const deltaNet = newNet - oldNet;
   const layTag = lay.lay_no || ('#' + lay.id);
+  // R13: every fg_delta JE/value row of this lay belongs to po — reverseOrder finds them through this link.
+  db.prepare('UPDATE cutting_lays SET fg_delta_order_id=? WHERE id=?').run(Number(po.id), lay.id);
 
   const [globMid, globEnd] = layIssueNoteMatchers(lay.lay_no, lay.id);
   const mi = db.prepare(`
@@ -1495,7 +1567,7 @@ function absorbCoveredLayDelta(db, {
     label: `تعدیل بهای لایه‌چینی ${layTag}`,
     date,
     userId: user.id,
-    eventNote: `تعدیل بهای لایه‌چینی ${layTag}`,
+    eventNote: `تعدیل بهای لایه‌چینی ${layTag} — ${po.order_no || ''}`,
   };
   if (!deltaNet) {
     // An earlier delta of this lay may still sit in an approval doc: re-route it (R13).
@@ -1504,8 +1576,9 @@ function absorbCoveredLayDelta(db, {
       postToLedger(db, {
         sourceType: 'cutting_lay_fg_delta',
         sourceId: lay.id,
+        srcDocNo: po.order_no || null,
         date,
-        description: `تعدیل بهای محصول پس از ویرایش ${layTag}`,
+        description: `تعدیل بهای محصول پس از ویرایش ${layTag} — ${po.order_no || ''}`,
         createdBy: user.id,
         costCenterId: lay.cost_center_id || null,
         lines: routed.lines,
@@ -1559,8 +1632,9 @@ function absorbCoveredLayDelta(db, {
   postToLedger(db, {
     sourceType: 'cutting_lay_fg_delta',
     sourceId: lay.id,
+    srcDocNo: po.order_no || null,
     date,
-    description: `تعدیل بهای محصول پس از ویرایش ${layTag}`,
+    description: `تعدیل بهای محصول پس از ویرایش ${layTag} — ${po.order_no || ''}`,
     createdBy: user.id,
     costCenterId: lay.cost_center_id || null,
     lines,
@@ -1585,6 +1659,99 @@ function absorbCoveredLayDelta(db, {
   db.prepare('UPDATE production_orders SET total_cost_rial=?, unit_cost_rial=? WHERE id=?')
     .run(Math.round(Number(sum && sum.s) || 0), unit, po.id);
   return { delta_net_rial: deltaNet, value_approval_id: routed.approval ? routed.approval.id : null };
+}
+
+function liveFgDeltaJeIds(db, layId) {
+  return db.prepare(`
+    SELECT id FROM journal_entries
+    WHERE ref_type='cutting_lay_fg_delta' AND ref_id=?
+      AND COALESCE(deleted_at,0)=0
+      AND COALESCE(status,'') NOT IN ('reversed','void')
+    ORDER BY id DESC
+  `).all(Number(layId)).map((r) => r.id);
+}
+
+function liveFgDeltaLedgerIds(db, layId) {
+  return db.prepare(`
+    SELECT id FROM inventory_ledger
+    WHERE source_type='cutting_lay_fg_delta' AND source_id=?
+      AND status='posted' AND reversed_of IS NULL
+    ORDER BY id DESC
+  `).all(Number(layId)).map((r) => r.id);
+}
+
+/**
+ * Lays whose fg_delta belongs to this order. Rows written before the link column
+ * are attributed only when safe: the lay is linked to the order, or it is unlinked,
+ * of the same FG, and this is the only order of that FG that ever posted a receipt.
+ */
+function fgDeltaLaysForOrder(db, po) {
+  const lays = db.prepare('SELECT * FROM cutting_lays WHERE fg_delta_order_id=?').all(Number(po.id));
+  const seen = new Set(lays.map((l) => l.id));
+  const legacy = db.prepare(`
+    SELECT DISTINCT l.* FROM cutting_lays l
+    WHERE l.fg_delta_order_id IS NULL
+      AND (l.production_order_id=? OR (l.production_order_id IS NULL AND l.product_id=?))
+      AND (
+        EXISTS (SELECT 1 FROM journal_entries je WHERE je.ref_type='cutting_lay_fg_delta' AND je.ref_id=l.id)
+        OR EXISTS (SELECT 1 FROM inventory_ledger il WHERE il.source_type='cutting_lay_fg_delta' AND il.source_id=l.id)
+      )
+  `).all(Number(po.id), Number(po.product_id || 0));
+  let soleOrderOfProduct = null;
+  for (const lay of legacy) {
+    if (seen.has(lay.id)) continue;
+    let mine = Number(lay.production_order_id) === Number(po.id);
+    if (!mine) {
+      if (soleOrderOfProduct === null) {
+        const ords = db.prepare(`
+          SELECT DISTINCT o.id FROM production_orders o
+          JOIN production_receipts r ON r.order_id=o.id
+          WHERE o.product_id=?
+        `).all(Number(po.product_id || 0));
+        soleOrderOfProduct = ords.length === 1 && Number(ords[0].id) === Number(po.id);
+      }
+      mine = soleOrderOfProduct;
+    }
+    if (!mine) continue;
+    db.prepare('UPDATE cutting_lays SET fg_delta_order_id=? WHERE id=?').run(Number(po.id), lay.id);
+    seen.add(lay.id);
+    lays.push(lay);
+  }
+  return lays;
+}
+
+/**
+ * R13 — voiding an order receipt also voids the covered-lay value deltas it absorbed:
+ * the cutting_lay_fg_delta JEs, their value-only FG ledger rows and any value-approval docs.
+ * Idempotent: rows already reversed are skipped. Runs inside the caller's transaction.
+ */
+function reverseOrderFgDeltas(db, { orderId, userId, reason = '', date } = {}) {
+  const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(Number(orderId));
+  if (!po) return { lays: 0, journals: 0, ledger_rows: 0 };
+  const why = reason || `ابطال رسید ${po.order_no || ''}`;
+  const when = date || todayJalali();
+  const { reverseJournalEntry } = require('../void-journal');
+  const { reverseInventoryMovement, softRetireLedgerRow } = require('../inventory/ledger');
+  const VAP = require('../inventory/value-approval');
+  let journals = 0;
+  let ledgerRows = 0;
+  const lays = fgDeltaLaysForOrder(db, po);
+  for (const lay of lays) {
+    VAP.cancelForSource(db, 'cutting_lay_fg_delta', lay.id, { id: userId }, why);
+    for (const ledId of liveFgDeltaLedgerIds(db, lay.id)) {
+      const note = `ابطال تعدیل بهای لایه‌چینی ${lay.lay_no || ('#' + lay.id)} — ${po.order_no || ''}`;
+      const rev = reverseInventoryMovement(db, ledId, { createdBy: userId || null, date: when, note });
+      if (rev && rev.id) softRetireLedgerRow(db, rev.id, { note });
+      ledgerRows += 1;
+    }
+    for (const jeId of liveFgDeltaJeIds(db, lay.id)) {
+      reverseJournalEntry(db, jeId, {
+        userId, date: when, reason: why, sourceType: 'cutting_lay_fg_delta_reversal',
+      });
+      journals += 1;
+    }
+  }
+  return { lays: lays.length, journals, ledger_rows: ledgerRows };
 }
 
 /**
@@ -2191,7 +2358,10 @@ module.exports = {
   assertFabricCuttingPathForFgReceipt,
   assertOrderCutQtyMatches,
   relieveStagedPackQty,
+  reverseStagedPackRelief,
   layFgCoveredByOrder,
+  reverseOrderFgDeltas,
+  fgDeltaLaysForOrder,
   fabricLineFromBom,
   isMeterUnit,
   isRollFabricProduct,

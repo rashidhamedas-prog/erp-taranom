@@ -1,3 +1,65 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P4: ابطال کامل تعدیل بهای لایه (fg_delta) با سفارش + گارد تاریخ رسید تولید (SW v614)
+- **Commit:** squash روی main (#165) ([PR #165](https://github.com/rashidhamedas-prog/erp-taranom/pull/165))؛ commit شاخه `99b92448` (`fix/prodcycle-p4-reverse-fgdelta`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** سندهای `cutting_lay_fg_delta` به سفارش پیوند نداشتند ⇒ `reverseOrder`/`purgeOrder` آن‌ها را نمی‌دید و بدهکار WIP (۱۱۱۱)، بستانکار FG (۱۱۰۴)/بهای فروش (۵۱۰۱) و ردیف‌های ارزشی WH34 یتیم می‌ماندند (الگوی JE 675/676/714)؛ رسید تولید می‌توانست قبل از آخرین فعالیت سفارش تاریخ بخورد.
+- **پیوند سفارش:** ستون `cutting_lays.fg_delta_order_id` (ensureColumn) در هر `absorbCoveredLayDelta`؛ سند fg_delta `src_doc_no = order_no` + شمارهٔ سفارش در شرح/کاردکس. `FK_COLUMNS` (append-only) به‌روز شد.
+- **ابطال کامل (R13):** `reverseOrderFgDeltas` (داخل تراکنش فراخواننده): لغو سند تأیید تعدیل بها (`value-approval`)، معکوس ردیف‌های ارزشی FG با `reverseInventoryMovement`، soft-void سندهای fg_delta؛ idempotent. از `reverseOrder` و `purgeOrder` (حتی سفارش cancelled). ردیف قدیمی بی‌پیوند فقط وقتی امن (لایهٔ لینک به همین سفارش، یا تنها سفارش رسیددار همان کالا) و نسبت‌دهی ثبت می‌شود. حدس «تنها سفارش تکمیل‌شده» سخت‌گیرتر (همان کالا + مقدار رسید کافی + تاریخ رسید ≥ لایه؛ voided/cancelled هرگز)؛ `covered_attribution = linked|recorded|guess`.
+- **گارد تاریخ رسید (`receipt-date-guard.js` جدید):** رسید ثابت/متغیر/نهایی‌سازی پیشرفته قبل از آخرین حوالهٔ مواد/لایه‌چینی/PACK/دستمزد/سربار posted ⇒ ۴۲۲ `E_RECEIPT_BEFORE_LAST_ACTIVITY`؛ تاریخ خالی = دیرترینِ تاریخ سفارش و آخرین فعالیت (علت PO-0015)؛ نرمال‌سازی ارقام فارسی.
+- **Help:** دو بند در راهنمای مدیر + پیام خطا در نقشهٔ خطاهای تولید.
+- **ادغام:** بدون تعارض؛ در `reverseOrder` هم `reverseOrderFgDeltas` (P4) و هم `reverseStagedPackRelief` (P1) فراخوانی می‌شوند.
+- **تست:** جدید `test-prodcycle-p4-reverse-fgdelta` ۴۸/۴۸؛ prodcycle-p1/p2/p5/p6 سبز، lay-covered-void-v468 ۲۴/۲۴، lay-fg-covered-v404 ۱۰/۱۰، prod-void-kardex-v402 ۱۷/۱۷، prod-02-cutting ۳۹/۳۹، lay-covered-edit-v466 ۲۷/۲۷، pack-double-fg-v399 ۱۷/۱۷، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. production-close، v420/v463/fixed/variable-advanced، v278، v279 و test-sync از قبل روی main fail.
+- **داده:** هیچ. P8: `reverseOrderFgDeltas` برای PO-0010/PO-0012 (JE 675/676/714) داخل `db.transaction` پس از dry-run در تراکنش rollback‌شده؛ رسید ۱۳ سفارش PO-0015 (۱۴۰۵/۰۷/۰۵) با گارد ناسازگار است (گارد فقط روی ثبت جدید).
+- **SW:** `erp-taranom-v614`؛ `app.js?v=614`.
+- **فایل‌ها:** `server/lib/production/{cutting,engine,engine-advanced,schema}.js`، `server/lib/production/receipt-date-guard.js` (جدید)، `server/sync/tables.js` (FK_COLUMNS)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p4-reverse-fgdelta.js` (جدید)، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P6: ضایعات غیرعادی برش مشترک بستانکار کار در جریان (1111) (SW v613)
+- **Commit:** squash روی main (#166) ([PR #166](https://github.com/rashidhamedas-prog/erp-taranom/pull/166))؛ commit شاخه `e65c9d33` (`fix/prodcycle-p6-waste-wip`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** برش مشترک (`shared-cut.js`) اتلاف طولی و سهم غیرعادی پهن را مستقیم Dr5221 / **Cr1110** می‌زد و فقط خالص common وارد WIP می‌شد (برش معمولی درست بود).
+- **رفع (ثبت و ویرایش):** PRD-01 Dr1111 / Cr1110 = کل پارچه (common + اتلاف)؛ PRD-09 Dr5221 / **Cr1111** = اتلاف؛ خالص 1111 = common؛ `cutting_batch_allocations` همچنان روی common؛ خروج موجودی (`production_issue`) بدون تغییر. ابطال/ویرایش (R13) هر دو سند با `reverseJournalEntry`.
+- **مرحله/سفارش:** `applyCuttingLayToStage` برای برش مشترک هم `amountRial = common + waste` و `wasteAmountRial = waste` (حالت خاص `sharedLay` حذف؛ ناهمخوانی apply/unlink هم رفع شد). `order-cost-reconcile.js` و costOut مرحله: تشخیص per-lay «اتلاف از WIP خارج شده» (کلاسیک همیشه؛ مشترک فقط وقتی `waste_journal_id` بستانکار حساب WIP است) ⇒ برش‌های مشترک قدیمی (Cr1110) رفتار قبلی را دارند. `voidSharedCut` بعد از ابطال ستون‌های بهای سفارش را از اسناد زنده بازسازی می‌کند.
+- **Help:** راهنمای مدیر، بخش برش (P6) + متن پیش‌نمایش اصلاح بها.
+- **ادغام:** تعارض `app.js` (راهنمای برش مشترک) با P2 — هر دو حفظ شد: بند جدید «تسهیم رسید نهایی سفارش چندمحصولی» (P2) + متن به‌روز «اصلاح بها (v503)» (P6).
+- **تست:** جدید `test-prodcycle-p6-shared-waste` ۴۸/۴۸؛ prodcycle-p1 ۲۶/۲۶، p2 ۲۷/۲۷، p5 ۲۶/۲۶، prod-cut-shared ۵۱/۵۱، cutting-alloc-basis-v470 ۲۲/۲۲، prod-02-cutting ۳۹/۳۹، cutting-lay-multi-v469 ۳۰/۳۰، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های journey-adr006-v471، lay-unit-v514، closed-month-gates-v525، production-fixed-advanced و test-sync از قبل روی main.
+- **داده:** هیچ. P8 (JE 803/805/807/811/817 سفارش 19): PRD-01 خالص ⇒ کل و PRD-09 Cr1110 ⇒ Cr1111، **هم‌زمان** `production_material_issues.amount_rial` (cutting_lay) و `material_added_rial` مرحله ⇒ common+waste، سپس `applyDocumentCosts`.
+- **SW:** `erp-taranom-v613`؛ `app.js?v=613`.
+- **فایل‌ها:** `server/lib/production/{shared-cut,engine-advanced,order-cost-reconcile}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prod-cut-shared.js`، `server/scripts/test-prodcycle-p6-shared-waste.js` (جدید)، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P2: تسهیم برش مشترک بر پایهٔ `cutting_batch_allocations` + مراحل اختصاصی (SW v612)
+- **Commit:** squash روی main (#164) ([PR #164](https://github.com/rashidhamedas-prog/erp-taranom/pull/164))؛ commit شاخه `b8e7b9da` (`fix/prodcycle-p2-shared-cut-alloc`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** رسید نهایی سفارش چندمحصولی (برش مشترک) بها را ۵۰/۵۰ بر پایهٔ تعداد تقسیم می‌کرد؛ برگهٔ بها برای سفارش چندفرمولی بدون تخصیص ۰٪ نشان می‌داد.
+- **رفع (`lib/production/order-cost-split.js` جدید: `splitOrderCost`، `sharedCutFabricByProduct`، `exclusiveStageCostByProduct`، `explodeExclusiveByProduct`):** (۱) پارچهٔ هر محصول = Σ `cutting_batch_allocations.amount_rial` لایه/برش‌های ابطال‌نشدهٔ سفارش؛ (۲) مراحل `product_scope='exclusive'` (دستمزد + سربار + پیمانکاری + مواد مستقیم؛ مواد = بیشینهٔ مواد مراحل اختصاصی و اقلام exclusive فرمول) مستقیم به همان محصول؛ (۳) باقی‌مانده به نسبت تعداد (چندفرمولی) یا ٪ فرمول (چندمحصولی تک‌فرمولی)؛ (۴) بدون ردیف تخصیص ⇒ رفتار قبلی؛ (۵) Σ رسیدها دقیقاً = خالص WIP (گرد کردن روی محصول سفارش). `costSheet` همان helper ⇒ نمایش = رسید. ارجاع تعریف‌نشدهٔ `mainAlloc` در finalize رفع شد.
+- **Help:** راهنمای مدیر، بخش برش مشترک.
+- **تست:** جدید `test-prodcycle-p2-shared-alloc` ۲۷/۲۷ (A=928,034,535 / B=1,058,957,063؛ Σ = WIP)؛ prodcycle-p1 ۲۶/۲۶، p5 ۲۶/۲۶، prod-cut-shared ۵۱/۵۱، cutting-alloc-basis-v470 ۲۲/۲۲، production-reports ۳۴/۳۴، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های multiproduct-v420/v423، scope-v418/v458، bom-advanced، finalize-matrix-v463، production-close، peer-boms-v475، journey-adr006-v471 و test-sync از قبل روی main.
+- **داده:** سفارش‌های بسته دست نخوردند؛ PO-0014 ⇒ P8.
+- **SW:** `erp-taranom-v612`؛ `app.js?v=612`.
+- **فایل‌ها:** `server/lib/production/order-cost-split.js` (جدید)، `server/lib/production/{engine-advanced,reports}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p2-shared-alloc.js` (جدید)، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P1: خروج WIP بستهٔ برش با بهای خود بسته (amountRial) + ابطال در reverseOrder (SW v611)
+- **Commit:** squash روی main (#163) ([PR #163](https://github.com/rashidhamedas-prog/erp-taranom/pull/163))؛ commit شاخه `ec0eae03` (`fix/prodcycle-p1-wip-pack-amount`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** `relieveStagedPackQty` خروج بسته از انبار WIP (مثلاً WH37، حساب 1111) را بدون `amountRial` ثبت می‌کرد ⇒ ارزش‌گذاری با میانگین FG ⇒ کاردکس WIP با مقدار صفر ولی ارزش منفی (پرود: −2,797,379,484 ریال).
+- **رفع:** هر خروج = سهم تناسبی `round(pack.amount_rial × take / pack.qty)`؛ خروج پایانی بسته دقیقاً باقی‌ماندهٔ مبلغ. مقدار/مبلغ تخلیه‌شدهٔ هر بسته از `inventory_ledger` (`source_type='cutting_pack'`، `qty_out>0`، posted، غیرمعکوس) خوانده می‌شود ⇒ رسید جزئی بعدی بستهٔ تخلیه‌شده را دوباره کم نمی‌کند. بستهٔ مبلغ صفر ⇒ `allowZeroCost`.
+- **ابطال (R13):** تابع جدید `reverseStagedPackRelief` در `reverseOrder` (و `purgeOrder`) بسته‌ها را با همان مبلغ به WIP برمی‌گرداند. کامنت «no kardex row» در `ledger.js` اصلاح شد.
+- **Help:** راهنمای مدیر، بخش بستهٔ برش سفارش‌دار (بند P1).
+- **تست:** جدید `test-prodcycle-p1-wip-pack` ۲۶/۲۶ (روی main قبلی ۱۳ شکست)؛ prodcycle-p5 ۲۶/۲۶، pack-double-fg-v399 ۱۷/۱۷، prod-void-kardex-v402 ۱۷/۱۷، prod-02-cutting ۳۹/۳۹، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های g1-v278، pack-po-wip-v279، cut-pack-flow-v378، production-close* و test-sync از قبل روی main.
+- **داده:** هیچ. P8: ۱۱ ردیف تاریخی WH37 (۱۴۵۶–۱۴۶۳، ۱۴۷۹–۱۴۸۱؛ PO-0014/PO-0015) با میانگین FG ⇒ اسکریپت dry-run. `voidCuttingPack` پس از تخلیه هنوز گارد ندارد (خارج از دامنه).
+- **SW:** `erp-taranom-v611`؛ `app.js?v=611`.
+- **فایل‌ها:** `server/lib/production/{cutting,engine}.js`، `server/lib/inventory/ledger.js` (کامنت)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p1-wip-pack.js` (جدید)، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P5: بستانکار دستمزد قطعه‌ای/ساعتی تولید بر اساس نقش شخص — هرگز حساب دارایی (SW v610)
+- **Commit:** squash روی main (#162) ([PR #162](https://github.com/rashidhamedas-prog/erp-taranom/pull/162))؛ commit شاخه `ef68617b` (`fix/prodcycle-p5-labor-credit`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** دستمزد عملیات تولیدِ دارای «شخص» بی‌قید به `persons.coa_code` ← `parties.coa_code` بستانکار می‌شد؛ برای شخص ۱۳۲ این حساب `110301000015` (دارایی ۱۱۰۳) بود.
+- **رفع:** `resolveLaborPayableForPerson(db, person, { allocate })` در `lib/payroll/person-account.js`: **کارمند** (monthly/daily/hourly، یا سابقهٔ payroll_records/salary_structures، یا monthly_salary_rial>0) ⇒ `coa_payroll_payable` (۲۱۰۴)؛ **پیمانکار/نامشخص** ⇒ تفصیلی پرداختنی خود شخص (حساب بدهی شخص ← `persons.labor_payable_coa_code` ← بدهی طرف‌حساب ← تفصیلی تأمین‌کنندهٔ متصل ← تفصیلی جدید زیر `coa_payable` ۲۱۰۱ که روی `persons.labor_payable_coa_code` ذخیره می‌شود). نقش `employee` در party_roles به‌تنهایی کارمند نمی‌کند؛ نامشخص ⇒ لاگ `[labor-payable]` با flagged. نگاشت به دارایی (۱۱۰۳/۱۱۰۶/type=asset) ⇒ ۴۲۲ `E_LABOR_PAYABLE_ASSET` (rollback). `allocate:false` (پیش‌نمایش/heal dry-run) چیزی در کدینگ نمی‌نویسد. `healPieceLaborPersonPayable` از resolver جدید استفاده می‌کند. `resolvePersonPayableAccount` (حقوق) و `person_ledger` بدون تغییر.
+- **اسکیما/سینک:** ستون `persons.labor_payable_coa_code` (ensureColumn در `lib/production/schema.js`)؛ جدول جدید ندارد (`persons` از قبل سینک می‌شود).
+- **Help:** راهنمای مدیر — حساب بستانکار دستمزد بر اساس نقش.
+- **تست:** جدید `test-prodcycle-p5-labor-credit` ۲۶/۲۶؛ v501 ۱۸/۱۸، overhead-labor ۳۸/۳۸، coa-keys-v586 ۴۴/۴۴، sms ۲۲/۲۲؛ test-sync، payroll-v300 و cache-bust v499 از قبل روی main fail (پیش‌موجود).
+- **داده:** هیچ. برای P8: reclass ۵۸۹٬۶۰۰٬۰۰۰ ریال JE 747/750/775/934 (Dr 110301000015 / Cr پرداختنی صحیح)؛ پیش از آن `employment_type` شخص ۱۳۲ بررسی شود.
+- **SW:** `erp-taranom-v610`؛ `app.js?v=610`.
+- **فایل‌ها:** `server/lib/payroll/person-account.js`، `server/lib/production/{labor,schema}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p5-labor-credit.js` (جدید)، `server/scripts/test-bom-labor-person-je-v499.js`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۲ — opening-stock: موجودی اول دوره جدا از موجودی کل (`product_opening_stock`) + اصلاحیهٔ رسمی + مسدودسازی مسیرهای قدیمی (SW v609)
 - **Commit:** squash `ec9834d2` روی `main` ([PR #161](https://github.com/rashidhamedas-prog/erp-taranom/pull/161))؛ alias `claude/claude-md-docs-2ssrpy` هم‌تیپ. CI: core-and-dr / sync-security / playwright-critical / production / web-api-security / embedded-and-static سبز؛ dependency-audit، playwright-money (`@playwright/test` نصب نیست) و production-tests (TS-07 `cheque_book_leaves.serial`) همان قرمزهای ازقبل‌موجود روی main.
 - **Deploy:** ✅ `21b81a80` (کد = `ec9834d2` #161) روی ایران ۱۴:۲۸ پس از «GO deploy opening-stock» (audit-kardex v608 از ۱۴:۰۵ تمام‌شده؛ هم‌زمان نبود) — overlay ۳۷ فایل از `caa8929d` (گارد drift: همهٔ فایل‌های M = v608، فایل‌های A وجود نداشتند)، تأیید هش git هر ۳۷ فایل، بکاپ `~/backups/crm.db.v609-pre-opening-stock-20261102-105829` (+ `.consistent` integrity ok + `-wal` + `-shm`)، `node --check` + `new Function(app.js)` روی سرور، `ensure-sharp-runtime` OK، `pm2 restart erp-taranom` بدون `--update-env`، health HTTP 200، `image_engine` sharp 0.33.5، SW `erp-taranom-v609`، `app.js?v=609`؛ `/api/inventory/opening-duplicates` و `/opening-stock` بدون توکن 401.

@@ -171,12 +171,12 @@ try {
     SELECT COUNT(*) c FROM journal_lines
     WHERE entry_id=? AND account_code='1110' AND COALESCE(credit_rial,0) > 0
   `).get(lossPosted.waste_journal_id).c;
-  eq('اتلاف بستانکار مواد', creditRaw, 1);
+  eq('اتلاف بستانکار مواد نیست (P6)', creditRaw, 0);
   const creditWip = db.prepare(`
     SELECT COUNT(*) c FROM journal_lines
     WHERE entry_id=? AND account_code='1111' AND COALESCE(credit_rial,0) > 0
   `).get(lossPosted.waste_journal_id).c;
-  eq('اتلاف بستانکار WIP نیست', creditWip, 0);
+  eq('اتلاف بستانکار WIP (P6)', creditWip, 1);
   voidSharedCut(db, lossPosted.id, { id: admin.id }, 'آزمون اتلاف');
   const remLeft = db.prepare(`
     SELECT COALESCE(SUM(qty_on_hand),0) q FROM inventory_batches

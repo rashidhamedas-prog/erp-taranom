@@ -219,6 +219,8 @@ function ensureExistingColumns(db) {
   if (tableExists(db, 'persons')) {
     ensureColumn(db, 'persons', 'cost_center_id', 'INTEGER');
     ensureColumn(db, 'persons', 'labor_method', "TEXT DEFAULT 'piece'");
+    // Contractor AP leaf for piece/hourly wages when persons.coa_code is an asset (1103/1106).
+    ensureColumn(db, 'persons', 'labor_payable_coa_code', 'TEXT');
   }
   if (tableExists(db, 'bom_operations')) {
     ensureColumn(db, 'bom_operations', 'person_id', 'INTEGER');
@@ -1715,6 +1717,8 @@ function ensureSharedCutSchema(db) {
     ensureColumn(db, 'cutting_lays', 'qty_unit', 'TEXT');
     ensureColumn(db, 'cutting_lays', 'marker_unit', 'TEXT');
     ensureColumn(db, 'cutting_lays', 'marker_factor', 'REAL');
+    // Order whose posted receipt absorbed this lay's covered-lay value delta (cutting_lay_fg_delta).
+    ensureColumn(db, 'cutting_lays', 'fg_delta_order_id', 'INTEGER');
   }
   if (tableExists(db, 'cutting_lay_rolls')) {
     ensureColumn(db, 'cutting_lay_rolls', 'opening_m', 'REAL DEFAULT 0');
