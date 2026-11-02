@@ -1,0 +1,41 @@
+﻿section,map_id,account_code,account_name,cost_center_id,cc_name,absorb_pct,base_type,active,base_rial,ending_balance_rial,period_debit_rial,amount_rial,debit_rial,credit_rial,period,status_before,status_after,note
+current_map,3,610301,,2,دفتر توزیع — کیمیا,50,period_debit,1,,,,,,,,,,
+current_map,2,610302,,2,دفتر توزیع — کیمیا,50,ending_balance,1,,,,,,,,,,
+current_map,1,610303,,2,دفتر توزیع — کیمیا,100,ending_balance,1,,,,,,,,,,
+current_map,4,610305,,2,دفتر توزیع — کیمیا,100,period_debit,1,,,,,,,,,,
+account,,610301,سوشال مدیا,,,,period_debit,,,911827801,911827801,,,,,,,existing_base=period_debit
+account,,610302,هزینه های تبلیغات,,,,ending_balance,,,0,0,,,,,,,existing_base=ending_balance
+account,,610303,هزینه های حمل و نقل,,,,ending_balance,,,12915150,12915150,,,,,,,existing_base=ending_balance
+account,,610305,انبارداری,,,,period_debit,,,0,0,,,,,,,existing_base=period_debit
+account,,610307,هزینه بسته بندی,,,,period_debit,,,42120000,42120000,,,,,,,unmapped
+proposed_map,,610301,سوشال مدیا,1,کارگاه تولید — نبوت,50,period_debit,,,,,,,,,,,insert
+proposed_map,,610301,سوشال مدیا,8,اتو و بسته‌بندی,50,period_debit,,,,,,,,,,,insert
+proposed_map,,610302,هزینه های تبلیغات,1,کارگاه تولید — نبوت,50,ending_balance,,,,,,,,,,,insert
+proposed_map,,610302,هزینه های تبلیغات,8,اتو و بسته‌بندی,50,ending_balance,,,,,,,,,,,insert
+proposed_map,,610303,هزینه های حمل و نقل,1,کارگاه تولید — نبوت,50,ending_balance,,,,,,,,,,,insert
+proposed_map,,610303,هزینه های حمل و نقل,8,اتو و بسته‌بندی,50,ending_balance,,,,,,,,,,,insert
+proposed_map,,610305,انبارداری,1,کارگاه تولید — نبوت,50,period_debit,,,,,,,,,,,insert
+proposed_map,,610305,انبارداری,8,اتو و بسته‌بندی,50,period_debit,,,,,,,,,,,insert
+proposed_map,,610307,هزینه بسته بندی,1,کارگاه تولید — نبوت,50,period_debit,,,,,,,,,,,insert
+proposed_map,,610307,هزینه بسته بندی,8,اتو و بسته‌بندی,50,period_debit,,,,,,,,,,,insert
+deactivate_map,3,610301,,2,دفتر توزیع — کیمیا,50,period_debit,0,,,,,,,,,,
+deactivate_map,2,610302,,2,دفتر توزیع — کیمیا,50,ending_balance,0,,,,,,,,,,
+deactivate_map,1,610303,,2,دفتر توزیع — کیمیا,100,ending_balance,0,,,,,,,,,,
+deactivate_map,4,610305,,2,دفتر توزیع — کیمیا,100,period_debit,0,,,,,,,,,,
+je_share,,610301,سوشال مدیا,1,کارگاه تولید — نبوت,50,period_debit,,911827801,,,455913901,,,,,,
+je_share,,610301,سوشال مدیا,8,اتو و بسته‌بندی,50,period_debit,,911827801,,,455913900,,,,,,
+je_share,,610302,هزینه های تبلیغات,1,کارگاه تولید — نبوت,50,ending_balance,,0,,,0,,,,,,
+je_share,,610302,هزینه های تبلیغات,8,اتو و بسته‌بندی,50,ending_balance,,0,,,0,,,,,,
+je_share,,610303,هزینه های حمل و نقل,1,کارگاه تولید — نبوت,50,ending_balance,,12915150,,,6457575,,,,,,
+je_share,,610303,هزینه های حمل و نقل,8,اتو و بسته‌بندی,50,ending_balance,,12915150,,,6457575,,,,,,
+je_share,,610305,انبارداری,1,کارگاه تولید — نبوت,50,period_debit,,0,,,0,,,,,,
+je_share,,610305,انبارداری,8,اتو و بسته‌بندی,50,period_debit,,0,,,0,,,,,,
+je_share,,610307,هزینه بسته بندی,1,کارگاه تولید — نبوت,50,period_debit,,42120000,,,21060000,,,,,,
+je_share,,610307,هزینه بسته بندی,8,اتو و بسته‌بندی,50,period_debit,,42120000,,,21060000,,,,,,
+je_line,,5202,,1,کارگاه تولید — نبوت,,,,,,,,483431476,0,1405/07,,,
+je_line,,5202,,8,اتو و بسته‌بندی,,,,,,,,483431475,0,1405/07,,,
+je_line,,610301,سوشال مدیا,,,,,,,,,,0,911827801,1405/07,,,
+je_line,,610303,هزینه های حمل و نقل,,,,,,,,,,0,12915150,1405/07,,,
+je_line,,610307,هزینه بسته بندی,,,,,,,,,,0,42120000,1405/07,,,
+precheck,,,,,,,,,,,,,,,,pass,pass,SHARED_MOEIN
+precheck,,,,,,,,,,,,966862951,0,-492835127,,fail,pass,OH_ACTUAL_ON_CONTROL

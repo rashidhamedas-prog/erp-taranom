@@ -24,6 +24,12 @@ const {
   runAbsorb,
   reverseAbsorb,
   BASE_TYPES,
+  SPLIT_SETTING_KEY,
+  getSplit,
+  applySplit,
+  listOverheadLeafAccounts,
+  previewAbsorbPeriod,
+  runAbsorbPeriod,
 } = require('../lib/production/cc-account-absorb');
 
 function handle(res, fn) {
@@ -278,15 +284,66 @@ router.get('/account-maps', auth, requirePermission('production_cost', 'view'), 
   });
 });
 
-router.put('/account-maps/:costCenterId', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+/* تسهیم سربار واقعی 61030x بین مراکز (پیش‌فرض کارگاه ۵۰٪ / اتو و بسته‌بندی ۵۰٪) — قبل از /account-maps/:id */
+router.get('/account-maps/split', auth, requirePermission('production_cost', 'view'), (req, res) => {
   handle(res, () => {
-    const rows = replaceMaps(getDB(), req.params.costCenterId, req.body?.maps || req.body?.rows || [], req.user?.id);
+    const db = getDB();
+    const { split, is_default } = getSplit(db);
+    const period = req.query.period ? validatePeriodLabel(req.query.period) : null;
+    const centers = db.prepare(`
+      SELECT id, code, name, COALESCE(is_stage,0) AS is_stage FROM cost_centers
+      WHERE COALESCE(active,1)=1 ORDER BY COALESCE(seq,0), code
+    `).all();
+    return {
+      key: SPLIT_SETTING_KEY,
+      split,
+      is_default,
+      centers,
+      accounts: listOverheadLeafAccounts(db, period),
+      can_edit: !!(req.user && (req.user.role === 'admin' || req.user.role === 'accounting')),
+    };
+  });
+});
+
+router.put('/account-maps/split', auth, centralOnlyStrict, requirePermission('production_cost', 'edit'),
+  adminOrAccountingStrict, (req, res) => {
+    handle(res, () => {
+      const b = req.body || {};
+      return applySplit(getDB(), {
+        split: b.split,
+        accounts: Array.isArray(b.accounts) ? b.accounts : [],
+        removeOthers: b.remove_others !== false,
+        userId: req.user.id,
+        req,
+      });
+    });
+  });
+
+router.put('/account-maps/:costCenterId', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const ccId = Number(req.params.costCenterId);
+    const before = ccId ? listMaps(db, ccId, { includeInactive: true }) : [];
+    const rows = replaceMaps(db, ccId, req.body?.maps || req.body?.rows || [], req.user?.id);
+    const pick = (list) => list.map((m) => ({
+      account_code: m.account_code, absorb_pct: m.absorb_pct, base_type: m.base_type,
+      budget_rial: m.budget_rial, active: m.active,
+    }));
+    audit(req.user?.id, 'update', 'cost_center_account_map', ccId,
+      JSON.stringify({ cost_center_id: ccId, before: pick(before), after: pick(rows) }), req);
     return { rows, base_types: BASE_TYPES };
   });
 });
 
-router.delete('/account-maps/:id', auth, requirePermission('production_cost', 'edit'), (req, res) => {
-  handle(res, () => softDeactivateMap(getDB(), req.params.id));
+router.delete('/account-maps/:id', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
+  handle(res, () => {
+    const db = getDB();
+    const before = db.prepare('SELECT * FROM cost_center_account_maps WHERE id=?').get(Number(req.params.id));
+    const out = softDeactivateMap(db, req.params.id);
+    audit(req.user?.id, 'delete', 'cost_center_account_map', out.id,
+      JSON.stringify({ before, after: { ...before, active: 0 } }), req);
+    return out;
+  });
 });
 
 router.post('/account-maps/preview', auth, requirePermission('production_cost', 'view'), (req, res) => {
@@ -365,6 +422,27 @@ router.post('/absorb-postings/run', auth, centralOnlyStrict, requirePermission('
       const b = req.body || {};
       return runAbsorb(getDB(), {
         costCenterId: Number(b.cost_center_id),
+        period: validatePeriodLabel(b.period_label || b.period),
+        date: b.date || null,
+        userId: req.user.id,
+      });
+    });
+  });
+
+router.post('/absorb-postings/preview-period', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => {
+    const b = req.body || {};
+    const p = previewAbsorbPeriod(getDB(), validatePeriodLabel(b.period_label || b.period));
+    delete p.pending_lines;
+    return p;
+  });
+});
+
+router.post('/absorb-postings/run-period', auth, centralOnlyStrict, requirePermission('production_cost', 'edit'),
+  adminOrAccountingStrict, (req, res) => {
+    handle(res, () => {
+      const b = req.body || {};
+      return runAbsorbPeriod(getDB(), {
         period: validatePeriodLabel(b.period_label || b.period),
         date: b.date || null,
         userId: req.user.id,
