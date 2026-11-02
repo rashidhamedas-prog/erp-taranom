@@ -663,6 +663,10 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     const rp = Math.round(parseFloat(req.body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
   }
+  if (req.body.min_price_rial != null && req.body.min_price_rial !== '') {
+    const mp = Math.max(0, Math.round(parseFloat(req.body.min_price_rial) || 0));
+    db.prepare('UPDATE products SET min_price_rial=? WHERE id=?').run(mp > 0 ? mp : null, result.lastInsertRowid);
+  }
   if (req.body.costing_method !== undefined) {
     const cm = String(req.body.costing_method || '').trim() || null;
     db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
@@ -847,6 +851,10 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   if (bodyHas(body, 'retail_price')) {
     const rp = Math.round(parseFloat(body.retail_price) || 0);
     db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, req.params.id);
+  }
+  if (bodyHas(body, 'min_price_rial')) {
+    const mp = Math.max(0, Math.round(parseFloat(body.min_price_rial) || 0));
+    db.prepare('UPDATE products SET min_price_rial=? WHERE id=?').run(mp > 0 ? mp : null, req.params.id);
   }
   if (bodyHas(body, 'full_pack_mode')) {
     try {

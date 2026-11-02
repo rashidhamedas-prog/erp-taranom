@@ -195,6 +195,35 @@ function lineNet(r) {
   return Math.max(0, lineGross(r) - lineDiscOf(r));
 }
 
+/** FR-POS-DRAFTS: list price struck through when the applied price differs (POS override). */
+function listPriceRial(r) {
+  const list = Math.round(Number(r && r.list_price_rial) || 0);
+  const price = Math.round(Number(r && r.price) || 0);
+  return list > 0 && list !== price ? list : 0;
+}
+
+function priceCellHtml(r) {
+  const list = listPriceRial(r);
+  const applied = faNum(r.price);
+  return list ? `<span class="list-price">${faNum(list)}</span><br>${applied}` : applied;
+}
+
+/** Line discount in rial; percent only when the line discount was entered as percent (rial mode → no «٪»). */
+function discCellHtml(r) {
+  const disc = lineDiscOf(r);
+  if (!disc) return '—';
+  const pct = Number(r.disc) || 0;
+  return pct > 0 ? `${faNum(disc)}<div class="disc-pct">(${faNum(pct)}٪)</div>` : faNum(disc);
+}
+
+function thermalPriceLine(r) {
+  const list = listPriceRial(r);
+  const parts = [];
+  if (list) parts.push(`فهرست <span class="list-price">${faNum(list)}</span>`);
+  parts.push(`فی ${faNum(r.price)}`);
+  return `<div class="row-price">${parts.join(' · ')}</div>`;
+}
+
 function linesDiscTotal(rows) {
   return (rows || []).reduce((a, r) => a + lineDiscOf(r), 0);
 }
@@ -254,15 +283,14 @@ function buildFormalRows(rows, isA5) {
       ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
       : esc(r.name || '');
     const code = esc(rowProductCode(r) || '—');
-    const disc = lineDiscOf(r);
     if (isA5) {
       return `<tr>
         <td>${faNum(i + 1)}</td>
         <td class="num">${code}</td>
         <td class="rtl">${nameCell}</td>
         <td>${faNum(r.qty)}</td>
-        <td class="num">${faNum(r.price)}</td>
-        <td class="num disc">${disc ? faNum(disc) : '—'}</td>
+        <td class="num">${priceCellHtml(r)}</td>
+        <td class="num disc">${discCellHtml(r)}</td>
         <td class="num">${faNum(lineNet(r))}</td>
       </tr>`;
     }
@@ -272,9 +300,9 @@ function buildFormalRows(rows, isA5) {
       <td class="rtl">${nameCell}</td>
       <td>${esc(r.unit || 'عدد')}</td>
       <td>${faNum(r.qty)}</td>
-      <td class="num">${faNum(r.price)}</td>
+      <td class="num">${priceCellHtml(r)}</td>
       <td class="num">${faNum(lineGross(r))}</td>
-      <td class="num disc">${disc ? faNum(disc) : '—'}</td>
+      <td class="num disc">${discCellHtml(r)}</td>
       <td class="num">${faNum(lineNet(r))}</td>
     </tr>`;
   }).join('');
@@ -287,15 +315,14 @@ function buildCasualRows(rows) {
       ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
       : esc(r.name || '');
     const code = esc(rowProductCode(r) || '—');
-    const disc = lineDiscOf(r);
     return `<tr>
       <td>${faNum(i + 1)}</td>
       <td class="num">${code}</td>
       <td class="rtl">${nameCell}</td>
       <td>${esc(r.unit || 'عدد')}</td>
       <td>${faNum(r.qty)}</td>
-      <td class="num">${faNum(r.price)}</td>
-      <td class="num disc">${disc ? faNum(disc) : '—'}</td>
+      <td class="num">${priceCellHtml(r)}</td>
+      <td class="num disc">${discCellHtml(r)}</td>
       <td class="num">${faNum(lineNet(r))}</td>
     </tr>`;
   }).join('');
@@ -308,14 +335,13 @@ function buildThermalRows(rows) {
     const nameCell = desc
       ? `${esc(r.name || '')}<div class="row-desc">${esc(desc)}</div>`
       : esc(r.name || '');
-    const cell = code
+    const cell = (code
       ? `<div class="row-code">${esc(code)}</div>${nameCell}`
-      : nameCell;
-    const disc = lineDiscOf(r);
+      : nameCell) + thermalPriceLine(r);
     return `<tr>
       <td class="rtl">${cell}</td>
       <td>${faNum(r.qty)}</td>
-      <td class="num disc">${disc ? faNum(disc) : '—'}</td>
+      <td class="num disc">${discCellHtml(r)}</td>
       <td class="num">${faNum(lineNet(r))}</td>
     </tr>`;
   }).join('');
@@ -363,6 +389,9 @@ function themeCss(id, dims) {
   .thermal-number{margin-top:2px}
   .thermal-customer{line-height:1.5}
   .row-desc{font-size:8px;color:#5F7268;margin-top:1px;font-weight:400;white-space:normal;overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
+  .list-price{text-decoration:line-through;color:#8a8a8a;font-weight:400;font-size:.85em}
+  .row-price{font-size:8px;color:#5F7268;margin-top:1px;font-weight:400;line-height:1.35}
+  .disc-pct{font-size:.8em;font-weight:400;color:#5F7268}
   .warn-line{color:#b45309;font-size:10px;font-weight:700}
   .thanks{margin-top:3px;color:#8A7020;font-size:.8em;font-weight:600}
   .logo-box{background:#fff;border:1px solid #c5d6cc;border-radius:6px;padding:2px 5px;display:inline-flex;align-items:center}
@@ -911,4 +940,5 @@ module.exports = {
   parseCustomize, resolveTemplateId, normalizeCasual, thermalWidthMm,
   renderInvoicePrintHtml, computePrintTotals, faNum, esc, paperDims,
   collapsePrintRows, normalizePrintReceipts, rowProductCode,
+  _posDrafts: { listPriceRial, priceCellHtml, discCellHtml, thermalPriceLine },
 };

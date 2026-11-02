@@ -65,6 +65,8 @@ const NON_COA_ALLOWED_KEYS = [
   'store_insufficient_stock_mode',
   // P6 — card terminal with empty coa_code: in_transit (legacy default, 1118) | bank (straight to bank account)
   'pos_empty_coa_mode',
+  // FR-POS-DRAFTS — POS price below min_price_rial / cost: warn (default) | block (admin only)
+  'store_price_floor_mode',
 ];
 
 /** Keys a sales_manager (not only admin) may change through PUT /settings. */
@@ -240,6 +242,16 @@ router.put('/', auth, adminOrManagerForStoreKeys, centralOnly, async (req, res) 
       });
     }
     body.pos_empty_coa_mode = v;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'store_price_floor_mode')) {
+    const v = String(body.store_price_floor_mode || '').trim().toLowerCase();
+    if (v !== 'warn' && v !== 'block') {
+      return res.status(400).json({
+        error: 'مقدار store_price_floor_mode فقط warn یا block است',
+        code: 'E_STORE_PRICE_FLOOR_MODE',
+      });
+    }
+    body.store_price_floor_mode = v;
   }
   for (const key of ['currency_base', 'currency_display']) {
     if (!Object.prototype.hasOwnProperty.call(body, key)) continue;

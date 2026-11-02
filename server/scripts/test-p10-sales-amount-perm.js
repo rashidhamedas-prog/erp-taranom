@@ -22,7 +22,11 @@ console.log('\n══ P10-fix: sales_amount:view ══\n');
 
   // ── 1) RBAC matrix ──
   console.log('— 1) RBAC matrix defaults —');
-  ok('RESOURCES ends with sales_amount (append-only)', RESOURCES[RESOURCES.length - 1] === 'sales_amount');
+  // Append-only: only resources added later (FR-POS-DRAFTS) may follow sales_amount.
+  const LATER_RESOURCES = ['price_override', 'credit_override'];
+  ok('RESOURCES: sales_amount appended (only later resources after it)',
+    RESOURCES.indexOf('sales_amount') >= 0
+      && RESOURCES.slice(RESOURCES.indexOf('sales_amount') + 1).every((r) => LATER_RESOURCES.includes(r)));
   ok('cost_visibility / qty_receipt keep their position before sales_amount',
     RESOURCES.indexOf('cost_visibility') < RESOURCES.indexOf('qty_receipt') && RESOURCES.indexOf('qty_receipt') < RESOURCES.indexOf('sales_amount'));
   ok('sales_amount closed by default', CLOSED_DEFAULT_NONE.has('sales_amount'));

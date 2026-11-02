@@ -2678,6 +2678,8 @@ function initSyncSchema(db, opts) {
   ensureColumn(db, 'products', 'average_cost_rial', 'INTEGER DEFAULT 0');
   // DEFAULT 1 — existing catalog keeps syncing until user opts out
   ensureColumn(db, 'products', 'website_stock_push', 'INTEGER NOT NULL DEFAULT 1');
+  // FR-POS-DRAFTS — price floor for POS price override / discount (NULL = no floor).
+  ensureColumn(db, 'products', 'min_price_rial', 'INTEGER');
 
   // Default warehouses for workshop + distribution office (skip after user wipe)
   const whCleared2 = db.prepare("SELECT value FROM settings WHERE key='warehouses_user_cleared'").get()?.value;

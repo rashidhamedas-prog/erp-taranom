@@ -351,19 +351,24 @@ router.post('/quick-exchange', auth, requirePermission('invoices', 'create'), (r
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
 
-  const salePrepPreview = prepareStoreQuickSaleBody(db, req.user, {
-    ...saleIn,
-    cust_id: custId,
-    store_quick: true,
-    sales_channel: 'store_quick',
-  });
-  const saleFinalEst = estimateSaleFinalRial(salePrepPreview.rows, salePrepPreview.disc);
+  let salePrepPreview;
+  try {
+    salePrepPreview = prepareStoreQuickSaleBody(db, req.user, {
+      ...saleIn,
+      cust_id: custId,
+      store_quick: true,
+      sales_channel: 'store_quick',
+    });
+  } catch (e) {
+    return res.status(e.status || 400).json({ error: e.message, code: e.code });
+  }
+  const saleFinalEst = estimateSaleFinalRial(salePrepPreview.rows, salePrepPreview.disc, salePrepPreview.disc_amt);
   // Rough return estimate for cash-box preflight (exact after create)
   let returnEst = 0;
   for (const r of returnRows) {
     const k = r.variant_id ? `v:${r.variant_id}` : `p:${r.product_id}`;
     const a = availMap[k] || availMap[`p:${r.product_id}`];
-    const net = Number(a && a.net_unit) || Number(a && a.price) || 0;
+    const net = Number(a && a.net_unit_final) || Number(a && a.net_unit) || Number(a && a.price) || 0;
     returnEst += Math.round(Number(r.qty) * net);
   }
   const settleEst = computeExchangeSettlement(saleFinalEst, returnEst);

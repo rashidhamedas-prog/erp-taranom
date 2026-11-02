@@ -216,6 +216,98 @@ function enrichRowsProductCodes(db, rows) {
   });
 }
 
+function userCanOverrideCredit(db, user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  try { return !!require('../lib/rbac').hasPermission(db, user, 'credit_override', 'approve'); }
+  catch (_) { return false; }
+}
+
+function wantsCreditOverride(body) {
+  const v = body && body.credit_limit_override;
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
+/** FR-POS-DRAFTS: carry POS list price / override flag through buildRows (only when supplied). */
+function listPriceMeta(r, price) {
+  const list = Math.round(Number(r && r.list_price_rial) || 0);
+  if (!(list > 0)) return {};
+  return {
+    list_price_rial: list,
+    price_overridden: Math.round(Number(price) || 0) !== list ? 1 : 0,
+  };
+}
+
+/**
+ * FR-POS-DRAFTS (tax-ready lines): per-line header-discount share + net + VAT.
+ *  - hdr_disc_share_rial: header discount prorated by line net (after line discount);
+ *    rounding remainder on the last line → Σ = header discount exactly (integer rial).
+ *  - net_after_disc_rial = line net − header share (VAT base for the line).
+ *  - line_vat_rial = round(net_after_disc × rate) on taxable lines; rounding remainder on the
+ *    last taxable line → Σ = invoice vat_amount exactly.
+ * COGS is untouched (kardex), this only annotates the stored JSON rows.
+ */
+function annotateTaxReadyLines(db, rows, { discAmt, vatAmount, vatRate, vatExempt }) {
+  const { lineVatExempt } = require('../lib/vat');
+  const list = Array.isArray(rows) ? rows : [];
+  const nets = list.map((r) => Math.max(0, Math.round(Number(r && r.sum) || 0)));
+  const subtotal = nets.reduce((a, n) => a + n, 0);
+  const H = Math.max(0, Math.min(Math.round(Number(discAmt) || 0), subtotal));
+  const shares = nets.map(() => 0);
+  const positive = nets.map((n, i) => (n > 0 ? i : -1)).filter((i) => i >= 0);
+  if (H > 0 && subtotal > 0 && positive.length) {
+    const last = positive[positive.length - 1];
+    let allocated = 0;
+    for (const i of positive) {
+      if (i === last) continue;
+      shares[i] = Math.min(nets[i], Math.round(H * nets[i] / subtotal));
+      allocated += shares[i];
+    }
+    shares[last] = H - allocated;
+    // Spill if rounding pushed the last line outside [0, net].
+    if (shares[last] > nets[last] || shares[last] < 0) {
+      let diff = shares[last] - Math.max(0, Math.min(nets[last], shares[last]));
+      shares[last] -= diff;
+      for (let k = positive.length - 2; k >= 0 && diff !== 0; k -= 1) {
+        const i = positive[k];
+        const room = diff > 0 ? nets[i] - shares[i] : -shares[i];
+        const step = diff > 0 ? Math.min(diff, room) : Math.max(diff, room);
+        shares[i] += step;
+        diff -= step;
+      }
+    }
+  }
+  const rate = vatExempt ? 0 : (Number(vatRate) || 0);
+  const vatTotal = vatExempt ? 0 : Math.max(0, Math.round(Number(vatAmount) || 0));
+  const taxable = list.map((r) => {
+    if (!(rate > 0)) return false;
+    let prod = null;
+    try { prod = r && r.product_id ? db.prepare('SELECT vat_class FROM products WHERE id=?').get(r.product_id) : null; }
+    catch (_) { prod = null; }
+    return !lineVatExempt(prod && prod.vat_class);
+  });
+  const vats = list.map((r, i) => (taxable[i] ? Math.round((nets[i] - shares[i]) * rate / 100) : 0));
+  const taxIdx = taxable.map((t, i) => (t && nets[i] - shares[i] > 0 ? i : -1)).filter((i) => i >= 0);
+  if (taxIdx.length) {
+    const lastT = taxIdx[taxIdx.length - 1];
+    const sumV = vats.reduce((a, v) => a + v, 0);
+    vats[lastT] = Math.max(0, vats[lastT] + (vatTotal - sumV));
+  }
+  list.forEach((r, i) => {
+    if (!r) return;
+    const gross = Math.round((Number(r.qty) || 0) * (Number(r.price) || 0));
+    const lineDisc = Math.max(0, Math.round(Number(r.disc_amount != null ? r.disc_amount : r.disc_amt) || 0));
+    r.gross_rial = gross;
+    r.line_disc_rial = lineDisc;
+    r.hdr_disc_share_rial = shares[i];
+    r.net_after_disc_rial = nets[i] - shares[i];
+    r.line_vat_rate = taxable[i] ? rate : 0;
+    r.line_vat_rial = vats[i];
+    r.line_total_rial = nets[i] - shares[i] + vats[i];
+  });
+  return list;
+}
+
 function buildRows(db, inputRows, canDiscount) {
   const { requirePositiveQty } = require('../lib/round3');
   const { requiresIntegerQty, isIntegerQty } = require('../lib/inventory/qty-policy');
@@ -290,6 +382,12 @@ function buildRows(db, inputRows, canDiscount) {
         err.code = 'E_DISC_RANGE';
         throw err;
       }
+      if (rawDiscAmt < 0) {
+        const err = new Error('مبلغ تخفیف ردیف نمی‌تواند منفی باشد');
+        err.status = 400;
+        err.code = 'E_DISC_RANGE';
+        throw err;
+      }
     }
     const disc = canDiscount ? Math.min(100, Math.max(0, Number.isFinite(rawDiscPct) ? rawDiscPct : 0)) : 0;
     const discAmountIn = canDiscount ? Math.max(0, rawDiscAmt) : 0;
@@ -298,9 +396,9 @@ function buildRows(db, inputRows, canDiscount) {
     // تخفیف ردیف یک‌بار: مبلغ و درصد هم‌ترازند — مبلغ اولویت دارد، وگرنه از درصد
     const discAmt = discAmountIn > 0 ? discAmountIn : discPctAmt;
     if (canDiscount && discAmt > Math.round(gross) + 0.5) {
-      const err = new Error('مبلغ تخفیف ردیف نمی‌تواند از مبلغ ناخالص ردیف بیشتر باشد');
+      const err = new Error(`مبلغ تخفیف ردیف «${name}» (${discAmt.toLocaleString('fa-IR')} ریال) نمی‌تواند از تعداد × فی (${Math.round(gross).toLocaleString('fa-IR')} ریال) بیشتر باشد`);
       err.status = 400;
-      err.code = 'E_DISC_RANGE';
+      err.code = 'E_DISC_OVER';
       throw err;
     }
     const discAmount = discAmt;
@@ -354,6 +452,10 @@ function buildRows(db, inputRows, canDiscount) {
       size_id: sizeId || null,
       color_name: colorName,
       size_name: sizeName,
+      // Inline (not listPriceMeta): v546 test evals the buildRows source in isolation.
+      ...((lp) => (lp > 0
+        ? { list_price_rial: lp, price_overridden: Math.round(Number(price) || 0) !== lp ? 1 : 0 }
+        : {}))(Math.round(Number(r.list_price_rial) || 0)),
     });
   }
   return { rows: out, subtotal };
@@ -646,21 +748,36 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
     : resolveVatExemptFlag(invType, vat_exempt);
   if (canDiscount && discAmtOverrideEffective != null
     && discAmtOverrideEffective > Math.round(Number(built.subtotal) || 0)) {
+    const cap = Math.round(Number(built.subtotal) || 0);
     return res.status(400).json({
-      error: 'مبلغ تخفیف کل نمی‌تواند از جمع اقلام بیشتر باشد',
-      code: 'E_DISC_RANGE',
+      error: `مبلغ تخفیف کل (${discAmtOverrideEffective.toLocaleString('fa-IR')} ریال) نمی‌تواند از جمع اقلام پس از تخفیف ردیف (${cap.toLocaleString('fa-IR')} ریال) بیشتر باشد`,
+      code: 'E_DISC_OVER',
+      cap_rial: cap,
     });
   }
   const totals = calcDocTotals(db, built, discPctEffective, {
     vatExempt: !!vatFlag,
     discAmt: discAmtOverrideEffective,
   });
+  // FR-POS-DRAFTS: POS price floor (min_price_rial / unit cost) — warn | block.
+  let priceFloor = null;
+  if (isStoreQuickRequest(req.body, req.user.role)) {
+    try {
+      const { applyPriceFloorPolicy } = require('../lib/store-quick-sale');
+      priceFloor = applyPriceFloorPolicy(db, req.user, built.rows, {
+        headerDiscount: Math.round(Number(totals.discAmt) || 0) > 0,
+      });
+    } catch (e) {
+      return res.status(e.status || 422).json({ error: e.message, code: e.code, floor: e.floor });
+    }
+  }
   const freightRial = Math.round(parseFloat(freight_amount) || 0);
   const allocMethod = ['amount', 'qty', 'equal'].includes(freight_alloc_method) ? freight_alloc_method : 'amount';
   allocateFreight(built.rows, freightRial, allocMethod);
   const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
   let { subtotal, discAmt, vatAmount, vatRate } = totals;
   let { final, netBeforeVat } = freightAdj;
+  annotateTaxReadyLines(db, built.rows, { discAmt, vatAmount, vatRate, vatExempt: !!vatFlag });
   const pType = pay_type || 'cash';
   let payPlan;
   try {
@@ -725,6 +842,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
 
   const prefixRow = db.prepare("SELECT value FROM settings WHERE key='invoice_num_prefix'").get();
   let storeStockPolicy = null; // P6 — set for store quick-sale firm documents
+  let creditOverride = null; // FR-POS-DRAFTS — manager credit-limit override (audited after create)
 
   try {
     resolveCashPaid(req.body || {}, final);
@@ -743,7 +861,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
         exchangeCreditRial: exMeta ? exMeta.exchange_credit_rial : 0,
       });
     } catch (e) {
-      return res.status(e.status || 400).json({ error: e.message, code: e.code });
+      const out = { error: e.message, code: e.code };
+      if (e.paid != null) out.paid = e.paid;
+      if (e.final != null) out.final = e.final;
+      return res.status(e.status || 400).json(out);
     }
   }
 
@@ -775,11 +896,24 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       }
       assertPartyCreditLimitOk(db, cust_id, arDelta);
     } catch (e) {
-      return res.status(e.status || 409).json({
-        error: e.message, code: e.code || 'E_CREDIT_LIMIT',
-        credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial, limit: e.limit, balance: e.balance,
-        additional_rial: e.additional_rial, available_rial: e.available_rial,
-      });
+      // FR-POS-DRAFTS: explicit manager override (credit_override:approve + body.credit_limit_override).
+      const canCreditOverride = e.code === 'E_CREDIT_LIMIT' && userCanOverrideCredit(db, req.user);
+      if (canCreditOverride && wantsCreditOverride(req.body)) {
+        creditOverride = {
+          customer_id: Number(cust_id),
+          limit_rial: e.credit_limit_rial,
+          used_rial: e.used_rial,
+          additional_rial: e.additional_rial,
+          available_rial: e.available_rial,
+        };
+      } else {
+        return res.status(e.status || 409).json({
+          error: e.message, code: e.code || 'E_CREDIT_LIMIT',
+          credit_limit_rial: e.credit_limit_rial, used_rial: e.used_rial, limit: e.limit, balance: e.balance,
+          additional_rial: e.additional_rial, available_rial: e.available_rial,
+          can_override: canCreditOverride,
+        });
+      }
     }
   }
 
@@ -954,6 +1088,28 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
       audit(req.user.id, 'negative_stock_override', 'invoice', created.id, JSON.stringify(x));
     }
   } catch (_) {}
+  try {
+    for (const r of built.rows) {
+      if (!r || !Number(r.price_overridden)) continue;
+      audit(req.user.id, 'price_override', 'invoice', created.id, JSON.stringify({
+        invoice_num: row.num,
+        product_id: r.product_id,
+        variant_id: r.variant_id || null,
+        name: r.name,
+        before_price_rial: r.list_price_rial,
+        after_price_rial: Math.round(Number(r.price) || 0),
+        user_id: req.user.id,
+        username: req.user.username || req.user.name || '',
+      }));
+    }
+  } catch (_) {}
+  if (creditOverride) {
+    try {
+      audit(req.user.id, 'credit_limit_override', 'invoice', created.id, JSON.stringify({
+        ...creditOverride, invoice_num: row.num, user_id: req.user.id,
+      }));
+    } catch (_) {}
+  }
   if (!isDevice()) {
     try {
       const cust = db.prepare('SELECT biz FROM customers WHERE id=?').get(cust_id);
@@ -983,6 +1139,10 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
   // P6: warn-mode stock shortage + cash change (باقی) surfaced to the till UI.
   const p6Out = {};
   if (storeStockPolicy && storeStockPolicy.warnings.length) p6Out.warnings = storeStockPolicy.warnings;
+  if (priceFloor && priceFloor.warnings.length) {
+    p6Out.warnings = (p6Out.warnings || []).concat(priceFloor.warnings);
+  }
+  if (creditOverride) p6Out.credit_limit_override = creditOverride;
   if (payPlan.changeRial > 0) p6Out.change_rial = payPlan.changeRial;
   if (payPlan.creditRial > 0) p6Out.credit_rial = payPlan.creditRial;
   res.json(applyCatalogCostPolicy(db, req.user, {
@@ -1049,6 +1209,7 @@ router.put('/:id', auth, requirePermission('invoices', 'edit'), (req, res) => {
   const freightAdj = applyFreightToDocTotals(totals, freightRial, freight_type);
   let { subtotal, discAmt, vatAmount, vatRate } = totals;
   let { final } = freightAdj;
+  annotateTaxReadyLines(db, built.rows, { discAmt, vatAmount, vatRate, vatExempt: !!vatFlag });
 
   const isSalesRep = isSalesProformaOnlyRole(req.user.role);
   let whId = warehouse_id != null && warehouse_id !== '' ? parseInt(warehouse_id, 10) : (row.warehouse_id || null);
@@ -1560,3 +1721,4 @@ router.get('/:id/warehouse-slip', auth, (req, res) => {
 });
 
 module.exports = router;
+module.exports._posDrafts = { annotateTaxReadyLines, listPriceMeta };
