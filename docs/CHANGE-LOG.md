@@ -1,3 +1,18 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P3: یکتایی جذب سربار، محرک درصدی، ثبت جذب واقعی (cc-account-absorb)، PRD-23 و producedInPeriod فقط FG (SW v615)
+- **Commit:** squash روی main (#168) ([PR #168](https://github.com/rashidhamedas-prog/erp-taranom/pull/168))؛ commit شاخه `f4a5f5ff` (`fix/prodcycle-p3-overhead-close`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **(a) یکتایی جذب سربار:** ایندکس UNIQUE جزئی `ux_oh_posted_stage_driver_cc` روی `production_overhead_applications(order_id, stage_id, driver, cost_center_id) WHERE status='posted' AND stage_id IS NOT NULL` + گارد idempotent در `applyStageOverhead` و `postPlantOverhead` (`findPostedApplication`). جذب هم‌زمان cc1 و cc8 برای یک مرحله مجاز (تصمیم مالک). اسناد قبلی برگشت داده نمی‌شوند.
+- **(b) محرک درصدی:** ستون `cost_center_rates.rate_pct` برای محرک‌های ریالی (`direct_labor_rial`، `material_rial`، `labor_rial`)؛ مهاجرت `ROUND(total/10000,4)` (۲۰۰٬۰۰۰ در میلیون = ۲۰٪)؛ پیش‌فرض ۲۰٪. ثبت/ویرایش/bootstrap/حذف/apply-budget فقط admin/accounting (بقیه ۴۰۳ `E_FORBIDDEN`) + audit قبل/بعد. UI: فیلد درصد + پیش‌نمایش.
+- **(c) بستن دوره:** precheck `OH_ACTUAL_ON_CONTROL` (5202≈0 و 5203≠0 ⇒ fail با پیشنهاد «ثبت جذب واقعی»)؛ اجرای واقعی cc-account-absorb در یک تراکنش: PRD-06 Dr 5202 / Cr حساب‌های نگاشت‌شده (61030x)، شمارهٔ `CCA` از `allocateNumber`، یک‌بار برای هر دوره/map (`E_ALREADY_POSTED`)، تاریخ آخر ماه جلالی؛ ابطال کامل R13 (reverseEvent، دلیل اجباری، audit). جدول فقط-مرکز `cc_absorb_postings` (عمداً خارج از `tables.js`/`PATH_TABLE_MAP`) + `GET /absorb-postings`، `POST /absorb-postings/run`، `POST /absorb-postings/:docNo/reverse` (centralOnlyStrict، admin/accounting). sequence `cc_absorb` (پیشوند CCA). هیچ ردیف موجود `cost_center_account_maps` تغییر نکرد.
+- **(d) PRD-23:** مانده‌های 5212/5213/5214/5215 (شامل انتقالی دوره‌های قبل) تخصیص می‌یابد؛ انحراف سربار به بودجه (5214) و حجم (5215) تفکیک (`splitOverheadVariance`).
+- **(e) producedInPeriod:** فقط FG؛ `cutting_remnant`/`cutting_roll_surplus` و منابع غیررسید حذف.
+- **Help:** راهنمای مدیر، بخش «سربار و بستن دوره — P3».
+- **ادغام:** بدون تعارض (`engine-advanced.js`: P3 فقط `applyStageOverhead`؛ نواحی P2/P6 جدا).
+- **تست:** جدید `test-prodcycle-p3-overhead-close` ۵۶/۵۶؛ prodcycle-p1/p2/p4/p5/p6 سبز، overhead-drivers-v334 ۱۶، overhead-rates-v299 ۳۷، plant-overhead-v474 ۱۳، production-overhead-labor ۳۸، cc-account-absorb-reval-v358 ۲۶، production-reports ۳۴، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. production-close، bom-multiproduct، fixed/variable-advanced، closed-month-gates و test-sync از قبل روی main fail.
+- **⚠️ ریسک:** precheck جدید بستن ۱۴۰۵/۰۷ production را تا «ثبت جذب واقعی» مسدود می‌کند (نگاشت‌های فعلی روی cc2 — تصمیم با مالک)؛ مبلغ PRD-23 ممکن است تغییر کند؛ ویرایش نرخ برای production_manager ⇒ ۴۰۳؛ مسیرهای جذب روی دستگاه ۴۰۳.
+- **SW:** `erp-taranom-v615`؛ `app.js?v=615`.
+- **فایل‌ها:** `server/lib/production/{overhead,engine-advanced,schema,cc-account-absorb,posting,close}.js`، `server/routes/production-cost-centers.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p3-overhead-close.js` (جدید)، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P4: ابطال کامل تعدیل بهای لایه (fg_delta) با سفارش + گارد تاریخ رسید تولید (SW v614)
 - **Commit:** squash روی main (#165) ([PR #165](https://github.com/rashidhamedas-prog/erp-taranom/pull/165))؛ commit شاخه `99b92448` (`fix/prodcycle-p4-reverse-fgdelta`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
