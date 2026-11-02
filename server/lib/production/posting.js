@@ -218,6 +218,18 @@ function postCloseLabor(db, { closeId, date, userId, controlBalance }) {
  * PRD-22 — transfer applied OH to control, then close to budget (5214) + volume (5215).
  * ADR-003: when budgetRial is provided, split remaining variance; else all → 5215.
  */
+/** تفکیک انحراف سربار به بودجه (5214) و حجم (5215) — همان منطق PRD-22 و PRD-23. */
+function splitOverheadVariance({ appliedRial, varianceRial, budgetRial }) {
+  const applied = Math.round(Number(appliedRial) || 0);
+  const variance = Math.round(Number(varianceRial) || 0);
+  const budget = budgetRial != null ? Math.round(Number(budgetRial) || 0) : null;
+  if (variance && budget != null && budget > 0) {
+    const budgetVar = (applied + variance) - budget;
+    return { budget_var_rial: budgetVar, volume_var_rial: variance - budgetVar };
+  }
+  return { budget_var_rial: 0, volume_var_rial: variance };
+}
+
 function postCloseOverhead(db, { closeId, date, userId, appliedRial, varianceRial, budgetRial }) {
   const out = [];
   const applied = Math.round(Number(appliedRial) || 0);
@@ -253,11 +265,9 @@ function postCloseOverhead(db, { closeId, date, userId, appliedRial, varianceRia
   };
   if (variance && budget != null && budget > 0) {
     // actual ≈ applied + variance (after transfer semantics); budget variance = actual − budget
-    const actual = applied + variance;
-    const budgetVar = actual - budget;
-    const volumeVar = variance - budgetVar;
-    pushVar('coa_var_oh_budget', budgetVar, 'بستن انحراف بودجه سربار');
-    pushVar('coa_var_oh_volume', volumeVar, 'بستن انحراف حجم سربار');
+    const split = splitOverheadVariance({ appliedRial: applied, varianceRial: variance, budgetRial: budget });
+    pushVar('coa_var_oh_budget', split.budget_var_rial, 'بستن انحراف بودجه سربار');
+    pushVar('coa_var_oh_volume', split.volume_var_rial, 'بستن انحراف حجم سربار');
   } else if (variance) {
     pushVar('coa_var_oh_volume', variance, 'بستن انحراف سربار');
   }
@@ -278,8 +288,20 @@ function buildAllocationLines(db, allocation) {
   const cogs = Math.round(Number(tot.cogs_rial) || 0);
   const laborV = Math.round(Number(labor.total_rial) || 0);
   const ohV = Math.round(Number(oh.total_rial) || 0);
+  // P3: با components هر حساب انحراف (5212/5213/5214/5215) به اندازهٔ ماندهٔ خودش بسته می‌شود.
+  const comp = (bucket, fallbackKey, total) => {
+    if (bucket && bucket.components && typeof bucket.components === 'object') {
+      return Object.entries(bucket.components)
+        .map(([key, v]) => [key, Math.round(Number(v) || 0)]);
+    }
+    return [[fallbackKey, total]];
+  };
+  const varLines = [
+    ...comp(labor, 'coa_var_labor_rate', laborV),
+    ...comp(oh, 'coa_var_oh_volume', ohV),
+  ];
 
-  if (![wip, fg, cogs, laborV, ohV].some((v) => v !== 0)) return [];
+  if (![wip, fg, cogs, ...varLines.map(([, v]) => v)].some((v) => v !== 0)) return [];
 
   const lines = [];
   const pushDest = (key, amt) => {
@@ -297,8 +319,7 @@ function buildAllocationLines(db, allocation) {
   pushDest('coa_wip', wip);
   pushDest('coa_finished_goods', fg);
   pushDest('coa_cogs', cogs);
-  pushVar('coa_var_labor_rate', laborV);
-  pushVar('coa_var_oh_volume', ohV);
+  for (const [key, v] of varLines) pushVar(key, v);
   return lines;
 }
 
@@ -335,5 +356,5 @@ function reverseEvent(db, { jeId, reason, userId, date }) {
 
 module.exports = {
   dr, cr, plug, postEvent, reverseEvent, postCloseLabor, postCloseOverhead, postAllocation,
-  buildAllocationLines, resolveCuttingCostCenterId, PRD, err,
+  buildAllocationLines, splitOverheadVariance, resolveCuttingCostCenterId, PRD, err,
 };
