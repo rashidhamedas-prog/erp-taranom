@@ -16858,6 +16858,11 @@ function kardexAdjustRowActions(l, productId){
     && typeof canStockAdjustVoid==='function' && canStockAdjustVoid())
     ? ` <button type="button" class="btn sm ghost" title="ابطال اصلاحی این ردیف (با پیش‌نمایش، علت و اثر موجودی)" data-csp-click="${CSP.bind('click',function(){openLedgerReverseCorrection(l.id, { product_id:productId, onDone:reload })})}">↩ ابطال اصلاحی</button>`
     : '';
+  /* audit-kardex K2: برگشت از فروش بدون انبار ← تعیین انبار */
+  if(l.source_type==='sales_return' && String(l.event_type||'')==='sale_return' && !l.warehouse_id && !l.is_group
+    && l.status!=='reversed' && !l.reversal_of && typeof canStockAdjustVoid==='function' && canStockAdjustVoid()){
+    return ` <button type="button" class="btn sm ghost" title="این برگشت از فروش بدون انبار ثبت شده — تعیین انبار (با پیش‌نمایش، علت و تأیید)" data-csp-click="${CSP.bind('click',function(){openLedgerAssignWarehouse([l.id], { onDone:reload })})}">📦 تعیین انبار</button>`;
+  }
   if(l.is_opening || typeof canStockAdjust!=='function' || !canStockAdjust()) return corrBtn;
   if(corrBtn) return corrBtn;
   if(l.source_type==='inventory_adjust' && !l.is_group && l.status!=='reversed' && l.event_type==='adjustment'){
@@ -16955,6 +16960,7 @@ async function loadItemKardex(productId){
           <button class="btn sm purple" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">⚖️ تعدیل موجودی</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🧾 تعدیل‌ها</button>
         </span>`:''}
+        ${typeof canStockAdjustVoid==='function'&&canStockAdjustVoid()?`<button class="btn sm ghost" title="همهٔ ردیف‌های «برگشت از فروش» که بدون انبار ثبت شده‌اند" data-csp-click="${CSP.bind('click',function(){openLedgerAssignWarehouse(null, { onDone:()=>loadItemKardex(productId) })})}">📦 برگشت‌های بی‌انبار</button>`:''}
       </div>
       <div class="kardex-print-head">
         <h3>کاردکس کالا — ${esc(d.product.name)} (${esc(d.product.code||'-')})</h3>
@@ -25074,6 +25080,94 @@ async function openTransferInRevalue(opts){
     }catch(_){ /* پیام را api() نشان داده */ }
   });
 }
+/** audit-kardex K2: تعیین انبار ردیف(های) برگشت از فروش بی‌انبار — پیش‌نمایش ← انتخاب انبار ← علت ← تأیید. ids=null ⇒ همهٔ ردیف‌های بی‌انبار. */
+async function openLedgerAssignWarehouse(ids, opts){
+  opts=opts||{};
+  const qs=ids&&ids.length?('?ids='+encodeURIComponent(ids.join(','))):'';
+  let p=null;
+  try{ p=await api('GET','/inventory/ledger/assign-warehouse-preview'+qs); }catch(_){ return; }
+  if(!p) return;
+  const rows=p.rows||[];
+  if(!rows.length){ showToast('ردیف «برگشت از فروش» بدون انبار پیدا نشد'); return; }
+  const q=v=>v==null?'—':fmtQtyFa(v);
+  const confFa={strong:'قطعی',weak:'پیشنهادی (حدس)',ambiguous:'مبهم',none:'بدون شاهد'};
+  const srcFa={same_return_history:'همین برگشت پیش از ویرایش',return_row:'سطر سند برگشت',invoice_line:'سطر فاکتور',invoice_header:'سرفاکتور',invoice_sale_ledger:'کاردکس فروش فاکتور',product_home:'انبار پیش‌فرض کالا'};
+  const whName=id=>{ const w=(CACHE.warehouses||[]).find(x=>String(x.id)===String(id)); return w?w.name:(id?('#'+id):'—'); };
+  const fixable=r=>!r.blocker||r.blocker.code==='E_ASSIGN_WH_EXPLICIT_REQUIRED'||r.blocker.code==='E_ASSIGN_WH_CONFLICT';
+  const body=rows.map(r=>{
+    const d=r.derived||{};
+    const pre=d.confidence==='strong'?d.warehouse_id:null;
+    const hint=d.warehouse_id||(d.candidates||[]).length?`${esc(confFa[d.confidence]||d.confidence||'')}: ${esc(d.warehouse_id?whName(d.warehouse_id):(d.candidates||[]).map(whName).join('، '))} <span class="muted">(${esc(srcFa[d.source]||d.source||'')})</span>`:esc(confFa.none);
+    return `<tr>
+      <td class="mono">#${esc(String(r.ledger_id))}</td>
+      <td>${esc(r.product_name||'')}${r.variant_id?` <span class="muted">· واریانت ${esc(String(r.variant_id))}</span>`:''}</td>
+      <td class="mono">${r.sales_return_id?('#'+esc(String(r.sales_return_id))):'—'}</td>
+      <td class="mono">${q(r.qty)}</td>
+      <td class="mono">${fmt(r.amount_rial||0)}</td>
+      <td data-csp-style="${CSP.style(`font-size:11px`)}">${hint}</td>
+      <td>${fixable(r)?`<select class="lawWh" data-lid="${esc(String(r.ledger_id))}">${warehouseOptionsHtml(pre,'— انتخاب —')}</select>`:`<span data-csp-style="${CSP.style(`color:var(--red);font-size:11px`)}">⛔ ${esc(r.blocker.error||'')}</span>`}</td>
+    </tr>`;
+  }).join('');
+  sadjLayer(`<div class="modal-head"><h3>📦 تعیین انبار برگشت از فروش بی‌انبار (${fmtQtyFa(rows.length)} ردیف)</h3></div>
+    <div class="modal-body">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">ردیف بی‌انبار «ابطال‌شده» می‌شود و همان مقدار و مبلغ با انبار انتخابی دوباره ثبت می‌شود (موجودی انبار، رنگ×سایز و ارزش کاردکس هر انبار). هیچ سند حسابداری ثبت نمی‌شود. انبار «قطعی» از شواهد پیش‌انتخاب شده؛ برای «پیشنهادی/مبهم/بدون شاهد» انتخاب صریح لازم است.</div>
+      <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>ردیف</th><th>کالا</th><th>برگشت</th><th>تعداد</th><th>مبلغ</th><th>شواهد انبار</th><th>انبار</th></tr></thead><tbody>${body}</tbody></table></div>
+      <div class="form-grid" data-csp-style="${CSP.style(`margin-top:10px`)}">
+        <div class="fg"><label for="lawAll">انبار برای ردیف‌های انتخاب‌نشده</label><select id="lawAll">${warehouseOptionsHtml(null,'—')}</select></div>
+        <div class="fg"><label for="lawDate">تاریخ ثبت (اختیاری)</label><input id="lawDate" data-jdate placeholder="امروز"></div>
+        <div class="fg full"><label for="lawReason">علت (حداقل ۱۰ نویسه)</label><input id="lawReason" type="text" maxlength="300"></div>
+        <div class="fg full"><label><input type="checkbox" id="lawForce"> ثبت با وجود تناقض با شواهد قطعی (در گزارش ممیزی ثبت می‌شود)</label></div>
+      </div>
+      <div id="lawPreview" class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8`)}"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn orange" id="lawGo">پیش‌نمایش و ثبت</button>
+      <button class="btn ghost" id="lawClose">بستن</button>
+    </div>`, true);
+  el('lawClose')?.addEventListener('click',()=>closeStockAdjust());
+  el('lawGo')?.addEventListener('click',async()=>{
+    const reason=String((el('lawReason')||{}).value||'').trim();
+    if(reason.length<10){ showToast('علت حداقل ۱۰ نویسه','error'); return; }
+    const all=+((el('lawAll')||{}).value)||0;
+    const overrides={};
+    document.querySelectorAll('.lawWh').forEach(s=>{ const w=+s.value||all; if(w) overrides[s.dataset.lid]=w; });
+    const pick=rows.filter(r=>fixable(r)).map(r=>r.ledger_id);
+    if(!pick.length){ showToast('ردیف قابل ثبت وجود ندارد','error'); return; }
+    const force=!!(el('lawForce')||{}).checked;
+    let pv=null;
+    try{
+      pv=await api('GET','/inventory/ledger/assign-warehouse-preview?ids='+encodeURIComponent(pick.join(','))
+        +'&overrides='+encodeURIComponent(JSON.stringify(overrides))+(force?'&force=1':''));
+    }catch(_){ return; }
+    const box=el('lawPreview');
+    if(!pv||!pv.ready){
+      if(box) box.innerHTML='<b>⛔ ثبت ممکن نیست:</b><ul>'+((pv&&pv.blockers)||[]).map(b=>`<li>#${esc(String(b.ledger_id))}: ${esc(b.error||b.code||'')}</li>`).join('')+'</ul>';
+      return;
+    }
+    const byWh=(pv.totals&&pv.totals.by_warehouse||[]).map(w=>`${esc(w.warehouse_name||whName(w.warehouse_id))}: ${fmtQtyFa(w.qty)} عدد / ${fmt(w.amount_rial)} ریال`).join(' · ');
+    const one=pv.rows.length===1?pv.rows[0]:null;
+    if(box) box.innerHTML=`<div>انتقال ارزش کاردکس از «بی‌انبار» به: ${byWh} — اثر دفتر کل: ۰</div>`
+      +(one?`<table class="tbl" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px`)}"><thead><tr><th></th><th>قبل</th><th>بعد</th></tr></thead><tbody>
+        <tr><td>موجودی سرستون کالا</td><td class="mono">${q(one.header_stock.before)}</td><td class="mono">${q(one.header_stock.after)}</td></tr>
+        <tr><td>جمع موجودی انبارها</td><td class="mono">${q(one.warehouse_stock_sum.before)}</td><td class="mono">${q(one.warehouse_stock_sum.after)}</td></tr>
+        <tr><td>موجودی انبار ${esc(one.warehouse_name||'')}</td><td class="mono">${q(one.warehouse_stock.before)}</td><td class="mono">${q(one.warehouse_stock.after)}</td></tr>
+        ${one.variant?`<tr><td>موجودی واریانت / جمع انبارهای واریانت</td><td class="mono">${q(one.variant.pv.before)} / ${q(one.variant.vws_sum.before)}</td><td class="mono">${q(one.variant.pv.after)} / ${q(one.variant.vws_sum.after)}</td></tr>`:''}
+        <tr><td>کاردکس بی‌انبار (تعداد / ریال)</td><td class="mono">${q(one.kardex.null_bucket.before.qty)} / ${fmt(one.kardex.null_bucket.before.value_rial)}</td><td class="mono">${q(one.kardex.null_bucket.after.qty)} / ${fmt(one.kardex.null_bucket.after.value_rial)}</td></tr>
+        <tr><td>کاردکس ${esc(one.warehouse_name||'')} (تعداد / ریال)</td><td class="mono">${q(one.kardex.warehouse.before.qty)} / ${fmt(one.kardex.warehouse.before.value_rial)}</td><td class="mono">${q(one.kardex.warehouse.after.qty)} / ${fmt(one.kardex.warehouse.after.value_rial)}</td></tr>
+      </tbody></table>`:'');
+    if(!confirm(`تعیین انبار برای ${fmtQtyFa(pv.rows.length)} ردیف قطعی ثبت شود؟\n${byWh.replace(/<[^>]+>/g,'')}`)) return;
+    try{
+      const reqBody={ ids:pick, overrides, confirm:true, reason };
+      if(force) reqBody.force=true;
+      const dt=String((el('lawDate')||{}).value||'').trim();
+      if(dt) reqBody.date=dt;
+      const r=await api('POST','/inventory/ledger/assign-warehouse',reqBody);
+      showToast(`انبار ${fmtQtyFa((r&&r.count)||0)} ردیف تعیین شد`);
+      closeStockAdjust();
+      if(typeof opts.onDone==='function'){ try{ opts.onDone(r); }catch(_){} }
+    }catch(_){ /* پیام را api() نشان داده */ }
+  });
+}
 function ivalLevelFieldHtml(id,value,scopeFa){
   const v=value==='product'||value==='warehouse'?value:'';
   return `<div class="fg"><label for="${esc(id)}">سطح ارزش‌گذاری ${hlp('مشترک: همهٔ انبارها یک میانگین/استخر بها دارند. مستقل: هر انبار میانگین جداگانه دارد. پیروی: از سطح بالاتر (کالا ← گروه کالا ← انبار ← تنظیم سراسری) گرفته می‌شود. تغییر فقط روی خروجی‌های بعدی اثر دارد و در گزارش ممیزی ثبت می‌شود.')}</label>
@@ -31074,7 +31168,7 @@ async function salesReturnModal(editRow){
         <div class="fg" id="sr-invoice-wrap"><label>فاکتور فروش قطعی ${hlp('معمولی و رسمی. مبلغ لیست = خالص پس از تخفیف تجاری فاکتور (همان وجه دریافتنی AR)؛ نه جمع قیمت قبل از تخفیف کل.')}</label>
           <select id="sr-invoice" data-csp-change="${CSP.bind('change',function(event){loadSrReturnRows()})}" disabled><option value="">-- ابتدا مشتری را انتخاب کنید --</option></select>
         </div>
-        <div class="fg"><label>انبار مقصد برگشت</label><select id="sr-wh">${warehouseOptionsHtml(null,'— از فاکتور / پیش‌فرض —')}</select></div>
+        <div class="fg"><label>انبار مقصد برگشت ${hlp('روی فاکتور: خالی = همان انبار فاکتور. بدون فاکتور: انتخاب انبار الزامی است (کالا باید به یک انبار مشخص برگردد).')}</label><select id="sr-wh">${warehouseOptionsHtml(editing&&editRow.warehouse_id?editRow.warehouse_id:null,'— از فاکتور —')}</select></div>
         <div class="fg"><label>تاریخ</label><input id="sr-date" data-jdate value="${esc(editing&&editRow.date?editRow.date:todayJalali())}"></div>
         <div class="fg"><label>کد علت (اختیاری)</label><select id="sr-reason">${returnReasonOptionsHtml(editing?(editRow.reason_code||''):'')}</select></div>
         <div class="fg"><label>تخفیف کلی٪ ${hlp('تخفیف اضافه روی سند برگشت (بعد از تخفیف ردیف و سهم تخفیف کل فاکتور). مبلغ اولویت دارد.')}</label><input id="sr-extra-disc" type="number" min="0" step="0.01" value="${esc(editing&&editRow.extra_disc_pct!=null?editRow.extra_disc_pct:0)}" data-csp-input="${CSP.bind('input',function(){syncReturnExtraDisc('sr','pct')})}"></div>
@@ -31114,6 +31208,9 @@ async function salesReturnModal(editRow){
         variant_id:r.variant_id||null, color_name:r.color_name||'', size_name:r.size_name||'',
         warehouse_id:r.warehouse_id||null, unit_cost_est:r.unit_cost||r.cost_rial||0
       }));
+      const whSel=el('sr-wh');
+      const rowWh=editRows.map(r=>r.warehouse_id).find(Boolean);
+      if(whSel&&!whSel.value&&(editRow.warehouse_id||rowWh)) whSel.value=String(editRow.warehouse_id||rowWh);
       onSrModeChange();
     }
   } else {
@@ -31126,6 +31223,8 @@ function onSrModeChange(){
   const linked=srMode()==='linked';
   const wrap=el('sr-invoice-wrap');
   if(wrap) wrap.style.display=linked?'':'none';
+  const whEmpty=el('sr-wh')?.querySelector('option[value=""]');
+  if(whEmpty) whEmpty.textContent=linked?'— از فاکتور —':'— انتخاب انبار (الزامی) —';
   const box=el('srRowsContainer');
   if(!box) return;
   if(linked){
@@ -31282,6 +31381,7 @@ async function saveSalesReturn(){
   }
   if(!rows.length){ showToast('حداقل برای یک کالا تعداد برگشتی وارد کنید','error'); return; }
   const warehouse_id=+el('sr-wh')?.value||null;
+  if(!invoice_id&&!warehouse_id&&rows.some(r=>!r.warehouse_id)){ showToast('برگشت بدون فاکتور: انبار مقصد برگشت را انتخاب کنید','error'); el('sr-wh')?.focus(); return; }
   const reason_code=(el('sr-reason')?.value||'').trim();
   const extraDisc=returnExtraDiscInputs('sr');
   const payload={
@@ -41779,6 +41879,15 @@ function renderAdminGuide(){
         <li>تاریخ اصلاح پیش‌فرض امروز است؛ اگر ماه در ارزش‌گذاری موجودی قفل باشد رد می‌شود. ابطال بعدی خود سند انتقال، ردیف اصلاح را هم برمی‌گرداند. گزارش اختلاف دفتر کل با کاردکس و تحلیل ورود صفر، جفت اصلاح‌شده را دیگر «نشت» حساب نمی‌کنند. هر اجرا در گزارش ممیزی (<span dir="ltr">ledger_revalue_transfer_in</span>) ثبت می‌شود.</li>
         <li>API: <span dir="ltr">GET /api/inventory/ledger/revalue-transfer-in-preview?warehouse_id=&amp;ids=</span> و <span dir="ltr">POST /api/inventory/ledger/revalue-transfer-in</span> با بدنهٔ <span dir="ltr">{"confirm": true, "reason": "…", "warehouse_id"?, "ids"?, "date"?}</span>. اسکریپت قدیمی ترمیم خروج صفر v529 با <span dir="ltr">--apply</span> فقط همراه <span dir="ltr">--revalue-transfer-in --reason="…"</span> اجرا می‌شود.</li>
       </ul>`),
+    helpSec('📦','تعیین انبار برای برگشت از فروش بی‌انبار + انبار الزامی در برگشت از فروش (audit-kardex)',`
+      <p>برگشت از فروشی که قبلاً <b>بدون انبار</b> ثبت شده (برگشت بدون فاکتور بدون انتخاب انبار، یا ویرایشی که انبار را انداخته) در کاردکس با ستون انبار خالی دیده می‌شود: سند حسابداری‌اش درست است ولی موجودی انبار و رنگ×سایز آن را نمی‌بینند.</p>
+      <ul>
+        <li><b>تعیین انبار:</b> در کاردکس کالا کنار چنین ردیفی دکمهٔ <b>«📦 تعیین انبار»</b> و بالای کاردکس دکمهٔ <b>«📦 برگشت‌های بی‌انبار»</b> (فهرست همهٔ این ردیف‌ها، ثبت گروهی) هست — فقط مدیر یا دارندهٔ دسترسی «عملیات انبار — حذف»، فقط روی سرور مرکزی.</li>
+        <li>برنامه انبار را از شواهد پیدا می‌کند: همان برگشت پیش از ویرایش، سطر سند برگشت، سطر/سر فاکتور، کاردکس فروش همان فاکتور (این‌ها <b>قطعی</b>) و انبار پیش‌فرض کالا (فقط <b>پیشنهادی</b>). قطعی پیش‌انتخاب می‌شود؛ پیشنهادی/مبهم/بدون شاهد انتخاب صریح می‌خواهد. انتخاب مخالف شاهد قطعی فقط با تیک «ثبت با وجود تناقض» (force) و در گزارش ممیزی ثبت می‌شود.</li>
+        <li>اثر: ردیف بی‌انبار «ابطال‌شده» می‌شود و همان مقدار و مبلغ با انبار انتخابی دوباره ثبت می‌شود؛ موجودی همان انبار و لایهٔ رنگ×سایز بالا می‌رود و سرستون کالا با جمع انبارها برابر می‌ماند. ارزش کاردکس از «بی‌انبار» به آن انبار می‌رود؛ <b>اثر دفتر کل صفر</b> است (هیچ سندی ثبت نمی‌شود). پیش‌نمایش قبل/بعد را نشان می‌دهد و ثبت با علت (حداقل ۱۰ نویسه) و تأیید نهایی است؛ ثبت گروهی همه‌یا‌هیچ است. اگر بعداً خود برگشت از فروش ابطال/ویرایش شود، ردیف جدید هم با همان سند برمی‌گردد.</li>
+        <li><b>انبار الزامی:</b> از این نسخه برگشت از فروش بدون فاکتور بدون انتخاب «انبار مقصد برگشت» ثبت نمی‌شود (خطای <span dir="ltr">E_SR_WH_REQUIRED</span>). روی فاکتور، اگر انبار انتخاب نشود از سطر/سر فاکتور یا کاردکس فروش همان فاکتور برداشته می‌شود؛ انبار پیش‌فرض کالا هرگز حدس زده نمی‌شود. انبار سند ذخیره می‌شود و در ویرایش پیش‌فرض است؛ ویرایش دیگر انبار یا رنگ×سایز را نمی‌اندازد.</li>
+        <li>API: <span dir="ltr">GET /api/inventory/ledger/assign-warehouse-preview[?ids=1,2]</span> و <span dir="ltr">POST /api/inventory/ledger/assign-warehouse</span> با بدنهٔ <span dir="ltr">{"ids":[…], "warehouse_id"?, "overrides"?:{"id":wh}, "confirm":true, "reason":"…", "force"?, "date"?}</span>؛ تک‌ردیفی: <span dir="ltr">…/ledger/:id/assign-warehouse(-preview)</span>.</li>
+      </ul>`),
     helpSec('↩','ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی کاردکس + گزارش اختلاف موجودی انبار با کاردکس (v606)',`
       <p>ردیف‌های کاردکس که <b>سند مبدأ ندارند</b> — «موجودی اول دوره» قدیمی (opening_inventory)، «هم‌ترازی کاردکس» (stock_reconcile) و ردیف‌های opening — از ابطال عادی رد می‌شوند. برای آن‌ها در کاردکس کالا کنار ردیف دکمهٔ <b>«↩ ابطال اصلاحی»</b> هست (فقط مدیر یا دارندهٔ دسترسی «عملیات انبار — حذف»).</p>
       <ul>
@@ -43215,7 +43324,7 @@ function renderSalesGuide(){
       <div class="tip">مبلغ پرداخت فاکتور (v547): در پرداخت تک‌مرحله‌ای تا وقتی خودتان مبلغ را عوض نکرده‌اید، با هر تغییر قیمت/تعداد/تخفیف/مالیات/کرایه خودکار برابر «قابل پرداخت» می‌ماند (نقد، کارتخوان و واریز). اگر مبلغ را دستی بزنید و از سقف فاکتور بیشتر شود، به سقف اصلاح می‌شود و یک هشدار زرد می‌بینید. در پرداخت چندمرحله‌ای مبلغ هیچ‌وقت خودکار عوض نمی‌شود؛ اگر جمع از فاکتور بیشتر باشد، دکمهٔ ذخیره تا اصلاح غیرفعال است. پیام خطای سرور هر دو مبلغ را نشان می‌دهد.</div>
       <div class="tip">حسابداری (ممیزی ۷B / SW v549): در مغایرت‌گیری معین، تطبیق چک/حقوق/مالیات/WIP اضافه شد. اگر هنگام ثبت امانی یا افتتاحیهٔ تأمین‌کننده پیام «حساب تفصیلی پرداختنی وجود ندارد» (<code>E_NO_PAYABLE_LEAF</code>) دیدید، ابتدا تأمین‌کننده/تفصیلی بسازید — دیگر به‌صورت بی‌صدا به حساب متفرقه نمی‌رود.</div>
       <div class="tip">برگشت بدون فاکتور مرجع فقط در حسابداری (مدیر/حسابدار) با «تخصیص به فاکتور» یا تنظیم «تخصیص خودکار» به فاکتورهای باز وصل می‌شود — ردیف دریافت/پرداخت جعلی ساخته نمی‌شود.</div>
-      <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450).</div>
+      <div class="tip">در برگشت از فروش/خرید روی فاکتور، تخفیف ردیف و سهم تخفیف کل فاکتور از سند مرجع اعمال می‌شود؛ می‌توانید <b>تخفیف کلی</b> جداگانه روی خود برگشت هم بزنید (٪ یا مبلغ). در برگشت بدون فاکتور، فی و تخفیف مبلغ با جداکننده هزارگان وارد می‌شوند و همان مبلغ کامل به جدول می‌رود (v450). برگشت از فروش بدون فاکتور فقط با انتخاب <b>انبار مقصد برگشت</b> ثبت می‌شود؛ روی فاکتور، خالی = انبار همان فاکتور.</div>
       <div class="tip">پیش‌فاکتور اثر موجودی/حسابداری ندارد. تبدیل به فروش قطعی با دکمهٔ «تبدیل» است — می‌تواند فاکتور <b>معمولی</b> یا <b>رسمی</b> باشد. در داشبورد، جمع بدهکاران و بستانکاران قبل از تهاتر جداست؛ ماندهٔ خالص تفاضل آن‌هاست.</div>
       <div class="tip">تیک «ارسال موجودی این کالا به سایت» فقط در فرم کالا برای <b>مدیر و حسابدار</b> است — فروش و سایر نقش‌ها آن را نمی‌بینند و موجودی ERP را عوض نمی‌کند.</div>
       <div class="tip">کد تفصیلی مشتری در حسابداری → کدهای حسابداری، زیر حساب‌های دریافتنی، همان لحظهٔ باز شدن صفحه دیده می‌شود.</div>

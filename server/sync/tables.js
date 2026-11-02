@@ -675,6 +675,7 @@ const FK_COLUMNS = [
   ['commission_transfers', 'payroll_record_id'],
   ['commission_transfers', 'je_id'],
   ['commission_transfers', 'cost_center_id'],
+  ['sales_returns', 'warehouse_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

@@ -611,6 +611,16 @@ function postSaleReturnStockMovements(db, {
   const movements = [];
   let costRial = 0;
   const closed = !!date && require('./inventory/period-lock').isValueLocked(db, date);
+  // audit-kardex K2: an R13 edit re-posts on the same doc id; the voided sku rows of the previous posting
+  // would satisfy the (doc_type, doc_id, doc_line, wh, variant) idempotency key and swallow the new
+  // movement — so each posting starts after the highest doc_line already used by this document.
+  let skuLineBase = 0;
+  if (sourceId != null) {
+    try {
+      const m = db.prepare("SELECT MAX(doc_line) m FROM inventory_movements WHERE doc_type='sale_return_sku' AND doc_id=?").get(sourceId);
+      skuLineBase = m && m.m != null ? Number(m.m) + 1 : 0;
+    } catch (_) { skuLineBase = 0; }
+  }
   for (const r of rows || []) {
     if (!r.product_id) continue;
     const whId = r.warehouse_id ? parseInt(r.warehouse_id, 10) : warehouseId;
@@ -629,7 +639,7 @@ function postSaleReturnStockMovements(db, {
         qtyDelta: qty,
         docType: 'sale_return_sku',
         docId: sourceId,
-        docLine: movements.length,
+        docLine: skuLineBase + movements.length,
         userId,
         note: (note || 'برگشت از فروش') + ' / رنگ×سایز',
         allowNegative: true,

@@ -224,6 +224,8 @@ function tableForPath(path) {
   if (path.startsWith('/api/production/cutting-lays/') && /\/link-order/.test(path)) return 'cutting_lays';
   // FR-P334-A: correction reversal of an alignment kardex row (mid-path :id) — the entity is the ledger row.
   if (path.startsWith('/api/inventory/ledger/') && /\/reverse-correction$/.test(path)) return 'inventory_ledger';
+  // audit-kardex K2: assign warehouse (single :id and static batch path) — entity is the ledger row.
+  if (path.startsWith('/api/inventory/ledger/') && /\/?assign-warehouse$/.test(path)) return 'inventory_ledger';
   // Periodic close/reopen: mid-path :id — must not fall through to generic warehouses.
   if (path.startsWith('/api/warehouses/') && /\/period-close/.test(path)) return 'warehouse_period_closes';
   // P7 costing creates a purchase invoice: /api/warehouses/qty-receipts/:id/cost
