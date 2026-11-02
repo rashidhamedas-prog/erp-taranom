@@ -44,6 +44,9 @@ const RESOURCES = [
   // FR-POS-DRAFTS — post a sale above the customer credit ceiling (action approve).
   // Default: admin + sales_manager (the roles that may edit the ceiling).
   'credit_override',
+  // موجودی اول دوره جدا از موجودی کل — view = دیدن بخش در کارت کالا، edit = اصلاحیه/حل تکراری.
+  // Default: admin + accounting (view+edit)؛ نقش‌های دارای مشاهدهٔ کالا فقط view (بها با cost_visibility).
+  'opening_stock',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
@@ -57,6 +60,7 @@ const CLOSED_DEFAULT_NONE = new Set([
   'sales_amount',
   'price_override',
   'credit_override',
+  'opening_stock',
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
@@ -119,6 +123,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     qty_receipt: { ...NONE, view: true, create: true, delete: true },
     sales_amount: { ...NONE, view: true },
     price_override: { ...NONE, view: true, edit: true },
+    opening_stock: { ...NONE, view: true, edit: true },
     // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
     // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },
@@ -331,6 +336,11 @@ const DEFAULT_ROLE_PERMISSIONS = {
     production_reports: VIEW_ONLY,
   },
 };
+// opening_stock: هر نقشی که کالا را می‌بیند فقط view (بدون edit)؛ بقیه هیچ.
+for (const [role, perms] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
+  if (role === 'admin' || perms.opening_stock) continue;
+  if (perms.products && perms.products.view) perms.opening_stock = { ...NONE, view: true };
+}
 
 /**
  * v522 role-level overrides edited by admin: settings key `role_permission_defaults`,

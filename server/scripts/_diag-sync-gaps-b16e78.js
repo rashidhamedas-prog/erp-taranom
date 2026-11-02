@@ -29,6 +29,7 @@ const paths = [
   '/api/warehouses/moves/receipt', '/api/warehouses/moves/transfer', '/api/warehouses',
   '/api/production/user-cost-centers', '/api/production/user-cost-centers/4', '/api/production/orders',
   '/api/reps/payments', '/api/reps/payments/9/approve', '/api/fixed-assets', '/api/customers',
+  '/api/inventory/opening-stock/apply', '/api/inventory/ledger/7/reverse',
 ];
 
 const expected = {
@@ -51,6 +52,8 @@ const expected = {
   '/api/reps/payments/9/approve': 'rep_payment_submissions',
   '/api/fixed-assets': 'fixed_assets',
   '/api/customers': 'customers',
+  '/api/inventory/opening-stock/apply': 'product_opening_stock',
+  '/api/inventory/ledger/7/reverse': 'inventory_ledger',
 };
 
 const results = [];
@@ -69,6 +72,7 @@ const need = [
   'rep_payment_submissions',
   'party_groups',
   'cheque_records',
+  'product_opening_stock',
 ];
 const names = SYNCABLE_TABLES.map((t) => t.name);
 for (const n of need) {

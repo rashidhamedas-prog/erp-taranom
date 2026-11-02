@@ -1,0 +1,7622 @@
+{
+  "dry_run": true,
+  "fiscal_year_id": 7,
+  "combos_total": 336,
+  "created": {
+    "ok": 82,
+    "no_je": 234,
+    "needs_review": 20
+  },
+  "skipped_existing": 0,
+  "rows": [
+    {
+      "product_id": 12,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1693,
+      "qty": 6,
+      "unit_cost_rial": 17900000,
+      "value_rial": 107400000,
+      "je_id": 830,
+      "candidates": [
+        {
+          "ledger_id": 1693,
+          "qty": 6,
+          "unit_cost_rial": 17900000,
+          "amount_rial": 107400000,
+          "je_id": 830,
+          "source_type": "opening_inventory",
+          "created_at": 1792510063
+        }
+      ]
+    },
+    {
+      "product_id": 15,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 478,
+      "qty": 13104,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 478,
+          "qty": 13104,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 16,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 479,
+      "qty": 10000,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 479,
+          "qty": 10000,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 17,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 480,
+      "qty": 8658,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 480,
+          "qty": 8658,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 18,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 481,
+      "qty": 6452,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 481,
+          "qty": 6452,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 19,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 482,
+      "qty": 5222,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 482,
+          "qty": 5222,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 20,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 483,
+      "qty": 3603,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 483,
+          "qty": 3603,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 21,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 484,
+      "qty": 3582,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 484,
+          "qty": 3582,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 22,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 485,
+      "qty": 3208,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 485,
+          "qty": 3208,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 24,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 487,
+      "qty": 851,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 487,
+          "qty": 851,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 25,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 488,
+      "qty": 746,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 488,
+          "qty": 746,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 26,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 489,
+      "qty": 673,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 489,
+          "qty": 673,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 27,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "ok",
+      "chosen_ledger_id": 433,
+      "qty": 600.41,
+      "unit_cost_rial": 900000,
+      "value_rial": 540369000,
+      "je_id": 220,
+      "candidates": [
+        {
+          "ledger_id": 433,
+          "qty": 600.41,
+          "unit_cost_rial": 900000,
+          "amount_rial": 540369000,
+          "je_id": 220,
+          "source_type": "opening_inventory",
+          "created_at": 1790934811
+        }
+      ]
+    },
+    {
+      "product_id": 28,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 490,
+      "qty": 590,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 490,
+          "qty": 590,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 29,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "ok",
+      "chosen_ledger_id": 438,
+      "qty": 367,
+      "unit_cost_rial": 250000,
+      "value_rial": 91750000,
+      "je_id": 223,
+      "candidates": [
+        {
+          "ledger_id": 438,
+          "qty": 367,
+          "unit_cost_rial": 250000,
+          "amount_rial": 91750000,
+          "je_id": 223,
+          "source_type": "opening_inventory",
+          "created_at": 1790934872
+        }
+      ]
+    },
+    {
+      "product_id": 30,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 491,
+      "qty": 289.05,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 491,
+          "qty": 289.05,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 31,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 492,
+      "qty": 269,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 492,
+          "qty": 269,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 32,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 493,
+      "qty": 242,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 493,
+          "qty": 242,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 33,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 494,
+      "qty": 234,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 494,
+          "qty": 234,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 34,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 495,
+      "qty": 227,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 495,
+          "qty": 227,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 35,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 496,
+      "qty": 198,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 496,
+          "qty": 198,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 36,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 497,
+      "qty": 163,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 497,
+          "qty": 163,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 37,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 498,
+      "qty": 158,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 498,
+          "qty": 158,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 38,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 1507,
+      "qty": 314,
+      "unit_cost_rial": 550000,
+      "value_rial": 172700000,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1507,
+          "qty": 314,
+          "unit_cost_rial": 550000,
+          "amount_rial": 172700000,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792509674
+        }
+      ]
+    },
+    {
+      "product_id": 39,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 500,
+      "qty": 150.85,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 500,
+          "qty": 150.85,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 40,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 501,
+      "qty": 148,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 501,
+          "qty": 148,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 41,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 502,
+      "qty": 140,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 502,
+          "qty": 140,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 42,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 503,
+      "qty": 138.8,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 503,
+          "qty": 138.8,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 43,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 504,
+      "qty": 138.6,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 504,
+          "qty": 138.6,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 44,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 505,
+      "qty": 126.8,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 505,
+          "qty": 126.8,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 45,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 506,
+      "qty": 94,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 506,
+          "qty": 94,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 46,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 507,
+      "qty": 93,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 507,
+          "qty": 93,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 47,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 508,
+      "qty": 88,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 508,
+          "qty": 88,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 48,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 509,
+      "qty": 84,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 509,
+          "qty": 84,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 49,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "needs_review",
+      "chosen_ledger_id": 510,
+      "qty": 83,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 510,
+          "qty": 83,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1663,
+          "qty": 166,
+          "unit_cost_rial": 200000,
+          "amount_rial": 33200000,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792509935
+        }
+      ]
+    },
+    {
+      "product_id": 50,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 511,
+      "qty": 75,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 511,
+          "qty": 75,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 51,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "ok",
+      "chosen_ledger_id": 1187,
+      "qty": 70,
+      "unit_cost_rial": 200000,
+      "value_rial": 14000000,
+      "je_id": 385,
+      "candidates": [
+        {
+          "ledger_id": 1187,
+          "qty": 70,
+          "unit_cost_rial": 200000,
+          "amount_rial": 14000000,
+          "je_id": 385,
+          "source_type": "opening_inventory",
+          "created_at": 1791984198
+        }
+      ]
+    },
+    {
+      "product_id": 52,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 513,
+      "qty": 70,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 513,
+          "qty": 70,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 54,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 515,
+      "qty": 50,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 515,
+          "qty": 50,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 55,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 516,
+      "qty": 46.04,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 516,
+          "qty": 46.04,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 56,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 517,
+      "qty": 45,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 517,
+          "qty": 45,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 57,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 518,
+      "qty": 44.7,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 518,
+          "qty": 44.7,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 58,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 519,
+      "qty": 34.25,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 519,
+          "qty": 34.25,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 59,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 520,
+      "qty": 34,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 520,
+          "qty": 34,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 60,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 521,
+      "qty": 29.65,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 521,
+          "qty": 29.65,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 61,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 522,
+      "qty": 25,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 522,
+          "qty": 25,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 62,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 523,
+      "qty": 23,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 523,
+          "qty": 23,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 63,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 524,
+      "qty": 18.36,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 524,
+          "qty": 18.36,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 64,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "ok",
+      "chosen_ledger_id": 434,
+      "qty": 18.33,
+      "unit_cost_rial": 10000000,
+      "value_rial": 183300000,
+      "je_id": 221,
+      "candidates": [
+        {
+          "ledger_id": 434,
+          "qty": 18.33,
+          "unit_cost_rial": 10000000,
+          "amount_rial": 183300000,
+          "je_id": 221,
+          "source_type": "opening_inventory",
+          "created_at": 1790934812
+        }
+      ]
+    },
+    {
+      "product_id": 65,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 525,
+      "qty": 14.74,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 525,
+          "qty": 14.74,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 66,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 526,
+      "qty": 13.4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 526,
+          "qty": 13.4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 67,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 527,
+      "qty": 13,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 527,
+          "qty": 13,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 68,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 528,
+      "qty": 12.9,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 528,
+          "qty": 12.9,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 69,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 529,
+      "qty": 10.758,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 529,
+          "qty": 10.758,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 70,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 530,
+      "qty": 10,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 530,
+          "qty": 10,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 71,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 531,
+      "qty": 10,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 531,
+          "qty": 10,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 72,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 532,
+      "qty": 9.55,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 532,
+          "qty": 9.55,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 73,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 533,
+      "qty": 9.5,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 533,
+          "qty": 9.5,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 74,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 534,
+      "qty": 8.7,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 534,
+          "qty": 8.7,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 75,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 535,
+      "qty": 8.5,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 535,
+          "qty": 8.5,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 76,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 536,
+      "qty": 6,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 536,
+          "qty": 6,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 77,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 537,
+      "qty": 6,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 537,
+          "qty": 6,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 78,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 538,
+      "qty": 6,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 538,
+          "qty": 6,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 79,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 539,
+      "qty": 6,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 539,
+          "qty": 6,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 80,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 540,
+      "qty": 5.96,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 540,
+          "qty": 5.96,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 81,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 541,
+      "qty": 5.78,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 541,
+          "qty": 5.78,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 82,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 542,
+      "qty": 5.22,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 542,
+          "qty": 5.22,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 83,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 543,
+      "qty": 5.07,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 543,
+          "qty": 5.07,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 84,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 544,
+      "qty": 5,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 544,
+          "qty": 5,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 85,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 545,
+      "qty": 4.942,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 545,
+          "qty": 4.942,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 86,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 546,
+      "qty": 4.49,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 546,
+          "qty": 4.49,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 87,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 547,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 547,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 88,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 548,
+      "qty": 3,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 548,
+          "qty": 3,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 89,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "needs_review",
+      "chosen_ledger_id": 549,
+      "qty": 2.74,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 549,
+          "qty": 2.74,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1664,
+          "qty": 5.48,
+          "unit_cost_rial": 4728132,
+          "amount_rial": 25910163,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792509935
+        }
+      ]
+    },
+    {
+      "product_id": 90,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 550,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 550,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 91,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 551,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 551,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 92,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 552,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 552,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 93,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 553,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 553,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 94,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 554,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 554,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 95,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 555,
+      "qty": 1.88,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 555,
+          "qty": 1.88,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 96,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 556,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 556,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 97,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 557,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 557,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 98,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 558,
+      "qty": 0.265,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 558,
+          "qty": 0.265,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 99,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "no_je",
+      "chosen_ledger_id": 559,
+      "qty": 0.24,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 559,
+          "qty": 0.24,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 100,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 560,
+      "qty": 148,
+      "unit_cost_rial": 5829124,
+      "value_rial": 862710352,
+      "je_id": 831,
+      "candidates": [
+        {
+          "ledger_id": 560,
+          "qty": 148,
+          "unit_cost_rial": 5829124,
+          "amount_rial": 862710352,
+          "je_id": 831,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 101,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 561,
+      "qty": 127,
+      "unit_cost_rial": 8762274,
+      "value_rial": 1112808798,
+      "je_id": 832,
+      "candidates": [
+        {
+          "ledger_id": 561,
+          "qty": 127,
+          "unit_cost_rial": 8762274,
+          "amount_rial": 1112808798,
+          "je_id": 832,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 102,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 562,
+      "qty": 97,
+      "unit_cost_rial": 4212000,
+      "value_rial": 408564000,
+      "je_id": 833,
+      "candidates": [
+        {
+          "ledger_id": 562,
+          "qty": 97,
+          "unit_cost_rial": 4212000,
+          "amount_rial": 408564000,
+          "je_id": 833,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1237,
+          "qty": 19,
+          "unit_cost_rial": 4212000,
+          "amount_rial": 80028000,
+          "je_id": 833,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 102,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1052,
+      "qty": 19,
+      "unit_cost_rial": 4212000,
+      "value_rial": 80028000,
+      "je_id": 833,
+      "candidates": [
+        {
+          "ledger_id": 1052,
+          "qty": 19,
+          "unit_cost_rial": 4212000,
+          "amount_rial": 80028000,
+          "je_id": 833,
+          "source_type": "opening_inventory",
+          "created_at": 1791728331
+        }
+      ]
+    },
+    {
+      "product_id": 103,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 563,
+      "qty": 24,
+      "unit_cost_rial": 6880000,
+      "value_rial": 165120000,
+      "je_id": 834,
+      "candidates": [
+        {
+          "ledger_id": 563,
+          "qty": 24,
+          "unit_cost_rial": 6880000,
+          "amount_rial": 165120000,
+          "je_id": 834,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 103,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 998,
+      "qty": 6,
+      "unit_cost_rial": 6880000,
+      "value_rial": 41280000,
+      "je_id": 834,
+      "candidates": [
+        {
+          "ledger_id": 998,
+          "qty": 6,
+          "unit_cost_rial": 6880000,
+          "amount_rial": 41280000,
+          "je_id": 834,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 104,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 564,
+      "qty": 99,
+      "unit_cost_rial": 1381081,
+      "value_rial": 136727019,
+      "je_id": 835,
+      "candidates": [
+        {
+          "ledger_id": 564,
+          "qty": 99,
+          "unit_cost_rial": 1381081,
+          "amount_rial": 136727019,
+          "je_id": 835,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 105,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 565,
+      "qty": 112,
+      "unit_cost_rial": 6965210,
+      "value_rial": 780103520,
+      "je_id": 836,
+      "candidates": [
+        {
+          "ledger_id": 565,
+          "qty": 112,
+          "unit_cost_rial": 6965210,
+          "amount_rial": 780103520,
+          "je_id": 836,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 106,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 567,
+      "qty": 84,
+      "unit_cost_rial": 7022000,
+      "value_rial": 589848000,
+      "je_id": 837,
+      "candidates": [
+        {
+          "ledger_id": 567,
+          "qty": 84,
+          "unit_cost_rial": 7022000,
+          "amount_rial": 589848000,
+          "je_id": 837,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 106,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1001,
+      "qty": 14,
+      "unit_cost_rial": 7022000,
+      "value_rial": 98308000,
+      "je_id": 837,
+      "candidates": [
+        {
+          "ledger_id": 1001,
+          "qty": 14,
+          "unit_cost_rial": 7022000,
+          "amount_rial": 98308000,
+          "je_id": 837,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 107,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 569,
+      "qty": 82,
+      "unit_cost_rial": 6376491,
+      "value_rial": 522872262,
+      "je_id": 838,
+      "candidates": [
+        {
+          "ledger_id": 569,
+          "qty": 82,
+          "unit_cost_rial": 6376491,
+          "amount_rial": 522872262,
+          "je_id": 838,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 108,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 570,
+      "qty": 66,
+      "unit_cost_rial": 4175579,
+      "value_rial": 275588214,
+      "je_id": 839,
+      "candidates": [
+        {
+          "ledger_id": 570,
+          "qty": 66,
+          "unit_cost_rial": 4175579,
+          "amount_rial": 275588214,
+          "je_id": 839,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 109,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 571,
+      "qty": 35,
+      "unit_cost_rial": 5379500,
+      "value_rial": 188282500,
+      "je_id": 840,
+      "candidates": [
+        {
+          "ledger_id": 571,
+          "qty": 35,
+          "unit_cost_rial": 5379500,
+          "amount_rial": 188282500,
+          "je_id": 840,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1418,
+          "qty": 30,
+          "unit_cost_rial": 5379500,
+          "amount_rial": 161385000,
+          "je_id": 840,
+          "source_type": "opening_inventory",
+          "created_at": 1792451274
+        }
+      ]
+    },
+    {
+      "product_id": 109,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "needs_review",
+      "chosen_ledger_id": 572,
+      "qty": 36,
+      "unit_cost_rial": 5379500,
+      "value_rial": 193662000,
+      "je_id": 840,
+      "candidates": [
+        {
+          "ledger_id": 572,
+          "qty": 36,
+          "unit_cost_rial": 5379500,
+          "amount_rial": 193662000,
+          "je_id": 840,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1977,
+          "qty": 2,
+          "unit_cost_rial": 5379500,
+          "amount_rial": 10759000,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792940522
+        }
+      ]
+    },
+    {
+      "product_id": 110,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 573,
+      "qty": 60,
+      "unit_cost_rial": 4032000,
+      "value_rial": 241920000,
+      "je_id": 841,
+      "candidates": [
+        {
+          "ledger_id": 573,
+          "qty": 60,
+          "unit_cost_rial": 4032000,
+          "amount_rial": 241920000,
+          "je_id": 841,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 110,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1003,
+      "qty": 12,
+      "unit_cost_rial": 4032000,
+      "value_rial": 48384000,
+      "je_id": 841,
+      "candidates": [
+        {
+          "ledger_id": 1003,
+          "qty": 12,
+          "unit_cost_rial": 4032000,
+          "amount_rial": 48384000,
+          "je_id": 841,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 111,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 574,
+      "qty": 57,
+      "unit_cost_rial": 7121568,
+      "value_rial": 405929376,
+      "je_id": 842,
+      "candidates": [
+        {
+          "ledger_id": 574,
+          "qty": 57,
+          "unit_cost_rial": 7121568,
+          "amount_rial": 405929376,
+          "je_id": 842,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 112,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 575,
+      "qty": 64,
+      "unit_cost_rial": 7065000,
+      "value_rial": 452160000,
+      "je_id": 843,
+      "candidates": [
+        {
+          "ledger_id": 575,
+          "qty": 64,
+          "unit_cost_rial": 7065000,
+          "amount_rial": 452160000,
+          "je_id": 843,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 113,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 576,
+      "qty": 59,
+      "unit_cost_rial": 4399080,
+      "value_rial": 259545720,
+      "je_id": 844,
+      "candidates": [
+        {
+          "ledger_id": 576,
+          "qty": 59,
+          "unit_cost_rial": 4399080,
+          "amount_rial": 259545720,
+          "je_id": 844,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 114,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 577,
+      "qty": 68,
+      "unit_cost_rial": 2214936,
+      "value_rial": 150615648,
+      "je_id": 845,
+      "candidates": [
+        {
+          "ledger_id": 577,
+          "qty": 68,
+          "unit_cost_rial": 2214936,
+          "amount_rial": 150615648,
+          "je_id": 845,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 115,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 579,
+      "qty": 46,
+      "unit_cost_rial": 5134000,
+      "value_rial": 236164000,
+      "je_id": 846,
+      "candidates": [
+        {
+          "ledger_id": 579,
+          "qty": 46,
+          "unit_cost_rial": 5134000,
+          "amount_rial": 236164000,
+          "je_id": 846,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1239,
+          "qty": 13,
+          "unit_cost_rial": 5134000,
+          "amount_rial": 66742000,
+          "je_id": 846,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 115,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "needs_review",
+      "chosen_ledger_id": 1005,
+      "qty": 14,
+      "unit_cost_rial": 5134000,
+      "value_rial": 71876000,
+      "je_id": 846,
+      "candidates": [
+        {
+          "ledger_id": 1005,
+          "qty": 14,
+          "unit_cost_rial": 5134000,
+          "amount_rial": 71876000,
+          "je_id": 846,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        },
+        {
+          "ledger_id": 1056,
+          "qty": 1,
+          "unit_cost_rial": 5134000,
+          "amount_rial": 5134000,
+          "je_id": 846,
+          "source_type": "opening_inventory",
+          "created_at": 1791728331
+        },
+        {
+          "ledger_id": 1665,
+          "qty": 30,
+          "unit_cost_rial": 5134000,
+          "amount_rial": 154020000,
+          "je_id": 846,
+          "source_type": "opening_inventory",
+          "created_at": 1792509935
+        }
+      ]
+    },
+    {
+      "product_id": 116,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 580,
+      "qty": 40,
+      "unit_cost_rial": 4200000,
+      "value_rial": 168000000,
+      "je_id": 847,
+      "candidates": [
+        {
+          "ledger_id": 580,
+          "qty": 40,
+          "unit_cost_rial": 4200000,
+          "amount_rial": 168000000,
+          "je_id": 847,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 117,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 581,
+      "qty": 38,
+      "unit_cost_rial": 5164000,
+      "value_rial": 196232000,
+      "je_id": 848,
+      "candidates": [
+        {
+          "ledger_id": 581,
+          "qty": 38,
+          "unit_cost_rial": 5164000,
+          "amount_rial": 196232000,
+          "je_id": 848,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 117,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "needs_review",
+      "chosen_ledger_id": 1007,
+      "qty": 12,
+      "unit_cost_rial": 5164000,
+      "value_rial": 61968000,
+      "je_id": 848,
+      "candidates": [
+        {
+          "ledger_id": 1007,
+          "qty": 12,
+          "unit_cost_rial": 5164000,
+          "amount_rial": 61968000,
+          "je_id": 848,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        },
+        {
+          "ledger_id": 1666,
+          "qty": 24,
+          "unit_cost_rial": 5164000,
+          "amount_rial": 123936000,
+          "je_id": 848,
+          "source_type": "opening_inventory",
+          "created_at": 1792509935
+        }
+      ]
+    },
+    {
+      "product_id": 118,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 582,
+      "qty": 26,
+      "unit_cost_rial": 6024104,
+      "value_rial": 156626704,
+      "je_id": 849,
+      "candidates": [
+        {
+          "ledger_id": 582,
+          "qty": 26,
+          "unit_cost_rial": 6024104,
+          "amount_rial": 156626704,
+          "je_id": 849,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 118,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "needs_review",
+      "chosen_ledger_id": 1009,
+      "qty": 22,
+      "unit_cost_rial": 6024104,
+      "value_rial": 132530288,
+      "je_id": 849,
+      "candidates": [
+        {
+          "ledger_id": 1009,
+          "qty": 22,
+          "unit_cost_rial": 6024104,
+          "amount_rial": 132530288,
+          "je_id": 849,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        },
+        {
+          "ledger_id": 1467,
+          "qty": 1,
+          "unit_cost_rial": 6024104,
+          "amount_rial": 6024104,
+          "je_id": 849,
+          "source_type": "opening_inventory",
+          "created_at": 1792494802
+        },
+        {
+          "ledger_id": 1667,
+          "qty": 46,
+          "unit_cost_rial": 6024104,
+          "amount_rial": 277108784,
+          "je_id": 849,
+          "source_type": "opening_inventory",
+          "created_at": 1792509935
+        }
+      ]
+    },
+    {
+      "product_id": 119,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 583,
+      "qty": 73,
+      "unit_cost_rial": 7834000,
+      "value_rial": 571882000,
+      "je_id": 850,
+      "candidates": [
+        {
+          "ledger_id": 583,
+          "qty": 73,
+          "unit_cost_rial": 7834000,
+          "amount_rial": 571882000,
+          "je_id": 850,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 120,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 585,
+      "qty": 28,
+      "unit_cost_rial": 7830067,
+      "value_rial": 219241876,
+      "je_id": 851,
+      "candidates": [
+        {
+          "ledger_id": 585,
+          "qty": 28,
+          "unit_cost_rial": 7830067,
+          "amount_rial": 219241876,
+          "je_id": 851,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1422,
+          "qty": 6,
+          "unit_cost_rial": 7830067,
+          "amount_rial": 46980402,
+          "je_id": 851,
+          "source_type": "opening_inventory",
+          "created_at": 1792451274
+        }
+      ]
+    },
+    {
+      "product_id": 121,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 586,
+      "qty": 32,
+      "unit_cost_rial": 5952719,
+      "value_rial": 190487008,
+      "je_id": 852,
+      "candidates": [
+        {
+          "ledger_id": 586,
+          "qty": 32,
+          "unit_cost_rial": 5952719,
+          "amount_rial": 190487008,
+          "je_id": 852,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1241,
+          "qty": 7,
+          "unit_cost_rial": 5952719,
+          "amount_rial": 41669033,
+          "je_id": 852,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 121,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1011,
+      "qty": 7,
+      "unit_cost_rial": 5952719,
+      "value_rial": 41669033,
+      "je_id": 852,
+      "candidates": [
+        {
+          "ledger_id": 1011,
+          "qty": 7,
+          "unit_cost_rial": 5952719,
+          "amount_rial": 41669033,
+          "je_id": 852,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 122,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 587,
+      "qty": 30,
+      "unit_cost_rial": 4909063,
+      "value_rial": 147271890,
+      "je_id": 853,
+      "candidates": [
+        {
+          "ledger_id": 587,
+          "qty": 30,
+          "unit_cost_rial": 4909063,
+          "amount_rial": 147271890,
+          "je_id": 853,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 123,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 589,
+      "qty": 30,
+      "unit_cost_rial": 3900000,
+      "value_rial": 117000000,
+      "je_id": 854,
+      "candidates": [
+        {
+          "ledger_id": 589,
+          "qty": 30,
+          "unit_cost_rial": 3900000,
+          "amount_rial": 117000000,
+          "je_id": 854,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1242,
+          "qty": 12,
+          "unit_cost_rial": 3900000,
+          "amount_rial": 46800000,
+          "je_id": 854,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 124,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 590,
+      "qty": 29,
+      "unit_cost_rial": 5443434,
+      "value_rial": 157859586,
+      "je_id": 855,
+      "candidates": [
+        {
+          "ledger_id": 590,
+          "qty": 29,
+          "unit_cost_rial": 5443434,
+          "amount_rial": 157859586,
+          "je_id": 855,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 125,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 591,
+      "qty": 16,
+      "unit_cost_rial": 6024104,
+      "value_rial": 96385664,
+      "je_id": 856,
+      "candidates": [
+        {
+          "ledger_id": 591,
+          "qty": 16,
+          "unit_cost_rial": 6024104,
+          "amount_rial": 96385664,
+          "je_id": 856,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 125,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1015,
+      "qty": 24,
+      "unit_cost_rial": 6024104,
+      "value_rial": 144578496,
+      "je_id": 856,
+      "candidates": [
+        {
+          "ledger_id": 1015,
+          "qty": 24,
+          "unit_cost_rial": 6024104,
+          "amount_rial": 144578496,
+          "je_id": 856,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 126,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 592,
+      "qty": 24,
+      "unit_cost_rial": 5343380,
+      "value_rial": 128241120,
+      "je_id": 857,
+      "candidates": [
+        {
+          "ledger_id": 592,
+          "qty": 24,
+          "unit_cost_rial": 5343380,
+          "amount_rial": 128241120,
+          "je_id": 857,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 127,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 593,
+      "qty": 23,
+      "unit_cost_rial": 4980000,
+      "value_rial": 114540000,
+      "je_id": 858,
+      "candidates": [
+        {
+          "ledger_id": 593,
+          "qty": 23,
+          "unit_cost_rial": 4980000,
+          "amount_rial": 114540000,
+          "je_id": 858,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 128,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 594,
+      "qty": 20,
+      "unit_cost_rial": 5171533,
+      "value_rial": 103430660,
+      "je_id": 859,
+      "candidates": [
+        {
+          "ledger_id": 594,
+          "qty": 20,
+          "unit_cost_rial": 5171533,
+          "amount_rial": 103430660,
+          "je_id": 859,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 129,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 595,
+      "qty": 18,
+      "unit_cost_rial": 4670000,
+      "value_rial": 84060000,
+      "je_id": 860,
+      "candidates": [
+        {
+          "ledger_id": 595,
+          "qty": 18,
+          "unit_cost_rial": 4670000,
+          "amount_rial": 84060000,
+          "je_id": 860,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1244,
+          "qty": 17,
+          "unit_cost_rial": 4670000,
+          "amount_rial": 79390000,
+          "je_id": 860,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 129,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1057,
+      "qty": 17,
+      "unit_cost_rial": 4670000,
+      "value_rial": 79390000,
+      "je_id": 860,
+      "candidates": [
+        {
+          "ledger_id": 1057,
+          "qty": 17,
+          "unit_cost_rial": 4670000,
+          "amount_rial": 79390000,
+          "je_id": 860,
+          "source_type": "opening_inventory",
+          "created_at": 1791728331
+        }
+      ]
+    },
+    {
+      "product_id": 130,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 596,
+      "qty": 16,
+      "unit_cost_rial": 4321669,
+      "value_rial": 69146704,
+      "je_id": 861,
+      "candidates": [
+        {
+          "ledger_id": 596,
+          "qty": 16,
+          "unit_cost_rial": 4321669,
+          "amount_rial": 69146704,
+          "je_id": 861,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 131,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 597,
+      "qty": 13,
+      "unit_cost_rial": 6456957,
+      "value_rial": 83940441,
+      "je_id": 862,
+      "candidates": [
+        {
+          "ledger_id": 597,
+          "qty": 13,
+          "unit_cost_rial": 6456957,
+          "amount_rial": 83940441,
+          "je_id": 862,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1245,
+          "qty": 16,
+          "unit_cost_rial": 6456957,
+          "amount_rial": 103311312,
+          "je_id": 862,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 131,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1016,
+      "qty": 16,
+      "unit_cost_rial": 6456957,
+      "value_rial": 103311312,
+      "je_id": 862,
+      "candidates": [
+        {
+          "ledger_id": 1016,
+          "qty": 16,
+          "unit_cost_rial": 6456957,
+          "amount_rial": 103311312,
+          "je_id": 862,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 132,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 598,
+      "qty": 6,
+      "unit_cost_rial": 4485000,
+      "value_rial": 26910000,
+      "je_id": 863,
+      "candidates": [
+        {
+          "ledger_id": 598,
+          "qty": 6,
+          "unit_cost_rial": 4485000,
+          "amount_rial": 26910000,
+          "je_id": 863,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 133,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 599,
+      "qty": 1,
+      "unit_cost_rial": 1820000,
+      "value_rial": 1820000,
+      "je_id": 864,
+      "candidates": [
+        {
+          "ledger_id": 599,
+          "qty": 1,
+          "unit_cost_rial": 1820000,
+          "amount_rial": 1820000,
+          "je_id": 864,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 134,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 600,
+      "qty": 15,
+      "unit_cost_rial": 6456957,
+      "value_rial": 96854355,
+      "je_id": 865,
+      "candidates": [
+        {
+          "ledger_id": 600,
+          "qty": 15,
+          "unit_cost_rial": 6456957,
+          "amount_rial": 96854355,
+          "je_id": 865,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1246,
+          "qty": 10,
+          "unit_cost_rial": 6456957,
+          "amount_rial": 64569570,
+          "je_id": 865,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 134,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1017,
+      "qty": 10,
+      "unit_cost_rial": 6456957,
+      "value_rial": 64569570,
+      "je_id": 865,
+      "candidates": [
+        {
+          "ledger_id": 1017,
+          "qty": 10,
+          "unit_cost_rial": 6456957,
+          "amount_rial": 64569570,
+          "je_id": 865,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        }
+      ]
+    },
+    {
+      "product_id": 135,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 601,
+      "qty": 14,
+      "unit_cost_rial": 4739134,
+      "value_rial": 66347876,
+      "je_id": 866,
+      "candidates": [
+        {
+          "ledger_id": 601,
+          "qty": 14,
+          "unit_cost_rial": 4739134,
+          "amount_rial": 66347876,
+          "je_id": 866,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 136,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 602,
+      "qty": 14,
+      "unit_cost_rial": 3420000,
+      "value_rial": 47880000,
+      "je_id": 867,
+      "candidates": [
+        {
+          "ledger_id": 602,
+          "qty": 14,
+          "unit_cost_rial": 3420000,
+          "amount_rial": 47880000,
+          "je_id": 867,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 137,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 603,
+      "qty": 17,
+      "unit_cost_rial": 4200000,
+      "value_rial": 71400000,
+      "je_id": 868,
+      "candidates": [
+        {
+          "ledger_id": 603,
+          "qty": 17,
+          "unit_cost_rial": 4200000,
+          "amount_rial": 71400000,
+          "je_id": 868,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 138,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 604,
+      "qty": 12,
+      "unit_cost_rial": 5779860,
+      "value_rial": 69358320,
+      "je_id": 869,
+      "candidates": [
+        {
+          "ledger_id": 604,
+          "qty": 12,
+          "unit_cost_rial": 5779860,
+          "amount_rial": 69358320,
+          "je_id": 869,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 139,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 605,
+      "qty": 11,
+      "unit_cost_rial": 4590640,
+      "value_rial": 50497040,
+      "je_id": 870,
+      "candidates": [
+        {
+          "ledger_id": 605,
+          "qty": 11,
+          "unit_cost_rial": 4590640,
+          "amount_rial": 50497040,
+          "je_id": 870,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 140,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 606,
+      "qty": 10,
+      "unit_cost_rial": 5008500,
+      "value_rial": 50085000,
+      "je_id": 871,
+      "candidates": [
+        {
+          "ledger_id": 606,
+          "qty": 10,
+          "unit_cost_rial": 5008500,
+          "amount_rial": 50085000,
+          "je_id": 871,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 140,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1067,
+      "qty": 1,
+      "unit_cost_rial": 5008500,
+      "value_rial": 5008500,
+      "je_id": 871,
+      "candidates": [
+        {
+          "ledger_id": 1067,
+          "qty": 1,
+          "unit_cost_rial": 5008500,
+          "amount_rial": 5008500,
+          "je_id": 871,
+          "source_type": "opening_inventory",
+          "created_at": 1791730518
+        }
+      ]
+    },
+    {
+      "product_id": 141,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 607,
+      "qty": 9,
+      "unit_cost_rial": 1185000,
+      "value_rial": 10665000,
+      "je_id": 872,
+      "candidates": [
+        {
+          "ledger_id": 607,
+          "qty": 9,
+          "unit_cost_rial": 1185000,
+          "amount_rial": 10665000,
+          "je_id": 872,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 142,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 608,
+      "qty": 9,
+      "unit_cost_rial": 5500000,
+      "value_rial": 49500000,
+      "je_id": 873,
+      "candidates": [
+        {
+          "ledger_id": 608,
+          "qty": 9,
+          "unit_cost_rial": 5500000,
+          "amount_rial": 49500000,
+          "je_id": 873,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 143,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 609,
+      "qty": 15,
+      "unit_cost_rial": 5318000,
+      "value_rial": 79770000,
+      "je_id": 874,
+      "candidates": [
+        {
+          "ledger_id": 609,
+          "qty": 15,
+          "unit_cost_rial": 5318000,
+          "amount_rial": 79770000,
+          "je_id": 874,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 144,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 610,
+      "qty": 8,
+      "unit_cost_rial": 2907170,
+      "value_rial": 23257360,
+      "je_id": 875,
+      "candidates": [
+        {
+          "ledger_id": 610,
+          "qty": 8,
+          "unit_cost_rial": 2907170,
+          "amount_rial": 23257360,
+          "je_id": 875,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 145,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 611,
+      "qty": 8,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 611,
+          "qty": 8,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 146,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 612,
+      "qty": 3,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 612,
+          "qty": 3,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 147,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 613,
+      "qty": 12,
+      "unit_cost_rial": 6070000,
+      "value_rial": 72840000,
+      "je_id": 876,
+      "candidates": [
+        {
+          "ledger_id": 613,
+          "qty": 12,
+          "unit_cost_rial": 6070000,
+          "amount_rial": 72840000,
+          "je_id": 876,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 148,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 614,
+      "qty": 7,
+      "unit_cost_rial": 4200000,
+      "value_rial": 29400000,
+      "je_id": 877,
+      "candidates": [
+        {
+          "ledger_id": 614,
+          "qty": 7,
+          "unit_cost_rial": 4200000,
+          "amount_rial": 29400000,
+          "je_id": 877,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 149,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 615,
+      "qty": 4,
+      "unit_cost_rial": 6090000,
+      "value_rial": 24360000,
+      "je_id": 878,
+      "candidates": [
+        {
+          "ledger_id": 615,
+          "qty": 4,
+          "unit_cost_rial": 6090000,
+          "amount_rial": 24360000,
+          "je_id": 878,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 150,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 616,
+      "qty": 11,
+      "unit_cost_rial": 6750000,
+      "value_rial": 74250000,
+      "je_id": 879,
+      "candidates": [
+        {
+          "ledger_id": 616,
+          "qty": 11,
+          "unit_cost_rial": 6750000,
+          "amount_rial": 74250000,
+          "je_id": 879,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 151,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 617,
+      "qty": 6,
+      "unit_cost_rial": 9270000,
+      "value_rial": 55620000,
+      "je_id": 880,
+      "candidates": [
+        {
+          "ledger_id": 617,
+          "qty": 6,
+          "unit_cost_rial": 9270000,
+          "amount_rial": 55620000,
+          "je_id": 880,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 152,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 618,
+      "qty": 6,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 618,
+          "qty": 6,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 153,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 619,
+      "qty": 13,
+      "unit_cost_rial": 5424770,
+      "value_rial": 70522010,
+      "je_id": 881,
+      "candidates": [
+        {
+          "ledger_id": 619,
+          "qty": 13,
+          "unit_cost_rial": 5424770,
+          "amount_rial": 70522010,
+          "je_id": 881,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 154,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 621,
+      "qty": 5,
+      "unit_cost_rial": 5550000,
+      "value_rial": 27750000,
+      "je_id": 882,
+      "candidates": [
+        {
+          "ledger_id": 621,
+          "qty": 5,
+          "unit_cost_rial": 5550000,
+          "amount_rial": 27750000,
+          "je_id": 882,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1248,
+          "qty": 14,
+          "unit_cost_rial": 5550000,
+          "amount_rial": 77700000,
+          "je_id": 882,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 154,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "needs_review",
+      "chosen_ledger_id": 1020,
+      "qty": 16,
+      "unit_cost_rial": 5550000,
+      "value_rial": 88800000,
+      "je_id": 882,
+      "candidates": [
+        {
+          "ledger_id": 1020,
+          "qty": 16,
+          "unit_cost_rial": 5550000,
+          "amount_rial": 88800000,
+          "je_id": 882,
+          "source_type": "opening_inventory",
+          "created_at": 1791719579
+        },
+        {
+          "ledger_id": 1668,
+          "qty": 30,
+          "unit_cost_rial": 5550000,
+          "amount_rial": 166500000,
+          "je_id": 882,
+          "source_type": "opening_inventory",
+          "created_at": 1792509935
+        }
+      ]
+    },
+    {
+      "product_id": 155,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 622,
+      "qty": 6,
+      "unit_cost_rial": 4604730,
+      "value_rial": 27628380,
+      "je_id": 883,
+      "candidates": [
+        {
+          "ledger_id": 622,
+          "qty": 6,
+          "unit_cost_rial": 4604730,
+          "amount_rial": 27628380,
+          "je_id": 883,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 156,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 623,
+      "qty": 4,
+      "unit_cost_rial": 4960000,
+      "value_rial": 19840000,
+      "je_id": 884,
+      "candidates": [
+        {
+          "ledger_id": 623,
+          "qty": 4,
+          "unit_cost_rial": 4960000,
+          "amount_rial": 19840000,
+          "je_id": 884,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 157,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 624,
+      "qty": 4,
+      "unit_cost_rial": 5745102,
+      "value_rial": 22980408,
+      "je_id": 885,
+      "candidates": [
+        {
+          "ledger_id": 624,
+          "qty": 4,
+          "unit_cost_rial": 5745102,
+          "amount_rial": 22980408,
+          "je_id": 885,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 158,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 625,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 625,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 159,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 626,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 626,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 160,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 627,
+      "qty": 2,
+      "unit_cost_rial": 1230000,
+      "value_rial": 2460000,
+      "je_id": 886,
+      "candidates": [
+        {
+          "ledger_id": 627,
+          "qty": 2,
+          "unit_cost_rial": 1230000,
+          "amount_rial": 2460000,
+          "je_id": 886,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 161,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 628,
+      "qty": 4,
+      "unit_cost_rial": 2580000,
+      "value_rial": 10320000,
+      "je_id": 887,
+      "candidates": [
+        {
+          "ledger_id": 628,
+          "qty": 4,
+          "unit_cost_rial": 2580000,
+          "amount_rial": 10320000,
+          "je_id": 887,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 162,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 629,
+      "qty": 4,
+      "unit_cost_rial": 5028000,
+      "value_rial": 20112000,
+      "je_id": 888,
+      "candidates": [
+        {
+          "ledger_id": 629,
+          "qty": 4,
+          "unit_cost_rial": 5028000,
+          "amount_rial": 20112000,
+          "je_id": 888,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 163,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 630,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 630,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 164,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 631,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 631,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 165,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 632,
+      "qty": 3,
+      "unit_cost_rial": 4580000,
+      "value_rial": 13740000,
+      "je_id": 889,
+      "candidates": [
+        {
+          "ledger_id": 632,
+          "qty": 3,
+          "unit_cost_rial": 4580000,
+          "amount_rial": 13740000,
+          "je_id": 889,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 166,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 633,
+      "qty": 3,
+      "unit_cost_rial": 5790000,
+      "value_rial": 17370000,
+      "je_id": 890,
+      "candidates": [
+        {
+          "ledger_id": 633,
+          "qty": 3,
+          "unit_cost_rial": 5790000,
+          "amount_rial": 17370000,
+          "je_id": 890,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 167,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 634,
+      "qty": 3,
+      "unit_cost_rial": 4490000,
+      "value_rial": 13470000,
+      "je_id": 891,
+      "candidates": [
+        {
+          "ledger_id": 634,
+          "qty": 3,
+          "unit_cost_rial": 4490000,
+          "amount_rial": 13470000,
+          "je_id": 891,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 168,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 635,
+      "qty": 7,
+      "unit_cost_rial": 5884000,
+      "value_rial": 41188000,
+      "je_id": 892,
+      "candidates": [
+        {
+          "ledger_id": 635,
+          "qty": 7,
+          "unit_cost_rial": 5884000,
+          "amount_rial": 41188000,
+          "je_id": 892,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 169,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 636,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 636,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 170,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 637,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 637,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 171,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 638,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 638,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 172,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 639,
+      "qty": 3,
+      "unit_cost_rial": 4570000,
+      "value_rial": 13710000,
+      "je_id": 893,
+      "candidates": [
+        {
+          "ledger_id": 639,
+          "qty": 3,
+          "unit_cost_rial": 4570000,
+          "amount_rial": 13710000,
+          "je_id": 893,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 173,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 640,
+      "qty": 20,
+      "unit_cost_rial": 7350738,
+      "value_rial": 147014760,
+      "je_id": 894,
+      "candidates": [
+        {
+          "ledger_id": 640,
+          "qty": 20,
+          "unit_cost_rial": 7350738,
+          "amount_rial": 147014760,
+          "je_id": 894,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 174,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 641,
+      "qty": 2,
+      "unit_cost_rial": 4230000,
+      "value_rial": 8460000,
+      "je_id": 895,
+      "candidates": [
+        {
+          "ledger_id": 641,
+          "qty": 2,
+          "unit_cost_rial": 4230000,
+          "amount_rial": 8460000,
+          "je_id": 895,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 175,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 642,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 642,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 176,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 643,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 643,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 177,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 644,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 644,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 178,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 645,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 645,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 179,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 646,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 646,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 180,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 647,
+      "qty": 2,
+      "unit_cost_rial": 7646450,
+      "value_rial": 15292900,
+      "je_id": 896,
+      "candidates": [
+        {
+          "ledger_id": 647,
+          "qty": 2,
+          "unit_cost_rial": 7646450,
+          "amount_rial": 15292900,
+          "je_id": 896,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 181,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 648,
+      "qty": 2,
+      "unit_cost_rial": 5170000,
+      "value_rial": 10340000,
+      "je_id": 897,
+      "candidates": [
+        {
+          "ledger_id": 648,
+          "qty": 2,
+          "unit_cost_rial": 5170000,
+          "amount_rial": 10340000,
+          "je_id": 897,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 182,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 649,
+      "qty": 1,
+      "unit_cost_rial": 6750000,
+      "value_rial": 6750000,
+      "je_id": 898,
+      "candidates": [
+        {
+          "ledger_id": 649,
+          "qty": 1,
+          "unit_cost_rial": 6750000,
+          "amount_rial": 6750000,
+          "je_id": 898,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 183,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 650,
+      "qty": 1,
+      "unit_cost_rial": 5189000,
+      "value_rial": 5189000,
+      "je_id": 899,
+      "candidates": [
+        {
+          "ledger_id": 650,
+          "qty": 1,
+          "unit_cost_rial": 5189000,
+          "amount_rial": 5189000,
+          "je_id": 899,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 2021,
+          "qty": 1,
+          "unit_cost_rial": 5189000,
+          "amount_rial": 5189000,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1793192390
+        }
+      ]
+    },
+    {
+      "product_id": 184,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 651,
+      "qty": 1,
+      "unit_cost_rial": 5250000,
+      "value_rial": 5250000,
+      "je_id": 900,
+      "candidates": [
+        {
+          "ledger_id": 651,
+          "qty": 1,
+          "unit_cost_rial": 5250000,
+          "amount_rial": 5250000,
+          "je_id": 900,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 185,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 652,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 652,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 186,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 653,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 653,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 187,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 654,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 654,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 188,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 655,
+      "qty": 1,
+      "unit_cost_rial": 3580000,
+      "value_rial": 3580000,
+      "je_id": 901,
+      "candidates": [
+        {
+          "ledger_id": 655,
+          "qty": 1,
+          "unit_cost_rial": 3580000,
+          "amount_rial": 3580000,
+          "je_id": 901,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 189,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "needs_review",
+      "chosen_ledger_id": 656,
+      "qty": 1,
+      "unit_cost_rial": 6700000,
+      "value_rial": 6700000,
+      "je_id": 902,
+      "candidates": [
+        {
+          "ledger_id": 656,
+          "qty": 1,
+          "unit_cost_rial": 6700000,
+          "amount_rial": 6700000,
+          "je_id": 902,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        },
+        {
+          "ledger_id": 1249,
+          "qty": 5,
+          "unit_cost_rial": 6700000,
+          "amount_rial": 33500000,
+          "je_id": 902,
+          "source_type": "opening_inventory",
+          "created_at": 1792268777
+        }
+      ]
+    },
+    {
+      "product_id": 189,
+      "variant_id": null,
+      "warehouse_id": 35,
+      "status": "ok",
+      "chosen_ledger_id": 1060,
+      "qty": 6,
+      "unit_cost_rial": 6700000,
+      "value_rial": 40200000,
+      "je_id": 902,
+      "candidates": [
+        {
+          "ledger_id": 1060,
+          "qty": 6,
+          "unit_cost_rial": 6700000,
+          "amount_rial": 40200000,
+          "je_id": 902,
+          "source_type": "opening_inventory",
+          "created_at": 1791728331
+        }
+      ]
+    },
+    {
+      "product_id": 190,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 657,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 657,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 191,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 658,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 658,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 192,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 659,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 659,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 193,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 660,
+      "qty": 2,
+      "unit_cost_rial": 3650000,
+      "value_rial": 7300000,
+      "je_id": 903,
+      "candidates": [
+        {
+          "ledger_id": 660,
+          "qty": 2,
+          "unit_cost_rial": 3650000,
+          "amount_rial": 7300000,
+          "je_id": 903,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 194,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 661,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 661,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 195,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 662,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 662,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 196,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 663,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 663,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 197,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 664,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 664,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 198,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 665,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 665,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 199,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 666,
+      "qty": 5,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 666,
+          "qty": 5,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 200,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 667,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 667,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 201,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 668,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 668,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 202,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1836,
+      "qty": 16,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1836,
+          "qty": 16,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 203,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1837,
+      "qty": 15,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1837,
+          "qty": 15,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 204,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1838,
+      "qty": 14,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1838,
+          "qty": 14,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 205,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1839,
+      "qty": 13,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1839,
+          "qty": 13,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 206,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1840,
+      "qty": 12,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1840,
+          "qty": 12,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 207,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1841,
+      "qty": 8,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1841,
+          "qty": 8,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 208,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1842,
+      "qty": 8,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1842,
+          "qty": 8,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 209,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1843,
+      "qty": 7,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1843,
+          "qty": 7,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 210,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1844,
+      "qty": 5,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1844,
+          "qty": 5,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 211,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1845,
+      "qty": 5,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1845,
+          "qty": 5,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 212,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1846,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1846,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 213,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1847,
+      "qty": 4,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1847,
+          "qty": 4,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 214,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1848,
+      "qty": 3,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1848,
+          "qty": 3,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 215,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1849,
+      "qty": 3,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1849,
+          "qty": 3,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 216,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1850,
+      "qty": 3,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1850,
+          "qty": 3,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 217,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1851,
+      "qty": 3,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1851,
+          "qty": 3,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 218,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1852,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1852,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 219,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1853,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1853,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 220,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1854,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1854,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 221,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1855,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1855,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 222,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1856,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1856,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 223,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1857,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1857,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 224,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1858,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1858,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 225,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1859,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1859,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 226,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1860,
+      "qty": 2,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1860,
+          "qty": 2,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 227,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1861,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1861,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 228,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1862,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1862,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 229,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1863,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1863,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 230,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1864,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1864,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 231,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1865,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1865,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 232,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1866,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1866,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 233,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1867,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1867,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 234,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1868,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1868,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 235,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1869,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1869,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 236,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1870,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1870,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 237,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1871,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1871,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 238,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1872,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1872,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 239,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1873,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1873,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 240,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1874,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1874,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 241,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1875,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1875,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 242,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1876,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1876,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 243,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1877,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1877,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 244,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1878,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1878,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 245,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1879,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1879,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 246,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1880,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1880,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 247,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1881,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1881,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 248,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1882,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1882,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 249,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1883,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1883,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 250,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1884,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1884,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 251,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1885,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1885,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 252,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1886,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1886,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 253,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1887,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1887,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 254,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1888,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1888,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 255,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1889,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1889,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 256,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1890,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1890,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 257,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1891,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1891,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 258,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1892,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1892,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 259,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1893,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1893,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 260,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1894,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1894,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 261,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1895,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1895,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 262,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1896,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1896,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 263,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1897,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1897,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 264,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1898,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1898,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 265,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1899,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1899,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 266,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1900,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1900,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 267,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1901,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1901,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 268,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1902,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1902,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 269,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1903,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1903,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 270,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1904,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1904,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 271,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1905,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1905,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 272,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1906,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1906,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 273,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1907,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1907,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 274,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1908,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1908,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 275,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1909,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1909,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 276,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1910,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1910,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 277,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1911,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1911,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 278,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1912,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1912,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 279,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1913,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1913,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 280,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1914,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1914,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 281,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1915,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1915,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 282,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1916,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1916,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 283,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1917,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1917,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 284,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1918,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1918,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 285,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1919,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1919,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 286,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1920,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1920,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 287,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1921,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1921,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 288,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1922,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1922,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 289,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1923,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1923,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 290,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1924,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1924,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 291,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1925,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1925,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 292,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1926,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1926,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 293,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1927,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1927,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 294,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1928,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1928,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 295,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1929,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1929,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 296,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1930,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1930,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 297,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1931,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1931,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 298,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1932,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1932,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 299,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1933,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1933,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 300,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1934,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1934,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 301,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1935,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1935,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 302,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1936,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1936,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 303,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1937,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1937,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 304,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1938,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1938,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 305,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1939,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1939,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 306,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1940,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1940,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 307,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1941,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1941,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 308,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1942,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1942,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 309,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1943,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1943,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 310,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1944,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1944,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 311,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1945,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1945,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 312,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1946,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1946,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 313,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1947,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1947,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 314,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1948,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1948,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 315,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1949,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1949,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 316,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1950,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1950,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 317,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1951,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1951,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 318,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1952,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1952,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 319,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1953,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1953,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 320,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1954,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1954,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 321,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1955,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1955,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 322,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1956,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1956,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 323,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1957,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1957,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 324,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1958,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1958,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 325,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1959,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1959,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 326,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1960,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1960,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 327,
+      "variant_id": null,
+      "warehouse_id": 36,
+      "status": "no_je",
+      "chosen_ledger_id": 1961,
+      "qty": 1,
+      "unit_cost_rial": 0,
+      "value_rial": 0,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1961,
+          "qty": 1,
+          "unit_cost_rial": 0,
+          "amount_rial": 0,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792688651
+        }
+      ]
+    },
+    {
+      "product_id": 328,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 795,
+      "qty": 6,
+      "unit_cost_rial": 4723000,
+      "value_rial": 28338000,
+      "je_id": 904,
+      "candidates": [
+        {
+          "ledger_id": 795,
+          "qty": 6,
+          "unit_cost_rial": 4723000,
+          "amount_rial": 28338000,
+          "je_id": 904,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 329,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 796,
+      "qty": 9,
+      "unit_cost_rial": 6622000,
+      "value_rial": 59598000,
+      "je_id": 905,
+      "candidates": [
+        {
+          "ledger_id": 796,
+          "qty": 9,
+          "unit_cost_rial": 6622000,
+          "amount_rial": 59598000,
+          "je_id": 905,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 330,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 797,
+      "qty": 1,
+      "unit_cost_rial": 5093500,
+      "value_rial": 5093500,
+      "je_id": 906,
+      "candidates": [
+        {
+          "ledger_id": 797,
+          "qty": 1,
+          "unit_cost_rial": 5093500,
+          "amount_rial": 5093500,
+          "je_id": 906,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 331,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 798,
+      "qty": 5,
+      "unit_cost_rial": 8050000,
+      "value_rial": 40250000,
+      "je_id": 907,
+      "candidates": [
+        {
+          "ledger_id": 798,
+          "qty": 5,
+          "unit_cost_rial": 8050000,
+          "amount_rial": 40250000,
+          "je_id": 907,
+          "source_type": "opening_inventory",
+          "created_at": 1791355826
+        }
+      ]
+    },
+    {
+      "product_id": 333,
+      "variant_id": null,
+      "warehouse_id": 33,
+      "status": "needs_review",
+      "chosen_ledger_id": 1157,
+      "qty": 239.44,
+      "unit_cost_rial": 3623357,
+      "value_rial": 867576600,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 1157,
+          "qty": 239.44,
+          "unit_cost_rial": 3623357,
+          "amount_rial": 867576600,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1791893520
+        },
+        {
+          "ledger_id": 1334,
+          "qty": 132.64,
+          "unit_cost_rial": 3623357,
+          "amount_rial": 480602072,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792362409
+        },
+        {
+          "ledger_id": 1425,
+          "qty": 1159.054,
+          "unit_cost_rial": 3623357,
+          "amount_rial": 4199666424,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1792451274
+        }
+      ]
+    },
+    {
+      "product_id": 335,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "ok",
+      "chosen_ledger_id": 1230,
+      "qty": 12,
+      "unit_cost_rial": 5936000,
+      "value_rial": 71232000,
+      "je_id": 490,
+      "candidates": [
+        {
+          "ledger_id": 1230,
+          "qty": 12,
+          "unit_cost_rial": 5936000,
+          "amount_rial": 71232000,
+          "je_id": 490,
+          "source_type": "opening_inventory",
+          "created_at": 1792069078
+        }
+      ]
+    },
+    {
+      "product_id": 340,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 2022,
+      "qty": 1,
+      "unit_cost_rial": 5051111,
+      "value_rial": 5051111,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 2022,
+          "qty": 1,
+          "unit_cost_rial": 5051111,
+          "amount_rial": 5051111,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1793192390
+        }
+      ]
+    },
+    {
+      "product_id": 341,
+      "variant_id": null,
+      "warehouse_id": 34,
+      "status": "no_je",
+      "chosen_ledger_id": 2023,
+      "qty": 1,
+      "unit_cost_rial": 4493000,
+      "value_rial": 4493000,
+      "je_id": null,
+      "candidates": [
+        {
+          "ledger_id": 2023,
+          "qty": 1,
+          "unit_cost_rial": 4493000,
+          "amount_rial": 4493000,
+          "je_id": null,
+          "source_type": "opening_inventory",
+          "created_at": 1793192390
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "all_rows_rial": 20587926745,
+    "extra_rows_rial": 6290124864,
+    "extra_rows_count": 23,
+    "combos_multi": 20
+  },
+  "ledger_count_before": 2105,
+  "ledger_count_after": 2105,
+  "je_count_before": 1069,
+  "je_count_after": 1069
+}

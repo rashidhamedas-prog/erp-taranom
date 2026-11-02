@@ -295,20 +295,25 @@ async function main() {
     r = await api('GET', '/api/opening-stock/meta', null, 'acct');
     ok(r.data?.can_create === true && r.data?.can_post === true, 'meta flags for accounting');
 
-    // ── 9. product create → single-line draft doc ──
-    console.log('\n— product create → draft doc —');
+    // ── 9. product create never writes stock; opening goes through the opening doc ──
+    console.log('\n— product create → opening doc —');
     r = await api('POST', '/api/products', { name: 'کالای تازه', code: 'P2-NEW-1', price: 100000, cost: 80000, stock: 7, warehouse_id: whFG, unit: 'عدد' }, 'acct');
-    ok(r.status === 200 || r.status === 201, 'POST /products with stock → ok', r.data);
+    ok(r.status === 422 && r.data?.code === 'E_STOCK_VIA_OPENING', 'POST /products with stock → 422 E_STOCK_VIA_OPENING', r.data);
+    ok(!q1('SELECT 1 FROM products WHERE code=?', 'P2-NEW-1'), 'rejected create writes no product');
+    r = await api('POST', '/api/products', { name: 'کالای تازه', code: 'P2-NEW-1', price: 100000, cost: 80000, warehouse_id: whFG, unit: 'عدد' }, 'acct');
+    ok(r.status === 200 || r.status === 201, 'POST /products without stock → ok', r.data);
     const newPid = r.data?.id;
-    ok(r.data?.stock === 0 && r.data?.opening_doc?.status === 'draft', 'new product: stock 0 + opening_doc draft', r.data?.opening_doc);
+    ok(Number(r.data?.stock || 0) === 0 && !r.data?.opening_doc, 'new product: stock 0, no auto opening doc', r.data?.opening_doc);
     ok(!q1("SELECT 1 FROM inventory_ledger WHERE product_id=?", newPid) && q1('SELECT 1 FROM journal_entries WHERE ref_type=? AND description LIKE ?', 'opening_inventory', `%کالای تازه%`) == null, 'no legacy opening ledger/JE for new product');
-    ok(q1('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?', newPid, whFG)?.qty === 0, 'warehouse_stock row qty 0');
+    r = await api('POST', '/api/opening-stock', { lines: [{ product_id: newPid, warehouse_id: whFG, qty: 7, unit_cost_rial: 80000 }] }, 'acct');
+    ok(r.status === 200 || r.status === 201, 'opening draft for new product', r.data);
     const dl = q1('SELECT * FROM opening_stock_lines WHERE product_id=?', newPid);
     ok(dl && dl.qty === 7 && dl.unit_cost_rial === 80000, 'draft line: qty 7 @ 80000');
-    r = await api('POST', `/api/opening-stock/${r.data.opening_doc.id}/post`, null, 'adminB');
+    r = await api('POST', `/api/opening-stock/${dl.doc_id}/post`, null, 'adminB');
     ok(r.status === 200 && hdr(newPid) === 7 && whQty(newPid, whFG) === 7, 'other user posts → stock 7', r.data);
-    r = await api('POST', '/api/products', { name: 'کالای بدون بها', code: 'P2-NEW-2', price: 1, stock: 3, warehouse_id: whFG }, 'acct');
-    ok(r.status === 422 && r.data?.code === 'E_OPENING_COST_REQUIRED', 'stock without cost still 422', r.data);
+    ok(q1("SELECT status FROM product_opening_stock WHERE product_id=? AND warehouse_id=?", newPid, whFG)?.status === 'ok', 'posted doc → product_opening_stock row ok');
+    r = await api('POST', '/api/opening-stock', { lines: [{ product_id: newPid, warehouse_id: whFG, qty: 1, unit_cost_rial: 80000 }] }, 'acct');
+    ok(r.status === 409 && ['E_OPENING_DUPLICATE', 'E_OPENING_EXISTS'].includes(r.data?.code), 'second opening for same combo → 409', r.data);
     r = await api('POST', '/api/products', { name: 'کالای صفر', code: 'P2-NEW-3', price: 1, cost: 10, stock: 0, warehouse_id: whFG }, 'acct');
     ok((r.status === 200 || r.status === 201) && !r.data?.opening_doc, 'stock 0 → no opening doc', r.data?.opening_doc);
 

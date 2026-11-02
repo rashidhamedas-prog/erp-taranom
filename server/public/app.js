@@ -334,6 +334,10 @@ async function api(method, path, data, isFormData, silent){
           ? ('موجودی «'+pname+'» بدون بهاست — بهای واحد را ثبت کنید')
           : 'موجودی بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید',
         E_UNIT_COST:'بهای واحد باید بزرگ‌تر از صفر باشد',
+        E_STOCK_VIA_OPENING:'موجودی از فرم کالا ثبت نمی‌شود — پس از ذخیره، در جدول «موجودی اول دوره» وارد کنید',
+        E_OPENING_REASON_REQUIRED:'دلیل اصلاح الزامی است (حداقل ۵ نویسه)',
+        E_OPENING_CONFIRM_REQUIRED:'تیک «تأیید می‌کنم» لازم است',
+        E_OPENING_EXISTS:'برای این کالا/انبار/واریانت موجودی اول دوره از قبل ثبت شده است',
         E_AVG_ALREADY_SET: pname
           ? ('بهای میانگین «'+pname+'» از قبل ثبت شده')
           : 'بهای میانگین از قبل ثبت شده',
@@ -3111,7 +3115,7 @@ function canPerm(resource, action){
   if(ME.role==='admin') return true;
   if(!USER_PERMS){
     if(ME.role==='accounting' && (resource==='accounting' || String(resource).startsWith('acc_'))) return true;
-    if(ME.role==='accounting' && ['invoices','customers','products','stocktaking'].includes(resource)) return true;
+    if(ME.role==='accounting' && ['invoices','customers','products','stocktaking','opening_stock'].includes(resource)) return true;
     if(ME.role==='sales_manager' && action==='view' && (resource==='accounting' || SALES_MANAGER_ACC_RESOURCES.has(resource))) return true;
     return false;
   }
@@ -11131,11 +11135,14 @@ async function prodModal(id){
             <h2 class="pfv2-card-title" id="pfv2-h-stock">موجودی</h2>
             <p class="pfv2-card-desc">موجودی کلی، هشدار، انبار و ارسال به سایت.</p>
             <div class="pfv2-grid">
-              <div class="fg pfv2-field" id="p-stock-fg"><label for="p-stock">موجودی کلی ${pfv2Hlp('اگر رنگ و سایز تیک بخورد، به‌جای این عدد ماتریس رنگ×سایز پر می‌شود و جمع خانه‌ها موجودی کالا می‌شود.')}</label><input id="p-stock" class="${Number(p.stock)<0?'neg-qty':''}" type="number" step="0.001" inputmode="numeric" value="${p.stock!=null?p.stock:0}" ${p.id?'readonly title="موجودی فقط با سند تعدیل تغییر می‌کند"':''}>${p.id?`<button type="button" class="btn sm ghost" id="pfv2-stock-adjust-btn" data-csp-click="${CSP.bind('click',function(){openProdStockAdjust()})}">⚖️ تعدیل موجودی (انبار + رنگ/سایز)</button>`:''}<div class="muted" id="pfv2-stock-matrix-hint" hidden>از جمع ماتریس محاسبه می‌شود</div></div>
+              <div class="fg pfv2-field" id="p-stock-fg"><label for="p-stock">موجودی کل (از کاردکس) ${pfv2Hlp('فقط‌خواندنی: جمع حرکت‌های ثبت‌شدهٔ کاردکس همهٔ انبارها. موجودی اول دوره از جدول «موجودی اول دوره» و تغییرات بعدی با اسناد انبار/تعدیل ثبت می‌شود.')}</label><input id="p-stock" class="${p.id&&Number(p.stock)<0?'neg-qty':''}" type="number" step="0.001" inputmode="numeric" value="${p.id&&p.stock!=null?p.stock:0}" readonly title="موجودی کل از کاردکس محاسبه می‌شود و مستقیم ویرایش نمی‌شود">${p.id?`<button type="button" class="btn sm ghost" id="pfv2-stock-adjust-btn" data-csp-click="${CSP.bind('click',function(){openProdStockAdjust()})}">⚖️ تعدیل موجودی (انبار + رنگ/سایز)</button>`:''}<div class="muted" id="pfv2-stock-matrix-hint" hidden>جمع ماتریس فقط نمایشی است</div>
+                <div class="muted pfv2-stock-bywh" id="p-stock-bywh" data-csp-style="${CSP.style(`font-size:13px;margin-top:6px;line-height:1.9`)}">${p.id?'در حال بارگذاری تفکیک انبار…':'پس از ذخیرهٔ کالا، موجودی اول دوره را در جدول زیر وارد کنید'}</div></div>
               <div class="fg pfv2-field"><label for="p-alert">هشدار موجودی ${pfv2Hlp('وقتی موجودی به این عدد یا کمتر برسد، هشدار قرمز نمایش داده می‌شود.')}</label><input id="p-alert" type="number" inputmode="numeric" value="${p.stock_alert!=null?p.stock_alert:5}"></div>
               <div class="fg pfv2-field"><label for="p-warehouse">انبار اصلی ${pfv2Hlp('انباری که این کالا در آن نگهداری می‌شود.')}</label>
                 <select id="p-warehouse">${warehouseOptionsHtml(p.warehouse_id,'— انتخاب انبار —')}</select></div>
               <div class="fg pfv2-field"><label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:flex-start;line-height:1.7`)}"><input type="checkbox" id="p-website-stock-push" ${productWebsiteStockPushOn(p)?'checked':''} data-csp-style="${CSP.style(`width:auto;margin-top:4px`)}"> <span>ارسال موجودی این کالا به سایت ${pfv2Hlp('اگر خاموش باشد، موجودی همین کالا به فروشگاه فرستاده نمی‌شود. موجودی داخل ERP، فاکتور و انبار عوض نمی‌شود. عددی که قبلاً روی سایت نوشته شده تا روشن کردن دوبارهٔ این تیک همان‌جا می‌ماند و صفر نمی‌شود.')}</span></label></div>
+              ${id?`<div class="fg full pfv2-span-all" id="p-opening-stock"><span class="muted">در حال بارگذاری موجودی اول دوره…</span></div>`
+                :`<div class="fg full pfv2-span-all muted" id="p-opening-stock" data-csp-style="${CSP.style(`font-size:13px;line-height:1.9`)}">📥 جدول «موجودی اول دوره» پس از ذخیرهٔ کالا همین‌جا نمایش داده می‌شود؛ فرم کالا موجودی مستقیم ثبت نمی‌کند.</div>`}
               ${id?`<div class="fg full pfv2-span-all" id="p-prod-ready"><span class="muted">بررسی مشخصات ضروری تولید…</span></div>`:''}
             </div>
           </section>
@@ -11195,6 +11202,7 @@ async function prodModal(id){
   setTimeout(()=>{ try{ loadProdSkuChips(id||0); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProdVariantsPanel(id); }catch(_){} }, 0);
   if(id) setTimeout(()=>{ try{ refreshProductProductionReady(id); }catch(_){} }, 0);
+  if(id) setTimeout(()=>{ try{ loadProdOpeningStock(id); }catch(_){} }, 0);
   setTimeout(()=>{ try{ bindProdFormV2(id||0); }catch(_){} }, 0);
 }
 
@@ -11265,6 +11273,332 @@ function openProdStockAdjust(colorId, sizeId){
     product_id:pid, warehouse_id:prodStockWhId()||undefined, variant_id, mode:'count',
     onDone:async()=>{ try{ await prodModal(pid); }catch(_){ /* فرم بسته شد */ } },
   });
+}
+/* ===== v609 — موجودی اول دوره جدا از موجودی کل: جدول + اصلاحیهٔ رسمی (پیش‌نمایش → دلیل → تأیید) ===== */
+const PROD_OS_MODE={ create:'ایجاد پیش‌نویس سند افتتاحیه', correct:'اصلاحیه', resolve:'رفع تکرار' };
+const PROD_OS_JE_ACTION={ void:'ابطال سند', compensate:'سند جبرانی (Dr 3102 / Cr موجودی)', compensating:'سند جبرانی (Dr 3102 / Cr موجودی)', reverse:'سند معکوس', none:'بدون سند' };
+const PROD_OS_JOURNAL_KIND={ void:'ابطال', compensate:'سند جبرانی', compensating:'سند جبرانی', reverse:'سند معکوس', new:'سند جدید', opening:'افتتاحیه', correction:'اصلاحیه' };
+const PROD_OS_COL_FA={ warehouse_id:'شناسهٔ انبار', warehouse_name:'انبار', variant_id:'شناسهٔ واریانت', variant_label:'واریانت',
+  qty:'تعداد', before:'قبل', after:'بعد', delta:'تغییر', code:'کد حساب', name:'نام', account_code:'کد حساب', account_name:'نام حساب',
+  debit:'بدهکار', credit:'بستانکار', net:'خالص', amount_rial:'مبلغ (ریال)', unit_cost_rial:'بهای واحد', value_rial:'مبلغ (ریال)',
+  ledger_id:'کاردکس', je_id:'سند', je_action:'اقدام سند', created_at:'تاریخ', product_id:'شناسهٔ کالا', product_name:'کالا',
+  product_code:'کد کالا', status:'وضعیت', reason:'شرح', count:'تعداد ردیف', candidates:'ردیف‌های مشابه' };
+const OS_DUP_FA={ duplicates:'تکراری‌ها (نیازمند بررسی)', needs_review:'نیازمند بررسی', no_je:'بدون سند حسابداری', rows:'ردیف‌ها', items:'ردیف‌ها', groups:'گروه‌های تکراری' };
+function prodOsCost(v){ return (v==null||v==='')?'—':fmt(v); }
+function prodOsQty(v){ return (v==null||v==='')?'—':fmtQtyFa(v); }
+function prodOsDate(s){ const t=String(s||'').replace('T',' ').slice(0,16); return t?esc(t):'—'; }
+function prodOsBadge(st){
+  const m={ ok:['درست','#dcfce7','#166534'], needs_review:['نیازمند بررسی','#fef3c7','#92400e'], no_je:['بدون سند','#e5e7eb','#374151'], draft:['پیش‌نویس — منتظر ثبت','#e0e7ff','#3730a3'] }[st]
+    ||[String(st||'—'),'#e5e7eb','#374151'];
+  return `<span class="tag" data-csp-style="${CSP.style(`background:${m[1]};color:${m[2]};white-space:nowrap`)}">${esc(m[0])}</span>`;
+}
+function prodOsCanEdit(d){ return !!(d && d.can_edit) && canPerm('opening_stock','edit'); }
+function prodOsStateText(o){
+  if(o==null) return '—';
+  if(Array.isArray(o)) return fmt(o.length)+' مورد';
+  if(typeof o!=='object') return esc(String(o));
+  const parts=[];
+  if(o.qty!=null) parts.push('تعداد '+fmtQtyFa(o.qty));
+  if(o.unit_cost_rial!=null) parts.push('بهای واحد '+fmt(o.unit_cost_rial));
+  const v=o.value_rial!=null?o.value_rial:o.amount_rial;
+  if(v!=null) parts.push('مبلغ '+fmt(v));
+  if(o.ledger_id) parts.push('کاردکس #'+esc(o.ledger_id));
+  if(o.je_id) parts.push('سند '+esc(o.je_id));
+  return parts.join(' — ')||'—';
+}
+function prodOsCell(k,v){
+  if(v==null||v==='') return '—';
+  if(typeof v==='object') return prodOsStateText(v);
+  if(typeof v==='number'){
+    if(/_id$/.test(k)) return esc(String(v));
+    if(/qty|before|after|delta|count/.test(k)) return fmtQtyFa(v);
+    return fmt(v);
+  }
+  if(k==='je_action') return esc(PROD_OS_JE_ACTION[v]||v);
+  if(/_at$/.test(k)) return prodOsDate(v);
+  return esc(String(v));
+}
+/** نمایش عمومی آرایه/شیء پاسخ API (کلیدهای نامعلوم هم بدون خطا نمایش داده می‌شوند) */
+function prodOsGenericHtml(x){
+  if(x==null) return '<span class="muted">—</span>';
+  if(Array.isArray(x)){
+    if(!x.length) return '<span class="muted">—</span>';
+    if(typeof x[0]!=='object') return esc(x.join('، '));
+    const keys=[...new Set(x.flatMap(r=>Object.keys(r||{})))].slice(0,10);
+    return `<div class="tbl-wrap"><table class="tbl"><thead><tr>${keys.map(k=>`<th>${esc(PROD_OS_COL_FA[k]||k)}</th>`).join('')}</tr></thead>
+      <tbody>${x.map(r=>`<tr>${keys.map(k=>`<td class="mono">${prodOsCell(k,r&&r[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+  if(typeof x==='object'){
+    const ents=Object.entries(x);
+    if(!ents.length) return '<span class="muted">—</span>';
+    return `<div class="tbl-wrap"><table class="tbl"><tbody>${ents.map(([k,v])=>`<tr><th>${esc(PROD_OS_COL_FA[k]||k)}</th><td class="mono">${prodOsCell(k,v)}</td></tr>`).join('')}</tbody></table></div>`;
+  }
+  return esc(String(x));
+}
+function prodOsByWarehouseHtml(list){
+  const rows=(list||[]).filter(r=>r && Math.abs(Number(r.qty)||0)>1e-9);
+  if(!rows.length) return 'تفکیک انبار: در هیچ انباری موجودی ثبت نشده';
+  return 'تفکیک انبار: '+rows.map(r=>`<span class="tag" data-csp-style="${CSP.style(`margin:2px`)}">${esc(r.warehouse_name||('#'+r.warehouse_id))}${r.variant_label?' — '+esc(r.variant_label):''}: <b class="${Number(r.qty)<0?'neg-qty':''}">${fmtQtyFa(r.qty)}</b></span>`).join(' ');
+}
+async function loadProdOpeningStock(productId){
+  const pid=Number(productId)||0;
+  const box=el('p-opening-stock'), whBox=el('p-stock-bywh');
+  if(!pid || (!box && !whBox)) return;
+  let d;
+  try{
+    d=await api('GET','/inventory/opening-stock?product_id='+pid,null,false,true);
+  }catch(e){
+    const msg=e&&e.status===403?'دسترسی مشاهدهٔ موجودی اول دوره ندارید':((e&&e.message)||'خطا در بارگذاری موجودی اول دوره');
+    if(box) box.innerHTML=`<span class="muted">${esc(msg)}</span>`;
+    if(whBox) whBox.textContent='';
+    return;
+  }
+  if(!d || Number(window._prodModalProduct&&window._prodModalProduct.id)!==pid) return;
+  window._prodOsData=d;
+  const stockInp=el('p-stock');
+  if(stockInp){ stockInp.value=Number(d.stock_total)||0; stockInp.classList.toggle('neg-qty', Number(d.stock_total)<0); }
+  if(whBox) whBox.innerHTML=prodOsByWarehouseHtml(d.by_warehouse);
+  if(box) box.innerHTML=prodOsTableHtml(pid,d);
+}
+function prodOsTableHtml(pid,d){
+  const canEdit=prodOsCanEdit(d);
+  const rows=d.rows||[], pend=d.pending_docs||[], whs=d.warehouses||[];
+  const whName=id=>{ const w=whs.find(x=>Number(x.id)===Number(id)); return w?w.name:('#'+id); };
+  const varLabel=vid=>{
+    if(vid==null||vid==='') return '—';
+    const hit=[...rows,...(d.by_warehouse||[])].find(r=>r&&Number(r.variant_id)===Number(vid)&&r.variant_label);
+    return hit?hit.variant_label:('#'+vid);
+  };
+  const usedWh=new Set([...rows.map(r=>Number(r.warehouse_id)), ...pend.map(p=>Number(p.warehouse_id))]);
+  const body=rows.map(r=>`<tr>
+      <td>${esc(r.warehouse_name||whName(r.warehouse_id))}</td>
+      <td>${esc(r.variant_label||'—')}</td>
+      <td class="mono">${prodOsQty(r.qty)}</td>
+      <td class="mono">${prodOsCost(r.unit_cost_rial)}</td>
+      <td class="mono">${prodOsCost(r.value_rial)}</td>
+      <td>${prodOsBadge(r.status)}${r.status==='needs_review'&&Array.isArray(r.candidates)&&r.candidates.length?` <span class="muted">(${fmt(r.candidates.length)} ردیف کاردکس)</span>`:''}${r.reviewed_at?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">بررسی‌شده ${prodOsDate(r.reviewed_at)}${r.reviewed_by?' — '+esc(r.reviewed_by):''}</div>`:''}</td>
+      <td>${canEdit?`<button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){openProdOpeningEditor(pid,{row:r})})}">✏️ ویرایش</button>`:''}</td>
+    </tr>`).join('');
+  const pendRows=pend.map(p=>`<tr>
+      <td>${esc(p.warehouse_name||whName(p.warehouse_id))}</td>
+      <td>${esc(p.variant_label||varLabel(p.variant_id))}</td>
+      <td class="mono">${prodOsQty(p.qty)}</td>
+      <td class="mono">${prodOsCost(p.unit_cost_rial)}</td>
+      <td class="mono">${p.unit_cost_rial!=null&&p.qty!=null?fmt(Number(p.qty)*Number(p.unit_cost_rial)):'—'}</td>
+      <td>${prodOsBadge('draft')} <span class="muted mono">${esc(p.doc_no||('#'+p.doc_id))}</span></td>
+      <td></td>
+    </tr>`).join('');
+  const emptyRows=whs.filter(w=>!usedWh.has(Number(w.id))).map(w=>`<tr>
+      <td>${esc(w.name)}</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
+      <td><span class="muted">ثبت نشده</span></td>
+      <td>${canEdit?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openProdOpeningEditor(pid,{warehouse_id:Number(w.id)})})}">➕ افزودن</button>`:''}</td>
+    </tr>`).join('');
+  return `<div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px`)}">
+      <label data-csp-style="${CSP.style(`margin:0`)}">📥 موجودی اول دوره ${pfv2Hlp('ردیف‌های افتتاحیهٔ کاردکس همین کالا در سال مالی جاری به تفکیک انبار و رنگ/سایز. «درست» = یک ردیف با سند حسابداری؛ «نیازمند بررسی» = چند ردیف تکراری؛ «بدون سند» = ردیف بدون سند حسابداری.')}</label>
+      ${canEdit?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openProdOpeningEditor(pid,{})})}">➕ افزودن ردیف</button>`
+        :`<span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">فقط مشاهده — ویرایش با مجوز «موجودی اول دوره (اصلاحیه)»</span>`}
+      <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){loadProdOpeningStock(pid)})}">🔄</button>
+    </div>
+    <div class="tbl-wrap tbl-fit"><table class="tbl"><thead><tr><th>انبار</th><th>واریانت</th><th>تعداد</th><th>بهای واحد (ریال)</th><th>مبلغ (ریال)</th><th>وضعیت</th><th></th></tr></thead>
+      <tbody>${(body+pendRows+emptyRows)||emptyRow(7)}</tbody></table></div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-top:6px`)}">ویرایش = اصلاحیهٔ رسمی با پیش‌نمایش، دلیل و تأیید (ردیف قبلی و سندش ابطال می‌شود). ردیف جدید پیش‌نویس سند افتتاحیه می‌سازد که باید کاربر دیگری در «موجودی اول دوره» ثبت قطعی کند.</div>`;
+}
+async function openProdOpeningEditor(productId, opts){
+  opts=opts||{};
+  const pid=Number(productId)||0; if(!pid) return;
+  const d=window._prodOsData||{};
+  if(!prodOsCanEdit(d)){ showToast('مجوز «موجودی اول دوره (اصلاحیه)» لازم است','error'); return; }
+  const row=opts.row||null;
+  const whs=d.warehouses||[];
+  let variants=[];
+  if(!row){
+    try{
+      const vd=await api('GET','/product-variants/style/'+pid,null,false,true);
+      variants=((vd&&vd.variants)||[]).filter(v=>v && !Number(v.is_default) && v.active!==0);
+    }catch(_){ variants=[]; }
+  }
+  const cands=(row && row.status==='needs_review' && Array.isArray(row.candidates))?row.candidates:[];
+  const costVisible=window.__canSeeCostVis!==false;
+  window._prodOsEditor={ pid, row, hasVariants:variants.length>0, preview:null, previewBody:null, seq:0 };
+  const title=row?(row.status==='needs_review'?'رفع تکرار موجودی اول دوره':'اصلاحیهٔ موجودی اول دوره'):'افزودن موجودی اول دوره';
+  openNestedModal(`<div class="modal-head"><h3>📥 ${title}</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        ${row?`<div class="fg full"><label>انبار / واریانت</label><div data-csp-style="${CSP.style(`padding:6px 0;font-weight:600`)}">${esc(row.warehouse_name||('#'+row.warehouse_id))} — ${esc(row.variant_label||'بدون واریانت')} — فعلی: ${prodOsQty(row.qty)} ${prodOsBadge(row.status)}</div></div>`
+          :`<div class="fg"><label for="osx-wh">انبار *</label><select id="osx-wh"><option value="">— انتخاب انبار —</option>${whs.map(w=>`<option value="${w.id}" ${Number(opts.warehouse_id)===Number(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+            ${variants.length?`<div class="fg"><label for="osx-var">رنگ / سایز *</label><select id="osx-var"><option value="">— انتخاب کنید —</option>${variants.map(v=>`<option value="${v.id}" ${Number(opts.variant_id)===Number(v.id)?'selected':''}>${esc([v.color_name,v.size_name].filter(Boolean).join(' / ')||v.sku||('#'+v.id))}</option>`).join('')}</select></div>`:''}`}
+        ${cands.length?`<div class="fg full"><label>ردیف معتبر را انتخاب کنید (بقیه ابطال می‌شوند)</label>
+          ${cands.map((c,i)=>`<label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin:4px 0`)}"><input type="radio" name="osx-keep" value="${esc(c.ledger_id)}" ${i===0?'checked':''} data-csp-style="${CSP.style(`width:auto`)}"> <span class="mono">کاردکس #${esc(c.ledger_id)} — تعداد ${prodOsQty(c.qty)} — مبلغ ${prodOsCost(c.amount_rial)} — سند ${esc(c.je_id||'—')} — ${prodOsDate(c.created_at)}</span></label>`).join('')}
+          <div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">در صورت نیاز تعداد یا بهای واحد زیر را هم تغییر دهید (جایگزین مقدار ردیف انتخاب‌شده).</div></div>`:''}
+        <div class="fg"><label for="osx-qty">تعداد *</label><input id="osx-qty" type="number" step="any" min="0" value="${row&&row.qty!=null?esc(String(row.qty)):''}"></div>
+        <div class="fg" ${costVisible?'':'hidden'}><label for="osx-cost">بهای واحد (ریال)</label><input id="osx-cost" type="text" inputmode="numeric" dir="ltr" value="${row&&row.unit_cost_rial!=null?esc(String(row.unit_cost_rial)):''}"></div>
+      </div>
+      <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:8px`)}"><button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){prodOsPreview()})}">🔍 پیش‌نمایش</button></div>
+      <div id="osx-err" hidden data-csp-style="${CSP.style(`margin-top:8px;padding:8px 10px;border-radius:8px;background:#fee2e2;color:#991b1b;line-height:1.8`)}"></div>
+      <div id="osx-preview" class="oh-preview" data-csp-style="${CSP.style(`margin-top:10px;line-height:1.9;font-size:12.5px`)}"><span class="muted">مقادیر را وارد و «پیش‌نمایش» را بزنید تا اثر کاردکس و سند حسابداری نمایش داده شود.</span></div>
+      <div class="fg full" data-csp-style="${CSP.style(`margin-top:10px`)}"><label for="osx-reason">دلیل اصلاح * (حداقل ۵ نویسه)</label><textarea id="osx-reason" rows="2" maxlength="500" placeholder="مثلاً: ثبت تکراری موجودی اول دوره در انتقال داده"></textarea></div>
+      <label data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;margin-top:6px`)}"><input type="checkbox" id="osx-confirm" data-csp-style="${CSP.style(`width:auto`)}"> تأیید می‌کنم پیش‌نمایش را بررسی کرده‌ام و این اصلاحیه ثبت شود</label>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn green" id="osx-apply" disabled data-csp-click="${CSP.bind('click',function(){prodOsApply()})}">✅ ثبت اصلاحیه</button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+    </div>`, true);
+  const root=el('nestedActiveModal');
+  if(root) root.querySelectorAll('#osx-wh,#osx-var,#osx-qty,#osx-cost,input[name="osx-keep"]').forEach(x=>{
+    x.addEventListener('input', prodOsInvalidate);
+    x.addEventListener('change', prodOsInvalidate);
+  });
+  ['osx-reason','osx-confirm'].forEach(id=>{
+    const x=el(id); if(!x) return;
+    x.addEventListener('input', prodOsSyncApply);
+    x.addEventListener('change', prodOsSyncApply);
+  });
+}
+function prodOsBody(){
+  const st=window._prodOsEditor; if(!st) return null;
+  const num=s=>{ const t=toEnDigits(String(s==null?'':s)).replace(/[,٬،\s]/g,''); return t===''?null:Number(t); };
+  const b={ product_id:st.pid };
+  if(st.row){
+    b.warehouse_id=Number(st.row.warehouse_id)||null;
+    b.variant_id=st.row.variant_id!=null&&st.row.variant_id!==''?Number(st.row.variant_id):null;
+  }else{
+    b.warehouse_id=Number(el('osx-wh')?.value)||null;
+    b.variant_id=el('osx-var')?(Number(el('osx-var').value)||null):null;
+  }
+  b.qty=num(el('osx-qty')?.value);
+  const cost=num(el('osx-cost')?.value);
+  if(cost!=null) b.unit_cost_rial=cost;
+  const keep=document.querySelector('input[name="osx-keep"]:checked');
+  if(keep) b.keep_ledger_id=Number(keep.value);
+  return b;
+}
+function prodOsValidate(b){
+  const st=window._prodOsEditor;
+  if(!b) return 'فرم بسته شده است';
+  if(!b.warehouse_id) return 'انبار را انتخاب کنید';
+  if(st && st.hasVariants && !b.variant_id) return 'رنگ / سایز را انتخاب کنید';
+  if(b.qty==null || !isFinite(b.qty) || b.qty<0) return 'تعداد معتبر (صفر یا بیشتر) وارد کنید';
+  if(b.unit_cost_rial!=null && (!isFinite(b.unit_cost_rial) || b.unit_cost_rial<0)) return 'بهای واحد معتبر نیست';
+  return '';
+}
+function prodOsShowErr(msg){
+  const box=el('osx-err'); if(!box) return;
+  box.textContent=msg||'';
+  box.hidden=!msg;
+}
+function prodOsErrMsg(e){
+  const p=e&&e.payload;
+  return (p && Array.isArray(p.errors) && p.errors.length ? p.errors.map(prodOsMsgText).join(' — ') : '') || (e && e.message) || 'خطا رخ داد';
+}
+function prodOsMsgText(m){
+  if(m==null) return '';
+  if(typeof m==='string') return m;
+  return m.error||m.message||m.code||JSON.stringify(m);
+}
+function prodOsSyncApply(){
+  const st=window._prodOsEditor, btn=el('osx-apply');
+  if(!btn) return;
+  const reason=String(el('osx-reason')?.value||'').trim();
+  btn.disabled=!(st && st.preview && st.preview.ready && reason.length>=5 && el('osx-confirm')?.checked);
+}
+function prodOsInvalidate(){
+  const st=window._prodOsEditor; if(!st) return;
+  if(st.preview){
+    st.preview=null; st.previewBody=null;
+    const box=el('osx-preview');
+    if(box) box.innerHTML='<span class="muted">مقادیر تغییر کرد — دوباره «پیش‌نمایش» بزنید.</span>';
+  }
+  prodOsSyncApply();
+}
+async function prodOsPreview(){
+  const st=window._prodOsEditor; if(!st) return;
+  const b=prodOsBody(); const bad=prodOsValidate(b);
+  prodOsShowErr(bad); if(bad) return;
+  const seq=++st.seq;
+  st.preview=null; st.previewBody=null; prodOsSyncApply();
+  const box=el('osx-preview'); if(box) box.innerHTML='<span class="muted">در حال محاسبه…</span>';
+  try{
+    const pv=await api('POST','/inventory/opening-stock/preview',b,false,true);
+    if(seq!==st.seq || window._prodOsEditor!==st || !pv) return;
+    st.preview=pv; st.previewBody=b;
+    if(box) box.innerHTML=prodOsPreviewHtml(pv);
+  }catch(e){
+    if(seq!==st.seq) return;
+    if(box) box.innerHTML='';
+    prodOsShowErr(prodOsErrMsg(e));
+  }
+  prodOsSyncApply();
+}
+function prodOsPreviewHtml(pv){
+  const sec=(t,h)=>`<div data-csp-style="${CSP.style(`margin-top:10px`)}"><b>${t}</b><div>${h}</div></div>`;
+  const note=(txt,bg,fg)=>`<div data-csp-style="${CSP.style(`margin:4px 0;padding:6px 10px;border-radius:8px;background:${bg};color:${fg}`)}">${esc(txt)}</div>`;
+  const voids=pv.voids||[], paired=pv.paired_adjustments||[], journal=pv.journal||[];
+  const journalHtml=journal.map(j=>{
+    const lines=j.lines||[];
+    const dr=lines.reduce((a,l)=>a+(Number(l.debit)||0),0), cr=lines.reduce((a,l)=>a+(Number(l.credit)||0),0);
+    return `<div data-csp-style="${CSP.style(`margin-top:6px`)}"><span class="tag">${esc(PROD_OS_JOURNAL_KIND[j.kind]||j.kind||'سند')}</span>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>حساب</th><th>بدهکار</th><th>بستانکار</th></tr></thead>
+      <tbody>${lines.map(l=>`<tr><td class="mono">${esc(l.code||'')}</td><td>${esc(l.name||'')}</td><td class="mono">${Number(l.debit)?fmt(l.debit):''}</td><td class="mono">${Number(l.credit)?fmt(l.credit):''}</td></tr>`).join('')||emptyRow(4)}</tbody>
+      <tfoot><tr><td colspan="2"><b>جمع</b></td><td class="mono"><b>${fmt(dr)}</b></td><td class="mono"><b>${fmt(cr)}</b></td></tr></tfoot></table></div></div>`;
+  }).join('');
+  return `<div><b>نوع عملیات:</b> <span class="tag">${esc(PROD_OS_MODE[pv.mode]||pv.mode||'—')}</span>
+      ${pv.mode==='create'?'<span class="muted"> — پیش‌نویس سند افتتاحیه ساخته می‌شود و پس از ثبت قطعی توسط کاربر دیگر اثر می‌گذارد.</span>':''}</div>
+    <div><b>فعلی:</b> ${prodOsStateText(pv.current)}</div>
+    <div><b>هدف:</b> ${prodOsStateText(pv.target)}</div>
+    ${voids.length?sec('ردیف‌های ابطالی',`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>کاردکس</th><th>تعداد</th><th>مبلغ (ریال)</th><th>سند</th><th>اقدام سند</th></tr></thead>
+      <tbody>${voids.map(v=>`<tr><td class="mono">#${esc(v.ledger_id)}</td><td class="mono">${prodOsQty(v.qty)}</td><td class="mono">${prodOsCost(v.amount_rial)}</td><td class="mono">${esc(v.je_id||'—')}</td><td>${esc(PROD_OS_JE_ACTION[v.je_action]||v.je_action||'—')}</td></tr>`).join('')}</tbody></table></div>`):''}
+    ${paired.length?sec('ابطال تعدیل‌های جبرانی (stock_reconcile)',`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>کاردکس</th><th>تعداد</th><th>مبلغ (ریال)</th></tr></thead>
+      <tbody>${paired.map(v=>`<tr><td class="mono">#${esc(v.ledger_id)}</td><td class="mono">${prodOsQty(v.qty)}</td><td class="mono">${prodOsCost(v.amount_rial)}</td></tr>`).join('')}</tbody></table></div>`):''}
+    ${pv.residual_qty!=null&&Number(pv.residual_qty)!==0?`<div><b>مانده‌ی اختلاف تعداد:</b> <span class="mono">${fmtQtyFa(pv.residual_qty)}</span></div>`:''}
+    ${pv.new_ledger?`<div><b>ردیف جدید کاردکس:</b> ${prodOsStateText(pv.new_ledger)}</div>`:''}
+    ${journal.length?sec('سند(های) حسابداری',journalHtml):''}
+    ${pv.gl_effect_by_account?sec('اثر بر حساب‌ها',prodOsGenericHtml(pv.gl_effect_by_account)):''}
+    ${pv.stock_after_by_warehouse?sec('موجودی پس از اصلاح (به تفکیک انبار)',prodOsGenericHtml(pv.stock_after_by_warehouse)):''}
+    ${(pv.warnings||[]).map(w=>note('⚠️ '+prodOsMsgText(w),'#fef3c7','#92400e')).join('')}
+    ${(pv.errors||[]).map(w=>note('⛔ '+prodOsMsgText(w),'#fee2e2','#991b1b')).join('')}
+    ${pv.ready?note('✅ آمادهٔ ثبت — دلیل را بنویسید و تأیید کنید','#dcfce7','#166534'):note('این اصلاحیه آمادهٔ ثبت نیست','#fee2e2','#991b1b')}`;
+}
+async function prodOsApply(){
+  const st=window._prodOsEditor;
+  if(!st || !st.preview || !st.preview.ready){ prodOsShowErr('ابتدا پیش‌نمایش معتبر بگیرید'); return; }
+  const reason=String(el('osx-reason')?.value||'').trim();
+  if(reason.length<5){ prodOsShowErr('دلیل اصلاح حداقل ۵ نویسه است'); return; }
+  if(!el('osx-confirm')?.checked){ prodOsShowErr('تیک «تأیید می‌کنم» را بزنید'); return; }
+  const b=Object.assign({}, st.previewBody||prodOsBody(), { reason, confirm:true });
+  const btn=el('osx-apply'); if(btn) btn.disabled=true;
+  prodOsShowErr('');
+  try{
+    const r=await api('POST','/inventory/opening-stock/apply',b,false,true);
+    if(!r){ prodOsSyncApply(); return; }
+    closeNestedModal();
+    window._prodOsEditor=null;
+    if((r.mode||st.preview.mode)==='create'){
+      showToast(`پیش‌نویس سند افتتاحیه${(r.draft_doc||r.doc)&&(r.draft_doc||r.doc).doc_no?' '+(r.draft_doc||r.doc).doc_no:''} ساخته شد — ثبت قطعی باید توسط کاربر دیگری در «موجودی اول دوره» انجام شود`);
+    }else{
+      showToast(r.mode==='resolve'?'تکرار رفع شد و ردیف‌های اضافی ابطال شدند':'اصلاحیهٔ موجودی اول دوره ثبت شد');
+    }
+    await loadProdOpeningStock(st.pid);
+    if(el('p-variants-panel')){ try{ refreshProdVariantsPanel(st.pid); }catch(_){} }
+  }catch(e){
+    prodOsShowErr(prodOsErrMsg(e));
+    prodOsSyncApply();
+  }
+}
+/** گزارش فقط‌خواندنی تکراری‌ها / بدون سند — GET /api/inventory/opening-duplicates */
+async function osOpenDuplicates(){
+  let d;
+  try{ d=await api('GET','/inventory/opening-duplicates',null,false,true); }
+  catch(e){ showToast((e&&e.message)||'خطا در دریافت گزارش','error'); return; }
+  const parts=[], scalars=[];
+  if(Array.isArray(d)) parts.push(['ردیف‌ها',d]);
+  else if(d && typeof d==='object') Object.entries(d).forEach(([k,v])=>{
+    if(Array.isArray(v)) parts.push([OS_DUP_FA[k]||k,v]);
+    else if(v==null || typeof v!=='object') scalars.push([k,v]);
+  });
+  showModal('🔎 موجودی اول دوره — تکراری‌ها / بدون سند',`
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">گزارش فقط‌خواندنی است. برای رفع، کالا را باز کنید و در بخش «موجودی» ردیف «نیازمند بررسی» یا «بدون سند» را ویرایش کنید (اصلاحیهٔ رسمی با پیش‌نمایش و تأیید).</div>
+    ${scalars.length?`<div data-csp-style="${CSP.style(`margin-bottom:8px`)}">${scalars.map(([k,v])=>`<span class="tag" data-csp-style="${CSP.style(`margin:2px`)}">${esc(PROD_OS_COL_FA[k]||k)}: ${esc(typeof v==='number'?fmt(v):String(v==null?'—':v))}</span>`).join(' ')}</div>`:''}
+    ${parts.map(([t,rows])=>`<h4 data-csp-style="${CSP.style(`margin:12px 0 6px`)}">${esc(t)} (${fmt(rows.length)})</h4>${rows.length?prodOsGenericHtml(rows):'<div class="muted">موردی نیست</div>'}`).join('')||'<div class="muted">موردی یافت نشد</div>'}`, true);
 }
 /** Color rows of the warehouse open in the form. Zero here is not a row, even if another warehouse still has stock. */
 function prodMatrixColorIds(vars){
@@ -12211,10 +12545,11 @@ function renderProdStockGrid(){
   const whId=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
   const ro=!prodSkuCanMutate();
   const viaDoc=prodStockViaDoc(); // P1: کالای موجود — عدد خانه فقط‌خواندنی؛ تغییر با سند تعدیل
+  const lockQty=true; // کالای تازه هم: ماتریس فقط ساختار؛ تعداد از موجودی اول دوره / اسناد
   if(colors.length && sizes.length){
-    if(stockFg) stockFg.hidden=true;
+    if(stockFg) stockFg.hidden=false;
     const hint=el('pfv2-stock-matrix-hint'); if(hint) hint.hidden=false;
-    const stockInp=el('p-stock'); if(stockInp){ stockInp.readOnly=true; stockInp.title='از جمع ماتریس محاسبه می‌شود'; }
+    const stockInp=el('p-stock'); if(stockInp){ stockInp.readOnly=true; }
     const qtyOf=(cid,sid)=>pcsQtyMerged(cid,sid);
     const pack=computeProdCompletePack(colors, sizes, (cid,sid)=>Number(qtyOf(cid,sid))||0);
     const incompleteIds=new Set(pack.incomplete.map(c=>Number(c.id)));
@@ -12229,7 +12564,7 @@ function renderProdStockGrid(){
           <th scope="col" class="pcs-sticky-col">رنگ \\ سایز</th>
           ${sizes.map(s=>`<th scope="col" title="${esc(s.name)}">
             <div class="pcs-th-size"><bdi>${esc(splitSizeLabel(s.name).main)}</bdi>
-            ${(ro||viaDoc)?'':`<button type="button" class="pcs-select-col pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixCol(Number(s.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
+            ${(ro||lockQty)?'':`<button type="button" class="pcs-select-col pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixCol(Number(s.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
             </div>
           </th>`).join('')}
           <th scope="col">جمع</th>
@@ -12244,7 +12579,7 @@ function renderProdStockGrid(){
                 ${pcsSwatchSpanHtml(c.id)}
                 <bdi>${esc(c.name)}</bdi>
               </span>
-              ${(ro||viaDoc)?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
+              ${(ro||lockQty)?'':`<button type="button" class="pcs-select-row pfv2-linkbtn" data-csp-click="${CSP.bind('click',function(){pcsFillMatrixRow(Number(c.id),1)})}">پر کردن خالی‌ها با ۱</button>`}
             </th>
             ${sizes.map(s=>{
               const q=qtyOf(c.id,s.id);
@@ -12253,7 +12588,7 @@ function renderProdStockGrid(){
               const dirty=pcsDraftGet(whId,c.id,s.id)!==undefined;
               const sku=pcsVariantSku(c.id,s.id);
               return `<td>
-                <input type="number" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}${neg?' neg-qty':''}${dirty?' is-dirty':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" ${viaDoc?'readonly':''} ${(tipAll||viaDoc)?`title="${esc(viaDoc?'برای تغییر، کلیک کنید (سند تعدیل)':tipAll)}"`:''} ${ro?'disabled':''}>
+                <input type="number" step="1" inputmode="numeric" class="p-stock-cell${zero?' is-zero':''}${neg?' neg-qty':''}${dirty?' is-dirty':''}" data-color="${c.id}" data-size="${s.id}" value="${fmtPieceQty(q)}" ${lockQty?'readonly':''} title="${esc(viaDoc?'برای تغییر، کلیک کنید (سند تعدیل)':'تعداد از جدول موجودی اول دوره یا اسناد انبار پس از ذخیرهٔ کالا')}" ${ro?'disabled':''}>
                 ${sku?`<div class="pcs-sku mono" dir="ltr"><bdi>${esc(sku)}</bdi></div>`:''}
               </td>`;
             }).join('')}
@@ -12268,11 +12603,11 @@ function renderProdStockGrid(){
           <td></td>
         </tr></tfoot>
       </table></div>
-      <div class="muted pcs-matrix-foot">موجودی کلی مخفی شد؛ ذخیره فقط انبار انتخاب‌شده را می‌نویسد.</div>`;
+      <div class="muted pcs-matrix-foot">${viaDoc?'اعداد فقط‌خواندنی است؛ برای تغییر روی خانه کلیک کنید (سند تعدیل) یا از جدول «موجودی اول دوره» استفاده کنید.':'ذخیره فقط ساختار رنگ×سایز را می‌سازد؛ تعداد را پس از ذخیره در جدول «موجودی اول دوره» یا با اسناد انبار ثبت کنید.'}</div>`;
     if(viaDoc && !ro) wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
       inp.addEventListener('click', ()=>openProdStockAdjust(Number(inp.dataset.color), Number(inp.dataset.size)));
     });
-    else wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
+    else if(!lockQty) wrap.querySelectorAll('.p-stock-cell').forEach(inp=>{
       inp.addEventListener('input', ()=>{
         const cid=Number(inp.dataset.color), sid=Number(inp.dataset.size);
         const wh=Number(window._prodMatrixWhId||el('p-matrix-wh')?.value||0)||0;
@@ -12643,8 +12978,7 @@ async function saveProduct(id){
   fd.append('retail_price',moneyVal('p-retail'));
   if(el('p-min-price')) fd.append('min_price_rial',moneyVal('p-min-price')||0);
   if(window.__canSeeCostVis!==false) fd.append('cost',moneyVal('p-cost')); /* P4: بدون مجوز، بها ارسال/بازنویسی نشود */
-  // P1: موجودی کالای موجود فقط با سند تعدیل؛ PUT عدد stock را نمی‌فرستد (۴۰۹ E_STOCK_VIA_DOCUMENT)
-  if(!id) fd.append('stock',el('p-stock').value);
+  // موجودی هرگز از فرم کالا ارسال نمی‌شود: POST با stock>0 → ۴۲۲ E_STOCK_VIA_OPENING، PUT → ۴۰۹ E_STOCK_VIA_DOCUMENT
   fd.append('stock_alert',el('p-alert').value||5);
   const picked=uomPayload('p-unit-id');
   fd.append('unit_id', picked.unit_id||'');
@@ -12699,9 +13033,6 @@ async function saveProduct(id){
     }
   }
   const savedId = (saved && (saved.id || saved.product_id)) || id || 0;
-  if(saved && saved.opening_doc){
-    showToast(`موجودی اول دوره در سند ${saved.opening_doc.doc_no} (پیش‌نویس) ثبت شد — با ثبت قطعی توسط کاربر دیگر اعمال می‌شود`);
-  }
   const chips=typeof selectedProdChips==='function'?selectedProdChips():{colors:[],sizes:[]};
   const color_ids=[...new Set([
     ...(chips.colors||[]).map(c=>Number(c.id)).filter(Boolean),
@@ -12719,8 +13050,8 @@ async function saveProduct(id){
         await api('POST','/product-variants/stock-matrix',{
           product_id:Number(savedId), cells,
           warehouse_id:el('p-matrix-wh')?.value||el('p-warehouse')?.value||undefined,
-          // کالای موجود: فقط ساختار SKU؛ تغییر موجودی با سند تعدیل. کالای تازه: افتتاحیهٔ اولیه (سند)
-          structure_only:!!id
+          // فقط ساختار SKU؛ تعداد از جدول موجودی اول دوره یا اسناد انبار
+          structure_only:true
         });
       }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ثبت موجودی رنگ×سایز ناموفق بود','error'); }
     }
@@ -12735,7 +13066,7 @@ async function saveProduct(id){
   }else if(ready && Array.isArray(ready.soft) && ready.soft.length){
     showToast('ذخیره شد — هشدار تولید: '+(ready.soft[0].message_fa||ready.soft[0].code));
   }else{
-    showToast('ذخیره شد');
+    showToast(id?'ذخیره شد':'ذخیره شد — موجودی اول دوره را در بخش «موجودی» همین کالا ثبت کنید');
   }
   try{
     await _refreshProdWithCats(_prodCanEdit);
@@ -13234,6 +13565,7 @@ async function renderOpeningStockTab(body){
     </select>
     <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){osLoadList()})}">🔍 اعمال</button>
     ${meta.can_create?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){osNewModal()})}">➕ سند افتتاحیهٔ جدید</button>`:`<span class="muted" title="نیاز به مجوز «انبار: ایجاد»">فقط مشاهده</span>`}
+    <button class="btn sm ghost" title="گزارش فقط‌خواندنی ردیف‌های افتتاحیهٔ تکراری و بدون سند" data-csp-click="${CSP.bind('click',function(event){osOpenDuplicates()})}">🔎 تکراری‌ها / بدون سند</button>
   </div>
   <div class="muted" data-csp-style="${CSP.style(`margin:0 0 10px;font-size:12px;line-height:1.9`)}">📥 موجودی اول دوره فقط از مسیر این سند ثبت می‌شود: پیش‌نویس هیچ اثری روی موجودی و دفتر ندارد؛ <b>ثبت قطعی باید توسط کاربر دیگری (غیر از سازنده)</b> انجام شود. اصلاح سند ثبت‌شده فقط با <b>ابطال</b> و ثبت سند جدید ممکن است.</div>
   <div id="osBody"><div class="muted">در حال بارگذاری...</div></div>`;
@@ -14050,7 +14382,8 @@ const RBAC_RES_FA={
   qty_receipt:'رسید مقداری کالا (صندوقدار؛ حذف = ابطال)',
   sales_amount:'مشاهدهٔ مبلغ فروش',
   price_override:'تغییر قیمت فروش (POS) — «ویرایش»',
-  credit_override:'عبور از سقف اعتبار مشتری (تأیید مدیر) — «تأیید»'
+  credit_override:'عبور از سقف اعتبار مشتری (تأیید مدیر) — «تأیید»',
+  opening_stock:'موجودی اول دوره (اصلاحیه)'
 };
 const RBAC_ADMIN_ONLY_NAV=new Set(['acc-settings','acc-devices','acc-backup','acc-fiscal-ops','acc-fiscal-period','acc-scale-settings','acc-company-profile']);
 /* v522: معنای تیک‌ها در بخش‌های حساس + قابلیت‌های بدون صفحهٔ منو */
@@ -41857,6 +42190,18 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📥','موجودی اول دوره جدا از موجودی کل (v609)',`
+      <p>در فرم کالا (بخش «موجودی») دو مفهوم از هم جدا شده‌اند:</p>
+      <ul>
+        <li><b>موجودی کل</b> همیشه <b>فقط‌خواندنی</b> است (در کالای جدید هم) و از جمع کاردکس محاسبه می‌شود؛ زیر آن <b>تفکیک انبار</b> (و رنگ/سایز در صورت وجود) نمایش داده می‌شود. فرم و API کالا دیگر موجودی مستقیم نمی‌نویسند: <span dir="ltr">POST /api/products</span> با stock&gt;0 خطای <span dir="ltr">422 E_STOCK_VIA_OPENING</span> می‌دهد. ماتریس رنگ×سایز کالای جدید هم فقط ساختار SKU را می‌سازد و تعداد خانه‌ها قفل است.</li>
+        <li><b>جدول موجودی اول دوره</b> (فقط برای کالای ذخیره‌شده): انبار، واریانت، تعداد، بهای واحد، مبلغ و وضعیت — <b>درست</b> (یک ردیف با سند حسابداری)، <b>نیازمند بررسی</b> (چند ردیف تکراری) و <b>بدون سند</b> (ردیف بدون سند حسابداری). سندهای پیش‌نویس با برچسب «پیش‌نویس — منتظر ثبت» دیده می‌شوند. بدون مجوز بها، ستون‌های ریالی «—» است.</li>
+        <li><b>ویرایش = اصلاحیهٔ رسمی</b>: تعداد/بها ← «پیش‌نمایش» (نوع عملیات، ردیف‌های ابطالی، سند(های) حسابداری، اثر بر حساب‌ها، موجودی پس از اصلاح، هشدارها) ← «دلیل اصلاح» (حداقل ۵ نویسه) ← تیک «تأیید می‌کنم» ← «ثبت اصلاحیه». ردیف قبلی و سند آن ابطال می‌شود؛ اگر سند با ردیف‌های دیگر مشترک باشد، به‌جای ابطال <b>سند جبرانی Dr 3102 / Cr موجودی</b> ثبت می‌شود.</li>
+        <li><b>رفع تکرار (نیازمند بررسی)</b>: ردیف معتبر را از فهرست ردیف‌های کاردکس انتخاب کنید (در صورت نیاز تعداد/بها را جایگزین کنید)؛ بقیه همراه با <b>ابطال تعدیل جبرانی stock_reconcile</b> مرتبط برگشت می‌خورند.</li>
+        <li><b>ثبت موجودی جدید</b> برای انبار/واریانتی که ردیف ندارد («افزودن») <b>پیش‌نویس سند افتتاحیه</b> می‌سازد؛ ثبت قطعی با <b>کاربر دیگری</b> در «موجودی اول دوره» است (maker-checker).</li>
+        <li><b>مجوز</b>: <span dir="ltr">opening_stock:edit</span> («موجودی اول دوره (اصلاحیه)») — پیش‌فرض فقط مدیر و حسابداری؛ بقیه فقط مشاهده می‌کنند.</li>
+        <li><b>بک‌فیل هنگام بوت</b> دیگر ردیف opening نمی‌سازد و فقط گزارش می‌دهد. گزارش فقط‌خواندنی تکراری‌ها/بدون سند: <span dir="ltr">GET /api/inventory/opening-duplicates</span> — دکمهٔ «🔎 تکراری‌ها / بدون سند» در تب اسناد افتتاحیهٔ انبار.</li>
+        <li>API: <span dir="ltr">GET /api/inventory/opening-stock?product_id</span>، <span dir="ltr">POST /api/inventory/opening-stock/preview</span>، <span dir="ltr">POST /api/inventory/opening-stock/apply</span> (reason + confirm:true).</li>
+      </ul>`),
     helpSec('📈','گزارش سریع کالا و سود و زیان روزانه (P10 — v599)',`
       <p><b>📦 گزارش سریع کالا</b> (منوی اصلی؛ برای صندوقدار هم هست): برای بازهٔ تاریخ (پیش‌فرض امروز)، به تفکیک <b>کالا × رنگ/سایز</b> تعداد <b>فروش، برگشت فروش، خالص فروش، خرید و برگشت خرید</b> را از سطرهای اسناد زنده نشان می‌دهد (فاکتور قطعی فروش، برگشت فروش، فاکتور خرید، برگشت خرید؛ اسناد ابطال‌شده حساب نمی‌شوند). فیلتر: نوع (فروش/خرید/هر دو)، انبار (انبار سطر یا سربرگ) و جستجوی نام/کد/SKU. دکمهٔ «📥 اکسل (CSV)» همان جدول را خروجی می‌دهد.</p>
       <ul>
@@ -43272,6 +43617,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('📥','موجودی کالا در فرم کالا (v609)',`
+      <p>در فرم کالا <b>موجودی کل فقط‌خواندنی است</b> و از کاردکس (به تفکیک انبار) نمایش داده می‌شود؛ در کالای جدید هم عدد موجودی یا تعداد ماتریس رنگ×سایز وارد نمی‌شود. <b>موجودی اول دوره را حسابداری ثبت می‌کند</b> و بقیهٔ تغییرات فقط با اسناد انبار (رسید/حواله/تعدیل) انجام می‌شود.</p>`),
     helpSec('💳','تسویه چندروشی در فروش (v592)',`
       <p>هنگام تسویه می‌توانید یک فروش را بین نقد، کارت، چک و اعتبار (حساب مشتری) تقسیم کنید. جمع غیرنقد نباید از مبلغ باقی‌مانده بیشتر شود؛ نقد اضافه به‌صورت «باقی» به مشتری برمی‌گردد. شماره پیگیری و ۴ رقم آخر کارت اختیاری است. فروش اعتباری بالاتر از سقف اعتبار مشتری رد می‌شود (سقف را فقط مدیر تعیین می‌کند). اگر مدیر حالت «مسدود» را برای کمبود موجودی فعال کرده باشد، فروش بیش از موجودی انجام نمی‌شود.</p>`),
     helpSec('🧾','هزینهٔ روزانه (پیش‌نویس) — صندوق فروشگاه (v595)',`

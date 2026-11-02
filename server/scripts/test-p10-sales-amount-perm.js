@@ -23,7 +23,7 @@ console.log('\n══ P10-fix: sales_amount:view ══\n');
   // ── 1) RBAC matrix ──
   console.log('— 1) RBAC matrix defaults —');
   // Append-only: only resources added later (FR-POS-DRAFTS) may follow sales_amount.
-  const LATER_RESOURCES = ['price_override', 'credit_override'];
+  const LATER_RESOURCES = ['price_override', 'credit_override', 'opening_stock'];
   ok('RESOURCES: sales_amount appended (only later resources after it)',
     RESOURCES.indexOf('sales_amount') >= 0
       && RESOURCES.slice(RESOURCES.indexOf('sales_amount') + 1).every((r) => LATER_RESOURCES.includes(r)));

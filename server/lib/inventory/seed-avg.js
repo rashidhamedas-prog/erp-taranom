@@ -1,7 +1,8 @@
 'use strict';
 /**
  * Give a stocked product a first moving-average when it was stored with qty and no cost.
- * Posts opening inventory (Dr inventory / Cr opening balance) only if that JE is missing.
+ * Posts opening inventory (Dr inventory / Cr opening balance) only if that JE is missing
+ * and no live opening exists for the product's warehouse (opening-guard).
  * Does not change quantity. Refuses when average_cost_rial is already set (ADR-011).
  */
 const { postProductOpeningInventory } = require('../opening-post');
@@ -57,7 +58,18 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
         LIMIT 1
       `).get(productId);
     } catch (_) { alreadyCapitalized = false; }
-    if (!jeId && qty > 0 && !alreadyCapitalized) {
+    // A live opening (any writer) owns this SKU's first-period qty/value — only set avg.
+    let liveOpening = false;
+    const whId = db.prepare('SELECT warehouse_id FROM products WHERE id=?').get(productId)?.warehouse_id || null;
+    if (whId) {
+      try {
+        require('./opening-guard').assertNoLiveOpening(db, { productId, warehouseId: whId, variantId: null });
+      } catch (e) {
+        if (e && e.code === 'E_OPENING_EXISTS') liveOpening = true;
+        else throw e;
+      }
+    }
+    if (!jeId && qty > 0 && !alreadyCapitalized && !liveOpening) {
       const { fiscalOpeningDate } = require('../opening-post');
       jeId = postProductOpeningInventory(db, {
         productId,
@@ -82,6 +94,7 @@ function seedMissingAverageCost(db, { productId, unitCostRial, userId, date }) {
       qty: Number(after?.stock) || 0,
       je_id: jeId,
       journal_posted: !existing && !!jeId,
+      live_opening: liveOpening,
     };
   })();
 }

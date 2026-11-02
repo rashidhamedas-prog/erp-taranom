@@ -42,13 +42,14 @@ try {
   `).run(admin.id, wh.id).lastInsertRowid;
   db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,17)').run(prod2, wh.id);
   db.prepare("DELETE FROM settings WHERE key='opening_inventory_ledger_backfill_v1'").run();
+  // Opening SSOT: backfill is report-only — seals the flag, never invents opening rows.
   const bf = backfillOpeningInventoryLedger(db);
-  ok('backfill ran', bf && bf.count >= 1, JSON.stringify(bf));
+  ok('backfill ran report-only', bf && bf.count === 0 && bf.report_only === true, JSON.stringify(bf));
   const net2 = db.prepare(`
     SELECT COALESCE(SUM(qty_in-qty_out),0) q FROM inventory_ledger
     WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
   `).get(prod2, wh.id).q;
-  eq('backfill ledger net equals warehouse', Number(net2), 17);
+  eq('backfill writes no ledger rows', Number(net2), 0);
   eq('backfill skipStock does not write stock_logs', db.prepare('SELECT COUNT(*) c FROM stock_logs WHERE product_id=?').get(prod2).c, 0);
 
   const prevRole = process.env.SYNC_ROLE;

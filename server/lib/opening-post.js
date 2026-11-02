@@ -777,6 +777,13 @@ function postProductOpeningInventory(db, {
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) return null;
 
+  // One live opening per (product, warehouse, variant) — 409 E_OPENING_EXISTS.
+  if (product.warehouse_id) {
+    require('./inventory/opening-guard').assertNoLiveOpening(db, {
+      productId, warehouseId: product.warehouse_id, variantId: null,
+    });
+  }
+
   const totalRial = Math.round(q * unit);
   const { inventoryAccountForWarehouse } = require('./inventory/ledger');
   // v586: inventory JE line only via inventoryAccountForWarehouse (never products.coa_code)
@@ -836,13 +843,9 @@ function postProductOpeningInventory(db, {
 }
 
 /**
- * Additive backfill: for each warehouse_stock row whose qty disagrees with
- * posted inventory_ledger net, insert an opening movement (skipStock).
- * Flag: settings.opening_inventory_ledger_backfill_v1
- * Rollback: DELETE ledger rows with note LIKE '%(backfill)%' then DELETE the setting.
- *
- * Note: this one-shot can seal with count=0 before warehouse_stock is seeded.
- * Prefer reconcileInventoryLedgerGaps for ongoing gaps (kardex empty while stock>0).
+ * Legacy one-shot (flag settings.opening_inventory_ledger_backfill_v1).
+ * REPORT-ONLY: it used to insert opening rows; it now only seals the flag.
+ * Opening stock is written solely via «موجودی اول دوره» documents.
  */
 function backfillOpeningInventoryLedger(db) {
   if (process.env.SYNC_ROLE === 'device') {
@@ -857,15 +860,10 @@ function backfillOpeningInventoryLedger(db) {
       if (flag.value === '1') return { skipped: true };
     }
   }
-  const result = reconcileInventoryLedgerGaps(db, {
-    noteIn: 'موجودی اول دوره (backfill)',
-    noteOut: 'تعدیل موجودی (backfill)',
-    recordSetting: false,
-  });
-  const count = Number(result.count) || 0;
+  const count = 0;
   db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('opening_inventory_ledger_backfill_v1',?)")
-    .run(JSON.stringify({ ok: 1, count }));
-  return { count, seeded_wh: result.seeded_wh || 0 };
+    .run(JSON.stringify({ ok: 1, count, report_only: 1 }));
+  return { count, seeded_wh: 0, report_only: true };
 }
 
 function _defaultWarehouseId(db) {
@@ -885,131 +883,57 @@ function _ledgerNet(db, productId, warehouseId) {
   `).get(productId, warehouseId)?.q) || 0;
 }
 
-function _unitCostRial(product) {
-  return Math.round(Number(product.average_cost_rial) || Number(product.cost) || 0);
-}
+const GAP_REPORT_KEY = 'inventory_ledger_gap_report_v2';
+const GAP_REPORT_CAP = 500;
 
 /**
- * Ensure warehouse_stock exists for a product with header stock, then post
- * skipStock ledger rows so kardex net matches warehouse qty (both directions).
- * Safe to call repeatedly; does not change products.stock / warehouse_stock.
+ * Kardex-vs-warehouse gaps for one product (READ-ONLY).
+ * Header stock with no warehouse_stock row is reported against the product /
+ * default warehouse with ws_qty=0 and header_stock set.
  */
-function reconcileProductStockLedger(db, productId, {
-  createdBy = null,
-  // Plain opening label — the old «هم‌ترازی کاردکس» suffix made legitimate
-  // first-period stock look like phantom noise in every report.
-  noteIn = 'موجودی اول دوره',
-  noteOut = 'تعدیل موجودی',
-} = {}) {
-  const pid = parseInt(productId, 10);
-  if (!Number.isFinite(pid) || pid <= 0) return { count: 0, seeded_wh: 0 };
-  const hasLedger = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get();
-  if (!hasLedger) return { count: 0, seeded_wh: 0, skipped: true };
-
-  const product = db.prepare(
-    'SELECT id, name, stock, warehouse_id, average_cost_rial, cost FROM products WHERE id=?'
-  ).get(pid);
-  if (!product) return { count: 0, seeded_wh: 0 };
-
-  let seeded = 0;
-  let whId = product.warehouse_id || null;
-  if (!whId) whId = _defaultWarehouseId(db);
-  const headerStock = Number(product.stock) || 0;
-  if (whId && Math.abs(headerStock) > 1e-9) {
-    const existing = db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(pid, whId);
-    if (!existing) {
-      db.prepare(
-        'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
-      ).run(pid, whId, headerStock);
-      if (!product.warehouse_id) {
-        db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, pid);
-      }
-      seeded = 1;
-    }
-  }
-
-  const { postInventoryMovement } = require('./inventory/ledger');
-  const adminId = createdBy
-    || db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get()?.id
-    || 1;
-  const unit = _unitCostRial(product);
-  const rows = db.prepare(`
-    SELECT warehouse_id, qty FROM warehouse_stock WHERE product_id=?
-  `).all(pid);
-
-  let count = 0;
-  let skippedLive = 0;
+function _productLedgerGaps(db, pid, defaultWh) {
+  const product = db.prepare('SELECT id, stock, warehouse_id FROM products WHERE id=?').get(pid);
+  if (!product) return [];
+  const gaps = [];
+  const rows = db.prepare('SELECT warehouse_id, qty FROM warehouse_stock WHERE product_id=?').all(pid);
   for (const r of rows) {
     const net = _ledgerNet(db, pid, r.warehouse_id);
-    const gap = Number(r.qty) - net;
-    if (Math.abs(gap) <= 1e-9) continue;
-    // Never invent «موجودی اول دوره (هم‌ترازی)» after the SKU already has real
-    // warehouse life (sale / transfer / pack / purchase). Those seeds survive
-    // voids, reappear on every boot, and inflate kardex + reports. Gap stays
-    // visible as control_gap until an explicit admin reconcile.
-    const hasLive = !!db.prepare(`
-      SELECT 1 AS ok FROM inventory_ledger
-      WHERE product_id=? AND warehouse_id=?
-        AND COALESCE(status,'posted')='posted'
-        AND IFNULL(event_type,'') NOT IN ('opening','reversal')
-        AND IFNULL(source_type,'') NOT IN ('opening_inventory','stock_reconcile')
-        AND NOT (
-          replace(replace(IFNULL(note,''), char(8204), ''), 'ي', 'ی') LIKE '%همترازی کاردکس%'
-        )
-      LIMIT 1
-    `).get(pid, r.warehouse_id);
-    if (hasLive) {
-      skippedLive += 1;
-      continue;
-    }
-    if (gap > 0) {
-      postInventoryMovement(db, {
-        eventType: 'opening',
-        productId: pid,
-        warehouseId: r.warehouse_id,
-        qty: gap,
-        unitCostRial: unit,
-        sourceType: 'opening_inventory',
-        sourceId: pid,
-        date: fiscalOpeningDate(db),
-        note: noteIn,
-        createdBy: adminId,
-        skipStock: true,
-        updateAvg: false,
-      });
-    } else {
-      postInventoryMovement(db, {
-        eventType: 'adjustment',
-        productId: pid,
-        warehouseId: r.warehouse_id,
-        qty: gap,
-        unitCostRial: unit,
-        sourceType: 'stock_reconcile',
-        sourceId: pid,
-        date: todayJalali(),
-        note: noteOut,
-        createdBy: adminId,
-        skipStock: true,
-        updateAvg: false,
-      });
-    }
-    count += 1;
+    const wsQty = Number(r.qty) || 0;
+    if (Math.abs(wsQty - net) <= 1e-9) continue;
+    gaps.push({ product_id: pid, warehouse_id: r.warehouse_id, variant_id: null, ws_qty: wsQty, kardex_qty: net });
   }
-  return { count, seeded_wh: seeded, skipped_live: skippedLive };
+  const headerStock = Number(product.stock) || 0;
+  const hasWs = rows.some((r) => Math.abs(Number(r.qty) || 0) > 1e-9);
+  if (Math.abs(headerStock) > 1e-9 && !hasWs) {
+    const whId = product.warehouse_id || defaultWh || null;
+    gaps.push({
+      product_id: pid, warehouse_id: whId, variant_id: null, ws_qty: 0,
+      kardex_qty: whId ? _ledgerNet(db, pid, whId) : 0, header_stock: headerStock,
+    });
+  }
+  return gaps;
 }
 
 /**
- * Continuous (boot-safe) heal: warehouse_stock / header stock with no matching
- * inventory_ledger rows → opening/adjustment with skipStock so kardex shows history.
- * Unlike backfillOpeningInventoryLedger, this is NOT sealed by a one-shot flag.
+ * REPORT-ONLY (opening SSOT). Never inserts inventory_ledger rows (opening or
+ * adjustment) nor warehouse_stock rows — the boot gap-filler created duplicate
+ * openings. Gaps are returned for an explicit admin correction document.
  */
-function reconcileInventoryLedgerGaps(db, {
-  noteIn = 'موجودی اول دوره',
-  noteOut = 'تعدیل موجودی',
-  recordSetting = true,
-} = {}) {
+function reconcileProductStockLedger(db, productId) {
+  const pid = parseInt(productId, 10);
+  if (!Number.isFinite(pid) || pid <= 0) return { count: 0, seeded_wh: 0, gaps: [], report_only: true };
+  const hasLedger = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get();
+  if (!hasLedger) return { count: 0, seeded_wh: 0, skipped: true, gaps: [], report_only: true };
+  const gaps = _productLedgerGaps(db, pid, _defaultWarehouseId(db));
+  return { count: 0, seeded_wh: 0, skipped_live: 0, gaps, report_only: true };
+}
+
+/**
+ * Boot-time scan (REPORT-ONLY): warehouse_stock / header stock vs kardex net.
+ * Writes settings.inventory_ledger_gap_report_v2 = {at, gaps (cap 500), count}.
+ * Returns count:0 (nothing posted) so callers never log a heal.
+ */
+function reconcileInventoryLedgerGaps(db, { recordSetting = true } = {}) {
   if (process.env.SYNC_ROLE === 'device') {
     return { skipped: true, reason: 'device', count: 0, seeded_wh: 0 };
   }
@@ -1018,66 +942,26 @@ function reconcileInventoryLedgerGaps(db, {
   if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='warehouse_stock'").get()) {
     return { skipped: true, count: 0, seeded_wh: 0 };
   }
-
-  const adminId = db.prepare("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").get()?.id || 1;
   const defaultWh = _defaultWarehouseId(db);
-  let seeded = 0;
-
-  // Header stock without a warehouse_stock row never entered the old one-shot backfill.
-  const orphans = db.prepare(`
-    SELECT p.id, p.stock, p.warehouse_id
-    FROM products p
-    WHERE ABS(COALESCE(p.stock,0)) > 1e-9
-      AND NOT EXISTS (
-        SELECT 1 FROM warehouse_stock ws WHERE ws.product_id=p.id AND ABS(COALESCE(ws.qty,0)) > 1e-9
-      )
-  `).all();
-  for (const p of orphans) {
-    const whId = p.warehouse_id || defaultWh;
-    if (!whId) continue;
-    db.prepare(
-      'INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
-    ).run(p.id, whId, Number(p.stock) || 0);
-    const row = db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(p.id, whId);
-    if (row && Math.abs(Number(row.qty) || 0) <= 1e-9 && Math.abs(Number(p.stock) || 0) > 1e-9) {
-      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-        .run(Number(p.stock) || 0, p.id, whId);
-    }
-    if (!p.warehouse_id) {
-      db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, p.id);
-    }
-    seeded += 1;
-  }
-
   const candidates = db.prepare(`
     SELECT DISTINCT product_id AS id FROM warehouse_stock
     WHERE ABS(COALESCE(qty,0)) > 1e-9
     UNION
     SELECT id FROM products WHERE ABS(COALESCE(stock,0)) > 1e-9
   `).all();
-
-  let count = 0;
-  let seededWh = seeded;
-  const run = db.transaction(() => {
-    for (const c of candidates) {
-      const r = reconcileProductStockLedger(db, c.id, {
-        createdBy: adminId, noteIn, noteOut,
-      });
-      count += Number(r.count) || 0;
-      seededWh += Number(r.seeded_wh) || 0;
-    }
-  });
-  run();
+  const gaps = [];
+  for (const c of candidates) gaps.push(..._productLedgerGaps(db, c.id, defaultWh));
 
   if (recordSetting) {
-    db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('inventory_ledger_gap_reconcile_v1',?)")
-      .run(JSON.stringify({
-        ok: 1, count, seeded_wh: seededWh, at: new Date().toISOString(),
+    db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)')
+      .run(GAP_REPORT_KEY, JSON.stringify({
+        at: new Date().toISOString(), gaps: gaps.slice(0, GAP_REPORT_CAP), count: gaps.length,
       }));
   }
-  return { count, seeded_wh: seededWh };
+  if (gaps.length) {
+    console.log(`ℹ️ ${GAP_REPORT_KEY}: ${gaps.length} kardex/warehouse gap(s) reported — no rows written`);
+  }
+  return { count: 0, seeded_wh: 0, report_only: true, gap_count: gaps.length };
 }
 
 /**

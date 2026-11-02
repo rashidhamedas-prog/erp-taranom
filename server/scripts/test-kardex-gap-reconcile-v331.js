@@ -1,7 +1,7 @@
 'use strict';
 /**
- * v331: stock with empty kardex must heal via continuous reconcile;
- * one-shot opening backfill must not permanently seal gaps.
+ * v331 (updated for opening SSOT): stock with empty kardex is REPORTED by the
+ * continuous reconcile (inventory_ledger_gap_report_v2) — never healed with opening rows.
  */
 const { ok, eq, freshDb, summary } = require('./lib/test-harness');
 const {
@@ -36,13 +36,16 @@ try {
     "SELECT COUNT(*) c FROM inventory_ledger WHERE product_id=? AND COALESCE(status,'posted')='posted'"
   ).get(prodId).c, 0);
 
+  // Opening SSOT: continuous reconcile is REPORT-ONLY (never posts opening/adjustment rows).
   const gap = reconcileInventoryLedgerGaps(db);
-  ok('continuous reconcile posts rows', gap && gap.count >= 1, JSON.stringify(gap));
+  ok('continuous reconcile is report-only', gap && gap.count === 0 && gap.report_only === true, JSON.stringify(gap));
+  const report = JSON.parse(db.prepare("SELECT value FROM settings WHERE key='inventory_ledger_gap_report_v2'").get()?.value || '{}');
+  ok('gap reported in inventory_ledger_gap_report_v2', (report.gaps || []).some((g) => g.product_id === prodId && g.ws_qty === 10 && g.kardex_qty === 0), JSON.stringify(report));
   const net = db.prepare(`
     SELECT COALESCE(SUM(qty_in-qty_out),0) q FROM inventory_ledger
     WHERE product_id=? AND warehouse_id=? AND COALESCE(status,'posted')='posted'
   `).get(prodId, wh.id).q;
-  eq('ledger net = warehouse qty', Number(net), 10);
+  eq('ledger net untouched (no opening invented)', Number(net), 0);
   eq('products.stock unchanged', db.prepare('SELECT stock FROM products WHERE id=?').get(prodId).stock, 10);
   eq('warehouse_stock unchanged', db.prepare(
     'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
@@ -52,28 +55,27 @@ try {
   ).get(prodId).c, 0);
 
   const ledger = buildStockLedger(db, { product_id: prodId });
-  ok('kardex API has lines', Array.isArray(ledger.lines) && ledger.lines.length >= 1, String(ledger.lines?.length));
-  eq('kardex closing matches stock', Number(ledger.closing_qty), 10);
+  ok('kardex API has no invented lines', Array.isArray(ledger.lines) && ledger.lines.length === 0, String(ledger.lines?.length));
   eq('header stock exposed', Number(ledger.product.stock), 10);
 
   // Idempotent second pass
   const gap2 = reconcileInventoryLedgerGaps(db);
   eq('second reconcile is no-op', Number(gap2.count) || 0, 0);
 
-  // Header-only (no WH row) then reconcile seeds WH + ledger
+  // Header-only (no WH row): reported, never seeds WH or ledger
   const orphanId = db.prepare(`
     INSERT INTO products (user_id,name,code,stock,cost,average_cost_rial,warehouse_id)
     VALUES (?,'کالای بدون ردیف انبار','ORPH-QA',7,1000,10000,?)
   `).run(admin.id, wh.id).lastInsertRowid;
   db.prepare('DELETE FROM warehouse_stock WHERE product_id=?').run(orphanId);
   const rOrphan = reconcileProductStockLedger(db, orphanId);
-  ok('orphan seeds WH', (rOrphan.seeded_wh || 0) >= 1 || db.prepare(
-    'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-  ).get(orphanId, wh.id)?.qty === 7, JSON.stringify(rOrphan));
-  eq('orphan ledger net', Number(db.prepare(`
+  ok('orphan reported, WH not seeded', (rOrphan.seeded_wh || 0) === 0
+    && (rOrphan.gaps || []).some((g) => g.header_stock === 7)
+    && !db.prepare('SELECT 1 FROM warehouse_stock WHERE product_id=?').get(orphanId), JSON.stringify(rOrphan));
+  eq('orphan ledger net untouched', Number(db.prepare(`
     SELECT COALESCE(SUM(qty_in-qty_out),0) q FROM inventory_ledger
     WHERE product_id=? AND COALESCE(status,'posted')='posted'
-  `).get(orphanId).q), 7);
+  `).get(orphanId).q), 0);
 
   // Device must skip
   const prev = process.env.SYNC_ROLE;

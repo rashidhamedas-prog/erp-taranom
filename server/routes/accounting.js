@@ -2218,6 +2218,25 @@ router.put('/vouchers/:id', auth, adminOrAccounting, (req, res) => {
   }
 });
 
+/** True when any line posts to an inventory (1104-family / warehouse-mapped) account. */
+function voucherTouchesInventory(db, lines) {
+  const roots = new Set(['1104']);
+  for (const key of ['coa_finished_goods', 'coa_inventory', 'coa_raw_materials',
+    'coa_packaging_materials', 'coa_scrap_inventory', 'coa_subcontract_inventory']) {
+    try { const a = coaAcct(db, key); if (a && a.code) roots.add(String(a.code)); } catch (_) { /* unknown key */ }
+  }
+  try {
+    for (const w of db.prepare("SELECT inventory_coa_code c FROM warehouses WHERE COALESCE(inventory_coa_code,'')<>''").all()) {
+      roots.add(String(w.c).trim());
+    }
+  } catch (_) { /* column optional */ }
+  const rootList = [...roots].filter((r) => r.length >= 4);
+  return (lines || []).some((l) => {
+    const code = String((l && l.code) || '').trim();
+    return code && rootList.some((r) => code === r || code.startsWith(r));
+  });
+}
+
 function postManualVoucher(db, user, body, opts) {
   const options = opts || {};
   const { date, description, doc_type, cost_center_id, lines, voucher_type } = body || {};
@@ -2265,6 +2284,13 @@ function postManualVoucher(db, user, body, opts) {
   } else if (fromExcel) {
     voucherType = 'auto';
     sourceType = 'excel_import';
+  }
+  // Inventory opening has no product/warehouse here → cannot pass the per-SKU opening guard.
+  if (sourceType === 'opening_inventory' && voucherTouchesInventory(db, built.cleanLines)) {
+    const err = new Error('سند افتتاحیهٔ موجودی کالا از سند دستی مجاز نیست — موجودی اول دوره را برای هر کالا از جدول «موجودی اول دوره» همان فرم کالا ثبت کنید');
+    err.status = 409;
+    err.code = 'E_OPENING_VIA_PRODUCT';
+    throw err;
   }
 
   const entryId = db.transaction(() => {

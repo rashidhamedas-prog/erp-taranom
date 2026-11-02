@@ -88,14 +88,26 @@ test('API: invoice cycle + hostile cross-company', async ({ request }) => {
   const custId = custBody.id || custBody.customer?.id;
   expect(custId).toBeTruthy();
 
+  const whs = await request.get('/api/warehouses', { headers: auth });
+  expect(whs.ok()).toBeTruthy();
+  const whList = await whs.json();
+  const whId = (whList.find((w) => w.active !== 0) || whList[0] || {}).id;
+  expect(whId).toBeTruthy();
+
+  // product form never writes stock (E_STOCK_VIA_OPENING) — stock comes from a formal adjustment document
   const prod = await request.post('/api/products', {
     headers: auth,
-    data: { name: 'کالای E2E', code: 'E2E-P1', price: 150000, stock: 20, unit: 'عدد' },
+    data: { name: 'کالای E2E', code: 'E2E-P1', price: 150000, unit: 'عدد', warehouse_id: whId },
   });
   expect(prod.ok()).toBeTruthy();
   const prodBody = await prod.json();
   const prodId = prodBody.id || prodBody.product?.id;
   expect(prodId).toBeTruthy();
+  const adj = await request.patch(`/api/products/${prodId}/stock`, {
+    headers: auth,
+    data: { stock: 20, warehouse_id: whId },
+  });
+  expect(adj.ok()).toBeTruthy();
 
   const inv = await request.post('/api/invoices', {
     headers: auth,

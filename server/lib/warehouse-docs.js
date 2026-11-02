@@ -155,6 +155,8 @@ function tableHasColumn(db, table, col) {
 /** Phase 2: block a second ACTIVE opening for the same (product, warehouse, variant) → 409. */
 function assertNoActiveOpening(db, { productId, warehouseId, variantId }) {
   const vid = variantId || null;
+  // Shared guard: product_opening_stock, P2 lines, receipts, fiscal-year opening ledger rows.
+  require('./inventory/opening-guard').assertNoLiveOpening(db, { productId, warehouseId, variantId: vid });
   const dup = db.prepare(`
     SELECT m.id, d.num FROM warehouse_moves m
     JOIN warehouse_docs d ON d.id=m.doc_id

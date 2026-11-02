@@ -535,7 +535,7 @@ router.post('/quick', auth, adminOrAccounting, (req, res) => {
   try {
     pid = createQuickProduct(db, req.user, req.body || {});
   } catch (e) {
-    if (e.status) return res.status(e.status).json({ error: e.message });
+    if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
     throw e;
   }
   audit(req.user.id, 'create', 'product', pid, `ساخت سریع محصول ${(req.body && req.body.name) || ''}`);
@@ -588,98 +588,58 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     throw e;
   }
   const unitVal = resolvedUnit.unit || 'عدد';
+  // No direct stock on product create — opening qty only via «موجودی اول دوره» (سند افتتاحیه).
   const stockOpen = parseStockQty(stock, { unit: unitVal, integer: requiresIntegerQty(null, null, unitVal) });
-  const openingUnit = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
-  if (stockOpen > 0 && !openingUnit) {
+  const openingQtyRaw = Number(req.body.opening_qty) || 0;
+  if (stockOpen > 0 || openingQtyRaw > 0) {
     return res.status(422).json({
-      error: 'موجودی اول دوره بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید',
-      code: 'E_OPENING_COST_REQUIRED',
+      error: 'موجودی اول دوره از جدول «موجودی اول دوره» همان فرم کالا ثبت می‌شود (سند افتتاحیه)',
+      code: 'E_STOCK_VIA_OPENING',
     });
   }
-  if (stockOpen > 0 && openingUnit > 0) {
-    try {
-      const { fiscalOpeningDate } = require('../lib/opening-post');
-      const { assertPeriodOpen } = require('../lib/inventory/period-lock');
-      assertPeriodOpen(db, fiscalOpeningDate(db), 'موجودی اول دوره محصول');
-    } catch (e) {
-      if (e && e.status) return res.status(e.status).json({ error: e.message, code: e.code });
-      throw e;
+  const openingUnit = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
+  const allowedItemTypes = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
+  if (req.body.item_type != null && String(req.body.item_type).trim()
+    && !allowedItemTypes.has(String(req.body.item_type).trim())) {
+    return res.status(400).json({ error: 'نوع کالا نامعتبر است', code: 'E_ITEM_TYPE' });
+  }
+  const createProduct = db.transaction(() => {
+    const result = db.prepare(
+      `INSERT INTO products (
+        user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
+        pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
+        location,opening_price,sms_code,tax_stuff_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, 0,
+          parseInt(stock_alert) || 5, unitVal, note || '', image,
+          parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
+          (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
+          parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
+          String(tax_stuff_id || '').trim() || null);
+    if (resolvedUnit.unit_id) {
+      db.prepare('UPDATE products SET unit_id=? WHERE id=?').run(resolvedUnit.unit_id, result.lastInsertRowid);
     }
-  }
-  // P2: موجودی اول دوره فقط از مسیر سند (opening_stock_docs) — کالا با موجودی صفر ساخته می‌شود و
-  // یک پیش‌نویس تک‌خطی می‌سازیم؛ موجودی/کاردکس/JE با ثبت قطعیِ کاربر دیگر (maker-checker) اعمال می‌شود.
-  const useOpeningDoc = stockOpen > 0 && openingUnit > 0 && !!defaultWarehouse;
-  const result = db.prepare(
-    `INSERT INTO products (
-      user_id,category,category_id,code,name,price,cost,stock,stock_alert,unit,note,image,colors,
-      pack_size,warehouse_id,barcode,full_name,product_type,product_index,tax_id,consumer_price,
-      location,opening_price,sms_code,tax_stuff_id
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-  ).run(req.user.id, catName, catId, prodCode, name, parseFloat(price) || 0, parseFloat(cost) || 0, useOpeningDoc ? 0 : stockOpen,
-        parseInt(stock_alert) || 5, unitVal, note || '', image,
-        parseInt(colors) || 1, parseInt(pack_size) || 1, defaultWarehouse ? defaultWarehouse.id : null,
-        (barcode || '').trim() || null, full_name || '', product_type || '', product_index || '', tax_id || '',
-        parseFloat(consumer_price) || 0, location || '', parseFloat(opening_price) || 0, sms_code || '',
-        String(tax_stuff_id || '').trim() || null);
-  if (resolvedUnit.unit_id) {
-    db.prepare('UPDATE products SET unit_id=? WHERE id=?').run(resolvedUnit.unit_id, result.lastInsertRowid);
-  }
-  if (defaultWarehouse) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(result.lastInsertRowid, defaultWarehouse.id, useOpeningDoc ? 0 : stockOpen);
-  }
-  let openingDoc = null;
-  if (useOpeningDoc) {
-    try {
-      openingDoc = require('../lib/inventory/opening-stock').createSingleLineDraftForNewProduct(db, req.user, {
-        productId: result.lastInsertRowid,
-        warehouseId: defaultWarehouse.id,
-        qty: stockOpen,
-        unitCostRial: openingUnit,
-        source: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
-      });
-    } catch (e) {
-      if (e.status) return res.status(e.status).json({ error: e.message, code: e.code });
-      throw e;
+    if (defaultWarehouse) {
+      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
+        .run(result.lastInsertRowid, defaultWarehouse.id);
     }
-  }
-  try {
-    const openQty = useOpeningDoc ? 0 : stockOpen;
-    const unitCost = Math.round(parseFloat(cost) || parseFloat(opening_price) || 0);
-    if (openQty > 0 && unitCost > 0) {
-      const { postProductOpeningInventory } = require('../lib/opening-post');
-      postProductOpeningInventory(db, {
-        productId: result.lastInsertRowid,
-        qty: openQty,
-        unitCostRial: unitCost,
-        userId: req.user.id,
-        srcSystem: req.body.from_excel || req.body.src_system === 'excel' ? 'excel' : null,
-      });
+    if (req.body.retail_price != null && req.body.retail_price !== '') {
+      const rp = Math.round(parseFloat(req.body.retail_price) || 0);
+      db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
     }
-  } catch (e) {
-    if (e.status) return res.status(e.status).json({ error: e.message });
-  }
-  if (req.body.retail_price != null && req.body.retail_price !== '') {
-    const rp = Math.round(parseFloat(req.body.retail_price) || 0);
-    db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
-  }
-  if (req.body.min_price_rial != null && req.body.min_price_rial !== '') {
-    const mp = Math.max(0, Math.round(parseFloat(req.body.min_price_rial) || 0));
-    db.prepare('UPDATE products SET min_price_rial=? WHERE id=?').run(mp > 0 ? mp : null, result.lastInsertRowid);
-  }
-  if (req.body.costing_method !== undefined) {
-    const cm = String(req.body.costing_method || '').trim() || null;
-    db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
-  }
-  if (req.body.valuation_level !== undefined) {
-    try { require('../lib/inventory/valuation').setLayerLevel(db, 'products', result.lastInsertRowid, req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
-  }
-  {
-    const allowed = new Set(['finished', 'semi', 'raw', 'packaging', 'material', 'scrap', 'service']);
+    if (req.body.min_price_rial != null && req.body.min_price_rial !== '') {
+      const mp = Math.max(0, Math.round(parseFloat(req.body.min_price_rial) || 0));
+      db.prepare('UPDATE products SET min_price_rial=? WHERE id=?').run(mp > 0 ? mp : null, result.lastInsertRowid);
+    }
+    if (req.body.costing_method !== undefined) {
+      const cm = String(req.body.costing_method || '').trim() || null;
+      db.prepare('UPDATE products SET costing_method=? WHERE id=?').run(cm, result.lastInsertRowid);
+    }
+    if (req.body.valuation_level !== undefined) {
+      try { require('../lib/inventory/valuation').setLayerLevel(db, 'products', result.lastInsertRowid, req.body.valuation_level, { userId: req.user.id }); } catch (_) { /* column optional */ }
+    }
     if (req.body.item_type != null && String(req.body.item_type).trim()) {
-      const it = String(req.body.item_type).trim();
-      if (!allowed.has(it)) return res.status(400).json({ error: 'نوع کالا نامعتبر است', code: 'E_ITEM_TYPE' });
-      db.prepare('UPDATE products SET item_type=? WHERE id=?').run(it, result.lastInsertRowid);
+      db.prepare('UPDATE products SET item_type=? WHERE id=?').run(String(req.body.item_type).trim(), result.lastInsertRowid);
     }
     if (req.body.is_manufactured != null) {
       const raw = req.body.is_manufactured;
@@ -703,12 +663,20 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
       db.prepare('UPDATE products SET std_cost_rial=? WHERE id=?')
         .run(Math.round(Number(req.body.std_cost_rial) || 0), result.lastInsertRowid);
     }
-  }
-  try { assignProductTafsili(db, result.lastInsertRowid, name); } catch (_) {}
-  if (bodyHas(req.body, 'website_stock_push')) {
-    const { normalizeWebsiteStockPush } = require('../lib/website-stock-sync');
-    const flag = normalizeWebsiteStockPush(req.body.website_stock_push, 1);
-    db.prepare('UPDATE products SET website_stock_push=? WHERE id=?').run(flag, result.lastInsertRowid);
+    try { assignProductTafsili(db, result.lastInsertRowid, name); } catch (_) {}
+    if (bodyHas(req.body, 'website_stock_push')) {
+      const { normalizeWebsiteStockPush } = require('../lib/website-stock-sync');
+      const flag = normalizeWebsiteStockPush(req.body.website_stock_push, 1);
+      db.prepare('UPDATE products SET website_stock_push=? WHERE id=?').run(flag, result.lastInsertRowid);
+    }
+    return result;
+  });
+  let result;
+  try {
+    result = createProduct();
+  } catch (e) {
+    if (e && e.status) return res.status(e.status).json({ error: e.message, code: e.code });
+    throw e;
   }
   try {
     await attachUploadedImages(db, result.lastInsertRowid, req.files, true);
@@ -719,7 +687,6 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
   try { require('../lib/website-stock-sync').notifyStockChanged(db, result.lastInsertRowid); } catch (_) {}
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(result.lastInsertRowid);
   row.images = listProductImages(db, row.id);
-  if (openingDoc) row.opening_doc = openingDoc;
   try {
     const completeness = require('../lib/production/product-completeness');
     const ready = completeness.assessProduct(db, result.lastInsertRowid, 'activate');
@@ -1140,6 +1107,18 @@ router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, 
     const ws = wb.Sheets[wb.SheetNames[0]];
     const data = XLSX.utils.sheet_to_json(ws);
     const db = getDB();
+    // No direct stock from import — any row with موجودی > 0 rejects the whole file.
+    const stockRows = [];
+    data.forEach((row, i) => {
+      if (parseQty(row['موجودی'] || row['stock'] || 0) > 0) stockRows.push(i + 2);
+    });
+    if (stockRows.length) {
+      return res.status(422).json({
+        error: `موجودی اول دوره از جدول «موجودی اول دوره» همان فرم کالا ثبت می‌شود (سند افتتاحیه) — ستون موجودی را خالی/صفر کنید (ردیف‌های ${stockRows.slice(0, 50).join('، ')})`,
+        code: 'E_STOCK_VIA_OPENING',
+        rows: stockRows,
+      });
+    }
     let inserted = 0;
     const stmt = db.prepare('INSERT INTO products (user_id,category,code,name,price,stock,stock_alert,unit,colors,pack_size,barcode) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
     const insertMany = db.transaction((rows) => {
@@ -1152,7 +1131,7 @@ router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, 
           normalizeStr(row['کد محصول'] || row['code'] || ''),
           name,
           parseFloat(row['قیمت'] || row['price'] || 0),
-          parseQty(row['موجودی'] || row['stock'] || 0),
+          0,
           parseInt(row['هشدار موجودی'] || row['stock_alert'] || 5) || 5,
           row['واحد'] || row['unit'] || 'عدد',
           parseInt(row['تعداد رنگ'] || row['colors'] || 1),
@@ -1192,8 +1171,8 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
 router.get('/template', auth, async (req, res) => {
   const wb = XLSX.utils.book_new();
   const data = [
-    { 'دسته‌بندی': 'مانتو', 'کد محصول': 'MT-001', 'نام محصول': 'مانتو لینن بهاره', 'قیمت': 350000, 'موجودی': 50, 'هشدار موجودی': 5, 'واحد': 'عدد' },
-    { 'دسته‌بندی': 'شومیز', 'کد محصول': 'SH-001', 'نام محصول': 'شومیز کتان', 'قیمت': 280000, 'موجودی': 30, 'هشدار موجودی': 5, 'واحد': 'عدد' },
+    { 'دسته‌بندی': 'مانتو', 'کد محصول': 'MT-001', 'نام محصول': 'مانتو لینن بهاره', 'قیمت': 350000, 'موجودی': 0, 'هشدار موجودی': 5, 'واحد': 'عدد' },
+    { 'دسته‌بندی': 'شومیز', 'کد محصول': 'SH-001', 'نام محصول': 'شومیز کتان', 'قیمت': 280000, 'موجودی': 0, 'هشدار موجودی': 5, 'واحد': 'عدد' },
   ];
   const ws = XLSX.utils.json_to_sheet(data);
   XLSX.utils.book_append_sheet(wb, ws, 'محصولات');
