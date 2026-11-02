@@ -1692,7 +1692,7 @@ function rollSelect(id, rolls, selectedId){
   const items=(rolls||[]).map(b=>({
     id:b.id,
     label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
-    meta:`مانده زنده ${fmtQtyFa(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    meta:`مانده زنده ${fmtQtyFa(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} ${b.unit_label||fabricLengthWord(b.unit)}`,
     hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
     extra:b
   }));
@@ -6973,7 +6973,7 @@ function renderCart(){
       const packNote=isPack
         ? (oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+packSummaryStyle+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':'')
           +'<button type="button" class="btn sm ghost" data-csp-style="'+packEditStyle+'" data-csp-click="'+editPackBind+'">ویرایش رنگ / سایز</button>'
-        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+(function(){ const live=invoiceRollLiveMeters(r.batch_id); return live==null?'':' · مانده زنده '+fmtQtyFa(live)+' متر'; })()+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
+        : (r.batch_id||r.is_fabric_roll?'<div class="muted" data-csp-style="'+muted11Style+'">طاقه '+esc(r.roll_no||('#'+(r.batch_id||'')))+' '+esc(r.color||'')+(function(){ const live=invoiceRollLiveMeters(r.batch_id); return live==null?'':' · مانده زنده '+fmtQtyFa(live)+' '+esc(invoiceRollUnitWord(r.batch_id)); })()+'</div>':(oneLine?'<div class="inv-var-line" title="جزئیات رنگ و سایز" data-csp-style="'+muted11Style+'" data-csp-click="'+detailBind+'">'+esc(oneLine)+'</div>':''));
       const lineWhEff=typeof invEffectiveLineWh==='function'?invEffectiveLineWh(r, typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null):(r.warehouse_id||null);
       const lineNeg=!isIncome && !r.batch_id && !r.is_fabric_roll && (
         negProdWh.has(String(r.product_id)+'@'+String(lineWhEff))
@@ -17597,7 +17597,7 @@ async function renderFabricRollsTab(body){
       const entryHint=(String(b.kind)!=='attr' && Number(b.entry_qty)>0 && b.entry_unit_name && b.entry_unit_name!==unitHint)
         ?' <span class="muted" title="مقدار دریافت">('+fmtQtyFa(b.entry_qty)+' '+esc(b.entry_unit_name)+')</span>':'';
       const mismatchHint=Number(b.unit_mismatch)===1
-        ?' <span class="fr-unit-warn" title="واحد طاقه با واحد کارت کالا ('+esc(b.product_unit||'')+') یکی نیست">⚠ واحد</span>'
+        ?' <span class="fr-unit-warn" title="برچسب ذخیره‌شدهٔ طاقه ('+esc(b.batch_unit_label||b.unit||'')+') با واحد کارت کالا ('+esc(b.product_unit||'')+') یکی نیست">⚠ واحد</span>'
           +(canFabricRelabel()&&b.status!=='reversed'?' <button class="btn ghost" title="اصلاح برچسب واحد طاقه‌های این کالا" data-csp-click="'+CSP.bind('click',function(){fabricRelabelUnitModal(b.product_id)})+'">اصلاح</button>':'')
         :'';
       const act=b.status==='reversed'?'ابطال‌شده':(
@@ -17782,8 +17782,10 @@ async function loadFabricRollKardex(){
     <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${fmtQtyFa(val||0)}</div>
   </div>`;
   const gap=Math.abs((Number(d.control_qty)||0)-(Number(d.closing_qty)||0));
+  const frkUnit=d.unit_label?(' ('+esc(d.unit_label)+')'):'';
   box.innerHTML=`
     <div class="panel">
+      ${Number(d.mixed_units)===1?'<div class="fr-conv fr-conv-warn" role="note" data-csp-style="'+CSP.style('margin:12px 14px 0')+'">این نما چند کالا با واحدهای مختلف دارد؛ جمع‌ها فقط برای یک کالا معنا دارند. واحد هر ردیف کنار مقدار آمده است.</div>':''}
       <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px 0`)}">
         ${kpi('اول دوره', d.opening_qty)}
         ${kpi('ورود دوره', d.period_qty_in, 'var(--green)')}
@@ -17792,7 +17794,7 @@ async function loadFabricRollKardex(){
         ${kpi('مانده زنده', d.control_qty)}
       </div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-      <th>تاریخ</th><th>شماره</th><th>کالا</th><th>نوع</th><th>شرح</th><th>ورود</th><th>خروج</th><th>مانده</th><th>ثبت‌کننده</th>
+      <th>تاریخ</th><th>شماره</th><th>کالا</th><th>نوع</th><th>شرح</th><th>ورود${frkUnit}</th><th>خروج${frkUnit}</th><th>مانده${frkUnit}</th><th>ثبت‌کننده</th>
     </tr></thead><tbody>
     ${rows.map(r=>{
       const voided=r.cancelled||r.ledger_status==='reversed'||r.event_type==='reversal';
@@ -17805,7 +17807,7 @@ async function loadFabricRollKardex(){
       <td>${esc(r.note||'-')}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:var(--green)`)}">${Number(r.qty_in)?fmtQtyFa(r.qty_in):'-'}</td>
       <td class="mono" data-csp-style="${CSP.style(`color:var(--red)`)}">${Number(r.qty_out)?fmtQtyFa(r.qty_out):'-'}</td>
-      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(r.running_meters||0)}</td>
+      <td class="mono" data-csp-style="${CSP.style(`font-weight:700`)}">${fmtQtyFa(r.running_meters||0)}${!d.unit_label&&r.unit_label?' <small class="muted">'+esc(r.unit_label)+'</small>':''}</td>
       <td class="muted">${esc(r.user_name||'-')}</td>
     </tr>`;
     }).join('')||'<tr><td colspan="9" class="empty">گردش زنده‌ای در این دوره نیست</td></tr>'}
@@ -17819,7 +17821,7 @@ async function loadFabricRollKardex(){
     </tr></tfoot>
     </table></div>
     <div data-csp-style="${CSP.style(`padding:12px 16px;border-top:1px solid var(--border);font-weight:700`)}">
-      مانده پایان دوره: <span class="mono">${fmtQtyFa(d.closing_qty||0)}</span>
+      مانده پایان دوره: <span class="mono">${fmtQtyFa(d.closing_qty||0)}</span>${d.unit_label?' '+esc(d.unit_label):''}
       <div class="muted" data-csp-style="${CSP.style(`font-weight:500;margin-top:6px;font-size:12px`)}">جمع ورود ${fmtQtyFa(d.period_qty_in||0)} · جمع خروج ${fmtQtyFa(d.period_qty_out||0)} · مانده زندهٔ طاقه ${fmtQtyFa(d.control_qty||0)}${
         gap>1e-6?' · اختلاف به‌خاطر بازهٔ تاریخ یا ردیف خارج از این نما است':''
       } · منبع دفتر انبار</div>
@@ -18129,6 +18131,11 @@ function invoiceRollLiveMeters(batchId){
   if(!b) return null;
   return Number(b.qty_live!=null?b.qty_live:b.qty_on_hand)||0;
 }
+/** P9: roll quantities are in the product's own unit (یارد/متر/کیلوگرم…). */
+function invoiceRollUnitWord(batchId){
+  const b=batchId?(_ifrLiveRolls||[]).find(x=>Number(x.id)===Number(batchId)):null;
+  return (b&&(b.unit_label||fabricLengthWord(b.unit)))||'متر';
+}
 async function ensureInvoiceLiveRolls(force){
   if(!force && _ifrLiveRolls && _ifrLiveRolls.length) return _ifrLiveRolls;
   try{ _ifrLiveRolls=(await api('GET','/inventory/fabric-rolls?status=active')||{}).rows||[]; }catch(_){ _ifrLiveRolls=_ifrLiveRolls||[]; }
@@ -18158,10 +18165,12 @@ function syncInvoiceFabricRollLive(){
   const tone=after<-1e-9?'bad':(after<=1e-9?'warn':'ok');
   box.className='ifr-live-box ifr-live-'+tone;
   box.setAttribute('aria-live','polite');
-  box.innerHTML='<div><b>مانده زنده انبار:</b> '+fmtQtyFa(warehouseLive)+' متر</div>'
-    +'<div>رزرو در این فاکتور: '+fmtQtyFa(reserved)+' متر</div>'
-    +'<div>قابل فروش الان: <b>'+fmtQtyFa(now)+'</b> متر</div>'
-    +(typed?'<div>پس از این ردیف: <b>'+fmtQtyFa(after)+'</b> متر</div>':'')
+  const uw=esc(invoiceRollUnitWord(sel.value));
+  if(el('ifr-m-label')) el('ifr-m-label').textContent='مقدار فروش ('+invoiceRollUnitWord(sel.value)+')';
+  box.innerHTML='<div><b>مانده زنده انبار:</b> '+fmtQtyFa(warehouseLive)+' '+uw+'</div>'
+    +'<div>رزرو در این فاکتور: '+fmtQtyFa(reserved)+' '+uw+'</div>'
+    +'<div>قابل فروش الان: <b>'+fmtQtyFa(now)+'</b> '+uw+'</div>'
+    +(typed?'<div>پس از این ردیف: <b>'+fmtQtyFa(after)+'</b> '+uw+'</div>':'')
     +(after<-1e-9?'<div class="ifr-live-alert">این مقدار مانده طاقه را منفی می‌کند.</div>':'');
   sel.dataset.qty=String(now);
 }
@@ -18170,7 +18179,7 @@ function refreshInvoiceFabricRollSelect(){
   const items=(mapped||[]).map(b=>({
     id:b.id,
     label:`${b.batch_no||('#'+b.id)} — ${b.product_name||''} ${b.color||''}`.trim(),
-    meta:`مانده زنده ${fmtQtyFa(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} متر`,
+    meta:`مانده زنده ${fmtQtyFa(b.qty_available!=null?b.qty_available:(b.qty_live!=null?b.qty_live:b.qty_on_hand||0))} ${b.unit_label||fabricLengthWord(b.unit)}`,
     hay:[b.batch_no,b.product_name,b.color,b.pattern].filter(Boolean).join(' '),
     extra:b
   }));
@@ -18199,7 +18208,7 @@ async function invoiceFabricRollPicker(kind){
         <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin-bottom:10px`)}">هر طاقه یک ردیف است. انبار ردیف همان انبار طاقه است (معمولاً مواد)، نه الزاماً انبار سربرگ فاکتور. مانده متر از دفتر انبار زنده است.</p>
         <div class="fg full"><label>طاقه موجود</label>
           ${rollSelect('ifr-roll', mapped, '')}</div>
-        <div class="fg"><label>متر فروش</label><input id="ifr-m" type="number" min="0.01" step="0.01"></div>
+        <div class="fg"><label id="ifr-m-label" for="ifr-m">مقدار فروش (واحد کالا)</label><input id="ifr-m" type="number" min="0.01" step="0.01"></div>
         <div class="fg"><label>فی فروش (ریال)</label><input id="ifr-price" type="text" inputmode="numeric" class="money" value="0"></div>
         <div id="ifr-live" class="ifr-live-box" role="status">طاقه را انتخاب کنید. مانده از دفتر انبار لحظه‌ای است و رزرو همین فاکتور کم می‌شود.</div>
         <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(){ensureInvoiceLiveRolls(true).then(function(){ refreshInvoiceFabricRollSelect(); showToast('مانده طاقه‌ها تازه شد');})})}">بروزرسانی مانده زنده</button>
@@ -18357,7 +18366,7 @@ function fabricRollEditModal(b){
       <div class="fg"><label for="fr-cost">${isAttr?'بها هر واحد (ریال)':('بها هر '+esc(entryWord)+' (ریال)')}</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="${moneyInit(formCost)}"${finAttr} data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
       <div class="fg"><label>تأمین‌کننده</label><div id="fr-sup-wrap">${supplierSelect('fr-sup', b.supplier_id||'')}</div></div>
       <div class="fg full muted">مانده زنده الان: <b class="mono">${fmtQtyFa(live)}</b> ${isAttr?esc(b.unit||''):esc(stockWord)}${hasEntry&&entryWord!==stockWord?(' · دریافت به '+esc(entryWord)+'، انبار به '+esc(stockWord)):''}</div>
-      ${Number(b.unit_mismatch)===1?`<div class="fg full fr-conv fr-conv-warn" role="note">واحد این طاقه («${esc(stockWord)}») با واحد کارت کالا («${esc(b.product_unit||'—')}») یکی نیست؛ موجودی و مصرف با هم نمی‌خوانند. واحد کارت کالا را اصلاح کنید.</div>`:''}
+      ${Number(b.unit_mismatch)===1?`<div class="fg full fr-conv fr-conv-warn" role="note">برچسب ذخیره‌شدهٔ این طاقه («${esc(b.batch_unit_label||fabricLengthWord(b.unit))}») با واحد کارت کالا («${esc(b.product_unit||'—')}») یکی نیست. مقدارها به واحد کالا («${esc(stockWord)}») نمایش و مصرف می‌شوند؛ برچسب را با «اصلاح واحد» درست کنید.</div>`:''}
       <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">${fmt(Math.round(formCost*formQty))}</span> ریال</b></div>
     </div>
     <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" data-csp-click="${CSP.bind('click',function(){fabricRollUpdateSave((b.id), !!finLocked, isAttr)})}">ذخیره ویرایش</button></div>`);
@@ -18604,7 +18613,7 @@ function cuttingRenderMultiProducts(){
     const sum=Object.values(p.breakdown||{}).reduce((s,n)=>s+(Number(n)||0),0);
     const fab=Number(p.fabric_std_m)||0;
     const mw=Number(p.manual_weight)||0;
-    const meta=(showFab?'<div class="fg"><label>متر استاندارد پارچه / قطعه</label><input type="number" min="0" step="0.001" value="'+(fab||'')+'" data-mp-fabric="'+p.product_id+'"></div>':'')
+    const meta=(showFab?'<div class="fg"><label>مصرف استاندارد پارچه / قطعه (<span class="cl-u">'+esc(cutUnitWord())+'</span>)</label><input type="number" min="0" step="0.001" value="'+(fab||'')+'" data-mp-fabric="'+p.product_id+'"></div>':'')
       +(showMan?'<div class="fg"><label>سهم٪ دستی</label><input type="number" min="0" step="0.01" value="'+(mw||'')+'" data-mp-weight="'+p.product_id+'"></div>':'');
     return '<div class="panel" style="margin:8px 0;padding:8px" data-mp-card="'+p.product_id+'">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">'
@@ -27923,9 +27932,9 @@ async function prodOrderIssueModal(id){
   const pimRowsHtml=lines.map((L,i)=>{
     const locked=Number(L.fabric_cut_locked)===1;
     const lockNote=locked
-      ? (' <span class="muted">(مصرف‌شده در لایه‌چینی همین سفارش/کالا'+(L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' متر':'')+')</span>')
+      ? (' <span class="muted">(مصرف‌شده در لایه‌چینی همین سفارش/کالا'+(L.fabric_cut_meters!=null?' — '+L.fabric_cut_meters+' '+esc(L.unit_label||'متر'):'')+')</span>')
       : (L.fabric_qty_allowed!=null && Number(L.fabric_cut_meters)>0
-        ? (' <span class="muted">(مانده مجاز '+L.fabric_qty_allowed+' متر)</span>') : '');
+        ? (' <span class="muted">(مانده مجاز '+L.fabric_qty_allowed+' '+esc(L.unit_label||'متر')+')</span>') : '');
     const short=Number(L.stock_short)===1 && !locked;
     const shortNote=short
       ? (' <span style="color:#C0392B">(کسری انبار: موجود '+(L.stock_available??'—')+')</span>') : '';
@@ -42485,6 +42494,14 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('📏','واحد طاقه و مواد = واحد خود کالا (P9)',`
+      <p>هر طاقه و هر مادهٔ اولیه همه‌جا به <b>واحد کارت همان کالا</b> نمایش داده و ثبت می‌شود؛ مثلاً پارچهٔ «مموری» با واحد <b>یارد</b> در دریافت، کاردکس طاقه، مصرف فرمول ساخت (BOM)، لایه‌چینی، برش مشترک و گزارش‌ها همه‌جا «یارد» است، نه «متر».</p>
+      <ul>
+        <li><b>ورود به واحد دیگر:</b> اگر در دریافت طاقه یا موجودی اول دوره مقدار را به واحد دیگری از همان بعد بزنید (مثلاً متر برای کالای یاردی)، با ضریب کاتالوگ واحدها (۱ یارد = ۰٫۹۱۴۴ متر) به واحد کالا تبدیل و به همان واحد ذخیره می‌شود؛ واحد و ضریب ورود روی خود طاقه می‌ماند و در فهرست کنار مقدار دیده می‌شود.</li>
+        <li><b>رد ناهمخوانی:</b> اگر واحد ذخیره‌شدهٔ طاقه/بچ پس از تبدیل با واحد کالا یکی نباشد (یا مادهٔ با ویژگی به واحدی بی‌ربط مثل «عدد» برای کالای کیلویی وارد شود)، ثبت با پیام «واحد طاقه/بچ … با واحد کالا … یکی نیست» رد می‌شود. ثبت قطعی سند موجودی اول دوره هم اگر کارت کالا بعد از پیش‌نویس عوض شده باشد رد می‌شود؛ سند را ویرایش کنید.</li>
+        <li><b>لایه‌چینی و برش:</b> واحد لایه از کارت کالای پارچه گرفته می‌شود (نه برچسب قدیمی طاقه). پارچهٔ کیلویی (مثل دورس سه نخ و کشبافت) مثل قبل کیلوگرم می‌ماند و طول مارکر با «وزن هر متر» تبدیل می‌شود. ته‌طاقهٔ برش مشترک هم به واحد کالا ساخته می‌شود.</li>
+        <li><b>برچسب قدیمی اشتباه:</b> طاقه‌هایی که برچسب «m» دارند ولی کالایشان یاردی است با «⚠ واحد» علامت می‌خورند؛ مقدارشان همان واحد کالاست و به همان واحد نمایش داده می‌شود. اصلاح برچسب در دادهٔ تولید فقط با تأیید مالک و از اسکریپت اصلاح (پیش‌نمایش پیش‌فرض، قابل بازگردانی) انجام می‌شود.</li>
+      </ul>`),
     helpSec('🧵','موجودی اول دورهٔ طاقه و مواد با ویژگی (P7)',`
       <p>برای ثبت موجودی ابتدای دورهٔ پارچه و مواد، در <b>«دریافت مواد / طاقه»</b> دکمهٔ <b>«📦 موجودی اول دوره»</b> (یا تیک «موجودی اول دوره» داخل فرم دریافت) را بزنید. فقط <b>مدیر</b> و <b>حسابداری</b> این حالت را می‌بینند.</p>
       <ul>
@@ -43456,7 +43473,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>دریافت مواد (طاقه / ویژگی):</b> منوی انبار ← <b>دریافت مواد</b>. فقط انبار مواد اولیه (WH-RAW). دو پروفایل: <b>پارچه (طاقه)</b> — رنگ اجباری، عرض؛ قابل برش و فروش طاقه‌ای؛ و <b>مواد با ویژگی</b> — مقدار بر اساس واحد کالا. موجودی از دفتر لحظه‌ای است. لایه‌چینی فقط طاقه را می‌بیند</li>
         <li><b>واحد طاقه (v512):</b> در فرم دریافت طاقه، «واحد دریافت» از همهٔ واحدهای فعال کاتالوگ <b>تنظیمات ← واحدهای اندازه‌گیری</b> انتخاب می‌شود (طول، وزن، مساحت). <b>واحد انبار</b> همیشه واحد کارت کالاست و از v514 می‌تواند طولی، وزنی یا مساحتی باشد (متر/یارد/کیلوگرم/متر مربع…). فقط واحد شمارشی (عدد/جین) برای طاقه بسته است. واحدهای طولی خودکار با ضریب کاتالوگ تبدیل می‌شوند (مثلاً ۱۰۰ یارد = ۹۱٫۴۴ متر). برای وزن/مساحت باید <b>ضریب همان طاقه</b> را بدهید (مثلاً هر ۱ کیلوگرم = ۴٫۲ متر). پیش‌نمایش زیر فرم مقدار انبار را نشان می‌دهد. مقدار و فی دریافتی روی طاقه می‌ماند و در ویرایش/ابطال همان مبلغ برمی‌گردد. طاقه‌های قدیمی که واحدشان با کارت کالا نمی‌خواند در فهرست با «⚠ واحد» علامت می‌خورند. واحدی که در طاقه استفاده شده قابل حذف از کاتالوگ نیست.</li>
         <li><b>لایه‌چینی به واحد طاقه (v514):</b> لایه‌چینی دیگر فقط «متر» نیست؛ مصرف، ماتریس، ضایعات، «پهن واقعی» هر طاقه و سند PRD-09 همه به <b>واحد خود طاقه‌ها</b> حساب می‌شوند. وقتی طاقه را تیک می‌زنید برچسب فیلدها عوض می‌شود. <b>طاقهٔ طولی</b> (متر/یارد/سانتی‌متر): طول مارکر را هم به همان واحد بزنید، بدون تبدیل. <b>طاقهٔ وزنی/مساحتی</b> (کیلوگرم/متر مربع): مارکر یک طول فیزیکی است و به متر وارد می‌شود. فیلد «هر ۱ متر مارکر = ؟ واحد» ظاهر می‌شود و سیستم پیشنهادش را به این ترتیب پر می‌کند: ضریب رسید طاقه (مثلاً ۱ کیلوگرم = ۴٫۲ متر، یعنی هر متر ≈ ۰٫۲۳۸ کیلوگرم)، پهنای پارچه برای متر مربع، یا ضریب آخرین لایهٔ همان پارچه. همیشه قابل اصلاح است و روی لایه ذخیره می‌شود. همهٔ طاقه‌های یک لایه باید یک واحد داشته باشند (E_CUT_ROLL_UNIT). اگر ضریب وزنی پیدا نشود، ثبت با E_CUT_MARKER_FACTOR متوقف می‌شود. حداقل «تکهٔ قابل‌استفاده» در سیاست ضایعات همچنان به متر است و به واحد طاقه تبدیل می‌شود. پارچه‌ای که طاقه دارد (حتی با واحد کیلوگرم) خروجی برش را به لایه‌چینی می‌برد. پارچهٔ وزنی که هنوز هیچ طاقه‌ای ندارد تا اولین دریافت طاقه، مسیر مواد عادی دارد.</li>
-        <li><b>اصلاح برچسب واحد طاقه (v515):</b> بعضی طاقه‌های قدیمی (مثلاً «دورس سه نخ اسپان» یا «کشبافت» با واحد کیلوگرم) برچسب «متر» دارند در حالی که مقدارشان از اول به واحد کارت کالا ثبت شده است: دفتر انبار، موجودی انبار، ردیف فاکتور خرید و مقدار دریافتی طاقه همه کیلوگرم‌اند و فقط برچسب غلط است. از v514 لایه‌چینی با برچسب طاقه حساب می‌کند، پس چنین طاقه‌ای مارکر را به متر از ماندهٔ کیلوگرمی کم می‌کند. در <b>حسابداری ← دریافت مواد</b> دکمهٔ «اصلاح برچسب واحد طاقه‌ها» (یا «اصلاح» کنار «⚠ واحد») را بزنید (فقط مدیر/حسابداری). پیش‌نمایش واحد کارت کالا، طاقه‌های ناهمخوان، مقدار ردیف خرید و ورود دفتر هر طاقه، و ماندهٔ دفتر در برابر موجودی انبار را نشان می‌دهد. اگر طاقه در لایه‌چینی فعال مصرف شده باشد، یا مقدار طاقه با ردیف خرید/ورود دفتر برابر نباشد (یعنی مقدار هم باید تبدیل شود)، اصلاح بسته است. با دلیل و تیک تأیید، برچسب همهٔ طاقه‌های ناهمخوان آن کالا در یک تراکنش به واحد کارت کالا عوض می‌شود. مقدار، مبلغ، دفتر انبار و سند حسابداری تغییر نمی‌کنند. هر اصلاح در سابقه ثبت می‌شود و تا وقتی آن طاقه‌ها در لایه‌چینی مصرف نشده‌اند با «بازگردانی» (با دلیل) به برچسب قبلی برمی‌گردد. اگر مقدار طاقه واقعاً به متر است، این ابزار مناسب نیست؛ طاقه را ویرایش یا ابطال و دوباره دریافت کنید.</li>
+        <li><b>اصلاح برچسب واحد طاقه (v515):</b> بعضی طاقه‌های قدیمی (مثلاً «دورس سه نخ اسپان» یا «کشبافت» با واحد کیلوگرم) برچسب «متر» دارند در حالی که مقدارشان از اول به واحد کارت کالا ثبت شده است: دفتر انبار، موجودی انبار، ردیف فاکتور خرید و مقدار دریافتی طاقه همه کیلوگرم‌اند و فقط برچسب غلط است. از P9 لایه‌چینی با واحد کارت کالا حساب می‌کند و این برچسب دیگر روی مصرف اثر ندارد، ولی برای یکدستی گزارش‌ها اصلاحش لازم است. در <b>حسابداری ← دریافت مواد</b> دکمهٔ «اصلاح برچسب واحد طاقه‌ها» (یا «اصلاح» کنار «⚠ واحد») را بزنید (فقط مدیر/حسابداری). پیش‌نمایش واحد کارت کالا، طاقه‌های ناهمخوان، مقدار ردیف خرید و ورود دفتر هر طاقه، و ماندهٔ دفتر در برابر موجودی انبار را نشان می‌دهد. اگر طاقه در لایه‌چینی فعال مصرف شده باشد، یا مقدار طاقه با ردیف خرید/ورود دفتر برابر نباشد (یعنی مقدار هم باید تبدیل شود)، اصلاح بسته است. با دلیل و تیک تأیید، برچسب همهٔ طاقه‌های ناهمخوان آن کالا در یک تراکنش به واحد کارت کالا عوض می‌شود. مقدار، مبلغ، دفتر انبار و سند حسابداری تغییر نمی‌کنند. هر اصلاح در سابقه ثبت می‌شود و تا وقتی آن طاقه‌ها در لایه‌چینی مصرف نشده‌اند با «بازگردانی» (با دلیل) به برچسب قبلی برمی‌گردد. اگر مقدار طاقه واقعاً به متر است، این ابزار مناسب نیست؛ طاقه را ویرایش یا ابطال و دوباره دریافت کنید.</li>
         <li><b>واحد با «ي/ك» عربی و موجودی خارج از طاقه (v515):</b> واحد کالا اگر با حروف عربی (مثل «کيلو گرم»)، فاصله، نیم‌فاصله یا کشیده نوشته شده باشد، حالا همان واحد کاتالوگ شناخته می‌شود و با بوت بعدی به کارت کالا وصل می‌شود. قبلاً شناخته نمی‌شد و طاقهٔ خرید برچسب «متر» می‌خورد. طاقهٔ رسید خرید حالا همیشه واحد کارت کالا را می‌گیرد. برای پارچه‌ای که بخشی از موجودی‌اش (مثلاً موجودی اول دوره) روی هیچ طاقه‌ای نیست، هم‌ترازی موجودی بعد از لایه‌چینی یا فروش دیگر آن بخش را پاک نمی‌کند: موجودی انبار هرگز از ماندهٔ دفتر انبار کمتر نمی‌شود.</li>
         <li><b>پارچهٔ کیلویی یا متر مربعی پیش از اولین طاقه (v515):</b> اگر واحد کالا وزنی یا مساحتی باشد و در یک فرمول <b>فعال</b> به عملیات مرکز «برش» (CC-10) تخصیص داده شده باشد، پارچهٔ طاقه‌ای حساب می‌شود، حتی پیش از دریافت اولین طاقه. خروجی مرحلهٔ برش به لایه‌چینی می‌رود، دریافت و خرید آن به‌صورت طاقه انجام می‌شود (رنگ الزامی)، و حوالهٔ مستقیم مرحله بسته است. مواد کیلویی مرحلهٔ دوخت (کش، نخ) مثل قبل حوالهٔ عادی دارند. اگر یک مادهٔ کیلویی در یک فرمول روی برش و در فرمول دیگر روی دوخت باشد، همه‌جا پارچهٔ طاقه‌ای حساب می‌شود.</li>
         <li><b>گردش مواد/طاقه (v489)</b>: همان پایهٔ صورت‌حساب — اول دوره، ورود دوره، خروج دوره، جمع پایین جدول، ماندهٔ پایان. پیش‌فرض جفت ابطال (رسید/حواله + معکوس) را نشان نمی‌دهد و ورود/خروج فقط از ردیف‌های زندهٔ همین بازه است، نه از جمع تاریخیِ شامل ابطال. «مانده زنده» جمع دفتر همان طاقه‌هاست. تیک «نمایش ابطال» برای رسیدگی است. بازهٔ تاریخ، اول دوره را از ردیف‌های قبل از «از تاریخ» می‌سازد</li>

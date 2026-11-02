@@ -42,6 +42,20 @@ function unitRowForToken(db, token) {
   return null;
 }
 
+/** Product stock unit when it is a roll dimension (length / mass / area) in the catalog. */
+function productUnitRow(db, productId) {
+  if (!productId) return null;
+  try {
+    const prod = db.prepare('SELECT id, unit, unit_id FROM products WHERE id=?').get(Number(productId));
+    if (!prod) return null;
+    const row = uom.stockUnitForProduct(db, prod);
+    if (!row || !uom.ROLL_ENTRY_DIMENSIONS.includes(row.dimension || 'count')) return null;
+    return row;
+  } catch (_) {
+    return null;
+  }
+}
+
 function tokenOf(db, row, fallback) {
   if (row) return uom.rollUnitToken(row) || String(fallback || '').trim().toLowerCase();
   return String(fallback || 'm').trim().toLowerCase() || 'm';
@@ -98,10 +112,14 @@ function resolveLayUnit(db, opts = {}) {
   const batches = loadBatches(db, opts.batchIds);
   let row = null;
   let token = '';
+  const labelMismatch = [];
   if (batches.length) {
     const seen = new Map();
     for (const b of batches) {
-      const r = unitRowForToken(db, b.unit);
+      // P9: roll qty is in the product unit (ledger/warehouse stock are); the batch token is only a label.
+      const pRow = productUnitRow(db, b.product_id);
+      const r = pRow || unitRowForToken(db, b.unit);
+      if (pRow && !uom.rollTokenMatchesProduct(db, { unit: pRow.name, unit_id: pRow.id }, b.unit)) labelMismatch.push(b.id);
       const key = r ? `id:${r.id}` : `t:${String(b.unit || 'm').trim().toLowerCase()}`;
       if (!seen.has(key)) seen.set(key, { row: r, token: b.unit, batch: b });
     }
@@ -114,6 +132,10 @@ function resolveLayUnit(db, opts = {}) {
     const only = [...seen.values()][0];
     row = only.row;
     token = tokenOf(db, row, only.token);
+    if (!row && batches[0] && batches[0].product_id) {
+      const prod = db.prepare('SELECT id, unit, unit_id FROM products WHERE id=?').get(Number(batches[0].product_id));
+      if (!String(only.token || '').trim() && prod && prod.unit) token = String(prod.unit).trim();
+    }
   } else if (opts.fabricProductId) {
     const prod = db.prepare('SELECT id, unit, unit_id FROM products WHERE id=?').get(Number(opts.fabricProductId));
     try { row = prod ? uom.stockUnitForProduct(db, prod) : null; } catch (_) { row = null; }
@@ -133,6 +155,7 @@ function resolveLayUnit(db, opts = {}) {
     unit_symbol: row ? (row.symbol || '') : '',
     dimension,
     decimal_places: row ? Number(row.decimal_places) || 0 : 3,
+    label_mismatch_batch_ids: labelMismatch,
   };
 
   if (dimension === 'length' || !row) {

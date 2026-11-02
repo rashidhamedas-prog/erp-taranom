@@ -224,7 +224,7 @@ function normalizeOutputs(outputs, acceptedPlies, opts) {
     weights = weightsToBps(mapped.map((o) => o.weight));
   } else if (basis === 'fabric') {
     if (!hasFabric) {
-      throw httpErr(400, 'در تسهیم پارچه، متر استاندارد پارچه (fabric_std_m) برای هر محصول لازم است', 'E_ALLOC_FABRIC');
+      throw httpErr(400, 'در تسهیم پارچه، مصرف استاندارد پارچه به واحد کالای پارچه (fabric_std_m) برای هر محصول لازم است', 'E_ALLOC_FABRIC');
     }
     weights = weightsToBps(fabricRaw);
   } else if (basis === 'hybrid') {
@@ -724,7 +724,7 @@ function postSharedCut(db, body, user) {
           VALUES (?,?,?,?,?,'active','fabric',?,?, ?, ?, 'cutting_remnant', ?, ?)
         `).run(
           `${batch.batch_no}-R`, batch.product_id, whRem.id, roll.remnant_m, roll.remnant_m,
-          batch.color || '', Math.round(Number(batch.width_cm) || 0), batch.unit || 'm', unit, batchId, 'ته‌طاقه'
+          batch.color || '', Math.round(Number(batch.width_cm) || 0), plan.qty_unit || batch.unit || 'm', unit, batchId, 'ته‌طاقه'
         );
         remnantBatchId = ins.lastInsertRowid;
         const remLed = postInventoryMovement(db, {
@@ -1158,7 +1158,7 @@ function amendSharedCut(db, id, body, user) {
           VALUES (?,?,?,?,?,'active','fabric',?,?, ?, ?, 'cutting_remnant', ?, ?)
         `).run(
           `${existing.batch_no}-R`, fabBatch.product_id, whRem.id, roll.remnant_m, roll.remnant_m,
-          existing.color || body.color || '', Math.round(Number(body.width_cm) || 0), fabBatch.unit || 'm', unit, batchId, 'ته‌طاقه'
+          existing.color || body.color || '', Math.round(Number(body.width_cm) || 0), plan.qty_unit || fabBatch.unit || 'm', unit, batchId, 'ته‌طاقه'
         );
         remnantBatchId = ins.lastInsertRowid;
         const remLed = postInventoryMovement(db, {
