@@ -289,7 +289,9 @@ function listFabricCirculation(db, query = {}) {
   const rows = db.prepare(`
     SELECT l.id, l.date, l.event_type, l.qty_in, l.qty_out, l.note, l.source_type, l.source_id,
            l.status AS ledger_status, l.reversed_of, l.batch_id, b.batch_no, b.color, b.pattern,
-           p.name AS product_name, w.name AS warehouse_name, u.name AS user_name
+           p.name AS product_name, p.unit AS product_unit,
+           ${hasUomCatalog(db) ? 'p.unit_id' : 'NULL'} AS product_unit_id,
+           w.name AS warehouse_name, u.name AS user_name
     FROM inventory_ledger l
     JOIN inventory_batches b ON b.id = l.batch_id
     LEFT JOIN products p ON p.id = b.product_id
@@ -305,7 +307,10 @@ function listFabricCirculation(db, query = {}) {
   let period_qty_in = 0;
   let period_qty_out = 0;
   const visible = [];
+  const unitLabels = new Set();
   for (const r of live) {
+    r.unit_label = productUnitLabel(db, r);
+    if (r.unit_label) unitLabels.add(r.unit_label);
     const bid = r.batch_id || 0;
     const qIn = Number(r.qty_in) || 0;
     const qOut = Number(r.qty_out) || 0;
@@ -343,6 +348,9 @@ function listFabricCirculation(db, query = {}) {
     period_qty_out,
     closing_qty,
     control_qty,
+    // One label when every row shares a product unit; sums across units are not meaningful.
+    unit_label: unitLabels.size === 1 ? [...unitLabels][0] : '',
+    mixed_units: unitLabels.size > 1 ? 1 : 0,
     show_cancelled: showAudit,
     live_period: true,
   };
@@ -525,7 +533,9 @@ function listFabricRolls(db, query = {}) {
     const live = Number(r.qty_live != null ? r.qty_live : r.qty_on_hand) || 0;
     if (minLive != null && live + 1e-9 < minLive) continue;
     r.amount_rial = assertSafeRial(rollReceiptAmount(r), 'fabric list amount');
-    r.unit_label = rollUnitLabel(db, r);
+    // P9: quantities are in the product unit; the stored token is shown separately when it differs.
+    r.batch_unit_label = rollUnitLabel(db, r);
+    r.unit_label = productUnitLabel(db, r) || r.batch_unit_label;
     // Roll balance and product stock must share a unit; legacy rolls labelled «m» on a kg product are flagged.
     r.unit_mismatch = rollUnitMismatch(db, r) ? 1 : 0;
     out.push(r);
@@ -566,10 +576,19 @@ function hasUomCatalog(db) {
 /** Persian name for the roll balance unit (token m/yd/cm/kg or a catalog code). */
 function rollUnitLabel(db, r) {
   const token = String(r && r.unit || '').trim();
-  if (!token) return 'متر';
+  if (!token) return productUnitLabel(db, r) || 'متر';
   if (!hasUomCatalog(db)) return token === 'yd' ? 'یارد' : (token === 'm' ? 'متر' : token);
   const row = require('../uom').matchText(db, token);
   return row ? row.name : token;
+}
+
+/** P9 — Persian name of the product unit a roll row belongs to (needs product_unit[/_id] on r). */
+function productUnitLabel(db, r) {
+  if (!r) return '';
+  const prod = { unit: r.product_unit, unit_id: r.product_unit_id || null };
+  if (!prod.unit && !prod.unit_id) return '';
+  if (!hasUomCatalog(db)) return String(prod.unit || '').trim();
+  return require('../uom').productRollUnit(db, prod).name || '';
 }
 
 function rollUnitMismatch(db, r) {
@@ -706,7 +725,8 @@ function consumeFabricRollOnSale(db, { batchId, qty }) {
   }
   const onHand = Number(row.qty_on_hand) || 0;
   if (meters - onHand > 1e-9) {
-    throw httpErr(409, `متر طاقه ${row.batch_no} کافی نیست (مانده ${onHand})`, 'E_FABRIC_QTY');
+    const word = require('../uom').productRollUnit(db, db.prepare('SELECT unit, unit_id FROM products WHERE id=?').get(row.product_id) || {}).name || rollUnitLabel(db, row);
+    throw httpErr(409, `مقدار (${word}) طاقه ${row.batch_no} کافی نیست (مانده ${onHand})`, 'E_FABRIC_QTY');
   }
   adjustBatchQty(db, id, -meters);
 }
@@ -765,6 +785,7 @@ function receiveFabricRoll(db, body, user) {
   let qty;
   let unit;
   let entry = null;
+  let attrEntry = null;
   if (profile === 'fabric') {
     if (!color) throw httpErr(400, 'رنگ طاقه الزامی است', 'E_FABRIC_COLOR');
     entry = require('../uom').resolveRollEntry(db, prod, body);
@@ -777,11 +798,16 @@ function receiveFabricRoll(db, body, user) {
     if (!(qty > 0) || !Number.isFinite(qty)) {
       throw httpErr(400, 'مقدار باید بزرگ‌تر از صفر باشد', 'E_FABRIC_METERS');
     }
-    const fromBody = body.unit != null && String(body.unit).trim() !== ''
+    // P9: a material typed in another unit is converted to the product unit before storing.
+    const mat = require('../uom').resolveMaterialEntry(db, prod, body, qty);
+    qty = mat.qty;
+    const fromBody = !mat.converted && body.unit != null && String(body.unit).trim() !== ''
       ? body.unit
       : (prod.unit || 'pcs');
     unit = normUnit(fromBody, { allowAny: true });
+    if (mat.converted) attrEntry = mat;
   }
+  require('../uom').assertRollUnitMatchesProduct(db, prod, unit);
 
   let unitCost = Math.round(Number(body.unit_cost_rial) || 0);
   if (unitCost < 0) throw httpErr(400, 'بهای واحد نامعتبر است', 'E_FABRIC_COST');
@@ -791,6 +817,10 @@ function receiveFabricRoll(db, body, user) {
     // unit_cost_rial on the form is per entry unit; stock unit cost is derived.
     entryUnitCost = unitCost || Math.round(productUnitCostRial(prod) * entry.factor);
     amount = assertSafeRial(Math.round(entryUnitCost * entry.entryQty), 'fabric amount');
+    unitCost = qty > 0 ? Math.round(amount / qty) : 0;
+  } else if (attrEntry) {
+    entryUnitCost = unitCost || Math.round(productUnitCostRial(prod) * attrEntry.factor);
+    amount = assertSafeRial(Math.round(entryUnitCost * attrEntry.entryQty), 'material amount');
     unitCost = qty > 0 ? Math.round(amount / qty) : 0;
   } else {
     if (!unitCost) unitCost = productUnitCostRial(prod);
@@ -808,7 +838,11 @@ function receiveFabricRoll(db, body, user) {
   const rollNo = String(body.roll_no || body.batch_no || '').trim();
   const kind = profile === 'fabric' ? 'fabric' : 'attr';
   const label = kind === 'fabric' ? 'طاقه' : 'بچ مواد';
-  const qtyLabel = entry ? rollEntryLabel(entry) : `${qty} ${unit}`;
+  const qtyLabel = entry
+    ? rollEntryLabel(entry)
+    : (attrEntry
+      ? rollEntryLabel({ entry: attrEntry.entry, stock: require('../uom').productRollUnit(db, prod).row, entryQty: attrEntry.entryQty, stockQty: qty })
+      : `${qty} ${unit}`);
   const noteExtra = qualityGrade ? ` · درجه ${qualityGrade}` : '';
   const userNote = String(body.note || '').trim();
 
@@ -858,6 +892,9 @@ function receiveFabricRoll(db, body, user) {
       throw e;
     }
     if (entry) writeRollEntry(db, batch.id, entry, entryUnitCost);
+    else if (attrEntry && hasUomCatalog(db)) {
+      writeRollEntry(db, batch.id, { entry: attrEntry.entry, entryQty: attrEntry.entryQty, factor: attrEntry.factor }, entryUnitCost);
+    }
 
     const led = postInventoryMovement(db, {
       eventType: 'receipt',
@@ -997,6 +1034,7 @@ function updateFabricRoll(db, id, body, user) {
   const widthCm = body.width_cm != null ? Math.round(Number(body.width_cm) || 0) : (Number(row.width_cm) || 0);
   const oldMeters = Number(row.qty_received != null ? row.qty_received : row.qty_on_hand) || 0;
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(row.product_id);
+  const unitWord = require('../uom').productRollUnit(db, prod).name || rollUnitLabel(db, row);
   const wantsEntry = isFabric
     && (body.entry_unit_id != null || body.entry_qty != null || body.entry_factor != null);
   let entry = null;
@@ -1118,8 +1156,10 @@ function updateFabricRoll(db, id, body, user) {
         SET color=?, pattern=?, width_cm=?, unit_cost_rial=?, supplier_id=?, qty_received=?
         WHERE id=?
       `).run(color, pattern, widthCm, unitCost, supplierId || null, meters, row.id);
-      if (entry) writeRollEntry(db, row.id, entry, entryUnitCost);
-      else {
+      if (entry) {
+        writeRollEntry(db, row.id, entry, entryUnitCost);
+        db.prepare('UPDATE inventory_batches SET unit=? WHERE id=?').run(entry.token, row.id);
+      } else {
         db.prepare(`
           UPDATE inventory_batches
           SET entry_unit_id=NULL, entry_qty=NULL, entry_factor=NULL, entry_unit_cost_rial=NULL
@@ -1155,7 +1195,7 @@ function updateFabricRoll(db, id, body, user) {
           sourceType: 'fabric_roll_edit',
           sourceId: row.id,
           date,
-          description: `ویرایش طاقه ${rollNo || row.batch_no} — ${entry ? rollEntryLabel(entry) : `${fmtRollQty(meters)} ${row.unit || 'متر'}`}`,
+          description: `ویرایش طاقه ${rollNo || row.batch_no} — ${entry ? rollEntryLabel(entry) : `${fmtRollQty(meters)} ${unitWord}`}`,
           createdBy: user.id,
           lines: [
             { code: invAcct.code, name: invAcct.name, debit: rialToLedger(amount), credit: 0 },
@@ -1174,7 +1214,7 @@ function updateFabricRoll(db, id, body, user) {
             date,
             entry_type: 'purchase',
             ref_id: row.id,
-            description: `ویرایش طاقه ${rollNo || row.batch_no} — ${entry ? rollEntryLabel(entry) : `${fmtRollQty(meters)} ${row.unit || 'متر'}`}`,
+            description: `ویرایش طاقه ${rollNo || row.batch_no} — ${entry ? rollEntryLabel(entry) : `${fmtRollQty(meters)} ${unitWord}`}`,
             debit: 0,
             credit: amount,
             user_id: user.id,
@@ -1221,5 +1261,6 @@ module.exports = {
   reverseFabricIdentitiesBySource,
   restoreFabricQtyFromLedgerRows,
   productUnitCostRial,
+  productUnitLabel,
   invErr,
 };

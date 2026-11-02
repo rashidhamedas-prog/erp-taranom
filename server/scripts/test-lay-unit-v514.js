@@ -97,8 +97,11 @@ try {
     ok('m² roll: factor from width', la.qty_unit === 'm2' && la.factor_source === 'width', JSON.stringify(la));
     eq('160 cm width = 1.6 m² per metre', la.marker_factor, 1.6, 1e-9);
     code = '';
-    try { resolveLayUnit(db, { batchIds: [rK, rMx] }); } catch (e) { code = e.code; }
-    ok('mixed units in one lay → E_CUT_ROLL_UNIT', code === 'E_CUT_ROLL_UNIT', code);
+    // P9: roll qty is in the product unit; an «m» label on a kg product is only flagged.
+    let mixed = null;
+    try { mixed = resolveLayUnit(db, { batchIds: [rK, rMx] }); } catch (e) { code = e.code; }
+    ok('P9: mislabelled roll of a kg product follows the product unit (flagged)',
+      !code && mixed && mixed.qty_unit === 'kg' && (mixed.label_mismatch_batch_ids || []).includes(rMx), code || JSON.stringify(mixed && mixed.label_mismatch_batch_ids));
     const lp = resolveLayUnit(db, { fabricProductId: fK, soft: true });
     ok('no rolls: product stock unit', lp.qty_unit === 'kg', lp.qty_unit);
 

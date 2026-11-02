@@ -129,8 +129,24 @@ function normalizeLine(db, raw, idx = 0) {
       if (!(entryQty > 0) || !Number.isFinite(entryQty)) {
         throw osErr('E_FABRIC_METERS', 400, `${m}: مقدار باید بزرگ‌تر از صفر باشد`);
       }
-      stockQty = round3(entryQty);
+      // P9: مادهٔ واردشده به واحد دیگر (هم‌بعد) به واحد کالا تبدیل می‌شود؛ ناهم‌بعد رد می‌شود.
+      let mat;
+      try {
+        mat = uom.resolveMaterialEntry(db, prod, { entry_unit_id: raw.entry_unit_id, unit: raw.unit }, entryQty);
+      } catch (e) {
+        e.message = `${m}: ${e.message}`;
+        throw e;
+      }
+      stockQty = round3(mat.qty);
+      factor = mat.factor;
+      if (mat.converted) { entryUnitId = mat.entry.id; entryFactor = mat.factor; }
       if (!(stockQty > 0)) throw osErr('E_FABRIC_METERS', 400, `${m}: مقدار باید بزرگ‌تر از صفر باشد`);
+    }
+    try {
+      uom.assertRollUnitMatchesProduct(db, prod, token);
+    } catch (e) {
+      e.message = `${m}: ${e.message}`;
+      throw e;
     }
     const amount = Math.round(entryCost * entryQty);
     if (!(amount > 0)) throw osErr('E_OPENING_COST_REQUIRED', 422, `${m}: مبلغ طاقه صفر شد`);
@@ -272,8 +288,11 @@ function postRollsLine(db, { doc, row, l, date, user, source }) {
   const kind = row.profile === 'attr' ? 'attr' : 'fabric';
   const label = kind === 'fabric' ? 'طاقه' : 'بچ مواد';
   const entryCost = Number(row.entry_unit_cost_rial) || 0;
+  const uom = require('../uom');
   const out = [];
   for (const r of rolls) {
+    // P9: کارت کالا ممکن است بعد از پیش‌نویس عوض شده باشد؛ مقدار ذخیره‌شده باید به واحد فعلی کالا باشد.
+    uom.assertRollUnitMatchesProduct(db, prod, r.unit || String(prod && prod.unit || ''), `سند ${doc.doc_no} — ${label} ${r.roll_no || ''}`.trim());
     const stockQty = round3(r.stock_qty);
     const amount = Math.round(Number(r.amount_rial) || 0);
     const unitCost = stockQty > 0 ? Math.round(amount / stockQty) : 0;
@@ -301,7 +320,7 @@ function postRollsLine(db, { doc, row, l, date, user, source }) {
     `).run(kind, r.color || (kind === 'fabric' ? 'نامشخص' : '—'), r.pattern || '', Math.round(Number(r.width_cm) || 0),
       r.unit || String(prod && prod.unit || ''), unitCost, stockQty, stockQty, source, doc.id,
       r.weight_kg == null ? null : Number(r.weight_kg), batch.id);
-    if (kind === 'fabric' && row.entry_unit_id) {
+    if (row.entry_unit_id) {
       db.prepare(`
         UPDATE inventory_batches SET entry_unit_id=?, entry_qty=?, entry_factor=?, entry_unit_cost_rial=? WHERE id=?
       `).run(row.entry_unit_id, Number(r.entry_qty) || stockQty, Number(r.factor) || Number(row.entry_factor) || 1,

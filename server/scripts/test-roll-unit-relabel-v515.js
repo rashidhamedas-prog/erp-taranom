@@ -128,7 +128,9 @@ try {
     const listed = listFabricRolls(db, { product_id: fA });
     ok('list flags unit_mismatch on legacy rolls', listed.length === 2 && listed.every((r) => Number(r.unit_mismatch) === 1));
     const before = resolveLayUnit(db, { batchIds: [rA1, rA2], soft: true });
-    ok('before: lay engine would consume in m', before.qty_unit === 'm', before.qty_unit);
+    // P9: lay unit = product unit even before the label is fixed; the label is flagged only.
+    ok('before: lay engine consumes in product unit (P9), label flagged', before.qty_unit === 'kg'
+      && (before.label_mismatch_batch_ids || []).length === 2, before.qty_unit);
 
     const pv = relabel.previewRollUnitRelabel(db, fA);
     ok('preview: stock unit kg', pv.stock_unit && pv.stock_unit.token === 'kg', JSON.stringify(pv.stock_unit));
