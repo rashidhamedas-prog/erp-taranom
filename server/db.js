@@ -2365,6 +2365,16 @@ function initSyncSchema(db, opts) {
   if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('opening_stock')) {
     db.prepare('INSERT INTO number_sequences (key,current_value) VALUES (?,0)').run('opening_stock');
   }
+  // P7 — حالت «اول دوره» در دریافت مواد/طاقه: چند طاقه زیر همان یک خط فعال کالا×انبار
+  // (rolls_json تا ثبت قطعی؛ هنگام post هر طاقه یک inventory_batches + یک ردیف کاردکس opening).
+  // amount_rial = جمع دقیق مبلغ طاقه‌ها (گرد کردن qty×unit_cost را دور می‌زند).
+  ensureColumn(db, 'opening_stock_lines', 'profile', 'TEXT');
+  ensureColumn(db, 'opening_stock_lines', 'rolls_json', 'TEXT');
+  ensureColumn(db, 'opening_stock_lines', 'entry_unit_id', 'INTEGER');
+  ensureColumn(db, 'opening_stock_lines', 'entry_factor', 'REAL');
+  ensureColumn(db, 'opening_stock_lines', 'entry_unit_cost_rial', 'INTEGER');
+  ensureColumn(db, 'opening_stock_lines', 'amount_rial', 'INTEGER');
+  ensureColumn(db, 'opening_stock_docs', 'amends_doc_id', 'INTEGER');
 
   // موجودی اول دوره جدا از موجودی کل — یک ردیف به ازای (سال مالی، کالا، واریانت، انبار).
   // منبع حقیقت مقدار هنوز کاردکس است؛ این جدول «کدام ردیف کاردکس افتتاحیه است» را نگه می‌دارد.

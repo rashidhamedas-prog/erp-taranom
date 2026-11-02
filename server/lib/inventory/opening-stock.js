@@ -196,9 +196,29 @@ function getDoc(db, id, { withLines = true } = {}) {
       LEFT JOIN product_colors c ON c.id=v.color_id
       LEFT JOIN product_sizes z ON z.id=v.size_id
       WHERE s.doc_id=? ORDER BY s.id
-    `).all(id).map((r) => ({ ...r, amount_rial: Math.round((Number(r.qty) || 0) * (Number(r.unit_cost_rial) || 0)) }));
+    `).all(id).map((r) => {
+      const out = {
+        ...r,
+        amount_rial: r.amount_rial != null && r.amount_rial !== ''
+          ? Math.round(Number(r.amount_rial))
+          : Math.round((Number(r.qty) || 0) * (Number(r.unit_cost_rial) || 0)),
+      };
+      if (r.rolls_json) {
+        out.rolls = require('./opening-rolls').parseRolls(r);
+        delete out.rolls_json;
+      }
+      return out;
+    });
     doc.total_rial = doc.lines.reduce((a, r) => a + r.amount_rial, 0);
     doc.total_qty = round3(doc.lines.reduce((a, r) => a + (Number(r.qty) || 0), 0));
+    doc.has_rolls = doc.lines.some((l) => Array.isArray(l.rolls) && l.rolls.length > 0);
+    if (doc.has_rolls) {
+      doc.batches = db.prepare(`
+        SELECT id, batch_no, product_id, warehouse_id, kind, color, pattern, width_cm, weight_kg, unit,
+          qty_received, qty_on_hand, status, ledger_id, entry_unit_id, entry_qty
+        FROM inventory_batches WHERE source_type=? AND source_id=? ORDER BY id
+      `).all(SOURCE, id);
+    }
   }
   return doc;
 }
@@ -211,7 +231,8 @@ function listDocs(db, { status = null, limit = 100 } = {}) {
   return db.prepare(`
     SELECT d.*, cu.name AS created_by_name, pu.name AS posted_by_name,
       (SELECT COUNT(*) FROM opening_stock_lines s WHERE s.doc_id=d.id) AS line_count,
-      (SELECT COALESCE(SUM(ROUND(s.qty*s.unit_cost_rial)),0) FROM opening_stock_lines s WHERE s.doc_id=d.id) AS total_rial
+      (SELECT COALESCE(SUM(COALESCE(s.amount_rial, ROUND(s.qty*s.unit_cost_rial))),0) FROM opening_stock_lines s WHERE s.doc_id=d.id) AS total_rial,
+      (SELECT COUNT(*) FROM opening_stock_lines s WHERE s.doc_id=d.id AND s.rolls_json IS NOT NULL AND TRIM(s.rolls_json) NOT IN ('','[]')) AS rolls_line_count
     FROM opening_stock_docs d
     LEFT JOIN users cu ON cu.id=d.created_by
     LEFT JOIN users pu ON pu.id=d.posted_by
@@ -297,7 +318,28 @@ function postDoc(db, id, user) {
     require('./cycle-count').assertWarehouseNotCounting(db, [...new Set(checked.map((c) => c.l.warehouse_id))], { label: 'موجودی اول دوره' });
 
     const byWh = [];
+    const posRecs = [];
+    const OR = require('./opening-rolls');
+    if (checked.some((c) => OR.hasRolls(c.row))) OR.assertRole(user);
     for (const { row, l } of checked) {
+      if (OR.hasRolls(row)) {
+        const parts = OR.postRollsLine(db, { doc, row, l, date, user, source: SOURCE });
+        let claimed;
+        try {
+          claimed = db.prepare('UPDATE opening_stock_lines SET ledger_id=?, active=1 WHERE id=?').run(parts[0].ledgerId, row.id);
+        } catch (e) {
+          if (e && /UNIQUE|constraint/i.test(String(e.code || '') + String(e.message || ''))) throw dupErr(l, null);
+          throw e;
+        }
+        if (!claimed.changes) throw osErr('E_OPENING_STATE', 409, 'وضعیت ردیف تغییر کرده است');
+        for (const x of parts) byWh.push({ warehouseId: x.warehouseId, amountRial: x.amountRial, ledgerId: x.ledgerId, l });
+        posRecs.push({
+          l: { ...l, qty: Number(row.qty) },
+          amountRial: parts.reduce((a, x) => a + x.amountRial, 0),
+          ledgerId: parts[0].ledgerId,
+        });
+        continue;
+      }
       const note = `سند افتتاحیه انبار ${doc.doc_no} — ${l.product_name}`.slice(0, 300);
       const led = L.postInventoryMovement(db, {
         eventType: 'opening',
@@ -329,6 +371,7 @@ function postDoc(db, id, user) {
       }
       if (!claimed.changes) throw osErr('E_OPENING_STATE', 409, 'وضعیت ردیف تغییر کرده است');
       byWh.push({ warehouseId: l.warehouse_id, amountRial: Math.round(Number(led.amount_rial) || 0), ledgerId: led.id, l });
+      posRecs.push(byWh[byWh.length - 1]);
     }
 
     const invLines = L.inventoryAmountLinesByWarehouse(db, byWh);
@@ -346,8 +389,9 @@ function postDoc(db, id, user) {
     });
     const upLed = db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?');
     for (const b of byWh) upLed.run(jeId, b.ledgerId);
+    db.prepare('UPDATE inventory_batches SET journal_id=? WHERE source_type=? AND source_id=?').run(jeId, SOURCE, doc.id);
     const POS = require('./product-opening-stock');
-    for (const b of byWh) {
+    for (const b of posRecs) {
       POS.recordFromOpeningDoc(db, {
         fiscalYearId: doc.fiscal_year_id, productId: b.l.product_id, variantId: b.l.variant_id, warehouseId: b.l.warehouse_id,
         qty: b.l.qty, unitCostRial: b.l.unit_cost_rial, valueRial: b.amountRial, ledgerId: b.ledgerId, jeId,
@@ -374,9 +418,13 @@ function voidDoc(db, id, user, { reason } = {}) {
     const doc = db.prepare('SELECT * FROM opening_stock_docs WHERE id=?').get(id);
     if (!doc) throw osErr('E_OPENING_NOT_FOUND', 404, 'سند افتتاحیه یافت نشد');
     if (doc.status === 'void') throw osErr('E_OPENING_ALREADY_VOID', 409, 'سند قبلاً ابطال شده است');
+    const OR = require('./opening-rolls');
+    const withRolls = OR.docHasRolls(db, doc.id);
+    if (withRolls) OR.assertRole(user);
     if (doc.status === 'posted') {
       const rows = db.prepare('SELECT * FROM opening_stock_lines WHERE doc_id=? AND active=1 ORDER BY id').all(id);
       const date = today();
+      const rollBatches = withRolls ? OR.assertDocRollsUnused(db, doc.id, SOURCE) : [];
       for (const r of rows) {
         if (!r.ledger_id) continue;
         const led = db.prepare('SELECT status FROM inventory_ledger WHERE id=?').get(r.ledger_id);
@@ -391,9 +439,16 @@ function voidDoc(db, id, user, { reason } = {}) {
         docType: SOURCE, docId: doc.id, userId: user ? user.id : null,
         note: `ابطال سند افتتاحیه انبار ${doc.doc_no}`, applyHeaderStock: false,
       });
+      let revJe = null;
       if (doc.je_id) {
-        require('../void-journal').reverseJournalEntry(db, doc.je_id, {
+        revJe = require('../void-journal').reverseJournalEntry(db, doc.je_id, {
           userId: user ? user.id : null, reason: `ابطال سند افتتاحیه انبار ${doc.doc_no} — ${why}`,
+        });
+      }
+      if (rollBatches.length) {
+        OR.reverseDocRolls(db, {
+          doc, batches: rollBatches, user, reversalJeId: revJe,
+          note: `ابطال سند افتتاحیه انبار ${doc.doc_no}`,
         });
       }
       db.prepare('UPDATE opening_stock_lines SET active=0 WHERE doc_id=?').run(id);

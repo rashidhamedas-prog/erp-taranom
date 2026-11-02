@@ -737,7 +737,12 @@ function restoreFabricQtyFromLedgerRows(db, rows) {
   }
 }
 
+const OPENING_SOURCE = 'opening_stock_doc';
+
 function receiveFabricRoll(db, body, user) {
+  if (String(body.mode || '').trim().toLowerCase() === 'opening') {
+    throw httpErr(400, 'دریافت «اول دوره» با سند موجودی اول دوره ثبت می‌شود (POST /api/opening-stock/rolls)، نه دریافت با تأمین‌کننده', 'E_FABRIC_OPENING_ROUTE');
+  }
   const key = String(body.idempotency_key || '').trim();
   if (!key) {
     throw httpErr(400, 'کلید تکرارناپذیر الزامی است', 'E_FABRIC_IDEMPOTENCY');
@@ -922,6 +927,9 @@ function voidFabricRoll(db, id, user, { reason } = {}) {
   let row = db.prepare('SELECT * FROM inventory_batches WHERE id=?').get(Number(id));
   assertTrackedBatch(row);
   if (row.status === 'reversed') throw httpErr(409, 'این دریافت قبلاً ابطال شده است', 'E_FABRIC_REVERSED');
+  if (String(row.source_type || '') === OPENING_SOURCE) {
+    throw httpErr(409, 'این طاقه از سند موجودی اول دوره است — ابطال/ویرایش از همان سند (موجودی اول دوره) انجام می‌شود', 'E_FABRIC_OPENING_DOC');
+  }
   row = applyLiveRollQty(db, row);
   if (!rollUnused(row)) {
     throw httpErr(409, 'این ردیف مصرف شده است؛ ابتدا مصرف را برگردانید', 'E_FABRIC_CONSUMED');
@@ -1029,7 +1037,7 @@ function updateFabricRoll(db, id, body, user) {
   const supplierId = body.supplier_id != null
     ? (body.supplier_id ? Number(body.supplier_id) : 0)
     : (row.supplier_id || 0);
-  if (amount > 0 && !supplierId) {
+  if (amount > 0 && !supplierId && String(row.source_type || '') !== OPENING_SOURCE) {
     throw httpErr(400, 'برای دریافت با بها، تأمین‌کننده الزامی است', 'E_FABRIC_SUPPLIER');
   }
   const date = String(body.date || todayJalali()).trim();
@@ -1041,6 +1049,9 @@ function updateFabricRoll(db, id, body, user) {
   const fromPurchase = String(row.source_type || '') === 'purchase';
 
   if (financialChanged) {
+    if (String(row.source_type || '') === OPENING_SOURCE) {
+      throw httpErr(409, 'متر/بهای طاقهٔ اول دوره را از «ویرایش» همان سند موجودی اول دوره اصلاح کنید', 'E_FABRIC_OPENING_DOC');
+    }
     if (fromPurchase) {
       throw httpErr(
         409,

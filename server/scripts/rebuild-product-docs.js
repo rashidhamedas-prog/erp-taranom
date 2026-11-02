@@ -3,9 +3,10 @@
  * Rebuild product-related documents after a keep-products wipe:
  *   1) تفصیلی کالا (coa_code) تحت موجودی
  *   2) هم‌ترازی products.stock ↔ warehouse_stock
- *   3) کاردکس (stock_logs) — موجودی اول دوره
- *   4) دفتر موجودی سازمانی (inventory_ledger) + رسید انبار (warehouse_moves)
- *   5) سند حسابداری opening_inventory (اگر بهای واحد موجود باشد)
+ *   3) کاردکس قدیمی (stock_logs) — فقط وقتی دفتر انبار هست ولی stock_logs خالی است
+ *   4–5) گزارش فقط‌خواندنی کمبود افتتاحیه (summary.opening_gaps) — P7: این اسکریپت دیگر
+ *        ردیف opening در inventory_ledger، رسید افتتاحیه یا سند opening_inventory نمی‌سازد؛
+ *        موجودی/ارزش اول دوره فقط با «سند موجودی اول دوره» (/api/opening-stock) ثبت می‌شود.
  *
  * Idempotent — safe to re-run.
  *
@@ -32,9 +33,6 @@ if (!fs.existsSync(dbPath)) {
 process.env.DB_PATH = dbPath;
 const { initDB, getDB } = require('../db');
 const { allocTafsili } = require('../lib/coa-map');
-const { postProductOpeningInventory } = require('../lib/opening-post');
-const { postInventoryMovement } = require('../lib/inventory/ledger');
-const { todayJalali } = require('../jalali');
 
 initDB();
 const db = getDB();
@@ -76,9 +74,7 @@ const summary = {
   stock_synced: 0,
   wh_rows_created: 0,
   stock_logs: 0,
-  inventory_ledger: 0,
-  warehouse_moves: 0,
-  opening_je: 0,
+  opening_gaps: [],
   avg_cost_set: 0,
   skipped_no_qty: 0,
   errors: [],
@@ -140,61 +136,25 @@ const tx = db.transaction(() => {
         summary.avg_cost_set++;
       }
 
+      // 3–5) REPORT-ONLY (P7). The script used to insert opening kardex rows (often unit=0, no je_id),
+      // opening receipts and a separate JE. Opening qty/value is posted only by «سند موجودی اول دوره»
+      // (/api/opening-stock), so gaps are listed in summary.opening_gaps for that document.
       const hasLog = db.prepare(
         'SELECT COUNT(*) c FROM stock_logs WHERE product_id=?'
       ).get(p.id).c > 0;
       const hasLed = db.prepare(
         'SELECT COUNT(*) c FROM inventory_ledger WHERE product_id=? AND COALESCE(status,\'posted\')=\'posted\''
       ).get(p.id).c > 0;
-      const hasMove = db.prepare(
-        "SELECT COUNT(*) c FROM warehouse_moves WHERE product_id=? AND type='receipt' AND (note LIKE '%اول دوره%' OR note LIKE '%افتتاحیه%')"
-      ).get(p.id).c > 0;
-      const hasJe = db.prepare(
-        "SELECT COUNT(*) c FROM journal_entries WHERE ref_type='opening_inventory' AND ref_id=? AND COALESCE(deleted_at,0)=0"
-      ).get(p.id).c > 0;
-
-      // Refresh WH lines after possible insert
       const lines = db.prepare(
         'SELECT warehouse_id, qty FROM warehouse_stock WHERE product_id=? AND COALESCE(qty,0)>0'
       ).all(p.id);
-      const date = todayJalali();
-
-      // 3–4) inventory_ledger (+ stock_logs via helper) + warehouse_moves
       if (!hasLed) {
         for (const line of lines) {
           const q = Number(line.qty) || 0;
           if (q <= 0) continue;
-          const led = postInventoryMovement(db, {
-            eventType: 'opening',
-            productId: p.id,
-            warehouseId: line.warehouse_id,
-            qty: q,
-            unitCostRial: unit,
-            sourceType: 'opening_inventory',
-            sourceId: p.id,
-            date,
-            note: OPENING_NOTE,
-            createdBy: adminId,
-            updateAvg: unit > 0,
-            skipStock: true, // stock already present
+          summary.opening_gaps.push({
+            product_id: p.id, code: p.code || null, warehouse_id: line.warehouse_id, qty: q, unit_cost_rial: unit,
           });
-          summary.inventory_ledger++;
-          // postInventoryMovement also writes stock_logs
-          if (!hasLog) summary.stock_logs++;
-
-          if (!hasMove) {
-            const mv = db.prepare(`
-              INSERT INTO warehouse_moves
-                (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status,je_id)
-              VALUES ('receipt',?,?,?,?,?,?,?,?,?,'posted',NULL)
-            `).run(
-              p.id, line.warehouse_id, q, date, OPENING_NOTE, adminId,
-              led.id, led.unit_cost_rial || unit, led.amount_rial || (unit * q)
-            );
-            db.prepare('UPDATE inventory_ledger SET source_id=? WHERE id=?')
-              .run(mv.lastInsertRowid, led.id);
-            summary.warehouse_moves++;
-          }
         }
       } else if (!hasLog) {
         // Ledger exists but legacy kardex empty — add opening log only
@@ -212,47 +172,6 @@ const tx = db.transaction(() => {
           ).run(p.id, qty, OPENING_NOTE, adminId);
         }
         summary.stock_logs++;
-      }
-
-      if (!hasMove && hasLed) {
-        // Ledger already there from partial run — still expose warehouse receipt docs
-        for (const line of lines) {
-          const q = Number(line.qty) || 0;
-          if (q <= 0) continue;
-          const ledId = db.prepare(
-            "SELECT id FROM inventory_ledger WHERE product_id=? AND warehouse_id=? AND event_type='opening' ORDER BY id LIMIT 1"
-          ).get(p.id, line.warehouse_id)?.id || null;
-          db.prepare(`
-            INSERT INTO warehouse_moves
-              (type,product_id,to_warehouse_id,qty,date,note,created_by,ledger_id,unit_cost_rial,amount_rial,status)
-            VALUES ('receipt',?,?,?,?,?,?,?,?,?,'posted')
-          `).run(
-            p.id, line.warehouse_id, q, date, OPENING_NOTE, adminId,
-            ledId, unit, unit * q
-          );
-          summary.warehouse_moves++;
-        }
-      }
-
-      // 5) Accounting JE (one per product, requires unit cost)
-      if (!hasJe && unit > 0 && qty > 0) {
-        const jeId = postProductOpeningInventory(db, {
-          productId: p.id,
-          qty,
-          unitCostRial: unit,
-          date,
-          userId: adminId,
-          description: `${OPENING_NOTE} — ${p.name || p.code || p.id} × ${qty}`,
-          srcSystem: 'rebuild-product-docs',
-        });
-        if (jeId) {
-          summary.opening_je++;
-          try {
-            db.prepare(
-              "UPDATE warehouse_moves SET je_id=? WHERE product_id=? AND type='receipt' AND note=? AND je_id IS NULL"
-            ).run(jeId, p.id, OPENING_NOTE);
-          } catch (_) { /* je_id column may be missing on ancient DBs */ }
-        }
       }
     } catch (e) {
       summary.errors.push({ id: p.id, code: p.code, error: e.message });
