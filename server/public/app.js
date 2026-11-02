@@ -13611,12 +13611,29 @@ async function osOpenDetail(id){
     <td class="mono">${fmt(l.unit_cost_rial)}</td>
     <td class="mono">${fmt(l.amount_rial)}</td>
   </tr>`).join('');
+  const batchByNo={};
+  (d.batches||[]).forEach(b=>{ batchByNo[String(b.product_id)+'|'+String(b.batch_no)]=b; });
+  const rollsHtml=d.has_rolls?(d.lines||[]).filter(l=>Array.isArray(l.rolls)&&l.rolls.length).map(l=>{
+    const isAttr=l.profile==='attr';
+    const rows=l.rolls.map((r,i)=>{
+      const b=r.roll_no?batchByNo[String(l.product_id)+'|'+String(r.roll_no)]:((d.batches||[]).filter(x=>Number(x.product_id)===Number(l.product_id))[i]||null);
+      return `<tr><td class="mono">${esc((b&&b.batch_no)||r.roll_no||'خودکار')}</td><td>${esc(r.color||'—')}</td><td>${esc(r.pattern||'—')}</td><td class="mono">${isAttr?'—':esc(r.width_cm||0)}</td><td class="mono">${fmtQtyFa(r.entry_qty!=null?r.entry_qty:(r.stock_qty||0))}</td><td class="mono">${fmtQtyFa(r.stock_qty||0)} ${esc(l.unit||'')}</td><td class="mono">${r.weight_kg!=null?fmtQtyFa(r.weight_kg):'—'}</td><td class="mono">${fmt(r.amount_rial||0)}</td><td>${b?(b.status==='reversed'?'<span class="tag t-silent">ابطال</span>':'فعال'):'—'}</td></tr>`;
+    }).join('');
+    return `<div data-csp-style="${CSP.style(`margin-top:10px`)}"><b>${isAttr?'بچ‌های':'طاقه‌های'} ${esc(l.product_name||'')} — ${esc(l.warehouse_name||'')}</b>
+      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>شماره</th><th>رنگ</th><th>طرح</th><th>عرض</th><th>مقدار دریافت</th><th>مقدار انبار</th><th>وزن (kg)</th><th>ارزش</th><th>وضعیت</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join(''):'';
+  const amendBtn=(d.has_rolls && d.status!=='void' && canFabricOpening() && meta.can_create && meta.can_void && (d.lines||[]).length===1)
+    ?`<button class="btn sm" title="ابطال این سند (برگشت کامل) و ساخت پیش‌نویس اصلاح‌شده" data-csp-click="${CSP.bind('click',async function(){
+        if(!CACHE.allProducts||!CACHE.allProducts.length){ try{ CACHE.allProducts=await api('GET','/products')||[]; }catch(_){} }
+        closeModal(); fabricRollModal(d.lines[0].profile==='attr'?'attr':'fabric',{opening:true, amend:d});
+      })}">✏️ ویرایش طاقه‌ها</button>`:'';
   showModal(`سند افتتاحیه ${esc(d.doc_no||('#'+d.id))} — ${OS_STATUS[d.status]||esc(d.status)}`,`
-    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.9`)}">تاریخ: ${escDate(d.date)} — سازنده: ${esc(d.created_by_name||'-')}${d.posted_by_name?` — ثبت‌کننده: ${esc(d.posted_by_name)}`:''}${d.je_no?` — سند حسابداری: ${esc(d.je_no)}`:''}${d.note?` — ${esc(d.note)}`:''}${d.status==='void'&&d.void_reason?` — دلیل ابطال: ${esc(d.void_reason)}`:''}</div>
+    <div class="muted" data-csp-style="${CSP.style(`margin-bottom:8px;line-height:1.9`)}">تاریخ: ${escDate(d.date)} — سازنده: ${esc(d.created_by_name||'-')}${d.posted_by_name?` — ثبت‌کننده: ${esc(d.posted_by_name)}`:''}${d.je_no?` — سند حسابداری: ${esc(d.je_no)}`:''}${d.amends_doc_id?` — اصلاحیهٔ سند #${esc(d.amends_doc_id)}`:''}${d.note?` — ${esc(d.note)}`:''}${d.status==='void'&&d.void_reason?` — دلیل ابطال: ${esc(d.void_reason)}`:''}</div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>کد</th><th>کالا</th><th>انبار</th><th>رنگ/سایز</th><th>تعداد</th><th>بهای واحد</th><th>ارزش</th></tr></thead>
       <tbody>${lines||emptyRow(7)}</tbody>
       <tfoot><tr><td colspan="4"><b>جمع</b></td><td class="mono"><b>${fmtQtyFa(d.total_qty||0)}</b></td><td></td><td class="mono"><b>${fmt(d.total_rial||0)}</b></td></tr></tfoot></table></div>
-    <div class="toolbar" data-csp-style="${CSP.style(`margin-top:12px;gap:8px;flex-wrap:wrap`)}">${postBtn}${voidBtn}</div>`, true);
+    ${rollsHtml}
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-top:12px;gap:8px;flex-wrap:wrap`)}">${postBtn}${amendBtn}${voidBtn}</div>`, true);
 }
 async function osPost(id){
   if(!confirm('سند ثبت قطعی شود؟ موجودی، کاردکس و سند حسابداری (بدهکار موجودی / بستانکار تراز افتتاحیه) ایجاد می‌شود.')) return;
@@ -17561,6 +17578,7 @@ async function renderFabricRollsTab(body){
       <input class="search" id="frSearch" placeholder="جستجو شماره / کالا / رنگ..." data-csp-style="${CSP.style(`min-width:220px;flex:1`)}" data-csp-input="${CSP.bind('input',function(){filterFabricRollRows()})}">
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollModal('fabric')})}">➕ دریافت طاقه</button>
       <button class="btn" data-csp-click="${CSP.bind('click',function(event){fabricRollModal('attr')})}">➕ دریافت مواد</button>
+      ${canFabricOpening()?`<button class="btn ghost" title="موجودی اول دوره طاقه/مواد — بدون تأمین‌کننده، با سند افتتاحیهٔ انبار" data-csp-click="${CSP.bind('click',function(event){fabricRollModal('fabric',{opening:true})})}">📦 موجودی اول دوره</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){go('acc-fabric-roll-kardex')})}">گزارش گردش</button>
       ${canFabricRelabel()?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){fabricRelabelUnitModal('')})}">اصلاح برچسب واحد طاقه‌ها</button>`:''}
       <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadAccTab('fabric-rolls')})}">🔄</button>
@@ -17826,44 +17844,164 @@ function fabricLengthWord(unit){
   if(!s||s==='m'||s==='mtr'||s==='meter'||s==='metre'||s.includes('متر')) return 'متر';
   return String(unit).trim();
 }
-function fabricRollModal(profile){
+function canFabricOpening(){
+  return !!(ME && (ME.role==='admin' || ME.role==='accounting'));
+}
+/**
+ * opts.opening: حالت «موجودی اول دوره» — بدون تأمین‌کننده؛ چند طاقه/بچ در یک جدول؛
+ * ثبت = پیش‌نویس سند افتتاحیهٔ انبار (POST /opening-stock/rolls) که کاربر دیگر ثبت قطعی می‌کند.
+ * opts.amend: سند افتتاحیهٔ موجود برای ویرایش (ابطال + پیش‌نویس جایگزین).
+ */
+function fabricRollModal(profile, opts){
+  opts=opts||{};
   window._fabricIdemKey=newFabricIdemKey();
   window._fabricReceiptProfile=(profile==='attr'?'attr':'fabric');
+  const opening=!!opts.opening && canFabricOpening();
+  window._fabricOpening=opening;
+  window._fabricOpeningAmend=opening&&opts.amend?opts.amend:null;
+  const amendLine=window._fabricOpeningAmend?((window._fabricOpeningAmend.lines||[])[0]||null):null;
   const prods=CACHE.allProducts||[];
-  const whs=window._fabricRawWh||[];
+  const whs=(window._fabricRawWh||[]).slice();
+  if(amendLine && !whs.some(w=>Number(w.id)===Number(amendLine.warehouse_id))){
+    whs.push({id:amendLine.warehouse_id, name:amendLine.warehouse_name||('#'+amendLine.warehouse_id)});
+  }
   const sups=window._fabricSups||[];
   if(!CACHE.suppliers||!CACHE.suppliers.length) CACHE.suppliers=sups;
   const isAttr=window._fabricReceiptProfile==='attr';
-  const title=isAttr?'دریافت مواد با ویژگی':'دریافت طاقه پارچه';
+  const title=opening
+    ?(amendLine?'ویرایش موجودی اول دوره (طاقه/مواد)':(isAttr?'موجودی اول دوره — مواد با ویژگی':'موجودی اول دوره — طاقه پارچه'))
+    :(isAttr?'دریافت مواد با ویژگی':'دریافت طاقه پارچه');
+  const reopen=function(p, op){ closeModal(); fabricRollModal(p, {opening:op}); };
+  const unitWord=isAttr?'بچ':'طاقه';
   showModal(title,`
-    <div class="oh-seg" role="tablist" aria-label="نوع دریافت" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
-      <button type="button" role="tab" class="oh-seg-btn ${isAttr?'':'active'}" aria-selected="${isAttr?'false':'true'}" data-csp-click="${CSP.bind('click',function(){closeModal();fabricRollModal('fabric')})}">پارچه (طاقه)</button>
-      <button type="button" role="tab" class="oh-seg-btn ${isAttr?'active':''}" aria-selected="${isAttr?'true':'false'}" data-csp-click="${CSP.bind('click',function(){closeModal();fabricRollModal('attr')})}">مواد با ویژگی</button>
+    ${amendLine?'':`<div class="oh-seg" role="tablist" aria-label="نوع دریافت" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
+      <button type="button" role="tab" class="oh-seg-btn ${isAttr?'':'active'}" aria-selected="${isAttr?'false':'true'}" data-csp-click="${CSP.bind('click',function(){reopen('fabric',opening)})}">پارچه (طاقه)</button>
+      <button type="button" role="tab" class="oh-seg-btn ${isAttr?'active':''}" aria-selected="${isAttr?'true':'false'}" data-csp-click="${CSP.bind('click',function(){reopen('attr',opening)})}">مواد با ویژگی</button>
     </div>
+    ${canFabricOpening()?`<label class="chk" data-csp-style="${CSP.style(`display:flex;gap:6px;align-items:center;margin-bottom:10px`)}"><input type="checkbox" id="fr-opening" ${opening?'checked':''} data-csp-change="${CSP.bind('change',function(){reopen(isAttr?'attr':'fabric', !!this.checked)})}"> <b>موجودی اول دوره</b> <span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">(بدون تأمین‌کننده — سند افتتاحیهٔ انبار؛ بدهکار موجودی مواد / بستانکار تراز افتتاحیه)</span></label>`:''}`}
     <div class="form-grid">
-      <div class="fg"><label>کالا</label>${productSelect('fr-prod','',prods)}</div>
-      <div class="fg"><label>انبار مواد</label><select id="fr-wh">${whs.map(w=>`<option value="${w.id}">${esc(w.name)}</option>`).join('')}</select></div>
-      <div class="fg"><label>${isAttr?'شماره بچ':'شماره طاقه'}</label><input id="fr-no" placeholder="خودکار"></div>
+      <div class="fg"><label>کالا</label>${productSelect('fr-prod',amendLine?amendLine.product_id:'',prods)}</div>
+      <div class="fg"><label>انبار مواد</label><select id="fr-wh">${whs.map(w=>`<option value="${w.id}" ${amendLine&&Number(w.id)===Number(amendLine.warehouse_id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+      ${opening?'':`<div class="fg"><label>${isAttr?'شماره بچ':'شماره طاقه'}</label><input id="fr-no" placeholder="خودکار"></div>
       <div class="fg"><label>رنگ${isAttr?' (اختیاری)':''}</label><input id="fr-color"></div>
       <div class="fg"><label>طرح / بنا</label><input id="fr-pat" placeholder="${isAttr?'طرح، سایز بسته، لات…':''}"></div>
       <div class="fg" id="fr-w-wrap" data-csp-style="${CSP.style(isAttr?'display:none':'')}"><label>عرض (سم)</label><input id="fr-w" type="number" min="0" value="150"></div>
-      <div class="fg" id="fr-grade-wrap" data-csp-style="${CSP.style(isAttr?'':'display:none')}"><label>درجه / کیفیت</label><input id="fr-grade" placeholder="اختیاری"></div>
+      <div class="fg" id="fr-grade-wrap" data-csp-style="${CSP.style(isAttr?'':'display:none')}"><label>درجه / کیفیت</label><input id="fr-grade" placeholder="اختیاری"></div>`}
       ${isAttr?'':`<div class="fg"><label for="fr-unit">واحد دریافت</label><select id="fr-unit" aria-describedby="fr-conv" data-csp-change="${CSP.bind('change',function(){fabricRollOnUnitChange()})}"><option value="">— اول کالا را انتخاب کنید —</option></select></div>`}
-      <div class="fg"><label id="fr-qty-label" for="fr-m">${isAttr?'مقدار':'مقدار'}</label><input id="fr-m" type="number" min="0" step="0.001" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
-      ${isAttr?'':`<div class="fg" id="fr-factor-wrap" hidden><label id="fr-factor-label" for="fr-factor">ضریب تبدیل</label><input id="fr-factor" type="number" min="0" step="0.0001" placeholder="مثلاً ۲٫۸" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>`}
-      <div class="fg"><label id="fr-cost-label" for="fr-cost">${isAttr?'بها هر واحد (ریال)':'بها هر واحد دریافت (ریال)'}</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="0" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
-      <div class="fg"><label>تأمین‌کننده</label>${supplierSelect('fr-sup','')}</div>
+      <div class="fg"><label id="fr-qty-label" for="fr-m">${opening?'جمع مقدار':'مقدار'}</label><input id="fr-m" type="number" min="0" step="0.001" ${opening?'readonly tabindex="-1"':''} data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      ${isAttr?'':`<div class="fg" id="fr-factor-wrap" hidden><label id="fr-factor-label" for="fr-factor">ضریب تبدیل</label><input id="fr-factor" type="number" min="0" step="0.0001" placeholder="مثلاً ۲٫۸" value="${amendLine&&amendLine.entry_factor?esc(amendLine.entry_factor):''}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>`}
+      <div class="fg"><label id="fr-cost-label" for="fr-cost">${isAttr?'بها هر واحد (ریال)':'بها هر واحد دریافت (ریال)'}</label><input id="fr-cost" type="text" inputmode="numeric" class="money" value="${amendLine?moneyInit(amendLine.entry_unit_cost_rial||amendLine.unit_cost_rial||0):'0'}" data-csp-input="${CSP.bind('input',function(){fabricRollLiveTotal()})}"></div>
+      ${opening?'':`<div class="fg"><label>تأمین‌کننده</label>${supplierSelect('fr-sup','')}</div>`}
+      ${opening?`<div class="fg full"><label>${isAttr?'بچ‌ها':'طاقه‌ها'} (هر سطر یک ${unitWord})</label>
+        <div class="tbl-wrap"><table class="tbl" id="fr-rolls"><thead><tr><th>شماره ${unitWord}</th><th>رنگ${isAttr?'':' *'}</th><th>طرح / بنا</th>${isAttr?'':'<th>عرض (سم)</th>'}<th>${isAttr?'مقدار':'طول'} *</th><th>وزن (کیلوگرم)</th><th></th></tr></thead><tbody></tbody></table></div>
+        <button type="button" class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:6px`)}" data-csp-click="${CSP.bind('click',function(){fabricOpeningAddRow()})}">➕ ${unitWord} دیگر</button></div>`:''}
+      ${opening&&amendLine?`<div class="fg full"><label for="fr-amend-reason">دلیل ویرایش *</label><input id="fr-amend-reason" placeholder="مثلاً اصلاح طول طاقه ۲"></div>`:''}
       ${isAttr?'':`<div class="fg full fr-conv" id="fr-conv" role="status" aria-live="polite"></div>`}
       <div class="fg full muted" id="fr-cost-hint" data-csp-style="${CSP.style(`font-size:12px`)}">${isAttr
         ? 'بها = مقدار × فی واحد. اگر فی خالی باشد از بهای کالا محاسبه می‌شود. این پروفایل در لایه‌چینی/فروش طاقه دیده نمی‌شود.'
         : 'بها طاقه = مقدار × فی واحد دریافت. موجودی انبار در واحد کارت کالا (متر/یارد) می‌ماند و مقدار دریافتی به همان تبدیل می‌شود. فقط این پروفایل در برش و فاکتور طاقه استفاده می‌شود.'}</div>
+      ${opening?`<div class="fg full muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">موجودی اول دوره فقط یک‌بار برای هر کالا×انبار ثبت می‌شود. با «ثبت» پیش‌نویس سند افتتاحیهٔ انبار ساخته می‌شود؛ ثبت قطعی (موجودی، کاردکس، سند حسابداری) را <b>کاربر دیگری</b> از «سند افتتاحیهٔ انبار» انجام می‌دهد. بهای واحد الزامی است.</div>`:''}
       <div class="fg full"><b>جمع بها: <span class="mono" id="fr-total">0</span> ریال</b></div>
     </div>
-    <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" id="fr-save" data-csp-click="${CSP.bind('click',function(event){fabricRollSave()})}">ثبت</button></div>`);
+    <div data-csp-style="${CSP.style(`margin-top:12px;text-align:left`)}"><button class="btn" id="fr-save" data-csp-click="${CSP.bind('click',function(event){fabricRollSave()})}">${opening?(amendLine?'ابطال سند قبلی و ساخت پیش‌نویس جدید':'ساخت پیش‌نویس سند افتتاحیه'):'ثبت'}</button></div>`);
+  if(opening){
+    const prev=amendLine&&Array.isArray(amendLine.rolls)?amendLine.rolls:[];
+    if(prev.length) prev.forEach(r=>fabricOpeningAddRow(r)); else fabricOpeningAddRow();
+  }
   const prodSel=el('fr-prod');
   if(prodSel) prodSel.addEventListener('change',function(){ fabricRollOnProductChange(); fabricRollLiveTotal(); });
-  fabricRollOnProductChange();
+  const ready=fabricRollOnProductChange();
+  if(amendLine && amendLine.entry_unit_id && ready && ready.then){
+    ready.then(function(){
+      const us=el('fr-unit');
+      if(us && us.querySelector('option[value="'+Number(amendLine.entry_unit_id)+'"]')){ us.value=String(amendLine.entry_unit_id); fabricRollOnUnitChange(); }
+    });
+  }
   fabricRollLiveTotal();
+}
+function fabricOpeningAddRow(r){
+  const tb=document.querySelector('#fr-rolls tbody');
+  if(!tb) return;
+  r=r||{};
+  const isAttr=window._fabricReceiptProfile==='attr';
+  const tr=document.createElement('tr');
+  const qty=r.entry_qty!=null?r.entry_qty:(r.qty!=null?r.qty:'');
+  tr.innerHTML='<td><input class="fr-r-no" placeholder="خودکار" value="'+esc(r.roll_no||'')+'"></td>'
+    +'<td><input class="fr-r-color" value="'+esc(r.color||'')+'"></td>'
+    +'<td><input class="fr-r-pat" value="'+esc(r.pattern||'')+'"></td>'
+    +(isAttr?'':'<td><input class="fr-r-w" type="number" min="0" value="'+esc(r.width_cm!=null?r.width_cm:150)+'"></td>')
+    +'<td><input class="fr-r-qty" type="number" min="0" step="0.001" value="'+esc(qty)+'"></td>'
+    +'<td><input class="fr-r-kg" type="number" min="0" step="0.001" value="'+esc(r.weight_kg!=null?r.weight_kg:'')+'"></td>'
+    +'<td><button type="button" class="btn sm ghost fr-r-del" title="حذف سطر">✕</button></td>';
+  tb.appendChild(tr);
+  tr.querySelector('.fr-r-qty').addEventListener('input',fabricOpeningSyncTotal);
+  tr.querySelector('.fr-r-del').addEventListener('click',function(){
+    if(tb.children.length<=1){ showToast('حداقل یک سطر لازم است','error'); return; }
+    tr.remove(); fabricOpeningSyncTotal();
+  });
+  fabricOpeningSyncTotal();
+}
+function fabricOpeningRows(){
+  const isAttr=window._fabricReceiptProfile==='attr';
+  return Array.from(document.querySelectorAll('#fr-rolls tbody tr')).map(tr=>{
+    const v=c=>((tr.querySelector(c)||{}).value||'').trim();
+    const row={ roll_no:v('.fr-r-no')||undefined, color:v('.fr-r-color'), pattern:v('.fr-r-pat'), entry_qty:Number(toEnDigits(v('.fr-r-qty')))||0 };
+    if(!isAttr) row.width_cm=Number(toEnDigits(v('.fr-r-w')))||0;
+    const kg=v('.fr-r-kg'); if(kg!=='') row.weight_kg=Number(toEnDigits(kg));
+    return row;
+  });
+}
+function fabricOpeningSyncTotal(){
+  const m=el('fr-m');
+  if(m){
+    const sum=fabricOpeningRows().reduce((a,r)=>a+(r.entry_qty>0?r.entry_qty:0),0);
+    m.value=sum?String(Math.round(sum*1000)/1000):'';
+  }
+  fabricRollLiveTotal();
+}
+async function fabricOpeningSave(){
+  const profile=window._fabricReceiptProfile==='attr'?'attr':'fabric';
+  const pid=+el('fr-prod').value; if(!pid){ showToast('کالا را انتخاب کنید','error'); return; }
+  const wh=+el('fr-wh').value; if(!wh){ showToast('انبار مواد را انتخاب کنید','error'); return; }
+  const cost=fabricRollCostFromForm(); if(!(cost>0)){ showToast('بهای واحد (ریال) الزامی است','error'); return; }
+  const rolls=fabricOpeningRows();
+  if(!rolls.length){ showToast('حداقل یک سطر لازم است','error'); return; }
+  for(let i=0;i<rolls.length;i++){
+    if(!(rolls[i].entry_qty>0)){ showToast('سطر '+(i+1)+': مقدار/طول را وارد کنید','error'); return; }
+    if(profile==='fabric' && !rolls[i].color){ showToast('سطر '+(i+1)+': رنگ طاقه الزامی است','error'); return; }
+  }
+  const line={ product_id:pid, warehouse_id:wh, profile, unit_cost_rial:cost, rolls };
+  if(profile==='fabric'){
+    const u=fabricRollSelectedUnit();
+    if(!u){ showToast((window._fabricUnits&&window._fabricUnits.reason)||'واحد دریافت را انتخاب کنید','error'); return; }
+    line.entry_unit_id=u.id;
+    if(u.mode==='factor'){
+      const f=Number(el('fr-factor')?.value)||0;
+      if(!(f>0)){ showToast('ضریب تبدیل '+u.name+' را وارد کنید','error'); return; }
+      line.entry_factor=f;
+    }
+  }else{
+    const p=(CACHE.allProducts||[]).find(x=>Number(x.id)===pid);
+    line.unit=(p&&p.unit)||undefined;
+  }
+  const amend=window._fabricOpeningAmend;
+  try{
+    if(amend){
+      const reason=(el('fr-amend-reason')?.value||'').trim();
+      if(reason.length<3){ showToast('دلیل ویرایش را بنویسید (حداقل ۳ حرف)','error'); return; }
+      const d=await api('POST','/opening-stock/'+amend.id+'/rolls-amend',{reason, note:amend.note, lines:[line]});
+      if(!d) return;
+      closeModal();
+      showToast('سند '+(amend.doc_no||'')+' ابطال شد و پیش‌نویس '+(d.doc_no||'')+' ساخته شد — ثبت قطعی توسط کاربر دیگر');
+    }else{
+      const d=await api('POST','/opening-stock/rolls',{lines:[line]});
+      if(!d) return;
+      closeModal();
+      showToast('پیش‌نویس سند افتتاحیه '+(d.doc_no||'')+' ساخته شد — ثبت قطعی توسط کاربر دیگر');
+    }
+    if(el('osBody') && typeof osLoadList==='function') osLoadList();
+    else if(!amend) loadAccTab('fabric-rolls');
+  }catch(e){}
 }
 async function fabricRollOnProductChange(){
   const pid=+el('fr-prod')?.value;
@@ -18139,6 +18277,7 @@ function invoiceFabricRollAddPurchase(){
   showToast('طاقه به فاکتور خرید اضافه شد');
 }
 async function fabricRollSave(){
+  if(window._fabricOpening) return fabricOpeningSave();
   const profile=window._fabricReceiptProfile==='attr'?'attr':'fabric';
   if(profile==='fabric' && !el('fr-color').value.trim()){ showToast('رنگ طاقه الزامی است','error'); return; }
   const pid=+el('fr-prod').value;
@@ -27523,11 +27662,13 @@ async function seedIssueAvgFrom(prefix, reload){
     if(unit<=0){ showToast('بهای هر واحد را برای همهٔ کالاهای بدون بها وارد کنید','error'); return; }
   }
   try{
+    let needDoc=0;
     for(const inp of inputs){
       const unit=Math.round(Number(String(inp.value).replace(/,/g,''))||0);
-      await api('POST','/inventory/seed-avg-cost',{product_id:+inp.dataset.pid, unit_cost_rial:unit, date:todayJalali()});
+      const r=await api('POST','/inventory/seed-avg-cost',{product_id:+inp.dataset.pid, unit_cost_rial:unit, date:todayJalali()});
+      if(r && r.needs_opening_doc) needDoc++;
     }
-    showToast('بهای اولیه ثبت شد');
+    showToast(needDoc?('بهای اولیه ثبت شد — '+needDoc+' کالا کاردکس ندارد؛ موجودی آن را با «سند موجودی اول دوره» ثبت کنید'):'بهای اولیه ثبت شد');
     if(typeof reload==='function') reload();
   }catch(e){ /* toast از api */ }
 }
@@ -42190,6 +42331,19 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🧵','موجودی اول دورهٔ طاقه و مواد با ویژگی (P7)',`
+      <p>برای ثبت موجودی ابتدای دورهٔ پارچه و مواد، در <b>«دریافت مواد / طاقه»</b> دکمهٔ <b>«📦 موجودی اول دوره»</b> (یا تیک «موجودی اول دوره» داخل فرم دریافت) را بزنید. فقط <b>مدیر</b> و <b>حسابداری</b> این حالت را می‌بینند.</p>
+      <ul>
+        <li><b>فرم:</b> کالا، انبار مواد، واحد دریافت (متر/یارد/…؛ به واحد کارت کالا تبدیل می‌شود و مقدار انبار سه‌رقم اعشار گرد می‌شود)، بهای هر واحد دریافت (الزامی و بزرگ‌تر از صفر) و یک جدول طاقه‌ها: شمارهٔ طاقه (خالی = خودکار)، رنگ (برای پارچه الزامی)، طرح، عرض، طول و وزن (کیلوگرم، اختیاری). <b>تأمین‌کننده ندارد.</b></li>
+        <li><b>ثبت</b> فقط <b>پیش‌نویس سند افتتاحیهٔ انبار</b> می‌سازد (شماره از توالی OP). ثبت قطعی را <b>کاربر دیگری</b> از «سند افتتاحیهٔ انبار» انجام می‌دهد (تفکیک وظایف).</li>
+        <li><b>ثبت قطعی:</b> برای هر طاقه یک بچ/طاقه (با رنگ، عرض، وزن و طول) و یک ردیف کاردکس «اول دوره» ساخته می‌شود؛ یک سند حسابداری: <b>بدهکار موجودی مواد اولیه (۱۱۱۰ / حساب انبار)</b> و <b>بستانکار تراز افتتاحیه (۳۱۰۲)</b>. طاقه‌ها در برش، لایه‌چینی و فاکتور طاقه مثل طاقهٔ خریدشده قابل استفاده‌اند.</li>
+        <li><b>یک‌بار برای هر کالا×انبار:</b> اگر موجودی اول دورهٔ فعال وجود داشته باشد خطای <span dir="ltr">E_OPENING_EXISTS</span> می‌گیرید؛ اول سند قبلی را ابطال کنید.</li>
+        <li><b>ویرایش:</b> در جزئیات سند افتتاحیه دکمهٔ <b>«✏️ ویرایش طاقه‌ها»</b> — با دلیل؛ سند قبلی کامل ابطال می‌شود (کاردکس هر طاقه برگشت می‌خورد، بچ‌ها «ابطال‌شده» و سند حسابداری معکوس) و پیش‌نویس جایگزین ساخته می‌شود که باز کاربر دیگری ثبت قطعی می‌کند. شمارهٔ طاقهٔ فیزیکی را می‌توانید دوباره استفاده کنید؛ بچ ابطال‌شدهٔ قبلی برچسب آرشیوی <span dir="ltr">«شماره~OP…»</span> می‌گیرد.</li>
+        <li><b>ابطال (R13):</b> از دکمهٔ ⛔ همان سند؛ اگر از یکی از طاقه‌ها مصرف/برش/فروش شده باشد خطای <span dir="ltr">E_FABRIC_CONSUMED</span> می‌گیرید تا اول مصرف برگردد. حذف فیزیکی نداریم و همه در گزارش ممیزی ثبت می‌شود.</li>
+        <li>طاقهٔ اول دوره در صفحهٔ طاقه‌ها فقط ویرایش توصیفی (رنگ، طرح، عرض) دارد؛ تغییر مقدار/بها و ابطال آن فقط از سند افتتاحیه است (<span dir="ltr">E_FABRIC_OPENING_DOC</span>).</li>
+        <li><b>مسیرهای قدیمی:</b> «میانگین بها از موجودی» دیگر ردیف کاردکس بی‌سند نمی‌سازد؛ کالاهایی که کاردکس ندارند را به‌عنوان «نیازمند سند افتتاحیه» شمارش می‌کند. اسکریپت بازسازی اسناد کالا (rebuild-product-docs) هم برای موجودی اول دوره فقط گزارش می‌دهد.</li>
+        <li>API: <span dir="ltr">POST /api/opening-stock/rolls</span> با <span dir="ltr">{"lines":[{"product_id","warehouse_id","entry_unit_id","unit_cost_rial","rolls":[{"roll_no","color","pattern","width_cm","entry_qty","weight_kg"}]}]}</span>؛ ویرایش <span dir="ltr">POST /api/opening-stock/:id/rolls-amend</span> (reason + lines)؛ ثبت قطعی/ابطال همان <span dir="ltr">/post</span> و <span dir="ltr">/void</span>.</li>
+      </ul>`),
     helpSec('📥','موجودی اول دوره جدا از موجودی کل (v609)',`
       <p>در فرم کالا (بخش «موجودی») دو مفهوم از هم جدا شده‌اند:</p>
       <ul>
