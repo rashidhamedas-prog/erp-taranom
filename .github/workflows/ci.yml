@@ -93,6 +93,9 @@ jobs:
           node scripts/test-companies-fiscal.js 2>&1 | tee -a core-dr.log
           node scripts/test-wave0-financial-hostile.js 2>&1 | tee -a core-dr.log
           node scripts/test-production-export.js 2>&1 | tee -a core-dr.log
+          node scripts/test-product-opening-stock.js 2>&1 | tee -a core-dr.log
+          node scripts/test-opening-legacy-block.js 2>&1 | tee -a core-dr.log
+          node scripts/test-p2-opening-stock.js 2>&1 | tee -a core-dr.log
         working-directory: server
       - uses: actions/upload-artifact@v4
         if: always()

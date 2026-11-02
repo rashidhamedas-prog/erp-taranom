@@ -814,10 +814,10 @@ function buildPlan(db, body, user, { readOnly = true } = {}) {
   const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(p.productId, p.warehouseId);
   const wsBefore = round3(ws && ws.qty);
   plan.warehouse_stock = { before: wsBefore, after: round3(wsBefore + qtyDelta) };
-  if (!negAllowed && qtyDelta < 0 && plan.warehouse_stock.after < -EPS && !errors.some((e) => e.code === 'E_NEGATIVE_STOCK')) {
-    addErr('E_NEGATIVE_STOCK', 409, `با این تغییر موجودی انبار منفی می‌شود (${plan.warehouse_stock.after})`, {
-      product_id: p.productId, warehouse_id: p.warehouseId, available: wsBefore, needed: Math.abs(qtyDelta),
-    });
+  // kardex is the single source of truth (P1); the warehouse_stock cache only produces a warning
+  const kWh = round3(kardexWarehouse(db, p.productId, p.warehouseId));
+  if (Math.abs(wsBefore - kWh) > EPS) {
+    warnings.push(`کش موجودی انبار (${wsBefore}) با کاردکس (${kWh}) برابر نیست — مبنای کنترل منفی‌شدن، کاردکس است`);
   }
   plan.stock_after_by_warehouse = kardexByWarehouse(db, p.productId).map((r) => (
     Number(r.warehouse_id) === p.warehouseId && Number(r.variant_id || 0) === Number(p.variantId || 0)
@@ -1020,7 +1020,8 @@ function applyOpeningChange(db, body, user, { audit } = {}) {
     // stock caches follow the net kardex delta (all kardex rows above are ledger-only)
     const qtyDelta = plan.qty_delta;
     if (Math.abs(qtyDelta) > EPS) {
-      L.applyStockDelta(db, { productId: p.productId, warehouseId: p.warehouseId, qtyDelta });
+      // negative stock was already validated against kardex in the plan; caches may lag kardex
+      L.applyStockDelta(db, { productId: p.productId, warehouseId: p.warehouseId, qtyDelta, allowNegative: true });
       try {
         db.prepare('INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)').run(p.productId, uid || 0, qtyDelta, note);
       } catch (_) { /* legacy stock_logs optional */ }

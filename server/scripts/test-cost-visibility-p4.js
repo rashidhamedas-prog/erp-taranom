@@ -146,10 +146,17 @@ console.log('\n══ P4 cost_visibility RBAC ══\n');
 
   try {
     const create = await api('POST', '/api/products', {
-      name: 'کالای تست P4', code: 'P4-001', price: 1000, retail_price: 1200, cost: 500, stock: 10, unit: 'عدد',
+      name: 'کالای تست P4', code: 'P4-001', price: 1000, retail_price: 1200, cost: 500, unit: 'عدد',
     });
     const pid = create.json && (create.json.id || (create.json.product && create.json.product.id));
     ok('seed: product created by admin', create.status === 200 && pid, JSON.stringify(create.json).slice(0, 200));
+    // product form no longer writes stock (E_STOCK_VIA_OPENING) — seed one opening kardex row directly
+    let seedWh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
+    if (!seedWh) seedWh = { id: Number(db.prepare("INSERT INTO warehouses (name) VALUES ('انبار P4')").run().lastInsertRowid) };
+    require('../lib/inventory/ledger').postInventoryMovement(db, {
+      eventType: 'opening', productId: pid, warehouseId: seedWh.id, qtyIn: 10, unitCostRial: 500,
+      sourceType: 'opening_stock_doc', sourceId: 0, date: '1405/01/01', createdBy: adminId,
+    });
 
     const aProd = await api('GET', `/api/products/${pid}`, null, 'admin');
     ok('admin GET product → has cost keys', costKeys(aProd.json).length > 0, JSON.stringify(Object.keys(aProd.json || {})));

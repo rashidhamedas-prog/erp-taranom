@@ -338,6 +338,11 @@ async function main() {
     r = await api('POST', '/api/inventory/opening-stock/preview', { product_id: P1, warehouse_id: W34, keep_ledger_id: 999999 }, 'acct');
     ok(r.status === 200 && !r.data.ready && r.data.errors.some((e) => e.code === 'E_OPENING_KEEP_INVALID'), 'invalid keep_ledger_id → not ready');
     const k34 = kq(P1, W34);
+    const wsReal = q1('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?', P1, W34);
+    db.prepare('UPDATE warehouse_stock SET qty=0 WHERE product_id=? AND warehouse_id=?').run(P1, W34);
+    r = await api('POST', '/api/inventory/opening-stock/preview', { product_id: P1, warehouse_id: W34 }, 'acct');
+    ok(r.status === 200 && r.data.ready && r.data.warnings.some((w) => String(w).includes('کش موجودی انبار')), 'stale warehouse_stock cache → warning only; kardex decides', r.data && { e: r.data.errors, w: r.data.warnings });
+    if (wsReal) db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?').run(wsReal.qty, P1, W34);
     r = await api('POST', '/api/inventory/opening-stock/apply', { product_id: P1, warehouse_id: W34, reason: 'حذف ردیف تکراری', confirm: true }, 'acct');
     ok(r.status === 200 && r.data.mode === 'resolve' && r.data.voided_ledger.length === 2, 'apply resolve → 2 ledger rows voided', r.data);
     ok(q1('SELECT status FROM inventory_ledger WHERE id=?', L2).status === 'reversed' && q1('SELECT status FROM inventory_ledger WHERE id=?', ADJ1).status === 'reversed' && q1('SELECT status FROM inventory_ledger WHERE id=?', L1).status === 'posted', 'L2 + ADJ1 reversed, L1 kept');
