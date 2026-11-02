@@ -1363,16 +1363,17 @@ function postStageCore(db, {
     if (je5) jes.push(je5);
   }
 
-  // اتلاف لایهٔ کلاسیک قبلاً با PRD-09 از WIP خارج شده؛ در costOut کم شود
-  // تا رسید = خالص WIP. اتلاف برش مشترک وارد WIP نشده و اینجا کم نمی‌شود.
+  // اتلاف لایه که قبلاً با PRD-09 از WIP خارج شده؛ در costOut کم شود تا رسید = خالص WIP.
+  // برش مشترک قدیمی (بستانکار مواد) وارد WIP نشده و اینجا کم نمی‌شود.
   const classicLayWaste = (() => {
     try {
+      const { layWasteInWipSql, wipAccountCode } = require('./order-cost-reconcile');
       const row = db.prepare(`
         SELECT COALESCE(SUM(waste_amount_rial),0) AS s
         FROM cutting_lays
         WHERE stage_id=? AND COALESCE(status,'posted')='posted'
-          AND (batch_id IS NULL OR batch_id=0)
-      `).get(stageId);
+          AND ${layWasteInWipSql('')}
+      `).get(stageId, wipAccountCode(db));
       return Math.round(Number(row && row.s) || 0);
     } catch (_) { return 0; }
   })();
@@ -2979,10 +2980,8 @@ function applyCuttingLayToStage(db, {
     stage = getStage(db, orderId, stage.id);
   }
 
-  // برش مشترک: amount از قبل خالص WIP است؛ waste بستانکار مواد است نه WIP.
-  const layMeta = db.prepare('SELECT batch_id FROM cutting_lays WHERE id=?').get(layId);
-  const sharedLay = !!(layMeta && layMeta.batch_id);
-  const netToWip = sharedLay ? Math.max(0, amount) : Math.max(0, amount - wasteAmt);
+  // amount = کل پارچهٔ واردشده به WIP؛ waste با PRD-09 از WIP خارج شده (کلاسیک و برش مشترک).
+  const netToWip = Math.max(0, amount - wasteAmt);
   if (stage.status === 'done') {
     db.prepare(`
       UPDATE production_order_stages SET
@@ -2990,7 +2989,7 @@ function applyCuttingLayToStage(db, {
         waste_abnormal_rial = COALESCE(waste_abnormal_rial,0) + ?,
         cost_out_rial = COALESCE(cost_out_rial,0) + ?
       WHERE id=?
-    `).run(amount, sharedLay ? 0 : wasteAmt, netToWip, stage.id);
+    `).run(amount, wasteAmt, netToWip, stage.id);
     const nxt = nextStage(db, orderId, stage.seq);
     if (nxt && netToWip) {
       db.prepare(`
