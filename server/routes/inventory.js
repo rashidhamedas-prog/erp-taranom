@@ -208,6 +208,25 @@ router.get('/stock-kardex-mismatch', auth, adminOrAccounting, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// audit-kardex K1: value-only revaluation of zero transfer_in legs (central only; admin or acc_warehouse_ops:delete).
+function revalueTransferInGate(req, res, next) {
+  if (require('../lib/inventory/manual-adjust').canVoidAdjust(req.user, getDB())) return next();
+  return res.status(403).json({ error: 'برای اصلاح ارزش ورود انتقال دسترسی لازم است', code: 'E_PERMISSION' });
+}
+{
+  const { centralOnlyStrict } = require('../middleware/auth');
+  router.get('/ledger/revalue-transfer-in-preview', auth, revalueTransferInGate, centralOnlyStrict, (req, res) => {
+    try {
+      res.json(require('../lib/inventory/transfer-in-revalue').preview(getDB(), req.query));
+    } catch (e) { sendErr(res, e); }
+  });
+  router.post('/ledger/revalue-transfer-in', auth, revalueTransferInGate, centralOnlyStrict, (req, res) => {
+    try {
+      res.json(require('../lib/inventory/transfer-in-revalue').revalue(getDB(), req.body, req.user, { audit }));
+    } catch (e) { sendErr(res, e); }
+  });
+}
+
 // ---- Batches / Serials ----
 router.get('/fabric-rolls/circulation', auth, adminOrAccounting, (req, res) => {
   try {

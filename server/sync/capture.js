@@ -158,6 +158,7 @@ const PATH_TABLE_MAP = [
   ['/api/inventory/serials', 'inventory_serials'],
   ['/api/inventory/reservations', 'inventory_reservations'],
   ['/api/inventory/landed-cost', 'landed_cost_docs'],
+  ['/api/inventory/ledger/revalue-transfer-in', 'inventory_ledger'], // audit-kardex K1 (central-only)
   ['/api/inventory/ledger', 'inventory_ledger'],
   ['/api/inventory/adjust', 'inventory_ledger'],
   ['/api/inventory/seed-avg-cost', 'products'],
