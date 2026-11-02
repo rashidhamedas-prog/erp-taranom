@@ -3,10 +3,11 @@
  * Direct labor posting for production.
  * Amount math mirrors bom-advanced.stageLabor (§5.1).
  * PRD-03 JE helpers: Cr 5201 by default; when bom_operations.person_id is set,
- * Cr that person's payable leaf + person_ledger (piece-rate accrual, not payroll).
+ * Cr the role-based payable (P5: employee → coa_payroll_payable, contractor → own AP leaf;
+ * never an asset) + person_ledger (piece-rate accrual, not payroll).
  */
 const { allocateNumber } = require('../../db');
-const { resolvePersonPayableAccount } = require('../payroll/person-account');
+const { resolveLaborPayableForPerson } = require('../payroll/person-account');
 
 function laborErr(code, status = 422, extra = {}) {
   const e = new Error(code);
@@ -72,7 +73,8 @@ function loadPersonForLabor(db, personId) {
 
 /**
  * Credit side for PRD-03.
- * @returns {{ mode:'person'|'control', person:object|null, line:{code,name,debit,credit,detail_account_id} }}
+ * @returns {{ mode:'person'|'control', person:object|null, payable?:object,
+ *   line:{code,name,debit,credit,detail_account_id} }}
  */
 function resolveLaborCreditSide(db, { personId, amountRial, crControl }) {
   const amt = Math.round(Number(amountRial) || 0);
@@ -80,17 +82,17 @@ function resolveLaborCreditSide(db, { personId, amountRial, crControl }) {
 
   const person = loadPersonForLabor(db, personId);
   if (person) {
-    const payable = resolvePersonPayableAccount(db, person);
-    if (!payable || !payable.code) throw laborErr('E_PERSON_NO_COA', 422, { person_id: person.id });
+    const payable = resolveLaborPayableForPerson(db, person);
     return {
       mode: 'person',
       person,
+      payable,
       line: {
-        code: payable.code,
-        name: payable.name,
+        code: payable.account_code,
+        name: payable.account_name,
         debit: 0,
         credit: amt / 10,
-        detail_account_id: person.detail_account_id || null,
+        detail_account_id: payable.detail_account_id || null,
       },
     };
   }
@@ -582,9 +584,12 @@ function healPieceLaborPersonPayable(db, { dryRun = true, laborEntryIds = null }
         out.errors.push({ id: e.id, code: 'E_PERSON_MISSING' });
         continue;
       }
-      const payable = resolvePersonPayableAccount(db, person);
-      if (!payable || !payable.code) {
-        out.errors.push({ id: e.id, code: 'E_PERSON_NO_COA', person_id: person.id });
+      let payable;
+      try {
+        const p = resolveLaborPayableForPerson(db, person, { allocate: !dryRun });
+        payable = { code: p.account_code, name: p.account_name, detail_account_id: p.detail_account_id };
+      } catch (resolveErr) {
+        out.errors.push({ id: e.id, code: resolveErr.code || 'E_PERSON_NO_COA', person_id: person.id });
         continue;
       }
 
@@ -607,7 +612,7 @@ function healPieceLaborPersonPayable(db, { dryRun = true, laborEntryIds = null }
           UPDATE journal_lines
           SET account_code=?, account_name=?, detail_account_id=COALESCE(?, detail_account_id)
           WHERE id=?
-        `).run(payable.code, payable.name, person.detail_account_id || null, ctrlLine.id);
+        `).run(payable.code, payable.name, payable.detail_account_id || null, ctrlLine.id);
       }
 
       if (needsPl) {
