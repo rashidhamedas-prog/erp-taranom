@@ -24313,8 +24313,11 @@ async function renderProductionRatesTab(body){
       <div class="panel">
         <div class="panel-head"><h4>جذب انتخابی از معین</h4>
           <div class="oh-actions">
-            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت</button>
+            ${ohRateEditor()?`<button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت</button>`:''}
             <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(){ccAccountMapsLoad()})}">بارگذاری</button>
+            <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ohSplitOpen()})}" title="تسهیم سربار واقعی 61030x بین کارگاه و اتو/بسته‌بندی">نسبت تسهیم مراکز</button>
+            <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ohSplitPreviewPeriod()})}">پیش‌نمایش سند دوره (همهٔ مراکز)</button>
+            ${ohRateEditor()?`<button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ohSplitRunPeriod()})}" title="یک سند: بدهکار ۵۲۰۲ برای هر مرکز / بستانکار هر معین">ثبت جذب دوره (همهٔ مراکز)</button>`:''}
             <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsPreview()})}">پیش‌نمایش دوره</button>
             ${ohRateEditor()?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>
             <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAbsorbRun()})}" title="سند: بدهکار ۵۲۰۲ / بستانکار معین‌های نگاشت‌شده">ثبت جذب واقعی (سند)</button>`:''}
@@ -24950,14 +24953,103 @@ async function ccAbsorbList(){
     area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>سند</th><th>معین‌ها</th><th>جمع</th><th>وضعیت</th><th></th></tr></thead><tbody>
       ${keys.map(k=>{ const g=docs[k]; const st=g[0].status; const tot=g.reduce((s,x)=>s+(+x.amount_rial||0),0);
         return `<tr>
-        <td class="mono"><b>${esc(k)}</b><div class="muted">${esc(g[0].cc_code||'')} ${esc(g[0].cc_name||'')}</div></td>
-        <td>${g.map(x=>`<div class="mono">${esc(x.account_code)} — ${money(x.amount_rial)}</div>`).join('')}</td>
+        <td class="mono"><b>${esc(k)}</b><div class="muted">${[...new Set(g.map(x=>((x.cc_code||'')+' '+(x.cc_name||'')).trim()))].map(esc).join('، ')}</div></td>
+        <td>${g.map(x=>`<div class="mono">${esc(x.account_code)}${new Set(g.map(y=>y.cost_center_id)).size>1?' ('+esc(x.cc_name||'')+')':''} — ${money(x.amount_rial)}</div>`).join('')}</td>
         <td class="num">${money(tot)}</td>
         <td>${st==='posted'?'ثبت‌شده':('ابطال‌شده'+(g[0].reverse_reason?(' — '+esc(g[0].reverse_reason)):''))}</td>
         <td>${st==='posted'&&ohRateEditor()?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){ccAbsorbReverse(k)})}">ابطال</button>`:''}</td>
       </tr>`; }).join('')}
     </tbody></table></div>`;
   }catch(e){ area.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
+}
+/* تسهیم سربار واقعی 61030x بین مراکز (پیش‌فرض کارگاه ۵۰٪ / اتو و بسته‌بندی ۵۰٪) — ویرایش فقط مدیر/حسابداری */
+async function ohSplitOpen(){
+  const period=el('pra-period')?.value||window._prodRatesPeriod||'';
+  let r;
+  try{ r=await api('GET','/production/cost-centers/account-maps/split'+(period?'?period='+encodeURIComponent(period):'')); }
+  catch(e){ showToast(e.message||'خطا','error'); return; }
+  const canEdit=!!(r&&r.can_edit&&ohRateEditor());
+  const split=r?.split||{};
+  const centers=r?.centers||[];
+  const accounts=r?.accounts||[];
+  window._ohSplitCenters=centers;
+  window._ohSplitAccounts=accounts;
+  const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+  const dis=canEdit?'':'disabled';
+  showModal('نسبت تسهیم سربار واقعی بین مراکز',`
+    <p class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:1.8`)}">سربار واقعی معین‌های 61030x به نسبت زیر بین مراکز تقسیم می‌شود (تصمیم مالک: کارگاه تولید و اتو/بسته‌بندی، پیش‌فرض ۵۰/۵۰). جمع سهم‌ها حداکثر ۱۰۰٪. با «ذخیره و اعمال به معین‌ها»، هر معین تیک‌خورده برای هر مرکز با همین درصد نگاشت می‌شود و نگاشت همان معین در مراکز دیگر غیرفعال می‌شود.${r?.is_default?' <b>(نسبت هنوز ذخیره نشده — پیش‌فرض نمایش داده شده)</b>':''}${canEdit?'':' <b>فقط مدیر و حسابداری می‌توانند ویرایش کنند.</b>'}</p>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>مرکز هزینه</th><th>سهم ٪</th></tr></thead><tbody>
+      ${centers.map(c=>`<tr><td>${esc(c.code)} — ${esc(c.name)}</td>
+        <td><input id="ohs-cc-${c.id}" type="number" min="0" max="100" step="0.1" value="${esc(String(split[c.id]!=null?split[c.id]:0))}" ${dis} data-csp-input="${CSP.bind('input',function(){ohSplitSumUi()})}"></td></tr>`).join('')}
+    </tbody></table></div>
+    <div id="ohs-sum" class="muted" data-csp-style="${CSP.style(`margin:6px 0`)}"></div>
+    <h4 data-csp-style="${CSP.style(`margin-top:10px`)}">معین‌های 61030x با گردش</h4>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>معین</th><th>مانده</th><th>مبنا</th><th>نگاشت فعلی</th></tr></thead><tbody>
+      ${accounts.map((a,i)=>{ const base=(a.maps[0]&&a.maps[0].base_type)||'period_debit';
+        return `<tr><td><input type="checkbox" id="ohs-acc-${i}" ${dis} checked data-csp-style="${CSP.style(`width:auto`)}"></td>
+        <td class="mono"><b>${esc(a.account_code)}</b> ${esc(a.account_name||'')}</td>
+        <td class="num">${money(a.balance_rial)}</td>
+        <td><select id="ohs-base-${i}" ${dis}>
+          <option value="period_debit" ${base==='period_debit'?'selected':''}>گردش بدهکار دوره</option>
+          <option value="ending_balance" ${base==='ending_balance'?'selected':''}>مانده پایان دوره</option>
+        </select></td>
+        <td>${a.maps.map(m=>`<div>${esc(m.cc_name||String(m.cost_center_id))}: ${fmt(m.absorb_pct)}٪</div>`).join('')||'—'}</td></tr>`; }).join('')||'<tr><td colspan="5">معین 61030x با گردش یافت نشد</td></tr>'}
+    </tbody></table></div>
+    <div data-csp-style="${CSP.style(`margin-top:10px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap`)}">
+      <button class="btn secondary" data-csp-click="${CSP.bind('click',function(){closeModal()})}">بستن</button>
+      ${canEdit?`<button class="btn ghost" data-csp-click="${CSP.bind('click',function(){ohSplitSave(false)})}">فقط ذخیرهٔ نسبت</button>
+      <button class="btn" data-csp-click="${CSP.bind('click',function(){ohSplitSave(true)})}">ذخیره و اعمال به معین‌ها</button>`:''}
+    </div>`);
+  setTimeout(ohSplitSumUi,0);
+}
+function ohSplitCollect(){
+  const split={};
+  (window._ohSplitCenters||[]).forEach(c=>{
+    const v=parseFloat(el('ohs-cc-'+c.id)?.value);
+    if(Number.isFinite(v)&&v>0) split[c.id]=v;
+  });
+  return split;
+}
+function ohSplitSumUi(){
+  const box=el('ohs-sum'); if(!box) return;
+  const sum=Object.values(ohSplitCollect()).reduce((s,v)=>s+v,0);
+  box.innerHTML='جمع سهم مراکز: <b>'+fmt(Math.round(sum*1000)/1000)+'٪</b>'+(sum>100.001?' <span class="oh-warn">بیش از ۱۰۰٪ مجاز نیست</span>':'');
+}
+async function ohSplitSave(applyMaps){
+  const split=ohSplitCollect();
+  const sum=Object.values(split).reduce((s,v)=>s+v,0);
+  if(sum>100.001){ showToast('مجموع سهم مراکز نباید از ۱۰۰٪ بیشتر شود','error'); return; }
+  const accounts=applyMaps?(window._ohSplitAccounts||[]).map((a,i)=>el('ohs-acc-'+i)?.checked?{account_code:a.account_code,base_type:el('ohs-base-'+i)?.value||'period_debit'}:null).filter(Boolean):[];
+  if(applyMaps&&!accounts.length){ showToast('حداقل یک معین را انتخاب کنید','error'); return; }
+  if(applyMaps&&!confirm('نگاشت '+accounts.length+' معین به نسبت جدید بازنویسی شود و نگاشت همان معین‌ها در مراکز دیگر غیرفعال شود؟')) return;
+  try{
+    await api('PUT','/production/cost-centers/account-maps/split',{split,accounts});
+    closeModal(); showToast(applyMaps?'نسبت تسهیم ذخیره و به معین‌ها اعمال شد':'نسبت تسهیم ذخیره شد');
+    ccAccountMapsLoad();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function ohSplitPreviewPeriod(){
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  const area=el('cca-area'); if(!area) return;
+  try{
+    const r=await api('POST','/production/cost-centers/absorb-postings/preview-period',{period_label:period});
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    area.innerHTML=`سند پیشنهادی دوره ${esc(r.period_label)} — جمع: <b>${money(r.total_rial)}</b>${r.already_posted_count?` <span class="muted">(${fmt(r.already_posted_count)} نگاشت قبلاً ثبت شده و کنار گذاشته شد)</span>`:''}
+      <div class="tbl-wrap" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl"><thead><tr><th>ردیف سند</th><th>بدهکار</th><th>بستانکار</th></tr></thead><tbody>
+      ${(r.debit_by_cc||[]).map(c=>`<tr><td>۵۲۰۲ کنترل سربار — ${esc(c.cc_code||'')} ${esc(c.cc_name||'')}</td><td class="num">${money(c.amount_rial)}</td><td></td></tr>`).join('')}
+      ${(r.credit_by_account||[]).map(a=>`<tr><td class="mono">${esc(a.account_code)} ${esc(a.account_name||'')}</td><td></td><td class="num">${money(a.amount_rial)}</td></tr>`).join('')}
+      ${(r.debit_by_cc||[]).length?'':'<tr><td colspan="3">ردیفی برای ثبت نیست</td></tr>'}
+      </tbody></table></div>`;
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function ohSplitRunPeriod(){
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  if(!confirm('سند واحد جذب واقعی دوره '+period+' برای همهٔ مراکز ثبت شود؟ (بدهکار ۵۲۰۲ به تفکیک مرکز / بستانکار هر معین — هر نگاشت فقط یک‌بار در دوره)')) return;
+  try{
+    const r=await api('POST','/production/cost-centers/absorb-postings/run-period',{period_label:period});
+    showToast('سند جذب '+(r?.doc_no||'')+' ثبت شد — '+fmt(r?.total_rial||0)+' ریال');
+    ccAbsorbList();
+  }catch(e){ showToast(e.message||'خطا','error'); }
 }
 async function ccAbsorbReverse(docNo){
   const reason=prompt('دلیل ابطال سند جذب '+docNo+':');
@@ -42998,6 +43090,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>
         <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> تب «جذب معین» (یا از ویرایش مرکز هزینه → «جذب از معین») — انتخاب معین با جستجوی کدینگ؛ درصد جذب و مبنا: گردش بدهکار / مانده پایان / بودجه. پیش‌نمایش و «اعمال به بودجه نرخ» همان‌جا.</li>
         <li><b>سربار و بستن دوره — P3:</b> (۱) <b>محرک درصدی:</b> برای محرک دستمزد/مواد ریالی نرخ به‌صورت <b>درصد از مبنا</b> ثبت می‌شود (پیش‌فرض <b>۲۰٪</b>، قابل ویرایش برای هر مرکز). نرخ‌های قدیمی «ریال به ازای هر میلیون» خودکار به درصد تبدیل شدند (۲۰۰٬۰۰۰ ⇒ ۲۰٪)؛ محرک تعداد خروجی همچنان ریال به ازای هر عدد است. ثبت/ویرایش/لغو نرخ فقط <b>مدیر و حسابداری</b> و همه در گزارش ممیزی ثبت می‌شود. (۲) <b>یکتایی جذب:</b> برای هر سفارش + مرحله + محرک + مرکز فقط یک جذب ثبت‌شده مجاز است؛ تکرار، همان ردیف قبلی را برمی‌گرداند و سند دوباره نمی‌زند. جذب هم‌زمان کارگاه و اتو/بسته‌بندی روی یک مرحله درست است و مجاز می‌ماند. (۳) <b>ثبت جذب واقعی (سند):</b> در تب «جذب معین»، دکمهٔ «ثبت جذب واقعی (سند)» برای مرکز و دورهٔ انتخابی سند «بدهکار کنترل سربار ۵۲۰۲ (با مرکز هزینه) / بستانکار معین‌های 61030x نگاشت‌شده» به اندازهٔ مبنا × درصد جذب می‌زند؛ هر نگاشت در هر دوره فقط یک‌بار. «اسناد جذب دوره» فهرست را نشان می‌دهد و «ابطال» (با دلیل) سند را کامل برمی‌گرداند تا دوباره قابل اجرا باشد. (۴) <b>پیش‌نیاز بستن:</b> اگر ۵۲۰۳ (سربار جذب‌شده) مانده دارد ولی ۵۲۰۲ صفر است، بررسی پیش از بستن <b>خطا</b> می‌دهد تا اول جذب واقعی معین‌ها اجرا شود. (۵) <b>تسهیم انحراف (PRD-23):</b> مانده‌های ۵۲۱۲، ۵۲۱۳، ۵۲۱۴ و ۵۲۱۵ (از جمله ماندهٔ تعدیل بها روی ۵۲۱۴) همه به WIP/کالای ساخته‌شده/بهای فروش تسهیم می‌شوند تا حساب‌های کنترل در پایان صفر شوند. (۶) سهم کالای ساخته‌شده فقط بین <b>محصولات نهایی</b> تولیدشدهٔ دوره پخش می‌شود (رسید باقیماندهٔ برش و اضافه طاقه حساب نمی‌شود).</li>
+        <li><b>تسهیم سربار واقعی بین مراکز (کارگاه / اتو و بسته‌بندی):</b> طبق تصمیم مالک، سربار واقعی معین‌های 61030x بین <b>کارگاه تولید</b> و <b>اتو و بسته‌بندی</b> تقسیم می‌شود (پیش‌فرض <b>۵۰/۵۰</b>، قابل تغییر). در «نرخ سربار ← جذب معین» دکمهٔ «نسبت تسهیم مراکز» را بزنید: سهم هر مرکز را وارد کنید (جمع حداکثر ۱۰۰٪) و با «ذخیره و اعمال به معین‌ها» هر معین انتخاب‌شده برای هر مرکز با همان درصد نگاشت می‌شود و نگاشت همان معین در مراکز دیگر (مثلاً دفتر توزیع) غیرفعال می‌شود. مجموع درصد جذب یک معین در همهٔ مراکز هرگز نمی‌تواند از ۱۰۰٪ بیشتر شود (هم در ذخیرهٔ نگاشت و هم در اجرا بررسی می‌شود). «پیش‌نمایش سند دوره (همهٔ مراکز)» و «ثبت جذب دوره (همهٔ مراکز)» یک سند واحد می‌زنند: <b>یک ردیف بدهکار ۵۲۰۲ برای هر مرکز</b> به اندازهٔ سهم آن و <b>یک ردیف بستانکار برای هر معین</b>؛ باقیماندهٔ گرد کردن ریالی به آخرین مرکز می‌رود. هر نگاشت در هر دوره فقط یک‌بار ثبت می‌شود و «ابطال» سند، کل اثر را برمی‌گرداند. ویرایش نسبت، ویرایش/غیرفعال‌سازی نگاشت معین و اجرای جذب فقط برای <b>مدیر و حسابداری</b> است و همه در گزارش ممیزی ثبت می‌شود.</li>
         <li><b>تعدیل بها (v358):</b> تب «تعدیل بها» — اتومات یا دستی؛ بازمحاسبه بها/قیمت و سند Δ موجودی به ۵۲۱۴؛ ابطال کامل R13.</li>
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>

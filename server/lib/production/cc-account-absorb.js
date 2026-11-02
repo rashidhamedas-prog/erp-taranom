@@ -57,8 +57,19 @@ function accountPeriodDebit(db, accountCode, from, to) {
   return Math.round(Number(row?.d) || 0);
 }
 
-function accountEndingBalance(db, accountCode, to) {
+function absorbJeIdsForPeriod(db, period) {
+  if (!period) return [];
+  try {
+    return db.prepare(`
+      SELECT DISTINCT je_id FROM cc_absorb_postings WHERE period_label=? AND status='posted' AND je_id IS NOT NULL
+    `).all(period).map((r) => Number(r.je_id));
+  } catch (_) { return []; }
+}
+
+/** excludePeriod: اسناد جذب همین دوره از مانده کنار می‌روند تا سهم مراکز بعدی کوچک نشود. */
+function accountEndingBalance(db, accountCode, to, { excludePeriod } = {}) {
   const acc = db.prepare('SELECT type FROM chart_of_accounts WHERE code=?').get(accountCode);
+  const skip = absorbJeIdsForPeriod(db, excludePeriod);
   const row = db.prepare(`
     SELECT
       COALESCE(SUM(${SQL_JL_DEBIT_RIAL}),0) AS d,
@@ -66,7 +77,8 @@ function accountEndingBalance(db, accountCode, to) {
     FROM journal_lines jl
     JOIN journal_entries je ON jl.entry_id=je.id
     WHERE jl.account_code=? AND ${JE_ALIVE} AND je.entry_date <= ?
-  `).get(accountCode, to);
+      ${skip.length ? `AND je.id NOT IN (${skip.map(() => '?').join(',')})` : ''}
+  `).get(accountCode, to, ...skip);
   const dr = Math.round(Number(row?.d) || 0);
   const cr = Math.round(Number(row?.c) || 0);
   const type = String(acc?.type || 'expense');
@@ -77,7 +89,7 @@ function accountEndingBalance(db, accountCode, to) {
   return dr - cr;
 }
 
-function resolveBaseAmount(db, mapRow, { from, to } = {}) {
+function resolveBaseAmount(db, mapRow, { from, to, period } = {}) {
   const base = normalizeBaseType(mapRow.base_type);
   if (base === 'budget') {
     return Math.max(0, Math.round(Number(mapRow.budget_rial) || 0));
@@ -86,7 +98,7 @@ function resolveBaseAmount(db, mapRow, { from, to } = {}) {
     throw absorbErr('E_DATE_RANGE', 400, 'بازه تاریخی برای مبنای گردش/مانده الزامی است');
   }
   if (base === 'period_debit') return Math.max(0, accountPeriodDebit(db, mapRow.account_code, from, to));
-  return Math.max(0, accountEndingBalance(db, mapRow.account_code, to));
+  return Math.max(0, accountEndingBalance(db, mapRow.account_code, to, { excludePeriod: period }));
 }
 
 function absorbedRial(db, mapRow, bounds) {
@@ -143,19 +155,207 @@ function replaceMaps(db, costCenterId, maps, userId) {
     };
   });
 
+  // R13: نگاشت حذف فیزیکی نمی‌شود (map_id در cc_absorb_postings مرجع گارد یک‌بار در دوره است).
   const tx = db.transaction(() => {
-    db.prepare('DELETE FROM cost_center_account_maps WHERE cost_center_id=?').run(ccId);
-    const ins = db.prepare(`
-      INSERT INTO cost_center_account_maps
-        (cost_center_id, account_code, absorb_pct, base_type, budget_rial, active, note, created_by)
-      VALUES (?,?,?,?,?,?,?,?)
-    `);
+    const prev = db.prepare('SELECT account_code FROM cost_center_account_maps WHERE cost_center_id=?')
+      .all(ccId).map((r) => r.account_code);
+    const keep = new Set(normalized.map((m) => m.account_code));
+    const off = db.prepare('UPDATE cost_center_account_maps SET active=0 WHERE cost_center_id=? AND account_code=?');
+    for (const code of prev) if (!keep.has(code)) off.run(ccId, code);
+    const up = upsertMapStmt(db);
     for (const m of normalized) {
-      ins.run(ccId, m.account_code, m.absorb_pct, m.base_type, m.budget_rial, m.active, m.note, userId || null);
+      up.run(ccId, m.account_code, m.absorb_pct, m.base_type, m.budget_rial, m.active, m.note, userId || null);
     }
+    assertAccountPctTotals(db, [...keep]);
   });
   tx();
   return listMaps(db, ccId, { includeInactive: true });
+}
+
+function upsertMapStmt(db) {
+  return db.prepare(`
+    INSERT INTO cost_center_account_maps
+      (cost_center_id, account_code, absorb_pct, base_type, budget_rial, active, note, created_by)
+    VALUES (?,?,?,?,?,?,?,?)
+    ON CONFLICT(cost_center_id, account_code) DO UPDATE SET
+      absorb_pct=excluded.absorb_pct, base_type=excluded.base_type, budget_rial=excluded.budget_rial,
+      active=excluded.active, note=excluded.note
+  `);
+}
+
+function fmtPct(n) {
+  return (Math.round(Number(n) * 1000) / 1000).toLocaleString('fa-IR');
+}
+
+/** مجموع درصد جذب یک معین در همهٔ مراکز فعال نباید از ۱۰۰٪ بیشتر شود. */
+function assertAccountPctTotals(db, accountCodes) {
+  const codes = (accountCodes || []).map((c) => String(c || '').trim()).filter(Boolean);
+  if (!codes.length) return;
+  const rows = db.prepare(`
+    SELECT account_code, SUM(absorb_pct) AS pct
+    FROM cost_center_account_maps
+    WHERE COALESCE(active,1)=1 AND account_code IN (${codes.map(() => '?').join(',')})
+    GROUP BY account_code
+    HAVING SUM(absorb_pct) > 100.001
+  `).all(...codes);
+  if (rows.length) {
+    const r = rows[0];
+    throw absorbErr('E_ACCOUNT_PCT_OVER_100', 400,
+      `مجموع درصد جذب معین ${r.account_code} در همهٔ مراکز هزینه ${fmtPct(r.pct)}٪ می‌شود؛ حداکثر ۱۰۰٪ مجاز است`);
+  }
+}
+
+function auditTo(db, userId, action, entity, entityId, detail, req) {
+  if (req && req.headers) {
+    try { require('../../db').audit(userId, action, entity, entityId, detail, req); return; } catch (_) { /* fallthrough */ }
+  }
+  try {
+    db.prepare('INSERT INTO audit_log (user_id,action,entity,entity_id,detail) VALUES (?,?,?,?,?)')
+      .run(userId || null, action, entity, entityId || null, detail || '');
+  } catch (_) { /* audit table absent on stub DBs */ }
+}
+
+/* ── تسهیم سربار واقعی 61030x بین مراکز (تصمیم مالک: کارگاه cc1 / اتو و بسته‌بندی cc8) ── */
+
+const SPLIT_SETTING_KEY = 'oh_actual_split';
+const DEFAULT_SPLIT = Object.freeze({ 1: 50, 8: 50 });
+
+function parseSplitValue(raw) {
+  let obj = raw;
+  if (typeof raw === 'string') {
+    try { obj = JSON.parse(raw); } catch (_) {
+      throw absorbErr('E_SPLIT_FORMAT', 400, 'فرمت نسبت تسهیم نامعتبر است');
+    }
+  }
+  if (Array.isArray(obj)) {
+    obj = Object.fromEntries(obj.map((r) => [r && r.cost_center_id, r && (r.pct != null ? r.pct : r.share_pct)]));
+  }
+  if (!obj || typeof obj !== 'object') throw absorbErr('E_SPLIT_FORMAT', 400, 'فرمت نسبت تسهیم نامعتبر است');
+  return obj;
+}
+
+/** {ccId: pct} → اعتبارسنجی: مرکز موجود و فعال، ۰ تا ۱۰۰، جمع ≤ ۱۰۰٪. سهم صفر حذف می‌شود. */
+function normalizeSplit(db, raw) {
+  const obj = parseSplitValue(raw);
+  const out = {};
+  let sum = 0;
+  for (const [k, v] of Object.entries(obj)) {
+    const id = Number(k);
+    if (!Number.isInteger(id) || id <= 0) throw absorbErr('E_SPLIT_CC', 400, 'شناسهٔ مرکز هزینه در نسبت تسهیم نامعتبر است');
+    const pct = Number(v);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      throw absorbErr('E_SPLIT_PCT', 400, `سهم مرکز ${id} باید بین ۰ تا ۱۰۰ درصد باشد`);
+    }
+    if (pct === 0) continue;
+    const cc = db.prepare('SELECT id, name, COALESCE(active,1) AS active FROM cost_centers WHERE id=?').get(id);
+    if (!cc) throw absorbErr('E_CC_NOT_FOUND', 404, `مرکز هزینه ${id} یافت نشد`);
+    if (!cc.active) throw absorbErr('E_CC_INACTIVE', 400, `مرکز هزینه «${cc.name}» غیرفعال است`);
+    out[id] = Math.round(pct * 1000) / 1000;
+    sum += out[id];
+  }
+  if (!Object.keys(out).length) throw absorbErr('E_SPLIT_EMPTY', 400, 'حداقل یک مرکز با سهم بیشتر از صفر لازم است');
+  if (sum > 100.001) {
+    throw absorbErr('E_SPLIT_OVER_100', 400, `مجموع سهم مراکز ${fmtPct(sum)}٪ است و نباید از ۱۰۰٪ بیشتر شود`);
+  }
+  return out;
+}
+
+function getSplit(db) {
+  let raw = null;
+  try { raw = db.prepare('SELECT value FROM settings WHERE key=?').get(SPLIT_SETTING_KEY)?.value; } catch (_) { raw = null; }
+  if (raw) {
+    try {
+      const obj = parseSplitValue(raw);
+      const split = {};
+      for (const [k, v] of Object.entries(obj)) if (Number(k) > 0 && Number(v) > 0) split[Number(k)] = Number(v);
+      if (Object.keys(split).length) return { split, is_default: false };
+    } catch (_) { /* fall back to default */ }
+  }
+  return { split: { ...DEFAULT_SPLIT }, is_default: true };
+}
+
+/** معین‌های برگ 61030x با گردش (تا پایان دوره) + نگاشت فعلی هر کدام — پیشنهاد فرم تسهیم. */
+function listOverheadLeafAccounts(db, periodLabel, { prefix = '61030' } = {}) {
+  const to = periodLabel ? periodDateBounds(periodLabel).to : '9999/99/99';
+  const accounts = db.prepare(`
+    SELECT a.code, a.name
+    FROM chart_of_accounts a
+    WHERE a.code LIKE ? AND COALESCE(a.is_active,1)=1
+      AND NOT EXISTS (SELECT 1 FROM chart_of_accounts c WHERE c.parent_code = a.code)
+    ORDER BY a.code
+  `).all(`${prefix}%`);
+  const maps = db.prepare(`
+    SELECT m.account_code, m.cost_center_id, m.absorb_pct, m.base_type, cc.name AS cc_name
+    FROM cost_center_account_maps m LEFT JOIN cost_centers cc ON cc.id=m.cost_center_id
+    WHERE COALESCE(m.active,1)=1 AND m.account_code LIKE ?
+  `).all(`${prefix}%`);
+  return accounts.map((a) => ({
+    account_code: a.code,
+    account_name: a.name,
+    balance_rial: accountEndingBalance(db, a.code, to),
+    maps: maps.filter((m) => m.account_code === a.code),
+  })).filter((a) => a.balance_rial !== 0 || a.maps.length);
+}
+
+function mapsForAccounts(db, codes) {
+  if (!codes.length) return [];
+  return db.prepare(`
+    SELECT id, cost_center_id, account_code, absorb_pct, base_type, budget_rial, COALESCE(active,1) AS active
+    FROM cost_center_account_maps
+    WHERE account_code IN (${codes.map(() => '?').join(',')})
+    ORDER BY account_code, cost_center_id
+  `).all(...codes);
+}
+
+/**
+ * ذخیرهٔ نسبت تسهیم + (اختیاری) نگاشت معین‌ها به همان مراکز با سهم هر مرکز، در یک تراکنش.
+ * removeOthers: نگاشت همان معین در مراکز خارج از نسبت غیرفعال می‌شود (حذف فیزیکی ندارد).
+ */
+function applySplit(db, { split, accounts, userId, removeOthers = true, req } = {}) {
+  const norm = normalizeSplit(db, split);
+  const ccIds = Object.keys(norm).map(Number);
+  const seen = new Set();
+  const accs = (Array.isArray(accounts) ? accounts : []).map((raw) => {
+    const a = assertAccount(db, typeof raw === 'string' ? raw : (raw.account_code || raw.code));
+    if (seen.has(a.code)) throw absorbErr('E_DUP_ACCOUNT', 400, `حساب ${a.code} تکراری است`);
+    seen.add(a.code);
+    const base_type = normalizeBaseType(typeof raw === 'string' ? 'period_debit' : raw.base_type);
+    const budget_rial = Math.max(0, Math.round(Number(raw && raw.budget_rial) || 0));
+    if (base_type === 'budget' && budget_rial <= 0) {
+      throw absorbErr('E_BUDGET_REQUIRED', 400, `برای مبنای بودجه، مبلغ بودجهٔ ${a.code} الزامی است`);
+    }
+    return { account_code: a.code, base_type, budget_rial };
+  });
+  const codes = accs.map((a) => a.account_code);
+
+  return db.transaction(() => {
+    const beforeSplit = getSplit(db);
+    const beforeMaps = mapsForAccounts(db, codes);
+    db.prepare(`
+      INSERT INTO settings (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value
+    `).run(SPLIT_SETTING_KEY, JSON.stringify(norm));
+    const up = upsertMapStmt(db);
+    const off = db.prepare(`
+      UPDATE cost_center_account_maps SET active=0
+      WHERE account_code=? AND cost_center_id NOT IN (${ccIds.map(() => '?').join(',')}) AND COALESCE(active,1)=1
+    `);
+    for (const a of accs) {
+      if (removeOthers) off.run(a.account_code, ...ccIds);
+      for (const ccId of ccIds) {
+        up.run(ccId, a.account_code, norm[ccId], a.base_type, a.budget_rial, 1, 'تسهیم سربار واقعی', userId || null);
+      }
+    }
+    assertAccountPctTotals(db, codes);
+    const afterMaps = mapsForAccounts(db, codes);
+    auditTo(db, userId, 'update', 'oh_actual_split', null, JSON.stringify({
+      before: { split: beforeSplit.split, is_default: beforeSplit.is_default, maps: beforeMaps },
+      after: { split: norm, maps: afterMaps },
+      accounts: codes,
+      remove_others: !!removeOthers,
+    }), req);
+    return { ok: true, split: norm, accounts: codes, maps: afterMaps };
+  })();
 }
 
 function softDeactivateMap(db, mapId) {
@@ -213,13 +413,166 @@ function listAbsorbPostings(db, { period, costCenterId, includeReversed = true }
 }
 
 /**
- * یک سند برای (دوره، مرکز): بد 5202 با مرکز هزینه / بس هر معین نگاشت‌شده به اندازهٔ
- * مبنا × درصد جذب. هر نگاشت در هر دوره فقط یک‌بار (ایندکس یکتای ux_cc_absorb_posted).
+ * سهم هر نگاشت فعال (همهٔ مراکز) در دوره. معین مشترک بین چند مرکز (هم‌مبنا) یک‌بار
+ * مبنا می‌گیرد؛ جمع = round(مبنا × Σدرصد) و سهم هر مرکز round(مبنا × درصد) — باقیماندهٔ
+ * گرد کردن به آخرین مرکز (ترتیب seq). مبنای بودجه مخصوص همان نگاشت است و گروه نمی‌شود.
  */
-function runAbsorb(db, { costCenterId, period, userId, date } = {}) {
+function computeAbsorbShares(db, periodLabel) {
+  const bounds = periodDateBounds(periodLabel);
+  const maps = db.prepare(`
+    SELECT m.*, a.name AS account_name, cc.code AS cc_code, cc.name AS cc_name, COALESCE(cc.seq,0) AS cc_seq
+    FROM cost_center_account_maps m
+    JOIN cost_centers cc ON cc.id = m.cost_center_id
+    LEFT JOIN chart_of_accounts a ON a.code = m.account_code
+    WHERE COALESCE(m.active,1)=1
+    ORDER BY m.account_code, m.base_type, COALESCE(cc.seq,0), cc.id
+  `).all();
+  const groups = new Map();
+  for (const m of maps) {
+    const base = normalizeBaseType(m.base_type);
+    const key = base === 'budget' ? `${m.account_code}|budget|${m.id}` : `${m.account_code}|${base}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(m);
+  }
+  const lines = [];
+  for (const group of groups.values()) {
+    const first = group[0];
+    const baseRial = resolveBaseAmount(db, first, bounds);
+    const pcts = group.map((m) => clampAbsorbPct(m.absorb_pct != null ? m.absorb_pct : 100));
+    const sumPct = pcts.reduce((s, p) => s + p, 0);
+    if (sumPct > 100.001) {
+      throw absorbErr('E_ACCOUNT_PCT_OVER_100', 409,
+        `مجموع درصد جذب معین ${first.account_code} در همهٔ مراکز هزینه ${fmtPct(sumPct)}٪ می‌شود؛ حداکثر ۱۰۰٪ مجاز است`);
+    }
+    const total = Math.round(baseRial * (sumPct / 100));
+    let allocated = 0;
+    group.forEach((m, i) => {
+      const share = i === group.length - 1 ? total - allocated : Math.round(baseRial * (pcts[i] / 100));
+      allocated += share;
+      lines.push({
+        id: m.id,
+        map_id: m.id,
+        cost_center_id: Number(m.cost_center_id),
+        cc_code: m.cc_code,
+        cc_name: m.cc_name,
+        cc_seq: Number(m.cc_seq) || 0,
+        account_code: m.account_code,
+        account_name: m.account_name,
+        base_type: normalizeBaseType(m.base_type),
+        base_rial: baseRial,
+        absorb_pct: pcts[i],
+        absorbed_rial: share,
+      });
+    });
+  }
+  return { bounds, lines };
+}
+
+function summarizeAbsorbLines(lines) {
+  const byCc = new Map();
+  const byAcc = new Map();
+  for (const l of lines) {
+    const c = byCc.get(l.cost_center_id) || {
+      cost_center_id: l.cost_center_id, cc_code: l.cc_code, cc_name: l.cc_name, cc_seq: l.cc_seq, amount_rial: 0,
+    };
+    c.amount_rial += l.absorbed_rial;
+    byCc.set(l.cost_center_id, c);
+    const a = byAcc.get(l.account_code) || { account_code: l.account_code, account_name: l.account_name, amount_rial: 0 };
+    a.amount_rial += l.absorbed_rial;
+    byAcc.set(l.account_code, a);
+  }
+  const debit_by_cc = [...byCc.values()]
+    .sort((x, y) => (x.cc_seq - y.cc_seq) || (x.cost_center_id - y.cost_center_id))
+    .map(({ cc_seq, ...rest }) => rest);
+  const credit_by_account = [...byAcc.values()].sort((x, y) => String(x.account_code).localeCompare(String(y.account_code)));
+  return { debit_by_cc, credit_by_account, total_rial: lines.reduce((s, l) => s + l.absorbed_rial, 0) };
+}
+
+function postedMapIds(db, period) {
+  return new Set(db.prepare(`
+    SELECT map_id FROM cc_absorb_postings WHERE period_label=? AND status='posted'
+  `).all(period).map((r) => Number(r.map_id)));
+}
+
+/** پیش‌نمایش سند دوره (همهٔ مراکز): بد 5202 به تفکیک مرکز / بس یک ردیف برای هر معین. */
+function previewAbsorbPeriod(db, periodLabel, { costCenterIds } = {}) {
+  const { bounds, lines } = computeAbsorbShares(db, periodLabel);
+  const posted = postedMapIds(db, bounds.period);
+  const filterCc = Array.isArray(costCenterIds) && costCenterIds.length
+    ? new Set(costCenterIds.map(Number)) : null;
+  const scoped = lines.filter((l) => !filterCc || filterCc.has(l.cost_center_id));
+  const pending = scoped.filter((l) => l.absorbed_rial > 0 && !posted.has(Number(l.map_id)));
+  return {
+    period_label: bounds.period,
+    date_from: bounds.from,
+    date_to: bounds.to,
+    lines: scoped.map((l) => ({ ...l, posted: posted.has(Number(l.map_id)) })),
+    already_posted_count: scoped.filter((l) => posted.has(Number(l.map_id))).length,
+    pending_lines: pending,
+    ...summarizeAbsorbLines(pending),
+  };
+}
+
+function postAbsorbLines(db, { lines, bounds, userId, date, headerCcId, label }) {
   const { acct } = require('../coa-map');
   const { allocateNumber } = require('../../db');
   const { postEvent, err } = require('./posting');
+  const { periodEndJalali } = require('../../jalali');
+  const summary = summarizeAbsorbLines(lines);
+  const ctl = acct(db, 'coa_overhead_control');
+  const entryDate = String(date || periodEndJalali(bounds.period) || bounds.to).trim();
+  let docNo = '';
+  try { docNo = allocateNumber(db, 'cc_absorb', 'CCA'); } catch { docNo = `CCA-${Date.now()}`; }
+
+  const ins = db.prepare(`
+    INSERT INTO cc_absorb_postings
+      (doc_no, period_label, cost_center_id, map_id, account_code, base_type, base_rial,
+       absorb_pct, amount_rial, status, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,'posted',?)
+  `);
+  const ids = lines.map((l) => ins.run(
+    docNo, bounds.period, l.cost_center_id, l.map_id, l.account_code, l.base_type, l.base_rial,
+    l.absorb_pct, l.absorbed_rial, userId || null,
+  ).lastInsertRowid);
+
+  const jeLines = summary.debit_by_cc.map((c) => ({
+    code: ctl.code, name: ctl.name, debit: c.amount_rial / 10, credit: 0, cost_center_id: c.cost_center_id,
+    description: `سهم ${c.cc_name || c.cost_center_id}`,
+  }));
+  for (const a of summary.credit_by_account) {
+    jeLines.push({ code: a.account_code, name: a.account_name || a.account_code, debit: 0, credit: a.amount_rial / 10 });
+  }
+  const je = postEvent(db, {
+    event: 'PRD-06',
+    sourceId: ids[0],
+    date: entryDate,
+    description: `جذب سربار واقعی معین‌ها به کنترل سربار — ${label} — دوره ${bounds.period} (${docNo})`,
+    createdBy: userId,
+    costCenterId: headerCcId || null,
+    lines: jeLines,
+  });
+  if (!je || !je.je_id) throw err('E_JE_FAILED', 500, { doc_no: docNo });
+  db.prepare(`UPDATE cc_absorb_postings SET je_id=? WHERE doc_no=? AND status='posted'`).run(je.je_id, docNo);
+
+  auditTo(db, userId, 'create', 'cc_absorb_posting', ids[0], JSON.stringify({
+    doc_no: docNo, period: bounds.period, je_id: je.je_id, total_rial: summary.total_rial,
+    debit_by_cc: summary.debit_by_cc, credit_by_account: summary.credit_by_account,
+    lines: lines.map((l) => ({
+      map_id: l.map_id, cost_center_id: l.cost_center_id, account_code: l.account_code, amount_rial: l.absorbed_rial,
+    })),
+  }));
+  return {
+    ok: true, doc_no: docNo, period_label: bounds.period, je_id: je.je_id, total_rial: summary.total_rial,
+    debit_by_cc: summary.debit_by_cc, credit_by_account: summary.credit_by_account,
+    rows: listAbsorbPostings(db, { period: bounds.period }).filter((r) => r.doc_no === docNo),
+  };
+}
+
+/**
+ * یک سند برای (دوره، مرکز): بد 5202 با مرکز هزینه / بس هر معین نگاشت‌شده به اندازهٔ
+ * سهم همین مرکز. هر نگاشت در هر دوره فقط یک‌بار (ایندکس یکتای ux_cc_absorb_posted).
+ */
+function runAbsorb(db, { costCenterId, period, userId, date } = {}) {
   const ccId = Number(costCenterId);
   if (!ccId) throw absorbErr('E_CC_REQUIRED', 400, 'مرکز هزینه الزامی است');
   const cc = db.prepare('SELECT id, code, name FROM cost_centers WHERE id=?').get(ccId);
@@ -227,62 +580,34 @@ function runAbsorb(db, { costCenterId, period, userId, date } = {}) {
   const bounds = periodDateBounds(period);
 
   return db.transaction(() => {
-    const preview = previewAbsorbForCenter(db, ccId, bounds.period);
-    const already = db.prepare(`
-      SELECT map_id FROM cc_absorb_postings
-      WHERE period_label=? AND cost_center_id=? AND status='posted'
-    `).all(bounds.period, ccId).map((r) => Number(r.map_id));
-    const lines = preview.lines.filter((l) => l.absorbed_rial > 0 && !already.includes(Number(l.id)));
-    if (!lines.length) {
-      throw absorbErr(already.length ? 'E_ALREADY_POSTED' : 'E_POOL_ZERO', 409,
-        already.length
+    const preview = previewAbsorbPeriod(db, bounds.period, { costCenterIds: [ccId] });
+    if (!preview.pending_lines.length) {
+      throw absorbErr(preview.already_posted_count ? 'E_ALREADY_POSTED' : 'E_POOL_ZERO', 409,
+        preview.already_posted_count
           ? `جذب معین‌های این مرکز برای دوره ${bounds.period} قبلاً ثبت شده است`
           : 'مبلغ جذبی از معین‌ها صفر است');
     }
-    const total = lines.reduce((s, l) => s + l.absorbed_rial, 0);
-    const ctl = acct(db, 'coa_overhead_control');
-    const { periodEndJalali } = require('../../jalali');
-    const entryDate = String(date || periodEndJalali(bounds.period) || bounds.to).trim();
-    let docNo = '';
-    try { docNo = allocateNumber(db, 'cc_absorb', 'CCA'); } catch { docNo = `CCA-${Date.now()}`; }
-
-    const ins = db.prepare(`
-      INSERT INTO cc_absorb_postings
-        (doc_no, period_label, cost_center_id, map_id, account_code, base_type, base_rial,
-         absorb_pct, amount_rial, status, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,'posted',?)
-    `);
-    const ids = lines.map((l) => ins.run(
-      docNo, bounds.period, ccId, l.id, l.account_code, l.base_type, l.base_rial,
-      l.absorb_pct, l.absorbed_rial, userId || null,
-    ).lastInsertRowid);
-
-    const jeLines = [{ code: ctl.code, name: ctl.name, debit: total / 10, credit: 0 }];
-    for (const l of lines) {
-      jeLines.push({ code: l.account_code, name: l.account_name || l.account_code, debit: 0, credit: l.absorbed_rial / 10 });
-    }
-    const je = postEvent(db, {
-      event: 'PRD-06',
-      sourceId: ids[0],
-      date: entryDate,
-      description: `جذب سربار واقعی معین‌ها به کنترل سربار — ${cc.name} — دوره ${bounds.period} (${docNo})`,
-      createdBy: userId,
-      costCenterId: ccId,
-      lines: jeLines,
+    const out = postAbsorbLines(db, {
+      lines: preview.pending_lines, bounds, userId, date, headerCcId: ccId, label: cc.name,
     });
-    if (!je || !je.je_id) throw err('E_JE_FAILED', 500, { doc_no: docNo });
-    db.prepare(`UPDATE cc_absorb_postings SET je_id=? WHERE doc_no=? AND status='posted'`).run(je.je_id, docNo);
+    return { ...out, cost_center_id: ccId };
+  })();
+}
 
-    const { audit } = require('../../db');
-    audit(userId, 'create', 'cc_absorb_posting', ids[0], JSON.stringify({
-      doc_no: docNo, period: bounds.period, cost_center_id: ccId, je_id: je.je_id, total_rial: total,
-      lines: lines.map((l) => ({ map_id: l.id, account_code: l.account_code, amount_rial: l.absorbed_rial })),
-    }));
-    return {
-      ok: true, doc_no: docNo, period_label: bounds.period, cost_center_id: ccId,
-      je_id: je.je_id, total_rial: total, rows: listAbsorbPostings(db, { period: bounds.period, costCenterId: ccId })
-        .filter((r) => r.doc_no === docNo),
-    };
+/** سند واحد دوره برای همهٔ مراکز: یک بد 5202 برای هر مرکز (سهم آن) / یک بس برای هر معین. */
+function runAbsorbPeriod(db, { period, userId, date, costCenterIds } = {}) {
+  const bounds = periodDateBounds(period);
+  return db.transaction(() => {
+    const preview = previewAbsorbPeriod(db, bounds.period, { costCenterIds });
+    if (!preview.pending_lines.length) {
+      throw absorbErr(preview.already_posted_count ? 'E_ALREADY_POSTED' : 'E_POOL_ZERO', 409,
+        preview.already_posted_count
+          ? `جذب معین‌ها برای دوره ${bounds.period} قبلاً ثبت شده است`
+          : 'مبلغ جذبی از معین‌ها صفر است');
+    }
+    return postAbsorbLines(db, {
+      lines: preview.pending_lines, bounds, userId, date, headerCcId: null, label: 'تسهیم بین مراکز',
+    });
   })();
 }
 
@@ -308,8 +633,7 @@ function reverseAbsorb(db, { docNo, reason, userId, date } = {}) {
       SET status='reversed', reversal_je_id=?, reverse_reason=?, reversed_by=?, reversed_at=?
       WHERE doc_no=? AND status='posted'
     `).run(revId || null, cleanReason, userId || null, now, doc);
-    const { audit } = require('../../db');
-    audit(userId, 'delete', 'cc_absorb_posting', rows[0].id, JSON.stringify({
+    auditTo(db, userId, 'delete', 'cc_absorb_posting', rows[0].id, JSON.stringify({
       doc_no: doc, je_id: jeId, reversal_je_id: revId, reason: cleanReason,
       total_rial: rows.reduce((s, r) => s + (Number(r.amount_rial) || 0), 0),
     }));
@@ -333,4 +657,14 @@ module.exports = {
   runAbsorb,
   reverseAbsorb,
   clampAbsorbPct,
+  assertAccountPctTotals,
+  SPLIT_SETTING_KEY,
+  DEFAULT_SPLIT,
+  normalizeSplit,
+  getSplit,
+  applySplit,
+  listOverheadLeafAccounts,
+  computeAbsorbShares,
+  previewAbsorbPeriod,
+  runAbsorbPeriod,
 };
