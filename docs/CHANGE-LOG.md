@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P1: خروج WIP بستهٔ برش با بهای خود بسته (amountRial) + ابطال در reverseOrder (SW v611)
+- **Commit:** squash روی main (#163) ([PR #163](https://github.com/rashidhamedas-prog/erp-taranom/pull/163))؛ commit شاخه `ec0eae03` (`fix/prodcycle-p1-wip-pack-amount`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** `relieveStagedPackQty` خروج بسته از انبار WIP (مثلاً WH37، حساب 1111) را بدون `amountRial` ثبت می‌کرد ⇒ ارزش‌گذاری با میانگین FG ⇒ کاردکس WIP با مقدار صفر ولی ارزش منفی (پرود: −2,797,379,484 ریال).
+- **رفع:** هر خروج = سهم تناسبی `round(pack.amount_rial × take / pack.qty)`؛ خروج پایانی بسته دقیقاً باقی‌ماندهٔ مبلغ. مقدار/مبلغ تخلیه‌شدهٔ هر بسته از `inventory_ledger` (`source_type='cutting_pack'`، `qty_out>0`، posted، غیرمعکوس) خوانده می‌شود ⇒ رسید جزئی بعدی بستهٔ تخلیه‌شده را دوباره کم نمی‌کند. بستهٔ مبلغ صفر ⇒ `allowZeroCost`.
+- **ابطال (R13):** تابع جدید `reverseStagedPackRelief` در `reverseOrder` (و `purgeOrder`) بسته‌ها را با همان مبلغ به WIP برمی‌گرداند. کامنت «no kardex row» در `ledger.js` اصلاح شد.
+- **Help:** راهنمای مدیر، بخش بستهٔ برش سفارش‌دار (بند P1).
+- **تست:** جدید `test-prodcycle-p1-wip-pack` ۲۶/۲۶ (روی main قبلی ۱۳ شکست)؛ prodcycle-p5 ۲۶/۲۶، pack-double-fg-v399 ۱۷/۱۷، prod-void-kardex-v402 ۱۷/۱۷، prod-02-cutting ۳۹/۳۹، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های g1-v278، pack-po-wip-v279، cut-pack-flow-v378، production-close* و test-sync از قبل روی main.
+- **داده:** هیچ. P8: ۱۱ ردیف تاریخی WH37 (۱۴۵۶–۱۴۶۳، ۱۴۷۹–۱۴۸۱؛ PO-0014/PO-0015) با میانگین FG ⇒ اسکریپت dry-run. `voidCuttingPack` پس از تخلیه هنوز گارد ندارد (خارج از دامنه).
+- **SW:** `erp-taranom-v611`؛ `app.js?v=611`.
+- **فایل‌ها:** `server/lib/production/{cutting,engine}.js`، `server/lib/inventory/ledger.js` (کامنت)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p1-wip-pack.js` (جدید)، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P5: بستانکار دستمزد قطعه‌ای/ساعتی تولید بر اساس نقش شخص — هرگز حساب دارایی (SW v610)
 - **Commit:** squash روی main (#162) ([PR #162](https://github.com/rashidhamedas-prog/erp-taranom/pull/162))؛ commit شاخه `ef68617b` (`fix/prodcycle-p5-labor-credit`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»

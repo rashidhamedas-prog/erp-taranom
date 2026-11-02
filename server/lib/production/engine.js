@@ -38,6 +38,7 @@ const {
   assertFabricCuttingPathForFgReceipt,
   fabricCuttingGateInfo,
   relieveStagedPackQty,
+  reverseStagedPackRelief,
 } = require('./cutting');
 const variance = require('./variance');
 const {
@@ -1449,6 +1450,9 @@ function reverseOrder(db, orderId, userId, reason = '') {
         note: `ابطال رسید ${po.order_no}`,
       });
     }
+    reverseStagedPackRelief(db, {
+      orderId, userId, date, note: `ابطال تخلیه WIP بسته — ${po.order_no}`,
+    });
 
     // Restore materials (issue does not change average_cost)
     // W4 / ADR-006: cutting_lay memos — موجودی پارچه مال لایه‌چینی است؛ restore دوباره = طاقهٔ شبح
