@@ -82,6 +82,11 @@ function buildSalesReturnLines(db, {
   const built = [];
   let goodsAmountA = 0;
   let costAmount = 0;
+  // FR-POS-DRAFTS: invoices whose every line carries hdr_disc_share_rial get the header
+  // discount back exactly per line (net sold), instead of the legacy A/B proration.
+  const lineShares = !!(invoiceLineMap && Object.keys(invoiceLineMap).length
+    && Object.values(invoiceLineMap).every((ol) => ol && ol.hdr_disc_share_rial != null && ol.hdr_disc_share_rial !== ''));
+  let hdrShareTotal = 0;
   const { productUnitCostRial } = require('./inventory/product-unit-cost');
 
   const { requirePositiveQty } = require('./round3');
@@ -117,6 +122,11 @@ function buildSalesReturnLines(db, {
       const pr = prorateLineDiscount(origLine, qty, already);
       disc = pr.discPct;
       discAmt = pr.discAmt;
+      if (lineShares) {
+        hdrShareTotal += prorateLineDiscount({
+          qty: origLine.qty, price: origLine.price, disc: 0, disc_amt: rial(origLine.hdr_disc_share_rial),
+        }, qty, already).discAmt;
+      }
       if (!lineWh && origLine.warehouse_id) lineWh = parseInt(origLine.warehouse_id, 10);
     } else {
       // Open (no-invoice) mode: never parseFloat formatted money ("17,000,000"→17).
@@ -181,6 +191,7 @@ function buildSalesReturnLines(db, {
       sourceNetBase: invoiceNetBase(invRow),
       vatSettingOn: settingFlag(db, 'returns_reverse_vat', true),
       priorVatUsed: priorVat,
+      hdrDiscOverride: lineShares ? hdrShareTotal : null,
     });
   } else {
     totals = computeReturnTotals({
@@ -667,6 +678,8 @@ function getInvoiceReturnablePack(db, invoiceId, opts = {}) {
   const { invoiceNetBase, invoiceSourceVat } = require('./returns-posting');
   const invRows = JSON.parse(inv.rows || '[]');
   const alreadyReturned = returnedQtyMapForInvoice(db, invId, excludeReturnId);
+  const H0 = rialFn(inv.disc_amt);
+  const B = rialFn(inv.subtotal);
   const rows = invRows.map((r) => {
     if (!r || r.row_type === 'income' || !(parseInt(r.product_id, 10) > 0)) return null;
     const already = alreadyReturned[lineKey(r)] || 0;
@@ -676,12 +689,20 @@ function getInvoiceReturnablePack(db, invoiceId, opts = {}) {
     const netUnit = (Number(r.qty) || 0) > 0
       ? Math.max(0, rialFn((Number(r.price) || 0) - (lineDisc / (Number(r.qty) || 1))))
       : rialFn(r.price);
+    // FR-POS-DRAFTS: net sold per unit after line discount AND header-discount share (pre-VAT).
+    let netUnitFinal;
+    if (r.net_after_disc_rial != null && r.net_after_disc_rial !== '' && (Number(r.qty) || 0) > 0) {
+      netUnitFinal = Math.max(0, rialFn(Number(r.net_after_disc_rial) / Number(r.qty)));
+    } else {
+      netUnitFinal = (H0 > 0 && B > 0) ? Math.max(0, rialFn(netUnit * (1 - H0 / B))) : netUnit;
+    }
     return {
       ...r,
       already_returned: already,
       max_returnable: maxRet,
       line_disc_amt: lineDisc,
       net_unit: netUnit,
+      net_unit_final: netUnitFinal,
       disc: r.disc || 0,
       disc_amt: r.disc_amt != null ? r.disc_amt
         : (r.disc_amount != null ? r.disc_amount : lineDisc),

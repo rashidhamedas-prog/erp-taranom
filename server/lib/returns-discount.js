@@ -181,15 +181,24 @@ function computeReturnTotals({
   sourceNetBase,
   vatSettingOn,
   priorVatUsed,
+  hdrDiscOverride = null,
 }) {
   const A = rial(goodsAmountA);
-  const H = allocateHeaderDiscount({
-    invoiceDiscAmt,
-    invoiceSubtotal,
-    goodsAmountA: A,
-    priorHdrUsed,
-    remainingGoodsOnInvoice,
-  });
+  // FR-POS-DRAFTS: exact per-line header share (invoice rows carry hdr_disc_share_rial),
+  // still capped by what is left of the invoice header discount and by A.
+  const H = (hdrDiscOverride != null && Number.isFinite(Number(hdrDiscOverride)))
+    ? Math.max(0, Math.min(
+      rial(hdrDiscOverride),
+      Math.max(0, rial(invoiceDiscAmt) - rial(priorHdrUsed)),
+      A
+    ))
+    : allocateHeaderDiscount({
+      invoiceDiscAmt,
+      invoiceSubtotal,
+      goodsAmountA: A,
+      priorHdrUsed,
+      remainingGoodsOnInvoice,
+    });
   const { extraAmt: X, extraPct } = resolveExtraDiscount({
     extraDiscAmt,
     extraDiscPct,

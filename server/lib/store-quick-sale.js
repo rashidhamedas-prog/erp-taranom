@@ -157,13 +157,30 @@ function retailUnitPriceRial(prod) {
   return Math.round(Number(prod.price_rial || prod.price) || 0);
 }
 
+function priceOverrideForbidden(prod, listRial, sentRial) {
+  const e = new Error(
+    `تغییر قیمت «${(prod && prod.name) || 'کالا'}» از ${Number(listRial).toLocaleString('fa-IR')} به ${Number(sentRial).toLocaleString('fa-IR')} ریال نیازمند مجوز «تغییر قیمت فروش» (مدیر) است`
+  );
+  e.status = 403;
+  e.code = 'E_PRICE_OVERRIDE_FORBIDDEN';
+  e.product_id = prod && prod.id;
+  e.list_price_rial = listRial;
+  e.price_rial = sentRial;
+  return e;
+}
+
 /**
- * Apply retail defaults. When forceRetail (store_retail), ignore client unit_price
- * unless opts.allowPriceOverride (admin/accounting price-change permission).
+ * Apply retail defaults and stamp list_price_rial / price_overridden on every product row.
+ *  - opts.enforcePriceOverride (POS path): a client unit_price that differs from the list
+ *    (retail) price needs opts.canOverridePrice (`price_override:edit`) → else 403
+ *    E_PRICE_OVERRIDE_FORBIDDEN. No price / same price is always fine.
+ *  - legacy (no enforce): forceRetail ignores client unit_price unless opts.allowPriceOverride.
  */
 function applyRetailRowDefaults(db, rows, opts) {
   const forceRetail = !!(opts && opts.forceRetail);
   const allowOverride = !!(opts && opts.allowPriceOverride);
+  const enforce = !!(opts && opts.enforcePriceOverride);
+  const canOverride = !!(opts && opts.canOverridePrice);
   return (Array.isArray(rows) ? rows : []).map((r) => {
     if (!r || r.row_type === 'income') return r;
     const pid = parseInt(r.product_id, 10);
@@ -175,7 +192,12 @@ function applyRetailRowDefaults(db, rows, opts) {
     const retail = retailUnitPriceRial(prod);
     const sent = Math.round(Number(r.unit_price != null ? r.unit_price : r.price) || 0);
     let unit;
-    if (forceRetail && !allowOverride) {
+    if (enforce) {
+      if (sent > 0 && retail > 0 && sent !== retail && !canOverride) {
+        throw priceOverrideForbidden(prod, retail, sent);
+      }
+      unit = sent > 0 ? sent : retail;
+    } else if (forceRetail && !allowOverride) {
       unit = retail > 0 ? retail : (sent > 0 ? sent : 0);
     } else {
       unit = sent > 0 ? sent : retail;
@@ -187,8 +209,90 @@ function applyRetailRowDefaults(db, rows, opts) {
       unit: r.unit || prod.unit || 'عدد',
       unit_price: unit,
       price: unit,
+      list_price_rial: retail,
+      price_overridden: retail > 0 && unit !== retail ? 1 : 0,
     };
   });
+}
+
+const PRICE_FLOOR_MODE_KEY = 'store_price_floor_mode';
+
+/** `warn` (default) | `block`. */
+function getPriceFloorMode(db) {
+  return getSetting(db, PRICE_FLOOR_MODE_KEY).trim().toLowerCase() === 'block' ? 'block' : 'warn';
+}
+
+/**
+ * POS price floor: effective unit (after line discount) below products.min_price_rial or
+ * below unit cost → warning. Mode `block` refuses (422 E_PRICE_BELOW_FLOOR) only lines the
+ * cashier changed (price override or line discount); the catalog price itself only warns.
+ * Cost is reported only to users with cost_visibility:view.
+ * @param {Array} rows  built invoice rows (price, qty, disc_amount, list_price_rial, price_overridden)
+ * @returns {{ mode:string, warnings:Array }}
+ */
+function applyPriceFloorPolicy(db, user, rows, opts) {
+  const mode = getPriceFloorMode(db);
+  const out = { mode, warnings: [] };
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return out;
+  let canSeeCost = false;
+  try {
+    canSeeCost = !!(user && (user.role === 'admin'
+      || require('./rbac').hasPermission(db, user, 'cost_visibility', 'view')));
+  } catch (_) { canSeeCost = false; }
+  const { productUnitCostRial } = require('./inventory/product-unit-cost');
+  const headerDisc = !!(opts && opts.headerDiscount);
+  const blocking = [];
+  for (const r of list) {
+    if (!r || r.row_type === 'income') continue;
+    const pid = parseInt(r.product_id, 10);
+    if (!(pid > 0)) continue;
+    const qty = Number(r.qty) || 0;
+    if (!(qty > 0)) continue;
+    const prod = db.prepare('SELECT * FROM products WHERE id=?').get(pid);
+    if (!prod) continue;
+    const lineDisc = Math.max(0, Math.round(Number(r.disc_amount != null ? r.disc_amount : r.disc_amt) || 0));
+    const unitNet = Math.round((qty * (Number(r.price) || 0) - lineDisc) / qty);
+    const minPrice = Math.max(0, Math.round(Number(prod.min_price_rial) || 0));
+    let cost = 0;
+    try { cost = Math.round(productUnitCostRial(prod) || 0); } catch (_) { cost = 0; }
+    const userChanged = !!(Number(r.price_overridden) || lineDisc > 0 || headerDisc);
+    const name = prod.name || r.name || 'کالا';
+    if (minPrice > 0 && unitNet < minPrice) {
+      const w = {
+        code: 'W_PRICE_BELOW_MIN',
+        product_id: pid,
+        name,
+        unit_net_rial: unitNet,
+        min_price_rial: minPrice,
+        message: `قیمت «${name}» (${unitNet.toLocaleString('fa-IR')} ریال) کمتر از حداقل قیمت مجاز (${minPrice.toLocaleString('fa-IR')} ریال) است`,
+      };
+      out.warnings.push(w);
+      if (userChanged) blocking.push(w);
+    }
+    if (cost > 0 && unitNet < cost) {
+      const w = {
+        code: 'W_PRICE_BELOW_COST',
+        product_id: pid,
+        name,
+        unit_net_rial: unitNet,
+        message: canSeeCost
+          ? `قیمت «${name}» (${unitNet.toLocaleString('fa-IR')} ریال) کمتر از بهای تمام‌شده (${cost.toLocaleString('fa-IR')} ریال) است`
+          : `قیمت «${name}» کمتر از بهای تمام‌شده است`,
+      };
+      if (canSeeCost) w.cost_rial = cost;
+      out.warnings.push(w);
+      if (userChanged) blocking.push(w);
+    }
+  }
+  if (mode === 'block' && blocking.length) {
+    const e = new Error(`${blocking[0].message} — فروش زیر کف قیمت مسدود است (تنظیم store_price_floor_mode)`);
+    e.status = 422;
+    e.code = 'E_PRICE_BELOW_FLOOR';
+    e.floor = blocking;
+    throw e;
+  }
+  return out;
 }
 
 function loadUserStorePrefs(db, userId) {
@@ -295,6 +399,17 @@ function assertFirmStoreType(invType) {
   }
 }
 
+/** FR-POS-DRAFTS: `price_override:edit` (admin always; store_retail never by default). */
+function canOverrideStorePrice(db, user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  try {
+    return !!require('./rbac').hasPermission(db, user, 'price_override', 'edit');
+  } catch (_) {
+    return false;
+  }
+}
+
 /**
  * Mutate/normalize body for store quick sale before invoice create.
  */
@@ -318,9 +433,12 @@ function prepareStoreQuickSaleBody(db, user, body) {
   const whId = resolveStoreWarehouseId(db, user, b);
   b.warehouse_id = whId;
   const role = user && user.role;
+  const canOverridePrice = canOverrideStorePrice(db, user);
   b.rows = applyRetailRowDefaults(db, b.rows, {
     forceRetail: isStoreRetailRole(role),
-    allowPriceOverride: role === 'admin' || role === 'accounting',
+    allowPriceOverride: canOverridePrice,
+    enforcePriceOverride: true,
+    canOverridePrice,
   });
   for (const r of b.rows) {
     if (r && r.row_type !== 'income') r.warehouse_id = whId;
@@ -366,8 +484,11 @@ function assertStorePaymentMatchesFinal(body, finalAmt, opts) {
   const paid = (plan.splits || []).reduce((a, s) => a + moneyRial(s.amount), 0)
     + moneyRial(plan.creditRial || 0);
   if (Math.abs(moneyRial(paid) - expect) > 0.5) {
+    const diff = moneyRial(paid) - expect;
     const e = new Error(
-      `جمع پرداخت (${moneyRial(paid)}) با مبلغ نهایی فاکتور (${expect}) هم‌خوان نیست`
+      `جمع پرداخت (${moneyRial(paid)}) با مبلغ نهایی فاکتور (${expect}) هم‌خوان نیست — `
+      + (diff < 0 ? `${-diff} ریال کم است` : `${diff} ریال بیشتر است`)
+      + '؛ ردیف‌های تسویه (نقد/کارت/چک/نسیه) را اصلاح کنید'
     );
     e.status = 400;
     e.code = 'E_STORE_TOTAL_MISMATCH';
@@ -577,8 +698,11 @@ function voidStoreExchangeRefund(db, { returnId, userId, reason } = {}) {
   return { voided, ledger };
 }
 
-/** Rough final from rows (retail prices + header disc%) — for scaling tender before invoice create. */
-function estimateSaleFinalRial(rows, discPct) {
+/**
+ * Rough final from rows (retail prices + header disc% or header disc_amt rial) — for scaling
+ * tender before invoice create. A non-empty discAmt wins over discPct (same as invoices create).
+ */
+function estimateSaleFinalRial(rows, discPct, discAmt) {
   let sub = 0;
   for (const r of Array.isArray(rows) ? rows : []) {
     if (!r || r.row_type === 'income') continue;
@@ -587,8 +711,13 @@ function estimateSaleFinalRial(rows, discPct) {
     let line = Math.round(qty * price);
     const dPct = Math.max(0, Math.min(100, Number(r.disc_pct != null ? r.disc_pct : r.disc) || 0));
     const dAmt = Math.max(0, Math.round(Number(r.disc_amt != null ? r.disc_amt : r.disc_amount) || 0));
-    line = Math.max(0, Math.round(line * (1 - dPct / 100)) - dAmt);
+    // Amount wins over percent (buildRows parity): one line discount, not both.
+    line = dAmt > 0 ? Math.max(0, line - dAmt) : Math.max(0, Math.round(line * (1 - dPct / 100)));
     sub += line;
+  }
+  if (discAmt != null && discAmt !== '') {
+    const amt = Math.max(0, Math.round(Number(discAmt) || 0));
+    return Math.max(0, sub - Math.min(amt, sub));
   }
   const hdr = Math.max(0, Math.min(100, Number(discPct) || 0));
   return Math.max(0, Math.round(sub * (1 - hdr / 100)));
@@ -639,6 +768,8 @@ function bootstrapStoreSale(db, user) {
     locks_cash_box: locksStoreCashBox(user && user.role),
     vat_rate: vatRate,
     insufficient_stock_mode: getInsufficientStockMode(db),
+    price_floor_mode: getPriceFloorMode(db),
+    can_override_price: canOverrideStorePrice(db, user),
   };
 }
 
@@ -673,7 +804,7 @@ function computeExchangeSettlement(saleFinalRial, returnGrossRial) {
  */
 function prepareExchangeSaleBody(db, user, saleBody, returnGrossRial) {
   const prepared = prepareStoreQuickSaleBody(db, user, saleBody || {});
-  const saleFinal = estimateSaleFinalRial(prepared.rows, prepared.disc);
+  const saleFinal = estimateSaleFinalRial(prepared.rows, prepared.disc, prepared.disc_amt);
   const settle = computeExchangeSettlement(saleFinal, returnGrossRial);
   const {
     returnGross, netCollect, refundRial, exchangeCreditRial, settlementCase,
@@ -831,6 +962,10 @@ module.exports = {
   walkinPersonalBalanceRial,
   retailUnitPriceRial,
   applyRetailRowDefaults,
+  canOverrideStorePrice,
+  PRICE_FLOOR_MODE_KEY,
+  getPriceFloorMode,
+  applyPriceFloorPolicy,
   resolveStoreWarehouseId,
   resolveStoreCashBoxId,
   prepareStoreQuickSaleBody,

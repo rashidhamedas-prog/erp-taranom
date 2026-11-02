@@ -38,6 +38,12 @@ const RESOURCES = [
   // P10-fix — sales amount in reports (action view). Default: admin + accounting + store_retail.
   // Purchase amount / cost / margin / profit stay behind cost_visibility:view.
   'sales_amount',
+  // FR-POS-DRAFTS — change unit price away from list (retail) price in POS (action edit).
+  // Default: admin + accounting + sales_manager. Never store_retail.
+  'price_override',
+  // FR-POS-DRAFTS — post a sale above the customer credit ceiling (action approve).
+  // Default: admin + sales_manager (the roles that may edit the ceiling).
+  'credit_override',
 ];
 const CAPABILITY_SET = new Set(ACC_CAPABILITY_RESOURCES);
 /** Resources that must not silently default to view for every role (audit #96 / 8A). */
@@ -49,6 +55,8 @@ const CLOSED_DEFAULT_NONE = new Set([
   'cost_visibility',
   'qty_receipt',
   'sales_amount',
+  'price_override',
+  'credit_override',
 ]);
 
 const ALL = Object.fromEntries(ACTIONS.map(a => [a, true]));
@@ -110,6 +118,7 @@ const DEFAULT_ROLE_PERMISSIONS = {
     cost_visibility: { ...NONE, view: true },
     qty_receipt: { ...NONE, view: true, create: true, delete: true },
     sales_amount: { ...NONE, view: true },
+    price_override: { ...NONE, view: true, edit: true },
     // acc_* sections (incl. acc_warehouse_ops create/delete = manual stock adjust + void, v525)
     // come from accSectionDefault('accounting') — all flags except ACCOUNTING_ROLE_SECTION_EXCEPTIONS.
   },
@@ -135,6 +144,8 @@ const DEFAULT_ROLE_PERMISSIONS = {
     banks: NONE,
     orders: { ...SALES_CRUD, approve: true },
     rfq: { view: true, create: true, edit: false, delete: false, approve: false, export: false },
+    price_override: { ...NONE, view: true, edit: true },
+    credit_override: { ...NONE, view: true, approve: true },
   },
   field_sales: {
     customers: SALES_CRUD,

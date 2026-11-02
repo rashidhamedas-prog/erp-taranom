@@ -296,6 +296,12 @@
 }
 .pos-v2 .pos-pct-mark{ margin-inline: 4px; color: var(--pos-muted); }
 .pos-v2 .pos-hdr-disc{ display: inline-flex; align-items: center; gap: 4px; }
+.pos-v2 .pos-price-input.is-readonly{ background: var(--pos-surface-2, transparent); color: var(--pos-muted); cursor: not-allowed; }
+.pos-v2 .pos-disc-cell{ display: inline-flex; align-items: center; gap: 4px; }
+.pos-v2 .pos-line-disc-rial,
+.pos-v2 .pos-hdr-disc-input.money{ width: 104px; }
+.pos-v2 .pos-disc-mode{ min-width: 40px; }
+.pos-v2 .pos-list-price s{ opacity: .8; }
 .pos-v2 .pos-thermal-label{
   font-weight: 500;
   font-size: 12px;
