@@ -1,0 +1,43 @@
+﻿item,mode,target_table,target_id,action,field,old_value,new_value,account_code,debit_rial,credit_rial,warehouse_id,product_id,qty,amount_rial,gl_effect_rial,note
+item4,dry-run,inventory_ledger,1341,void_ledger_row,status,posted,reversed,,,,34,332,0,38683587,,production_receipt/cutting_lay_fg_delta:13 1405/07/26 — تعدیل بهای لایه‌چینی LAY-0013
+item4,dry-run,inventory_ledger,1342,void_ledger_row,status,posted,reversed,,,,34,334,0,31723693,,production_receipt/cutting_lay_fg_delta:13 1405/07/26 — تعدیل بهای لایه‌چینی LAY-0013
+item4,dry-run,inventory_ledger,1344,void_ledger_row,status,posted,reversed,,,,34,332,0,38627023,,production_receipt/cutting_lay_fg_delta:12 1405/07/26 — تعدیل بهای لایه‌چینی LAY-0012
+item4,dry-run,inventory_ledger,1345,void_ledger_row,status,posted,reversed,,,,34,334,0,31677305,,production_receipt/cutting_lay_fg_delta:12 1405/07/26 — تعدیل بهای لایه‌چینی LAY-0012
+item4,dry-run,inventory_ledger,1383,void_ledger_row,status,posted,reversed,,,,34,332,0,26342947,,production_receipt/cutting_lay_fg_delta:18 1405/07/27 — تعدیل بهای لایه‌چینی LAY-0018
+item4,dry-run,inventory_ledger,2388,insert_ledger_reversal_row,reversed_of=1345,,reversal in=0 out=0 amt=31677305 date=1405/08/11,,,,34,334,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال تعدیل بهای لایه‌چینی LAY-0012 — PO-0010
+item4,dry-run,inventory_ledger,2389,insert_ledger_reversal_row,reversed_of=1344,,reversal in=0 out=0 amt=38627023 date=1405/08/11,,,,34,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال تعدیل بهای لایه‌چینی LAY-0012 — PO-0010
+item4,dry-run,inventory_ledger,2390,insert_ledger_reversal_row,reversed_of=1342,,reversal in=0 out=0 amt=31723693 date=1405/08/11,,,,34,334,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال تعدیل بهای لایه‌چینی LAY-0013 — PO-0010
+item4,dry-run,inventory_ledger,2391,insert_ledger_reversal_row,reversed_of=1341,,reversal in=0 out=0 amt=38683587 date=1405/08/11,,,,34,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال تعدیل بهای لایه‌چینی LAY-0013 — PO-0010
+item4,dry-run,inventory_ledger,2392,insert_ledger_reversal_row,reversed_of=1383,,reversal in=0 out=0 amt=26342947 date=1405/08/11,,,,34,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال تعدیل بهای لایه‌چینی LAY-0018 — PO-0012
+item4,dry-run,journal_entries,675,void_journal,status,approved,reversed,,,,,,,,,JV-0675 1405/07/26 cutting_lay_fg_delta:13 — تعدیل بهای محصول پس از ویرایش LAY-0013 [ابطال] — P8a ابطال تعدیل بهای یتیم PO-0010 — P8a dry-run
+item4,dry-run,journal_lines,1753,void_journal_line,,,,1104,0,38683587,,,,,38683587,حذف اثر سطر سند 675 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1754,void_journal_line,,,,5101,0,9377839,,,,,9377839,حذف اثر سطر سند 675 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1755,void_journal_line,,,,1104,0,31723693,,,,,31723693,حذف اثر سطر سند 675 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1756,void_journal_line,,,,5101,0,31723693,,,,,31723693,حذف اثر سطر سند 675 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1757,void_journal_line,,,,1111,111508812,0,,,,,-111508812,حذف اثر سطر سند 675 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_entries,676,void_journal,status,approved,reversed,,,,,,,,,JV-0676 1405/07/26 cutting_lay_fg_delta:12 — تعدیل بهای محصول پس از ویرایش LAY-0012 [ابطال] — P8a ابطال تعدیل بهای یتیم PO-0010 — P8a dry-run
+item4,dry-run,journal_lines,1758,void_journal_line,,,,1104,0,38627023,,,,,38627023,حذف اثر سطر سند 676 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1759,void_journal_line,,,,5101,0,9364127,,,,,9364127,حذف اثر سطر سند 676 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1760,void_journal_line,,,,1104,0,31677305,,,,,31677305,حذف اثر سطر سند 676 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1761,void_journal_line,,,,5101,0,31677306,,,,,31677306,حذف اثر سطر سند 676 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1762,void_journal_line,,,,1111,111345761,0,,,,,-111345761,حذف اثر سطر سند 676 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_entries,714,void_journal,status,approved,reversed,,,,,,,,,JV-0714 1405/07/27 cutting_lay_fg_delta:18 — تعدیل بهای محصول پس از ویرایش LAY-0018 [ابطال] — P8a ابطال تعدیل بهای یتیم PO-0012 — P8a dry-run
+item4,dry-run,journal_lines,1839,void_journal_line,,,,1104,0,26342947,,,,,26342947,حذف اثر سطر سند 714 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1840,void_journal_line,,,,5101,0,6140086,,,,,6140086,حذف اثر سطر سند 714 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,journal_lines,1841,void_journal_line,,,,1111,32483033,0,,,,,-32483033,حذف اثر سطر سند 714 (سند soft-void، بدون حذف فیزیکی)
+item4,dry-run,cutting_lays,12,update_field,fg_delta_order_id,,10,,,,33,332,,,,
+item4,dry-run,cutting_lays,13,update_field,fg_delta_order_id,,10,,,,33,332,,,,
+item4,dry-run,cutting_lays,18,update_field,fg_delta_order_id,,12,,,,33,332,,,,
+item4,dry-run,products,332,derived_change,cost,12323564,13187344,,,,34,332,,,,
+item4,dry-run,products,332,derived_change,average_cost_rial,12323564,13187344,,,,34,332,,,,
+item4,dry-run,products,334,derived_change,cost,20697829,21991727,,,,34,334,,,,
+item4,dry-run,products,334,derived_change,average_cost_rial,20697829,21991727,,,,34,334,,,,
+item4,dry-run,inventory_valuation_buckets,332:34,derived_change,value_rial,1254988264,1358641821,,,,34,332,,,,
+item4,dry-run,inventory_valuation_buckets,332:34,derived_change,avg_rial,12425626,13451899,,,,34,332,,,,
+item4,dry-run,inventory_valuation_buckets,334:34,derived_change,value_rial,180518004,243919002,,,,34,334,,,,
+item4,dry-run,inventory_valuation_buckets,334:34,derived_change,avg_rial,5470243,7391485,,,,34,334,,,,
+item4,dry-run,GL,,gl_delta,,13011907142,13178961697,1104,167054555,0,,,,,167054555,خالص اثر روی مانده (بدهکار−بستانکار)
+item4,dry-run,GL,,gl_delta,,1264548548,1009210942,1111,0,255337606,,,,,-255337606,خالص اثر روی مانده (بدهکار−بستانکار)
+item4,dry-run,GL,,gl_delta,,2777574725,2865857776,5101,88283051,0,,,,,88283051,خالص اثر روی مانده (بدهکار−بستانکار)
+item4,dry-run,KARDEX,,kardex_delta,,101 / 892931439,101 / 996584996,,,,34,332,0,103653557,,کاردکس زنده (مقدار / ارزش ریال)
+item4,dry-run,KARDEX,,kardex_delta,,40 / 228250234,40 / 291651232,,,,34,334,0,63400998,,کاردکس زنده (مقدار / ارزش ریال)
