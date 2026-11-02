@@ -1,7 +1,7 @@
 'use strict';
 const router = require('express').Router();
-const { getDB } = require('../db');
-const { auth, requirePermission } = require('../middleware/auth');
+const { getDB, audit } = require('../db');
+const { auth, requirePermission, centralOnlyStrict } = require('../middleware/auth');
 const {
   bootstrapRate,
   normalizeDriver,
@@ -9,12 +9,20 @@ const {
   validatePeriodLabel,
   computePredeterminedRates,
   looksLikePoolNotRate,
+  isRialDriver,
+  normalizeRatePct,
+  pctFromRatePerMillion,
+  ratePerMillionFromPct,
+  DEFAULT_RATE_PCT,
 } = require('../lib/production/overhead');
 const {
   listMaps,
   replaceMaps,
   softDeactivateMap,
   previewAbsorbForCenter,
+  listAbsorbPostings,
+  runAbsorb,
+  reverseAbsorb,
   BASE_TYPES,
 } = require('../lib/production/cc-account-absorb');
 
@@ -62,14 +70,49 @@ router.get('/rates', auth, requirePermission('production_cost', 'view'), (req, r
   });
 });
 
-function persistRate(db, body, userId, existingId) {
-  const ccId = Number(body.cost_center_id);
+/**
+ * P3 — محرک ریالی: درصد صریح (rate_pct) منبع است و total_rate_rial (ریال/میلیون) هم‌گام می‌ماند.
+ * بدون درصد صریح: از نرخ کل مشتق می‌شود؛ ردیف تازهٔ بدون نرخ ⇒ پیش‌فرض ۲۰٪.
+ */
+function resolveRatePctBody(body, driver, { pctExplicit, isNew }) {
+  if (!isRialDriver(driver)) return { ...body, rate_pct: null };
+  const explicit = pctExplicit ? normalizeRatePct(body.rate_pct) : null;
+  if (explicit != null) {
+    const t = ratePerMillionFromPct(explicit);
+    return {
+      ...body,
+      rate_pct: explicit,
+      rate_touch: 'total',
+      total_rate_rial: t,
+      fixed_rate_rial: t,
+      var_rate_rial: 0,
+    };
+  }
+  return { ...body, rate_pct: undefined, _defaultPct: isNew ? DEFAULT_RATE_PCT : null };
+}
+
+function persistRate(db, rawBody, userId, existingId, opts = {}) {
+  const ccId = Number(rawBody.cost_center_id);
   if (!ccId) throw rateHttp('E_CC_REQUIRED', 400, 'مرکز هزینه الزامی است');
   const cc = db.prepare('SELECT id FROM cost_centers WHERE id=?').get(ccId);
   if (!cc) throw rateHttp('E_CC_NOT_FOUND', 404, 'مرکز هزینه یافت نشد');
-  const period = validatePeriodLabel(body.period_label);
-  const driver = normalizeDriver(body.driver);
-  const computed = computePredeterminedRates(body);
+  const period = validatePeriodLabel(rawBody.period_label);
+  const driver = normalizeDriver(rawBody.driver);
+  const pctExplicit = opts.pctExplicit != null
+    ? !!opts.pctExplicit
+    : (rawBody.rate_pct != null && rawBody.rate_pct !== '');
+  const body = resolveRatePctBody(rawBody, driver, { pctExplicit, isNew: !existingId });
+  let computed = computePredeterminedRates(body);
+  let ratePct = null;
+  if (isRialDriver(driver)) {
+    if (body.rate_pct != null) ratePct = body.rate_pct;
+    else if (computed.total_rate_rial > 0) ratePct = pctFromRatePerMillion(computed.total_rate_rial);
+    else if (body._defaultPct != null) {
+      ratePct = body._defaultPct;
+      const t = ratePerMillionFromPct(ratePct);
+      computed = { ...computed, total_rate_rial: t, fixed_rate_rial: t, var_rate_rial: 0 };
+    }
+  }
   const status = ['active', 'draft', 'estimated', 'inactive'].includes(String(body.status || 'active'))
     ? String(body.status || 'active')
     : 'active';
@@ -85,13 +128,13 @@ function persistRate(db, body, userId, existingId) {
         cost_center_id=?, period_label=?, driver=?,
         budget_fixed_oh_rial=?, budget_var_oh_rial=?, budget_driver_qty=?,
         total_rate_rial=?, fixed_rate_rial=?, var_rate_rial=?,
-        monthly_labor_rate_rial=?, absorb_pct=?, status=?, is_estimated=?, note=?
+        monthly_labor_rate_rial=?, absorb_pct=?, rate_pct=?, status=?, is_estimated=?, note=?
       WHERE id=?
     `).run(
       ccId, period, driver,
       computed.budget_fixed_oh_rial, computed.budget_var_oh_rial, computed.budget_driver_qty,
       computed.total_rate_rial, computed.fixed_rate_rial, computed.var_rate_rial,
-      computed.monthly_labor_rate_rial, computed.absorb_pct, status, isEstimated, note, existingId
+      computed.monthly_labor_rate_rial, computed.absorb_pct, ratePct, status, isEstimated, note, existingId
     );
     return { id: existingId, warning };
   }
@@ -101,15 +144,34 @@ function persistRate(db, body, userId, existingId) {
       (cost_center_id, period_label, driver,
        budget_fixed_oh_rial, budget_var_oh_rial, budget_driver_qty,
        total_rate_rial, fixed_rate_rial, var_rate_rial,
-       monthly_labor_rate_rial, absorb_pct, status, is_estimated, note, created_by)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       monthly_labor_rate_rial, absorb_pct, rate_pct, status, is_estimated, note, created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(
     ccId, period, driver,
     computed.budget_fixed_oh_rial, computed.budget_var_oh_rial, computed.budget_driver_qty,
     computed.total_rate_rial, computed.fixed_rate_rial, computed.var_rate_rial,
-    computed.monthly_labor_rate_rial, computed.absorb_pct, status, isEstimated, note, userId
+    computed.monthly_labor_rate_rial, computed.absorb_pct, ratePct, status, isEstimated, note, userId
   );
   return { id: info.lastInsertRowid, warning };
+}
+
+/** P3 — ویرایش نرخ سربار فقط مدیر و حسابداری (نه دسترسی تفویضی). */
+function adminOrAccountingStrict(req, res, next) {
+  if (req.user && (req.user.role === 'admin' || req.user.role === 'accounting')) return next();
+  return res.status(403).json({ error: 'ویرایش نرخ سربار فقط برای مدیر و حسابداری مجاز است', code: 'E_FORBIDDEN' });
+}
+
+function rateAuditDetail(before, after) {
+  const keys = ['driver', 'rate_pct', 'total_rate_rial', 'fixed_rate_rial', 'var_rate_rial',
+    'budget_fixed_oh_rial', 'budget_var_oh_rial', 'budget_driver_qty', 'absorb_pct',
+    'monthly_labor_rate_rial', 'status'];
+  const pick = (r) => (r ? Object.fromEntries(keys.map((k) => [k, r[k] == null ? null : r[k]])) : null);
+  return JSON.stringify({
+    cost_center_id: (after || before)?.cost_center_id,
+    period_label: (after || before)?.period_label,
+    before: pick(before),
+    after: pick(after),
+  });
 }
 
 function rateHttp(code, status, message) {
@@ -119,18 +181,20 @@ function rateHttp(code, status, message) {
   return e;
 }
 
-router.post('/rates', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+router.post('/rates', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
   try {
     const b = req.body || {};
     const db = getDB();
     const period = b.period_label ? validatePeriodLabel(b.period_label) : '';
     const existing = (b.cost_center_id && period)
       ? db.prepare(`
-          SELECT id FROM cost_center_rates WHERE cost_center_id=? AND period_label=?
+          SELECT * FROM cost_center_rates WHERE cost_center_id=? AND period_label=?
         `).get(Number(b.cost_center_id), period)
       : null;
     const saved = persistRate(db, b, req.user.id, existing?.id || null);
     const row = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(saved.id);
+    audit(req.user.id, existing ? 'update' : 'create', 'cost_center_rate', saved.id,
+      rateAuditDetail(existing, row), req);
     if (row) row.driver = coerceDriver(row.driver);
     res.status(existing ? 200 : 201).json({ ...row, warning: saved.warning || undefined });
   } catch (e) {
@@ -139,7 +203,7 @@ router.post('/rates', auth, requirePermission('production_cost', 'edit'), (req, 
 });
 
 // Before /rates/:id so "bootstrap" is not captured as an id.
-router.post('/rates/bootstrap', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+router.post('/rates/bootstrap', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
   handle(res, () => {
     const db = getDB();
     const b = req.body || {};
@@ -160,11 +224,13 @@ router.post('/rates/bootstrap', auth, requirePermission('production_cost', 'edit
         cc_name: cc.name,
       };
     });
+    audit(req.user?.id, 'update', 'cost_center_rate', null,
+      JSON.stringify({ action: 'bootstrap', period: periodLabel, months: months || null, count: rows.length }), req);
     return { period: periodLabel, months: months || null, count: rows.length, rows };
   });
 });
 
-router.put('/rates/:id', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+router.put('/rates/:id', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
   handle(res, () => {
     const db = getDB();
     const id = Number(req.params.id);
@@ -184,8 +250,10 @@ router.put('/rates/:id', auth, requirePermission('production_cost', 'edit'), (re
     const b = { ...row, ...(req.body || {}) };
     b.cost_center_id = row.cost_center_id;
     b.period_label = req.body?.period_label != null ? req.body.period_label : row.period_label;
-    const saved = persistRate(db, b, req.user?.id, id);
+    const pctExplicit = req.body?.rate_pct !== undefined && req.body?.rate_pct !== null && req.body?.rate_pct !== '';
+    const saved = persistRate(db, b, req.user?.id, id, { pctExplicit });
     const out = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(id);
+    audit(req.user?.id, 'update', 'cost_center_rate', id, rateAuditDetail(row, out), req);
     if (out) out.driver = coerceDriver(out.driver);
     if (saved.warning) out.warning = saved.warning;
     return out;
@@ -230,7 +298,7 @@ router.post('/account-maps/preview', auth, requirePermission('production_cost', 
   });
 });
 
-router.post('/account-maps/apply-budget', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+router.post('/account-maps/apply-budget', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
   handle(res, () => {
     const db = getDB();
     const b = req.body || {};
@@ -271,15 +339,50 @@ router.post('/account-maps/apply-budget', auth, requirePermission('production_co
       body.fixed_rate_rial = 0;
       body.var_rate_rial = 0;
     }
+    const before = existing ? db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(existing.id) : null;
     const saved = persistRate(db, body, req.user?.id, existing?.id || null);
     const row = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(saved.id);
+    audit(req.user?.id, existing ? 'update' : 'create', 'cost_center_rate', saved.id, rateAuditDetail(before, row), req);
     if (row) row.driver = coerceDriver(row.driver);
     return { rate: row, preview, warning: saved.warning || undefined };
   });
 });
 
+/* ── P3: اجرای واقعی جذب معین‌ها (61030x → 5202) — فقط سرور مرکزی ── */
+
+router.get('/absorb-postings', auth, requirePermission('production_cost', 'view'), (req, res) => {
+  handle(res, () => ({
+    rows: listAbsorbPostings(getDB(), {
+      period: req.query.period ? validatePeriodLabel(req.query.period) : null,
+      costCenterId: req.query.cost_center_id ? Number(req.query.cost_center_id) : null,
+    }),
+  }));
+});
+
+router.post('/absorb-postings/run', auth, centralOnlyStrict, requirePermission('production_cost', 'edit'),
+  adminOrAccountingStrict, (req, res) => {
+    handle(res, () => {
+      const b = req.body || {};
+      return runAbsorb(getDB(), {
+        costCenterId: Number(b.cost_center_id),
+        period: validatePeriodLabel(b.period_label || b.period),
+        date: b.date || null,
+        userId: req.user.id,
+      });
+    });
+  });
+
+router.post('/absorb-postings/:docNo/reverse', auth, centralOnlyStrict, requirePermission('production_cost', 'edit'),
+  adminOrAccountingStrict, (req, res) => {
+    handle(res, () => reverseAbsorb(getDB(), {
+      docNo: req.params.docNo,
+      reason: req.body?.reason,
+      userId: req.user.id,
+    }));
+  });
+
 // Soft-cancel overhead rate for a period/CC (R13 — no physical delete)
-router.delete('/rates/:id', auth, requirePermission('production_cost', 'edit'), (req, res) => {
+router.delete('/rates/:id', auth, requirePermission('production_cost', 'edit'), adminOrAccountingStrict, (req, res) => {
   handle(res, () => {
     const db = getDB();
     const row = db.prepare('SELECT * FROM cost_center_rates WHERE id=?').get(req.params.id);
@@ -307,6 +410,8 @@ router.delete('/rates/:id', auth, requirePermission('production_cost', 'edit'), 
       if (e.status) throw e;
     }
     db.prepare("UPDATE cost_center_rates SET status='inactive' WHERE id=?").run(row.id);
+    audit(req.user?.id, 'delete', 'cost_center_rate', row.id,
+      rateAuditDetail(row, { ...row, status: 'inactive' }), req);
     return { ok: true };
   });
 });

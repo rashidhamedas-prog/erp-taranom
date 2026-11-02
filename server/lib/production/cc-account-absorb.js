@@ -51,6 +51,7 @@ function accountPeriodDebit(db, accountCode, from, to) {
     FROM journal_lines jl
     JOIN journal_entries je ON jl.entry_id=je.id
     WHERE jl.account_code=? AND ${JE_ALIVE}
+      AND COALESCE(je.ref_type,'') <> 'production_overhead_actual_reversal'
       AND je.entry_date >= ? AND je.entry_date <= ?
   `).get(accountCode, from, to);
   return Math.round(Number(row?.d) || 0);
@@ -193,6 +194,129 @@ function suggestBudgetFromMaps(db, costCenterId, periodLabel) {
   return previewAbsorbForCenter(db, costCenterId, periodLabel);
 }
 
+/* ── P3: اجرای واقعی جذب معین‌ها → کنترل سربار (5202) ─────────────────── */
+
+function listAbsorbPostings(db, { period, costCenterId, includeReversed = true } = {}) {
+  const where = [];
+  const params = [];
+  if (period) { where.push('p.period_label=?'); params.push(periodDateBounds(period).period); }
+  if (costCenterId) { where.push('p.cost_center_id=?'); params.push(Number(costCenterId)); }
+  if (!includeReversed) where.push("p.status='posted'");
+  return db.prepare(`
+    SELECT p.*, a.name AS account_name, cc.code AS cc_code, cc.name AS cc_name
+    FROM cc_absorb_postings p
+    LEFT JOIN chart_of_accounts a ON a.code = p.account_code
+    LEFT JOIN cost_centers cc ON cc.id = p.cost_center_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY p.id DESC
+  `).all(...params);
+}
+
+/**
+ * یک سند برای (دوره، مرکز): بد 5202 با مرکز هزینه / بس هر معین نگاشت‌شده به اندازهٔ
+ * مبنا × درصد جذب. هر نگاشت در هر دوره فقط یک‌بار (ایندکس یکتای ux_cc_absorb_posted).
+ */
+function runAbsorb(db, { costCenterId, period, userId, date } = {}) {
+  const { acct } = require('../coa-map');
+  const { allocateNumber } = require('../../db');
+  const { postEvent, err } = require('./posting');
+  const ccId = Number(costCenterId);
+  if (!ccId) throw absorbErr('E_CC_REQUIRED', 400, 'مرکز هزینه الزامی است');
+  const cc = db.prepare('SELECT id, code, name FROM cost_centers WHERE id=?').get(ccId);
+  if (!cc) throw absorbErr('E_CC_NOT_FOUND', 404, 'مرکز هزینه یافت نشد');
+  const bounds = periodDateBounds(period);
+
+  return db.transaction(() => {
+    const preview = previewAbsorbForCenter(db, ccId, bounds.period);
+    const already = db.prepare(`
+      SELECT map_id FROM cc_absorb_postings
+      WHERE period_label=? AND cost_center_id=? AND status='posted'
+    `).all(bounds.period, ccId).map((r) => Number(r.map_id));
+    const lines = preview.lines.filter((l) => l.absorbed_rial > 0 && !already.includes(Number(l.id)));
+    if (!lines.length) {
+      throw absorbErr(already.length ? 'E_ALREADY_POSTED' : 'E_POOL_ZERO', 409,
+        already.length
+          ? `جذب معین‌های این مرکز برای دوره ${bounds.period} قبلاً ثبت شده است`
+          : 'مبلغ جذبی از معین‌ها صفر است');
+    }
+    const total = lines.reduce((s, l) => s + l.absorbed_rial, 0);
+    const ctl = acct(db, 'coa_overhead_control');
+    const { periodEndJalali } = require('../../jalali');
+    const entryDate = String(date || periodEndJalali(bounds.period) || bounds.to).trim();
+    let docNo = '';
+    try { docNo = allocateNumber(db, 'cc_absorb', 'CCA'); } catch { docNo = `CCA-${Date.now()}`; }
+
+    const ins = db.prepare(`
+      INSERT INTO cc_absorb_postings
+        (doc_no, period_label, cost_center_id, map_id, account_code, base_type, base_rial,
+         absorb_pct, amount_rial, status, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,'posted',?)
+    `);
+    const ids = lines.map((l) => ins.run(
+      docNo, bounds.period, ccId, l.id, l.account_code, l.base_type, l.base_rial,
+      l.absorb_pct, l.absorbed_rial, userId || null,
+    ).lastInsertRowid);
+
+    const jeLines = [{ code: ctl.code, name: ctl.name, debit: total / 10, credit: 0 }];
+    for (const l of lines) {
+      jeLines.push({ code: l.account_code, name: l.account_name || l.account_code, debit: 0, credit: l.absorbed_rial / 10 });
+    }
+    const je = postEvent(db, {
+      event: 'PRD-06',
+      sourceId: ids[0],
+      date: entryDate,
+      description: `جذب سربار واقعی معین‌ها به کنترل سربار — ${cc.name} — دوره ${bounds.period} (${docNo})`,
+      createdBy: userId,
+      costCenterId: ccId,
+      lines: jeLines,
+    });
+    if (!je || !je.je_id) throw err('E_JE_FAILED', 500, { doc_no: docNo });
+    db.prepare(`UPDATE cc_absorb_postings SET je_id=? WHERE doc_no=? AND status='posted'`).run(je.je_id, docNo);
+
+    const { audit } = require('../../db');
+    audit(userId, 'create', 'cc_absorb_posting', ids[0], JSON.stringify({
+      doc_no: docNo, period: bounds.period, cost_center_id: ccId, je_id: je.je_id, total_rial: total,
+      lines: lines.map((l) => ({ map_id: l.id, account_code: l.account_code, amount_rial: l.absorbed_rial })),
+    }));
+    return {
+      ok: true, doc_no: docNo, period_label: bounds.period, cost_center_id: ccId,
+      je_id: je.je_id, total_rial: total, rows: listAbsorbPostings(db, { period: bounds.period, costCenterId: ccId })
+        .filter((r) => r.doc_no === docNo),
+    };
+  })();
+}
+
+/** R13 — ابطال کامل یک اجرا: سند معکوس + وضعیت reversed برای همهٔ ردیف‌های همان سند. */
+function reverseAbsorb(db, { docNo, reason, userId, date } = {}) {
+  const { reverseEvent } = require('./posting');
+  const { todayJalali } = require('../../jalali');
+  const doc = String(docNo || '').trim();
+  if (!doc) throw absorbErr('E_DOC_REQUIRED', 400, 'شمارهٔ سند جذب الزامی است');
+  const cleanReason = String(reason || '').trim();
+  if (!cleanReason) throw absorbErr('E_REASON_REQUIRED', 422, 'دلیل ابطال الزامی است');
+  return db.transaction(() => {
+    const rows = db.prepare(`SELECT * FROM cc_absorb_postings WHERE doc_no=? AND status='posted'`).all(doc);
+    if (!rows.length) throw absorbErr('E_NOT_FOUND', 404, 'سند جذب فعال یافت نشد (شاید قبلاً ابطال شده)');
+    const jeId = rows[0].je_id;
+    let revId = null;
+    if (jeId) {
+      revId = reverseEvent(db, { jeId, reason: cleanReason, userId, date: date || todayJalali() });
+    }
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare(`
+      UPDATE cc_absorb_postings
+      SET status='reversed', reversal_je_id=?, reverse_reason=?, reversed_by=?, reversed_at=?
+      WHERE doc_no=? AND status='posted'
+    `).run(revId || null, cleanReason, userId || null, now, doc);
+    const { audit } = require('../../db');
+    audit(userId, 'delete', 'cc_absorb_posting', rows[0].id, JSON.stringify({
+      doc_no: doc, je_id: jeId, reversal_je_id: revId, reason: cleanReason,
+      total_rial: rows.reduce((s, r) => s + (Number(r.amount_rial) || 0), 0),
+    }));
+    return { ok: true, doc_no: doc, je_id: jeId, reversal_je_id: revId, count: rows.length };
+  })();
+}
+
 module.exports = {
   BASE_TYPES,
   normalizeBaseType,
@@ -205,5 +329,8 @@ module.exports = {
   softDeactivateMap,
   previewAbsorbForCenter,
   suggestBudgetFromMaps,
+  listAbsorbPostings,
+  runAbsorb,
+  reverseAbsorb,
   clampAbsorbPct,
 };

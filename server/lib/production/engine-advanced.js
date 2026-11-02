@@ -12,7 +12,7 @@ const {
   issueFromStock, updateMovingAverage, receiveScrap, reverseIssueStock, setting, getWhQty,
 } = require('./costing');
 const {
-  getOverheadRate, coerceDriver, appliedOverheadRial,
+  getOverheadRate, coerceDriver, appliedOverheadRial, findPostedApplication,
   bumpRateApplied, reverseAppliedOverheadCounters,
 } = require('./overhead');
 const {
@@ -462,7 +462,18 @@ function applyStageOverhead(db, {
     driver,
   });
   const rateRial = Math.round(num(rate.total_rate_rial));
-  const amount = appliedOverheadRial(rate, driverQty);
+  const amount = appliedOverheadRial(rate, driverQty, driver);
+
+  const dup = findPostedApplication(db, {
+    orderId: po.id, stageId: stage.id, driver, costCenterId: stage.cost_center_id,
+  });
+  if (dup) {
+    return {
+      id: dup.id, amount_rial: 0, existing: true,
+      existing_amount_rial: Math.round(num(dup.amount_rial)),
+      driver, driver_qty: num(dup.driver_qty), rate_rial: Math.round(num(dup.rate_rial)), rate_id: dup.rate_id,
+    };
+  }
 
   let docNo = '';
   try { docNo = allocateNumber(db, 'overhead_apply', 'OH'); }

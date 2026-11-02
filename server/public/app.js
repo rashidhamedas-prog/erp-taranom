@@ -24092,14 +24092,16 @@ function qtyFmt(v){ return window.ProdUI?window.ProdUI.qty(v):fmtQtyFa(v||0); }
 ============================================================ */
 const OH_DRIVER_META={
   output_qty:{label:'تعداد خروجی',unit:'ریال سربار به ازای هر عدد خروجی',budgetUnit:'عدد خروجی برنامه‌ای ماه',sample:100,sampleLabel:'۱۰۰ عدد خروجی',tip:'محرک واقعی = تعداد شروع‌شدهٔ رسید (خوب+ضایعات).'},
-  direct_labor_rial:{label:'دستمزد مستقیم (پایه ریالی)',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'محرک واقعی = دستمزد جذب‌شدهٔ همین رسید ÷ ۱٬۰۰۰٬۰۰۰. حقوق ماهانه را اینجا بودجه نکنید — فیلد «دستمزد مستقیم / عدد» جداست.'},
-  labor_rial:{label:'دستمزد مستقیم (پایه ریالی)',unit:'ریال سربار به ازای هر ۱ میلیون ریال دستمزد',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'محرک واقعی = دستمزد جذب‌شده ÷ ۱٬۰۰۰٬۰۰۰.'},
+  direct_labor_rial:{pct:true,label:'دستمزد مستقیم (پایه ریالی)',unit:'درصد از دستمزد مستقیم (مثلاً ۲۰٪)',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'سربار = دستمزد جذب‌شدهٔ همین رسید × درصد. پیش‌فرض ۲۰٪. حقوق ماهانه را اینجا بودجه نکنید — فیلد «دستمزد مستقیم / عدد» جداست.'},
+  labor_rial:{pct:true,label:'دستمزد مستقیم (پایه ریالی)',unit:'درصد از دستمزد مستقیم (مثلاً ۲۰٪)',budgetUnit:'میلیون‌ریال دستمزد برنامه‌ای ماه',sample:10,sampleLabel:'۱۰ میلیون ریال دستمزد',tip:'سربار = دستمزد جذب‌شده × درصد.'},
   direct_labor_hours:{label:'ساعت کارگر',unit:'ریال سربار به ازای هر ساعت کارگر',budgetUnit:'ساعت کارگر برنامه‌ای ماه',sample:8,sampleLabel:'۸ ساعت کارگر',tip:'محرک واقعی از ثبت ساعات کارگر، وگرنه از مسیر BOM (setup+run×تعداد)×خدمه.'},
   machine_hours:{label:'ساعت ماشین',unit:'ریال سربار به ازای هر ساعت ماشین',budgetUnit:'ساعت ماشین برنامه‌ای ماه',sample:6,sampleLabel:'۶ ساعت ماشین',tip:'محرک واقعی از دقیقه ماشین رسید یا Σ(دقیقه/واحد مسیر)×تعداد ÷ ۶۰.'},
-  material_rial:{label:'مواد مستقیم',unit:'ریال سربار به ازای هر ۱ میلیون ریال مواد',budgetUnit:'میلیون‌ریال مواد برنامه‌ای ماه',sample:50,sampleLabel:'۵۰ میلیون ریال مواد',tip:'محرک واقعی = مواد (+بسته‌بندی در تحلیل متغیر) ÷ ۱٬۰۰۰٬۰۰۰.'},
+  material_rial:{pct:true,label:'مواد مستقیم',unit:'درصد از مواد مستقیم (مثلاً ۲۰٪)',budgetUnit:'میلیون‌ریال مواد برنامه‌ای ماه',sample:50,sampleLabel:'۵۰ میلیون ریال مواد',tip:'سربار = مواد (+بسته‌بندی در تحلیل متغیر) × درصد. پیش‌فرض ۲۰٪.'},
   manual:{label:'دستی',unit:'ریال سربار به ازای واحد محرک دستی',budgetUnit:'واحد محرک دستی برنامه‌ای ماه',sample:1,sampleLabel:'۱ واحد دستی',tip:'محرک واقعی = فیلد «مقدار محرک دستی» روی سفارش تولید (manual_driver_qty).'}
 };
 function ohDriverMeta(d){ return OH_DRIVER_META[d]||OH_DRIVER_META.output_qty; }
+/** ویرایش نرخ سربار و ثبت جذب معین‌ها فقط مدیر و حسابداری (سرور هم همین را enforce می‌کند). */
+function ohRateEditor(){ return !!(ME && (ME.role==='admin' || ME.role==='accounting')); }
 function shiftJalaliYm(label,delta){
   const m=String(label||'').match(/^(\d{4})\/(\d{1,2})/);
   if(!m) return '';
@@ -24155,8 +24157,8 @@ async function renderProductionRatesTab(body){
       <div class="panel">
         <div class="panel-head"><h4>نرخ سربار دوره</h4>
           <div class="oh-actions">
-            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){prodRateEditModal()})}">ثبت نرخ</button>
-            ${canEditOh?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesBootstrap()})}">برآورد ۳ ماه</button>
+            ${ohRateEditor()?`<button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){prodRateEditModal()})}">ثبت نرخ</button>`:''}
+            ${ohRateEditor()?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesBootstrap()})}">برآورد ۳ ماه</button>
             <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){prodRatesCopyPrev()})}">کپی ماه قبل</button>`:''}
             <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:6px;font-size:12px`)}"><input type="checkbox" id="pra-all" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(){prodRatesLoad()})}"> لغوشده‌ها</label>
           </div>
@@ -24175,7 +24177,9 @@ async function renderProductionRatesTab(body){
             <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAccountMapsEdit()})}">ویرایش نگاشت</button>
             <button type="button" class="btn secondary" data-csp-click="${CSP.bind('click',function(){ccAccountMapsLoad()})}">بارگذاری</button>
             <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsPreview()})}">پیش‌نمایش دوره</button>
-            ${canEditOh?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>`:''}
+            ${ohRateEditor()?`<button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAccountMapsApplyBudget()})}">اعمال به بودجه نرخ</button>
+            <button type="button" class="btn" data-csp-click="${CSP.bind('click',function(){ccAbsorbRun()})}" title="سند: بدهکار ۵۲۰۲ / بستانکار معین‌های نگاشت‌شده">ثبت جذب واقعی (سند)</button>`:''}
+            <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){ccAbsorbList()})}">اسناد جذب دوره</button>
           </div>
         </div>
         <div class="panel-body">
@@ -24395,15 +24399,15 @@ async function prodRatesLoad(){
       return `<tr>
       <td data-label="مرکز هزینه"><b>${esc(r.cc_code||'')}</b> ${esc(r.cc_name||'')}</td>
       <td data-label="محرک">${esc(meta.label)}<div class="muted" data-csp-style="${CSP.style(`font-size:11px;line-height:1.6`)}">${esc(meta.unit)}</div></td>
-      <td data-label="نرخ سربار" class="num">${money(r.total_rate_rial)}${pool?'<div class="oh-warn">شبیه بودجه ماه است نه نرخ</div>':''}</td>
+      <td data-label="نرخ سربار" class="num">${meta.pct&&r.rate_pct!=null?`<b>${fmt(Number(r.rate_pct))}٪</b>`:money(r.total_rate_rial)}${pool&&!meta.pct?'<div class="oh-warn">شبیه بودجه ماه است نه نرخ</div>':''}</td>
       <td data-label="ثابت" class="num">${money(r.fixed_rate_rial||0)}</td>
       <td data-label="متغیر" class="num">${money(r.var_rate_rial||0)}</td>
       <td data-label="دستمزد" class="num">${money(r.monthly_labor_rate_rial||0)}</td>
       <td data-label="جذب ٪" class="num">${fmt(Number(r.absorb_pct!=null?r.absorb_pct:100))}٪</td>
       <td data-label="وضعیت">${esc(statusFa[st]||st)}${r.is_estimated?' · برآوردی':''}</td>
       <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-        ${st==='inactive'||st==='reversed'?'':`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal((r.cost_center_id))})}">ویرایش</button>`}
-        ${(st==='inactive'||st==='reversed')?'':((canPerm('production_cost','edit')||isAdmin())?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodRateVoid((r.id))})}" title="لغو نرخ">لغو</button>`:'')}
+        ${st==='inactive'||st==='reversed'||!ohRateEditor()?'':`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){prodRateEditModal((r.cost_center_id))})}">ویرایش</button>`}
+        ${(st==='inactive'||st==='reversed')?'':(ohRateEditor()?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){prodRateVoid((r.id))})}" title="لغو نرخ">لغو</button>`:'')}
       </td>
     </tr>`;
     }).join('')}
@@ -24441,6 +24445,7 @@ async function prodRatesCopyPrev(){
         budget_fixed_oh_rial:r.budget_fixed_oh_rial||0, budget_var_oh_rial:r.budget_var_oh_rial||0,
         budget_driver_qty:r.budget_driver_qty||0,
         total_rate_rial:r.total_rate_rial||0, fixed_rate_rial:r.fixed_rate_rial||0, var_rate_rial:r.var_rate_rial||0,
+        rate_pct:r.rate_pct!=null?r.rate_pct:undefined,
         monthly_labor_rate_rial:r.monthly_labor_rate_rial||0, absorb_pct:r.absorb_pct!=null?r.absorb_pct:100, note:r.note||('کپی از '+prev),
         is_estimated:r.is_estimated?1:0, status:'active',
       });
@@ -24501,6 +24506,14 @@ function prodRatePreviewSync(){
   }
   const absorb=Math.min(100,Math.max(0, el('prm-absorb')&&el('prm-absorb').value!==''?prodRateNum('prm-absorb'):100));
   const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+  const pctWrap=el('prm-pct-wrap');
+  if(pctWrap) pctWrap.style.display=meta.pct?'':'none';
+  const pctRaw=meta.pct&&el('prm-pct')&&el('prm-pct').value!==''?prodRateNum('prm-pct'):null;
+  if(pctRaw!=null){
+    const appliedPct=Math.round(meta.sample*1000000*(pctRaw/100)*(absorb/100));
+    box.innerHTML=`جذب نمونه: ${esc(meta.sampleLabel)} × ${fmt(pctRaw)}٪ × ${fmt(absorb)}٪ ≈ <b>${money(appliedPct)}</b>. سند اجرا: بدهکار WIP / بستانکار ۵۲۰۳.`;
+    return;
+  }
   const applied=Math.round(total*meta.sample*(absorb/100));
   const poolWarn=(!fromBudget && total>=20000000 && (driver==='direct_labor_rial'||driver==='material_rial'||driver==='output_qty'))
     ? '<div class="oh-warn">این عدد خیلی بزرگ است و شبیه بودجهٔ ماه است — برای برش آن را صفر کنید و حقوق را در دستمزد هر عدد بگذارید.</div>'
@@ -24559,6 +24572,8 @@ async function prodRateEditModal(ccId){
         <div class="form-grid">
           <div class="fg"><label>نرخ ثابت سربار</label><input id="prm-fixed" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.fixed_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('parts')})}"></div>
           <div class="fg"><label>نرخ متغیر سربار</label><input id="prm-var" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.var_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('parts')})}"></div>
+          <div class="fg full" id="prm-pct-wrap"><label>درصد سربار از مبنای ریالی (٪) — پیش‌فرض ۲۰</label><input id="prm-pct" type="number" min="0" max="1000" step="0.01" value="${existing&&existing.rate_pct!=null?esc(String(existing.rate_pct)):''}" placeholder="20" data-csp-input="${CSP.bind('input',function(){prodRatePreviewSync()})}">
+            <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-top:6px;line-height:1.7`)}">برای محرک دستمزد/مواد ریالی: سربار = مبنا × درصد. درصد پر باشد بر «نرخ کل» مقدم است.</div></div>
           <div class="fg full"><label>نرخ کل سربار (نه حقوق ماه)</label><input id="prm-total" type="text" inputmode="numeric" class="money" value="${existing?moneyInit(existing.total_rate_rial||0):''}" data-csp-input="${CSP.bind('input',function(){prodRateOnRateInput('total')})}"></div>
         </div>
       </div>
@@ -24643,9 +24658,11 @@ async function prodRateSave(){
       is_estimated:el('prm-est')?.checked?1:0,
       status:'active',
       rate_touch:document.querySelector('.oh-form')?.dataset.rateTouch||'',
+      rate_pct:(ohDriverMeta(el('prm-driver').value).pct&&el('prm-pct')&&el('prm-pct').value!=='')?prodRateNum('prm-pct'):undefined,
     });
     closeModal();
-    const shown=saved&&saved.total_rate_rial!=null?('نرخ ذخیره شد: '+fmt(saved.total_rate_rial)+' ریال'):'نرخ ذخیره شد';
+    const shown=saved&&saved.rate_pct!=null?('نرخ ذخیره شد: '+fmt(saved.rate_pct)+'٪')
+      :(saved&&saved.total_rate_rial!=null?('نرخ ذخیره شد: '+fmt(saved.total_rate_rial)+' ریال'):'نرخ ذخیره شد');
     showToast(saved?.warning||shown, saved?.warning?'error':'success');
     const costId=window._prodBomCostId;
     loadAccTab('production-rates');
@@ -24765,6 +24782,50 @@ async function ccAccountMapsApplyBudget(){
     const r=await api('POST','/production/cost-centers/account-maps/apply-budget',{cost_center_id:ccId,period_label:period});
     showToast(r?.warning||'بودجه نرخ از معین به‌روز شد', r?.warning?'error':'success');
     prodRatesLoad();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+/* P3 — اجرای واقعی جذب معین‌ها → کنترل سربار (5202)؛ یک‌بار برای هر دوره+نگاشت، با ابطال کامل */
+async function ccAbsorbRun(){
+  const ccId=+(el('cca-cc')?.value||0);
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  if(!ccId){ showToast('مرکز هزینه را انتخاب کنید','error'); return; }
+  if(!confirm('سند جذب واقعی دوره '+period+' ثبت شود؟ (بدهکار کنترل سربار ۵۲۰۲ / بستانکار معین‌های نگاشت‌شده — هر نگاشت فقط یک‌بار در دوره)')) return;
+  try{
+    const r=await api('POST','/production/cost-centers/absorb-postings/run',{cost_center_id:ccId,period_label:period});
+    showToast('سند جذب '+(r?.doc_no||'')+' ثبت شد — '+fmt(r?.total_rial||0)+' ریال');
+    ccAbsorbList();
+  }catch(e){ showToast(e.message||'خطا','error'); }
+}
+async function ccAbsorbList(){
+  const area=el('cca-area'); if(!area) return;
+  const ccId=+(el('cca-cc')?.value||0);
+  const period=el('pra-period')?.value||window._prodRatesPeriod;
+  try{
+    const r=await api('GET','/production/cost-centers/absorb-postings?period='+encodeURIComponent(period)+(ccId?'&cost_center_id='+ccId:''));
+    const rows=r?.rows||[];
+    const money=v=>window.ProdUI?window.ProdUI.moneyCell(v):(window.__canSeeCost?fmt(v||0):'—');
+    const docs={};
+    rows.forEach(x=>{ (docs[x.doc_no]=docs[x.doc_no]||[]).push(x); });
+    const keys=Object.keys(docs);
+    if(!keys.length){ area.innerHTML='برای این دوره سند جذب معین ثبت نشده.'; return; }
+    area.innerHTML=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>سند</th><th>معین‌ها</th><th>جمع</th><th>وضعیت</th><th></th></tr></thead><tbody>
+      ${keys.map(k=>{ const g=docs[k]; const st=g[0].status; const tot=g.reduce((s,x)=>s+(+x.amount_rial||0),0);
+        return `<tr>
+        <td class="mono"><b>${esc(k)}</b><div class="muted">${esc(g[0].cc_code||'')} ${esc(g[0].cc_name||'')}</div></td>
+        <td>${g.map(x=>`<div class="mono">${esc(x.account_code)} — ${money(x.amount_rial)}</div>`).join('')}</td>
+        <td class="num">${money(tot)}</td>
+        <td>${st==='posted'?'ثبت‌شده':('ابطال‌شده'+(g[0].reverse_reason?(' — '+esc(g[0].reverse_reason)):''))}</td>
+        <td>${st==='posted'&&ohRateEditor()?`<button class="btn sm red" data-csp-click="${CSP.bind('click',function(){ccAbsorbReverse(k)})}">ابطال</button>`:''}</td>
+      </tr>`; }).join('')}
+    </tbody></table></div>`;
+  }catch(e){ area.innerHTML=`<span class="oh-warn">${esc(e.message||'خطا')}</span>`; }
+}
+async function ccAbsorbReverse(docNo){
+  const reason=prompt('دلیل ابطال سند جذب '+docNo+':');
+  if(!reason||!reason.trim()) return;
+  try{
+    await api('POST','/production/cost-centers/absorb-postings/'+encodeURIComponent(docNo)+'/reverse',{reason:reason.trim()});
+    showToast('سند جذب ابطال شد'); ccAbsorbList();
   }catch(e){ showToast(e.message||'خطا','error'); }
 }
 function crvModeUi(){
@@ -42782,6 +42843,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>نرخ سربار مراکز (v334 / v458):</b> فرم در پنج لایه جداست — (۱) محرک با قوانین خودش، (۲) بودجه غیرمستقیم اجاره/برق/استهلاک، (۳) نرخ جذب ازپیش‌تعیین، (۴) درصد تسهیم مرکز، (۵) دستمزد مستقیم ماهانه روی مسیر ۵۲۰۱. ویرایش «نرخ کل» یا «دستمزد / عدد» (مثلاً اتو و بسته‌بندی CC-60) بعد از ذخیره در همان ردیف جدول می‌ماند؛ قبلاً اگر ثابت برابر نرخ کل کپی شده بود، تغییر نرخ کل دور ریخته می‌شد. بودجه فقط وقتی نرخ را عوض می‌کند که خود بودجه را ویرایش کنید یا نرخ ذخیره‌شده با بودجه یکی باشد. حقوق برشکار در بودجه/نرخ سربار تکرار نشود. محرک دستی روی سفارش با <b>manual_driver_qty</b>. جذب اجرا: WIP / ۵۲۰۳؛ واقعی tagged به ۵۲۰۲؛ کم‌جذبی در بستن به ۵۲۱۵. لغو نرخ/سفارش حذف فیزیکی نیست و شمارندهٔ جذب نرخ هم برمی‌گردد.</li>
         <li><b>صفحهٔ نرخ سربار (UI v360):</b> یک هاب با تب‌های جدا — <b>نرخ مراکز</b> (کار اصلی)، <b>جذب معین</b>، <b>تعدیل بها</b>، <b>قیمت‌گذاری</b>، <b>تنظیمات تولید</b>. بک‌اند و API عوض نشده؛ فقط چیدمان خلوت‌تر شده.</li>
         <li><b>جذب انتخابی معین → مرکز (v358 / ADR-004 · picker v359):</b> تب «جذب معین» (یا از ویرایش مرکز هزینه → «جذب از معین») — انتخاب معین با جستجوی کدینگ؛ درصد جذب و مبنا: گردش بدهکار / مانده پایان / بودجه. پیش‌نمایش و «اعمال به بودجه نرخ» همان‌جا.</li>
+        <li><b>سربار و بستن دوره — P3:</b> (۱) <b>محرک درصدی:</b> برای محرک دستمزد/مواد ریالی نرخ به‌صورت <b>درصد از مبنا</b> ثبت می‌شود (پیش‌فرض <b>۲۰٪</b>، قابل ویرایش برای هر مرکز). نرخ‌های قدیمی «ریال به ازای هر میلیون» خودکار به درصد تبدیل شدند (۲۰۰٬۰۰۰ ⇒ ۲۰٪)؛ محرک تعداد خروجی همچنان ریال به ازای هر عدد است. ثبت/ویرایش/لغو نرخ فقط <b>مدیر و حسابداری</b> و همه در گزارش ممیزی ثبت می‌شود. (۲) <b>یکتایی جذب:</b> برای هر سفارش + مرحله + محرک + مرکز فقط یک جذب ثبت‌شده مجاز است؛ تکرار، همان ردیف قبلی را برمی‌گرداند و سند دوباره نمی‌زند. جذب هم‌زمان کارگاه و اتو/بسته‌بندی روی یک مرحله درست است و مجاز می‌ماند. (۳) <b>ثبت جذب واقعی (سند):</b> در تب «جذب معین»، دکمهٔ «ثبت جذب واقعی (سند)» برای مرکز و دورهٔ انتخابی سند «بدهکار کنترل سربار ۵۲۰۲ (با مرکز هزینه) / بستانکار معین‌های 61030x نگاشت‌شده» به اندازهٔ مبنا × درصد جذب می‌زند؛ هر نگاشت در هر دوره فقط یک‌بار. «اسناد جذب دوره» فهرست را نشان می‌دهد و «ابطال» (با دلیل) سند را کامل برمی‌گرداند تا دوباره قابل اجرا باشد. (۴) <b>پیش‌نیاز بستن:</b> اگر ۵۲۰۳ (سربار جذب‌شده) مانده دارد ولی ۵۲۰۲ صفر است، بررسی پیش از بستن <b>خطا</b> می‌دهد تا اول جذب واقعی معین‌ها اجرا شود. (۵) <b>تسهیم انحراف (PRD-23):</b> مانده‌های ۵۲۱۲، ۵۲۱۳، ۵۲۱۴ و ۵۲۱۵ (از جمله ماندهٔ تعدیل بها روی ۵۲۱۴) همه به WIP/کالای ساخته‌شده/بهای فروش تسهیم می‌شوند تا حساب‌های کنترل در پایان صفر شوند. (۶) سهم کالای ساخته‌شده فقط بین <b>محصولات نهایی</b> تولیدشدهٔ دوره پخش می‌شود (رسید باقیماندهٔ برش و اضافه طاقه حساب نمی‌شود).</li>
         <li><b>تعدیل بها (v358):</b> تب «تعدیل بها» — اتومات یا دستی؛ بازمحاسبه بها/قیمت و سند Δ موجودی به ۵۲۱۴؛ ابطال کامل R13.</li>
         <li><b>تنظیمات حرفه‌ای تولید (v336 / ADR-003):</b> بالای همان صفحهٔ نرخ سربار — انبارهای پیش‌فرض (مواد/محصول/WIP/ضایعات/پیمانکار/پخش)، تحلیل پیش‌فرض سفارش، آستانهٔ انحراف و ضایعات، گیت ثبت سند و Backflush. هزینهٔ سربار تولید با تگ PRD-06 در بستن دیده می‌شود؛ لایه‌چینی سندهای PRD-01/09/07 می‌زند؛ محصول فرعی (by) به ۱۱۰۴ و ضایعات به ۱۱۱۳؛ بستن دوره انحراف بودجه ۵۲۱۴ و حجم ۵۲۱۵ را جدا می‌کند وقتی بودجهٔ نرخ ماه پر باشد.</li>
         <li>با «➕ فرمول جدید» سرفصل پیش‌نویس بسازید، اقلام مواد/بسته‌بندی را اضافه کنید و با تاریخ اعتبار <b>فعال</b> کنید. دکمه‌های افزودن/حذف فقط با مجوز <code>production_bom/edit</code> دیده می‌شوند.</li>

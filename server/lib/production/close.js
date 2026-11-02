@@ -10,6 +10,7 @@ const { todayJalali, periodEndJalali } = require('../../jalali');
 const { assertFiscalYearWritable } = require('../fiscal-period');
 const {
   dr, cr, postEvent, reverseEvent, postCloseLabor, postCloseOverhead, postAllocation, err,
+  buildAllocationLines, splitOverheadVariance,
 } = require('./posting');
 const { setting } = require('./costing');
 
@@ -151,12 +152,46 @@ function directCogsAllocation(varianceRial) {
   return { wip_rial: 0, fg_rial: 0, cogs_rial: v, total_rial: v };
 }
 
+/** جمع بودجهٔ سربار مراکز در دوره — مبنای تفکیک بودجه/حجم در PRD-22 و PRD-23. */
+function periodBudgetRial(db, period) {
+  try {
+    const s = Math.round(Number(db.prepare(`
+      SELECT COALESCE(SUM(COALESCE(budget_fixed_oh_rial,0)+COALESCE(budget_var_oh_rial,0)),0) s
+      FROM cost_center_rates WHERE period_label=? AND COALESCE(status,'active') IN ('active','posted','')
+    `).get(period)?.s) || 0);
+    return s > 0 ? s : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function computeVariances(db, period, endDate) {
   const laborBal = accountBalance(db, 'coa_labor_control', endDate);
   const ohControlBal = accountBalance(db, 'coa_overhead_control', endDate);
   const ohAppliedBal = accountBalance(db, 'coa_overhead_applied', endDate);
   const ohAppliedRial = Math.abs(Math.min(0, ohAppliedBal));
   const ohVariance = ohControlBal + ohAppliedBal;
+
+  // P3: ماندهٔ قبلی حساب‌های انحراف (مثلاً 5214 از تعدیل بها، 5213 کارایی) هم باید تسهیم شود
+  // تا assertControlsZero روی 5212..5215 صفر بماند.
+  const carry = {
+    coa_var_labor_rate: accountBalance(db, 'coa_var_labor_rate', endDate),
+    coa_var_labor_eff: accountBalance(db, 'coa_var_labor_eff', endDate),
+    coa_var_oh_budget: accountBalance(db, 'coa_var_oh_budget', endDate),
+    coa_var_oh_volume: accountBalance(db, 'coa_var_oh_volume', endDate),
+  };
+  const budgetRial = periodBudgetRial(db, period);
+  const split = splitOverheadVariance({ appliedRial: ohAppliedRial, varianceRial: ohVariance, budgetRial });
+  const laborComponents = {
+    coa_var_labor_rate: laborBal + carry.coa_var_labor_rate,
+    coa_var_labor_eff: carry.coa_var_labor_eff,
+  };
+  const ohComponents = {
+    coa_var_oh_budget: split.budget_var_rial + carry.coa_var_oh_budget,
+    coa_var_oh_volume: split.volume_var_rial + carry.coa_var_oh_volume,
+  };
+  const laborAllocate = laborComponents.coa_var_labor_rate + laborComponents.coa_var_labor_eff;
+  const ohAllocate = ohComponents.coa_var_oh_budget + ohComponents.coa_var_oh_volume;
 
   return {
     labor: {
@@ -165,6 +200,8 @@ function computeVariances(db, period, endDate) {
       variance_rial: laborBal,
       favorable: laborBal < 0,
       control_balance_rial: laborBal,
+      allocate_rial: laborAllocate,
+      components: laborComponents,
     },
     overhead: {
       actual_rial: ohControlBal,
@@ -173,8 +210,14 @@ function computeVariances(db, period, endDate) {
       favorable: ohVariance < 0,
       control_balance_rial: ohControlBal,
       applied_balance_rial: ohAppliedBal,
+      budget_rial: budgetRial,
+      budget_var_rial: split.budget_var_rial,
+      volume_var_rial: split.volume_var_rial,
+      allocate_rial: ohAllocate,
+      components: ohComponents,
     },
-    total_variance_rial: laborBal + ohVariance,
+    carry_variance: carry,
+    total_variance_rial: laborAllocate + ohAllocate,
   };
 }
 
@@ -239,8 +282,12 @@ function productionCostRial(db, period, row) {
 
 function buildAllocation(variances, ohBase, laborBase, method) {
   const prorate = method === 'direct_cogs' ? directCogsAllocation : prorateVariance;
-  const laborAlloc = prorate(variances.labor.variance_rial, laborBase);
-  const ohAlloc = prorate(variances.overhead.variance_rial, ohBase);
+  const laborTotal = variances.labor.allocate_rial != null ? variances.labor.allocate_rial : variances.labor.variance_rial;
+  const ohTotal = variances.overhead.allocate_rial != null ? variances.overhead.allocate_rial : variances.overhead.variance_rial;
+  const laborAlloc = prorate(laborTotal, laborBase);
+  const ohAlloc = prorate(ohTotal, ohBase);
+  if (variances.labor.components) laborAlloc.components = { ...variances.labor.components };
+  if (variances.overhead.components) ohAlloc.components = { ...variances.overhead.components };
   return {
     labor: laborAlloc,
     overhead: ohAlloc,
@@ -283,36 +330,42 @@ function previewEntries(db, variances, allocation) {
   }
 
   if (ohV) {
-    entries.push({
-      event: 'PRD-22',
-      description: 'بستن انحراف سربار',
-      lines: ohV > 0
-        ? [{ code: acct(db, 'coa_var_oh_volume').code, debit_rial: Math.abs(ohV) },
-          { code: acct(db, 'coa_overhead_control').code, credit_rial: Math.abs(ohV) }]
-        : [{ code: acct(db, 'coa_overhead_control').code, debit_rial: Math.abs(ohV) },
-          { code: acct(db, 'coa_var_oh_volume').code, credit_rial: Math.abs(ohV) }],
-    });
+    const parts = variances.overhead.budget_var_rial
+      ? [['coa_var_oh_budget', variances.overhead.budget_var_rial, 'بستن انحراف بودجه سربار'],
+        ['coa_var_oh_volume', variances.overhead.volume_var_rial, 'بستن انحراف حجم سربار']]
+      : [['coa_var_oh_volume', ohV, 'بستن انحراف سربار']];
+    for (const [key, amt, label] of parts) {
+      if (!amt) continue;
+      entries.push({
+        event: 'PRD-22',
+        description: label,
+        lines: amt > 0
+          ? [{ code: acct(db, key).code, debit_rial: Math.abs(amt) },
+            { code: acct(db, 'coa_overhead_control').code, credit_rial: Math.abs(amt) }]
+          : [{ code: acct(db, 'coa_overhead_control').code, debit_rial: Math.abs(amt) },
+            { code: acct(db, key).code, credit_rial: Math.abs(amt) }],
+      });
+    }
   }
 
-  const tot = allocation.total;
-  if (tot.total_rial) {
-    const lines = [];
-    if (tot.wip_rial) lines.push({ code: acct(db, 'coa_wip').code, debit_rial: tot.wip_rial });
-    if (tot.fg_rial) lines.push({ code: acct(db, 'coa_finished_goods').code, debit_rial: tot.fg_rial });
-    if (tot.cogs_rial) lines.push({ code: acct(db, 'coa_cogs').code, debit_rial: tot.cogs_rial });
-    if (allocation.labor.total_rial) {
-      lines.push({ code: acct(db, 'coa_var_labor_rate').code, credit_rial: Math.abs(allocation.labor.total_rial) });
-    }
-    if (allocation.overhead.total_rial) {
-      lines.push({ code: acct(db, 'coa_var_oh_volume').code, credit_rial: Math.abs(allocation.overhead.total_rial) });
-    }
-    entries.push({ event: 'PRD-23', description: 'تسهیم انحراف', lines });
+  const lines23 = buildAllocationLines(db, allocation).map((l) => ({
+    code: l.code,
+    ...(l.debit ? { debit_rial: Math.round(l.debit * 10) } : {}),
+    ...(l.credit ? { credit_rial: Math.round(l.credit * 10) } : {}),
+  }));
+  if (lines23.length) {
+    entries.push({ event: 'PRD-23', description: 'تسهیم انحراف', lines: lines23 });
   }
 
   return entries;
 }
 
-/** v522: FG produced in the period (posted production receipts, net of reversals). */
+/** محصول ساخته‌شده: item_type خالی/قدیمی هم «finished» حساب می‌شود (پیش‌فرض ستون). */
+const FG_ITEM_TYPE_SQL = "COALESCE(NULLIF(p.item_type,''), 'finished') IN ('finished', 'product')";
+/** رسیدهای مواد خام (اضافه طاقه / باقیماندهٔ برش) با event_type=production_receipt ثبت می‌شوند ولی FG نیستند. */
+const NON_FG_RECEIPT_SOURCES = ['cutting_remnant', 'cutting_roll_surplus'];
+
+/** v522: FG produced in the period (posted production receipts, net of reversals). P3: فقط FG. */
 function producedInPeriod(db, period) {
   if (!period) return [];
   const row = getPeriodRow(db, period);
@@ -324,12 +377,18 @@ function producedInPeriod(db, period) {
         SUM(COALESCE(l.qty_in,0)) AS qty, SUM(COALESCE(l.amount_rial,0)) AS value
       FROM inventory_ledger l JOIN products p ON p.id = l.product_id
       WHERE l.event_type = 'production_receipt' AND COALESCE(l.status,'posted') = 'posted'
+        AND ${FG_ITEM_TYPE_SQL}
+        AND COALESCE(l.source_type,'') NOT IN (${NON_FG_RECEIPT_SOURCES.map(() => '?').join(',')})
+        AND (
+          COALESCE(l.source_type,'') IN ('', 'production_receipt', 'cutting_pack', 'production_pack', 'portal_convert')
+          OR l.source_type LIKE '%receipt%' OR l.source_type LIKE '%pack%'
+        )
         AND l.reversed_of IS NULL AND COALESCE(l.qty_in,0) > 0
         AND COALESCE(l.date,'') >= ? AND COALESCE(l.date,'') <= ?
         AND NOT EXISTS (SELECT 1 FROM inventory_ledger r WHERE r.reversed_of = l.id AND COALESCE(r.status,'posted')='posted')
       GROUP BY l.product_id
       HAVING SUM(COALESCE(l.qty_in,0)) > 0
-    `).all(start, end);
+    `).all(...NON_FG_RECEIPT_SOURCES, start, end);
   } catch (_) {
     return [];
   }
@@ -369,9 +428,9 @@ function previewFgAverages(db, { fgShareRial, period }) {
   }
 
   const products = db.prepare(`
-    SELECT id, name, stock, average_cost_rial
-    FROM products
-    WHERE COALESCE(stock, 0) > 0 AND COALESCE(item_type, 'finished') IN ('finished', 'product')
+    SELECT p.id, p.name, p.stock, p.average_cost_rial
+    FROM products p
+    WHERE COALESCE(p.stock, 0) > 0 AND ${FG_ITEM_TYPE_SQL}
   `).all();
 
   const totalValue = products.reduce(
@@ -564,6 +623,22 @@ function precheck(db, { period }) {
       : 'سربار واقعی ثبت نشده — ممکن است ناقص باشد',
   });
 
+  // P3: سربار جذب‌شده (5203) بدون سربار واقعی روی کنترل (5202) ⇒ بستن، کل جذب را انحراف مطلوب
+  // می‌کند و 61030x دست‌نخورده می‌ماند. اول باید جذب معین‌ها اجرا شود.
+  const bal5202 = accountBalance(db, 'coa_overhead_control', endDate);
+  const bal5203 = accountBalance(db, 'coa_overhead_applied', endDate);
+  const absorbMissing = Math.abs(bal5202) <= 5 && Math.abs(bal5203) > 5;
+  checks.push({
+    code: 'OH_ACTUAL_ON_CONTROL',
+    status: absorbMissing ? 'fail' : 'pass',
+    severity: 'error',
+    message: absorbMissing
+      ? `سربار جذب‌شده ${Math.abs(bal5203).toLocaleString('fa-IR')} ریال است ولی حساب کنترل سربار (${ohCode}) صفر است — `
+        + 'ابتدا در «مراکز هزینه ← جذب معین‌ها» دکمهٔ «ثبت جذب واقعی» را برای این دوره اجرا کنید تا هزینه‌های 61030x به کنترل سربار منتقل شود.'
+      : 'سربار واقعی روی حساب کنترل سربار ثبت شده ✅',
+    balances: { control_rial: bal5202, applied_rial: bal5203 },
+  });
+
   checks.push({
     code: 'STOCKTAKING',
     status: 'warn',
@@ -736,18 +811,12 @@ function execute(db, { period, method, userId, date }) {
     });
     if (j21) journal_entries.push({ event: 'PRD-21', ...j21 });
 
-    let budgetRial = 0;
-    try {
-      budgetRial = Math.round(Number(db.prepare(`
-        SELECT COALESCE(SUM(COALESCE(budget_fixed_oh_rial,0)+COALESCE(budget_var_oh_rial,0)),0) s
-        FROM cost_center_rates WHERE period_label=? AND COALESCE(status,'active') IN ('active','posted','')
-      `).get(period)?.s) || 0);
-    } catch (_) { budgetRial = 0; }
+    const budgetRial = variances.overhead.budget_rial;
     const j22 = postCloseOverhead(db, {
       closeId, date: endDate, userId,
       appliedRial: variances.overhead.applied_rial,
       varianceRial: variances.overhead.variance_rial,
-      budgetRial: budgetRial > 0 ? budgetRial : null,
+      budgetRial: budgetRial,
     });
     journal_entries.push(...j22.map(j => ({ event: 'PRD-22', ...j })));
 
