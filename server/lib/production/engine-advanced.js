@@ -1699,7 +1699,9 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     const open = stages.filter(s => !['done', 'skipped'].includes(s.status));
     if (open.length) throw err('E_STAGES_OPEN', 409, { open: open.map(s => s.seq) });
 
-    const date = String(body.date || po.date || todayJalali()).trim();
+    const RDG = require('./receipt-date-guard');
+    const date = String(body.date || RDG.defaultReceiptDate(db, orderId, po.date || todayJalali())).trim();
+    RDG.assertReceiptNotBeforeLastActivity(db, orderId, date);
     const period = jalaliPeriod(date);
     assertPeriodOpen(db, period);
     const jes = [];
