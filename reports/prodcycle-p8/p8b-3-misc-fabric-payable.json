@@ -1,0 +1,488 @@
+{
+  "item": "P8b-3",
+  "code": "110601000124",
+  "owners": {
+    "persons": [
+      {
+        "id": 139,
+        "name": "متفرقه",
+        "coa_code": "110601000124",
+        "party_id": 135
+      }
+    ],
+    "suppliers": [],
+    "customers": [],
+    "parties": []
+  },
+  "gl": {
+    "debit_rial": 2494540252,
+    "credit_rial": 2494540252,
+    "net_rial": 0
+  },
+  "fabric": [
+    {
+      "je_id": 161,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 2,
+      "voucher_number": "JV-0161",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0002 — 154 متر",
+      "debit_rial": 0,
+      "credit_rial": 557996978,
+      "detail_account_id": null,
+      "batch": {
+        "id": 2,
+        "batch_no": "LOT-0002",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 154,
+        "unit_cost_rial": 3623357,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 162,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 3,
+      "voucher_number": "JV-0162",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0003 — 94 متر",
+      "debit_rial": 0,
+      "credit_rial": 340595558,
+      "detail_account_id": null,
+      "batch": {
+        "id": 3,
+        "batch_no": "LOT-0003",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 94,
+        "unit_cost_rial": 3623357,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 163,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 4,
+      "voucher_number": "JV-0163",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0004 — 71 متر",
+      "debit_rial": 0,
+      "credit_rial": 257258347,
+      "detail_account_id": null,
+      "batch": {
+        "id": 4,
+        "batch_no": "LOT-0004",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 71,
+        "unit_cost_rial": 3623357,
+        "status": "empty"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 164,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 5,
+      "voucher_number": "JV-0164",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0005 — 113 متر",
+      "debit_rial": 0,
+      "credit_rial": 409439341,
+      "detail_account_id": null,
+      "batch": {
+        "id": 5,
+        "batch_no": "LOT-0005",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 113,
+        "unit_cost_rial": 3623357,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 379,
+      "entry_date": "1405/07/22",
+      "ref_type": "fabric_roll",
+      "ref_id": 11,
+      "voucher_number": "JV-0379",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0011 — 20.999 متر",
+      "debit_rial": 0,
+      "credit_rial": 188809968,
+      "detail_account_id": null,
+      "batch": {
+        "id": 11,
+        "batch_no": "LOT-0011",
+        "product_id": 14,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 20.999,
+        "unit_cost_rial": 8991379,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 380,
+      "entry_date": "1405/07/22",
+      "ref_type": "fabric_roll",
+      "ref_id": 12,
+      "voucher_number": "JV-0380",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0012 — 20.53 متر",
+      "debit_rial": 0,
+      "credit_rial": 184593011,
+      "detail_account_id": null,
+      "batch": {
+        "id": 12,
+        "batch_no": "LOT-0012",
+        "product_id": 14,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 20.53,
+        "unit_cost_rial": 8991379,
+        "status": "empty"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 381,
+      "entry_date": "1405/07/22",
+      "ref_type": "fabric_roll",
+      "ref_id": 13,
+      "voucher_number": "JV-0381",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0013 — 20.51 متر",
+      "debit_rial": 0,
+      "credit_rial": 184413183,
+      "detail_account_id": null,
+      "batch": {
+        "id": 13,
+        "batch_no": "LOT-0013",
+        "product_id": 14,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 20.51,
+        "unit_cost_rial": 8991379,
+        "status": "empty"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 382,
+      "entry_date": "1405/07/22",
+      "ref_type": "fabric_roll",
+      "ref_id": 14,
+      "voucher_number": "JV-0382",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0014 — 20.76 متر",
+      "debit_rial": 0,
+      "credit_rial": 186661028,
+      "detail_account_id": null,
+      "batch": {
+        "id": 14,
+        "batch_no": "LOT-0014",
+        "product_id": 14,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 20.76,
+        "unit_cost_rial": 8991379,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 383,
+      "entry_date": "1405/07/22",
+      "ref_type": "fabric_roll",
+      "ref_id": 15,
+      "voucher_number": "JV-0383",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0015 — 20.55 متر",
+      "debit_rial": 0,
+      "credit_rial": 184772838,
+      "detail_account_id": null,
+      "batch": {
+        "id": 15,
+        "batch_no": "LOT-0015",
+        "product_id": 14,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 20.55,
+        "unit_cost_rial": 8991379,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    }
+  ],
+  "fabric_total_rial": 2494540252,
+  "fabric_lots_333": [
+    {
+      "je_id": 161,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 2,
+      "voucher_number": "JV-0161",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0002 — 154 متر",
+      "debit_rial": 0,
+      "credit_rial": 557996978,
+      "detail_account_id": null,
+      "batch": {
+        "id": 2,
+        "batch_no": "LOT-0002",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 154,
+        "unit_cost_rial": 3623357,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 162,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 3,
+      "voucher_number": "JV-0162",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0003 — 94 متر",
+      "debit_rial": 0,
+      "credit_rial": 340595558,
+      "detail_account_id": null,
+      "batch": {
+        "id": 3,
+        "batch_no": "LOT-0003",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 94,
+        "unit_cost_rial": 3623357,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 163,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 4,
+      "voucher_number": "JV-0163",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0004 — 71 متر",
+      "debit_rial": 0,
+      "credit_rial": 257258347,
+      "detail_account_id": null,
+      "batch": {
+        "id": 4,
+        "batch_no": "LOT-0004",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 71,
+        "unit_cost_rial": 3623357,
+        "status": "empty"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    },
+    {
+      "je_id": 164,
+      "entry_date": "1405/07/07",
+      "ref_type": "fabric_roll",
+      "ref_id": 5,
+      "voucher_number": "JV-0164",
+      "voucher_type": "auto",
+      "description": "دریافت طاقه LOT-0005 — 113 متر",
+      "debit_rial": 0,
+      "credit_rial": 409439341,
+      "detail_account_id": null,
+      "batch": {
+        "id": 5,
+        "batch_no": "LOT-0005",
+        "product_id": 333,
+        "warehouse_id": 33,
+        "supplier_id": 42,
+        "qty_received": 113,
+        "unit_cost_rial": 3623357,
+        "status": "active"
+      },
+      "supplier": {
+        "id": 42,
+        "name": "متفرقه طاقه",
+        "coa_code": "210101000009",
+        "party_id": 135
+      }
+    }
+  ],
+  "others": [
+    {
+      "je_id": 1032,
+      "entry_date": "1405/08/04",
+      "ref_type": "manual_voucher",
+      "ref_id": 1032,
+      "voucher_number": "JV-1032",
+      "voucher_type": "manual",
+      "description": "اصلاح سند",
+      "debit_rial": 2494540252,
+      "credit_rial": 0,
+      "detail_account_id": null,
+      "peers": [
+        {
+          "account_code": "110601000124",
+          "debit_rial": 2494540252,
+          "credit_rial": 0
+        },
+        {
+          "account_code": "210101000009",
+          "debit_rial": 0,
+          "credit_rial": 2494540252
+        }
+      ]
+    }
+  ],
+  "already_moved_rial": 2494540252,
+  "supplier_codes": [
+    "210101000009"
+  ],
+  "supplier_gl": [
+    {
+      "code": "210101000009",
+      "debit_rial": 0,
+      "credit_rial": 2494540252,
+      "net_rial": -2494540252
+    }
+  ],
+  "remaining_to_reclass_rial": 0,
+  "person_books": [
+    {
+      "person_id": 139,
+      "name": "متفرقه",
+      "rows": 9,
+      "debit": 0,
+      "credit": 2494540252,
+      "net": -2494540252
+    }
+  ],
+  "supplier_books": [
+    {
+      "supplier_id": 42,
+      "rows": 9,
+      "debit": 0,
+      "credit": 2494540252,
+      "net": -2494540252
+    }
+  ],
+  "book_plans": [
+    {
+      "code": "110601000124",
+      "books": 1,
+      "book_matches_gl": false,
+      "inserted": [
+        {
+          "book": "person",
+          "entity_id": 139,
+          "je_id": 1032,
+          "ref_type": "manual_voucher",
+          "ref_id": 1032,
+          "debit": 2494540252,
+          "credit": 0,
+          "date": "1405/08/04"
+        }
+      ],
+      "retired": []
+    },
+    {
+      "code": "210101000009",
+      "books": 1,
+      "book_matches_gl": true,
+      "inserted": [
+        {
+          "book": "supplier",
+          "entity_id": 42,
+          "je_id": 1032,
+          "ref_type": "manual_voucher",
+          "ref_id": 1032,
+          "debit": 0,
+          "credit": 2494540252,
+          "date": "1405/08/04"
+        }
+      ],
+      "retired": []
+    }
+  ],
+  "csv": "/tmp/p8b/out/p8b-3-misc-fabric-payable.csv"
+}

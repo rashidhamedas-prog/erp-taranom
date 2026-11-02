@@ -1,0 +1,188 @@
+{
+  "item": "P8b-2",
+  "mode": "dry-run",
+  "order": {
+    "id": 19,
+    "order_no": "PO-0019",
+    "status": "in_progress",
+    "analysis_type": "variable_adv",
+    "material_cost_rial": 681121488,
+    "abnormal_waste_rial": 216701226
+  },
+  "total_waste_rial": 216701226,
+  "total_net_rial": 659202950,
+  "lays": [
+    {
+      "lay_id": 30,
+      "lay_no": "LAY-0030",
+      "net": 110450099,
+      "waste": 55081188,
+      "gross": 165531287,
+      "old": [
+        802,
+        803
+      ],
+      "mi": 60
+    },
+    {
+      "lay_id": 31,
+      "lay_no": "LAY-0031",
+      "net": 140831969,
+      "waste": 32647697,
+      "gross": 173479666,
+      "old": [
+        804,
+        805
+      ],
+      "mi": 61
+    },
+    {
+      "lay_id": 32,
+      "lay_no": "LAY-0032",
+      "net": 125762418,
+      "waste": 47717248,
+      "gross": 173479666,
+      "old": [
+        806,
+        807
+      ],
+      "mi": 62
+    },
+    {
+      "lay_id": 33,
+      "lay_no": "LAY-0033",
+      "net": 126023168,
+      "waste": 56214102,
+      "gross": 182237270,
+      "old": [
+        816,
+        817
+      ],
+      "mi": 65
+    },
+    {
+      "lay_id": 34,
+      "lay_no": "LAY-0034",
+      "net": 156135296,
+      "waste": 25040991,
+      "gross": 181176287,
+      "old": [
+        810,
+        811
+      ],
+      "mi": 64
+    }
+  ],
+  "skipped": [],
+  "stages_before": [
+    {
+      "id": 54,
+      "seq": 10,
+      "status": "done",
+      "operation_name": "برش",
+      "material_added_rial": 659202950,
+      "waste_abnormal_rial": 0,
+      "cost_out_rial": 815932404,
+      "overhead_rial": 131840590,
+      "driver": "material_rial"
+    }
+  ],
+  "after": {
+    "gl": [
+      1933299574,
+      1264548548,
+      220700687
+    ],
+    "ocr": {
+      "order_id": 19,
+      "order_no": "PO-0019",
+      "status": "in_progress",
+      "receipts_rial": 0,
+      "expected_receipts_rial": 1009210942,
+      "receipt_gap_rial": -1009210942,
+      "rework_cost_rial": 0,
+      "byproduct_credit_rial": 0,
+      "wip_abnormal_waste_rial": 216701226,
+      "shared_lay_waste_rial": 0,
+      "before": {
+        "material_cost_rial": 897822714,
+        "packaging_cost_rial": 0,
+        "labor_cost_rial": 125688864,
+        "overhead_cost_rial": 202400590,
+        "subcontract_cost_rial": 0,
+        "abnormal_waste_rial": 216701226,
+        "scrap_credit_rial": 0
+      },
+      "documents": {
+        "material_cost_rial": 897822714,
+        "packaging_cost_rial": 0,
+        "labor_cost_rial": 125688864,
+        "overhead_cost_rial": 202400590,
+        "subcontract_cost_rial": 0,
+        "abnormal_waste_rial": 216701226,
+        "scrap_credit_rial": 0
+      },
+      "before_residual_rial": 1009210942,
+      "after_residual_rial": 1009210942,
+      "projected_after_auto_rial": 0,
+      "aligned": true,
+      "can_align_columns": false,
+      "can_align_receipt": true,
+      "receipts_touched": false,
+      "journal_touched": false
+    },
+    "stages": [
+      {
+        "id": 54,
+        "material_added_rial": 875904176,
+        "waste_abnormal_rial": 216701226,
+        "cost_out_rial": 815932404
+      }
+    ],
+    "order": {
+      "material_cost_rial": 897822714,
+      "abnormal_waste_rial": 216701226,
+      "status": "in_progress"
+    }
+  },
+  "ocr_before": {
+    "wip_abnormal_waste_rial": 0,
+    "shared_lay_waste_rial": 216701226,
+    "expected_receipts_rial": 1009210942,
+    "aligned": true,
+    "documents": {
+      "material_cost_rial": 681121488,
+      "packaging_cost_rial": 0,
+      "labor_cost_rial": 125688864,
+      "overhead_cost_rial": 202400590,
+      "subcontract_cost_rial": 0,
+      "abnormal_waste_rial": 216701226,
+      "scrap_credit_rial": 0
+    }
+  },
+  "gl_before": {
+    "1110": {
+      "debit_rial": 4400229925,
+      "credit_rial": 2466930351,
+      "net_rial": 1933299574
+    },
+    "1111": {
+      "debit_rial": 3905077253,
+      "credit_rial": 2640528705,
+      "net_rial": 1264548548
+    },
+    "5221": {
+      "debit_rial": 220700687,
+      "credit_rial": 0,
+      "net_rial": 220700687
+    }
+  },
+  "reverse_check": {
+    "reversed_apply_audit_id": 4038
+  },
+  "reverse_order": {
+    "material_cost_rial": 681121488,
+    "abnormal_waste_rial": 216701226
+  },
+  "csv": "/tmp/p8b/out/p8b-2-shared-waste.csv"
+}

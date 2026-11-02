@@ -1,0 +1,32 @@
+﻿item,target_table,target_id,action,account_code,detail_account_id,cost_center_id,debit_rial,credit_rial,person_id,note
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,192000000,0,132,اصلاح P8b — دستمزد LB-0023 JE#747 (JV-0747)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,192000000,132,اصلاح P8b — دستمزد LB-0023 JE#747 (JV-0747)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,211200000,0,132,اصلاح P8b — دستمزد LB-0024 JE#750 (JV-0750)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,211200000,132,اصلاح P8b — دستمزد LB-0024 JE#750 (JV-0750)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,136000000,0,132,اصلاح P8b — دستمزد LB-0026 JE#775 (JV-0775)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,136000000,132,اصلاح P8b — دستمزد LB-0026 JE#775 (JV-0775)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,50400000,0,132,اصلاح P8b — دستمزد LB-0039 JE#1192 (JV-1192)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,50400000,132,اصلاح P8b — دستمزد LB-0039 JE#1192 (JV-1192)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,50400000,0,132,اصلاح P8b — دستمزد LB-0040 JE#1197 (JV-1197)
+P8b-1-A,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,50400000,132,اصلاح P8b — دستمزد LB-0040 JE#1197 (JV-1197)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,192000000,0,132,اصلاح P8b — دستمزد LB-0023 JE#747 (JV-0747)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,192000000,132,اصلاح P8b — دستمزد LB-0023 JE#747 (JV-0747)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,211200000,0,132,اصلاح P8b — دستمزد LB-0024 JE#750 (JV-0750)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,211200000,132,اصلاح P8b — دستمزد LB-0024 JE#750 (JV-0750)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,136000000,0,132,اصلاح P8b — دستمزد LB-0026 JE#775 (JV-0775)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,136000000,132,اصلاح P8b — دستمزد LB-0026 JE#775 (JV-0775)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,50400000,0,132,اصلاح P8b — دستمزد LB-0039 JE#1192 (JV-1192)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,50400000,132,اصلاح P8b — دستمزد LB-0039 JE#1192 (JV-1192)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,5,50400000,0,132,اصلاح P8b — دستمزد LB-0040 JE#1197 (JV-1197)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,5,0,50400000,132,اصلاح P8b — دستمزد LB-0040 JE#1197 (JV-1197)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,,270000000,0,132,اصلاح P8b — پرداخت به شخص JE#824 (JV-0824)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,,0,270000000,132,اصلاح P8b — پرداخت به شخص JE#824 (JV-0824)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,210101000006,,,150000000,0,132,اصلاح P8b — پرداخت به شخص JE#826 (JV-0826)
+P8b-1-B,journal_lines,new JE (JV-1202),gl_delta,110301000015,,,0,150000000,132,اصلاح P8b — پرداخت به شخص JE#826 (JV-0826)
+P8b-1,journal_lines,110301000015,info,110301000015,,,0,40396000,132,گردش زندهٔ opening — JE 165
+P8b-1,journal_lines,110301000015,info,110301000015,,,17024000,0,132,گردش زندهٔ invoice — JE 685/687/689
+P8b-1,journal_lines,110301000015,info,110301000015,,,0,640000000,132,گردش زندهٔ production_labor — JE 747/750/775/1192/1197
+P8b-1,journal_lines,110301000015,info,110301000015,,,420000000,0,132,گردش زندهٔ person_payment — JE 824/826
+P8b-1,journal_lines,110301000015,info,110301000015,,,437024000,680396000,132,ماندهٔ فعلی (خالص -243372000) · بعد A: 396628000 · بعد B: -23372000
+P8b-1,journal_lines,210101000006,info,210101000006,,,0,0,132,ماندهٔ فعلی (خالص 0) · بعد A: -640000000 · بعد B: -220000000
+P8b-1,person_ledger,person 132,info_unchanged,,,,437024000,680396000,132,دفتر معین شخص بدون تغییر (11 ردیف، خالص -243372000) = گردش اسنادِ هر دو حساب شخص
