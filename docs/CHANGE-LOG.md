@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P7: موجودی اول دورهٔ طاقه/مواد در دریافت مواد (سند افتتاحیه + بچ + JE، ویرایش/ابطال R13) (SW v616)
-- **Commit:** squash روی main (#167) ([PR #167](https://github.com/rashidhamedas-prog/erp-taranom/pull/167))؛ commitهای شاخه `99659cd0`، `212479de` (`feat/prodcycle-p7-opening-rolls`).
+- **Commit:** squash `bab95ef5` روی `main` (#167) ([PR #167](https://github.com/rashidhamedas-prog/erp-taranom/pull/167))؛ commitهای شاخه `99659cd0`، `212479de` (`feat/prodcycle-p7-opening-rolls`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **قابلیت:** حالت «📦 موجودی اول دوره» در فرم دریافت طاقه/مواد (فقط admin/accounting) روی همان `opening_stock_docs`/`opening_stock_lines` (v609) — بدون جدول جدید. کالا، انبار مواد، واحد دریافت (تبدیل uom)، بهای واحد الزامی، جدول طاقه‌ها (شماره، رنگ، طرح، عرض، طول، وزن)؛ بدون تأمین‌کننده.
 - **API:** `POST /api/opening-stock/rolls` ⇒ پیش‌نویس (شماره فقط از `allocateNumber('opening_stock')`)؛ ثبت قطعی با کاربر دیگر (maker-checker v609): هر طاقه ⇒ یک `inventory_batches` (source=`opening_stock_doc`) + ردیف کاردکس `opening` با `batch_id`؛ یک JE Dr `inventoryAccountForWarehouse` (مواد ⇒ 1110) / Cr 3102؛ یک ردیف `product_opening_stock` برای هر خط. یک افتتاحیهٔ فعال برای هر کالا×انبار (`E_OPENING_EXISTS`).
@@ -14,7 +14,7 @@
 - **فایل‌ها:** `server/lib/inventory/opening-rolls.js` (جدید)، `server/lib/inventory/{opening-stock,fabric-rolls,seed-avg,schema}.js`، `server/routes/opening-stock.js`، `server/scripts/rebuild-product-docs.js`، `server/db.js`، `server/sync/tables.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p7-opening-rolls.js` (جدید)، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P3: یکتایی جذب سربار، محرک درصدی، ثبت جذب واقعی (cc-account-absorb)، PRD-23 و producedInPeriod فقط FG (SW v615)
-- **Commit:** squash روی main (#168) ([PR #168](https://github.com/rashidhamedas-prog/erp-taranom/pull/168))؛ commit شاخه `f4a5f5ff` (`fix/prodcycle-p3-overhead-close`).
+- **Commit:** squash `11bedbd5` روی `main` (#168) ([PR #168](https://github.com/rashidhamedas-prog/erp-taranom/pull/168))؛ commit شاخه `f4a5f5ff` (`fix/prodcycle-p3-overhead-close`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **(a) یکتایی جذب سربار:** ایندکس UNIQUE جزئی `ux_oh_posted_stage_driver_cc` روی `production_overhead_applications(order_id, stage_id, driver, cost_center_id) WHERE status='posted' AND stage_id IS NOT NULL` + گارد idempotent در `applyStageOverhead` و `postPlantOverhead` (`findPostedApplication`). جذب هم‌زمان cc1 و cc8 برای یک مرحله مجاز (تصمیم مالک). اسناد قبلی برگشت داده نمی‌شوند.
 - **(b) محرک درصدی:** ستون `cost_center_rates.rate_pct` برای محرک‌های ریالی (`direct_labor_rial`، `material_rial`، `labor_rial`)؛ مهاجرت `ROUND(total/10000,4)` (۲۰۰٬۰۰۰ در میلیون = ۲۰٪)؛ پیش‌فرض ۲۰٪. ثبت/ویرایش/bootstrap/حذف/apply-budget فقط admin/accounting (بقیه ۴۰۳ `E_FORBIDDEN`) + audit قبل/بعد. UI: فیلد درصد + پیش‌نمایش.
@@ -29,7 +29,7 @@
 - **فایل‌ها:** `server/lib/production/{overhead,engine-advanced,schema,cc-account-absorb,posting,close}.js`، `server/routes/production-cost-centers.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p3-overhead-close.js` (جدید)، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P4: ابطال کامل تعدیل بهای لایه (fg_delta) با سفارش + گارد تاریخ رسید تولید (SW v614)
-- **Commit:** squash روی main (#165) ([PR #165](https://github.com/rashidhamedas-prog/erp-taranom/pull/165))؛ commit شاخه `99b92448` (`fix/prodcycle-p4-reverse-fgdelta`).
+- **Commit:** squash `856b77ce` روی `main` (#165) ([PR #165](https://github.com/rashidhamedas-prog/erp-taranom/pull/165))؛ commit شاخه `99b92448` (`fix/prodcycle-p4-reverse-fgdelta`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **مشکل:** سندهای `cutting_lay_fg_delta` به سفارش پیوند نداشتند ⇒ `reverseOrder`/`purgeOrder` آن‌ها را نمی‌دید و بدهکار WIP (۱۱۱۱)، بستانکار FG (۱۱۰۴)/بهای فروش (۵۱۰۱) و ردیف‌های ارزشی WH34 یتیم می‌ماندند (الگوی JE 675/676/714)؛ رسید تولید می‌توانست قبل از آخرین فعالیت سفارش تاریخ بخورد.
 - **پیوند سفارش:** ستون `cutting_lays.fg_delta_order_id` (ensureColumn) در هر `absorbCoveredLayDelta`؛ سند fg_delta `src_doc_no = order_no` + شمارهٔ سفارش در شرح/کاردکس. `FK_COLUMNS` (append-only) به‌روز شد.
@@ -43,7 +43,7 @@
 - **فایل‌ها:** `server/lib/production/{cutting,engine,engine-advanced,schema}.js`، `server/lib/production/receipt-date-guard.js` (جدید)، `server/sync/tables.js` (FK_COLUMNS)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p4-reverse-fgdelta.js` (جدید)، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P6: ضایعات غیرعادی برش مشترک بستانکار کار در جریان (1111) (SW v613)
-- **Commit:** squash روی main (#166) ([PR #166](https://github.com/rashidhamedas-prog/erp-taranom/pull/166))؛ commit شاخه `e65c9d33` (`fix/prodcycle-p6-waste-wip`).
+- **Commit:** squash `10b30bb8` روی `main` (#166) ([PR #166](https://github.com/rashidhamedas-prog/erp-taranom/pull/166))؛ commit شاخه `e65c9d33` (`fix/prodcycle-p6-waste-wip`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **مشکل:** برش مشترک (`shared-cut.js`) اتلاف طولی و سهم غیرعادی پهن را مستقیم Dr5221 / **Cr1110** می‌زد و فقط خالص common وارد WIP می‌شد (برش معمولی درست بود).
 - **رفع (ثبت و ویرایش):** PRD-01 Dr1111 / Cr1110 = کل پارچه (common + اتلاف)؛ PRD-09 Dr5221 / **Cr1111** = اتلاف؛ خالص 1111 = common؛ `cutting_batch_allocations` همچنان روی common؛ خروج موجودی (`production_issue`) بدون تغییر. ابطال/ویرایش (R13) هر دو سند با `reverseJournalEntry`.
@@ -56,7 +56,7 @@
 - **فایل‌ها:** `server/lib/production/{shared-cut,engine-advanced,order-cost-reconcile}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prod-cut-shared.js`، `server/scripts/test-prodcycle-p6-shared-waste.js` (جدید)، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P2: تسهیم برش مشترک بر پایهٔ `cutting_batch_allocations` + مراحل اختصاصی (SW v612)
-- **Commit:** squash روی main (#164) ([PR #164](https://github.com/rashidhamedas-prog/erp-taranom/pull/164))؛ commit شاخه `b8e7b9da` (`fix/prodcycle-p2-shared-cut-alloc`).
+- **Commit:** squash `4e4bf3a4` روی `main` (#164) ([PR #164](https://github.com/rashidhamedas-prog/erp-taranom/pull/164))؛ commit شاخه `b8e7b9da` (`fix/prodcycle-p2-shared-cut-alloc`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **مشکل:** رسید نهایی سفارش چندمحصولی (برش مشترک) بها را ۵۰/۵۰ بر پایهٔ تعداد تقسیم می‌کرد؛ برگهٔ بها برای سفارش چندفرمولی بدون تخصیص ۰٪ نشان می‌داد.
 - **رفع (`lib/production/order-cost-split.js` جدید: `splitOrderCost`، `sharedCutFabricByProduct`، `exclusiveStageCostByProduct`، `explodeExclusiveByProduct`):** (۱) پارچهٔ هر محصول = Σ `cutting_batch_allocations.amount_rial` لایه/برش‌های ابطال‌نشدهٔ سفارش؛ (۲) مراحل `product_scope='exclusive'` (دستمزد + سربار + پیمانکاری + مواد مستقیم؛ مواد = بیشینهٔ مواد مراحل اختصاصی و اقلام exclusive فرمول) مستقیم به همان محصول؛ (۳) باقی‌مانده به نسبت تعداد (چندفرمولی) یا ٪ فرمول (چندمحصولی تک‌فرمولی)؛ (۴) بدون ردیف تخصیص ⇒ رفتار قبلی؛ (۵) Σ رسیدها دقیقاً = خالص WIP (گرد کردن روی محصول سفارش). `costSheet` همان helper ⇒ نمایش = رسید. ارجاع تعریف‌نشدهٔ `mainAlloc` در finalize رفع شد.
@@ -67,7 +67,7 @@
 - **فایل‌ها:** `server/lib/production/order-cost-split.js` (جدید)، `server/lib/production/{engine-advanced,reports}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p2-shared-alloc.js` (جدید)، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P1: خروج WIP بستهٔ برش با بهای خود بسته (amountRial) + ابطال در reverseOrder (SW v611)
-- **Commit:** squash روی main (#163) ([PR #163](https://github.com/rashidhamedas-prog/erp-taranom/pull/163))؛ commit شاخه `ec0eae03` (`fix/prodcycle-p1-wip-pack-amount`).
+- **Commit:** squash `3fe32621` روی `main` (#163) ([PR #163](https://github.com/rashidhamedas-prog/erp-taranom/pull/163))؛ commit شاخه `ec0eae03` (`fix/prodcycle-p1-wip-pack-amount`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **مشکل:** `relieveStagedPackQty` خروج بسته از انبار WIP (مثلاً WH37، حساب 1111) را بدون `amountRial` ثبت می‌کرد ⇒ ارزش‌گذاری با میانگین FG ⇒ کاردکس WIP با مقدار صفر ولی ارزش منفی (پرود: −2,797,379,484 ریال).
 - **رفع:** هر خروج = سهم تناسبی `round(pack.amount_rial × take / pack.qty)`؛ خروج پایانی بسته دقیقاً باقی‌ماندهٔ مبلغ. مقدار/مبلغ تخلیه‌شدهٔ هر بسته از `inventory_ledger` (`source_type='cutting_pack'`، `qty_out>0`، posted، غیرمعکوس) خوانده می‌شود ⇒ رسید جزئی بعدی بستهٔ تخلیه‌شده را دوباره کم نمی‌کند. بستهٔ مبلغ صفر ⇒ `allowZeroCost`.
@@ -79,7 +79,7 @@
 - **فایل‌ها:** `server/lib/production/{cutting,engine}.js`، `server/lib/inventory/ledger.js` (کامنت)، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prodcycle-p1-wip-pack.js` (جدید)، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P5: بستانکار دستمزد قطعه‌ای/ساعتی تولید بر اساس نقش شخص — هرگز حساب دارایی (SW v610)
-- **Commit:** squash روی main (#162) ([PR #162](https://github.com/rashidhamedas-prog/erp-taranom/pull/162))؛ commit شاخه `ef68617b` (`fix/prodcycle-p5-labor-credit`).
+- **Commit:** squash `9fe4743b` روی `main` (#162) ([PR #162](https://github.com/rashidhamedas-prog/erp-taranom/pull/162))؛ commit شاخه `ef68617b` (`fix/prodcycle-p5-labor-credit`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
 - **مشکل:** دستمزد عملیات تولیدِ دارای «شخص» بی‌قید به `persons.coa_code` ← `parties.coa_code` بستانکار می‌شد؛ برای شخص ۱۳۲ این حساب `110301000015` (دارایی ۱۱۰۳) بود.
 - **رفع:** `resolveLaborPayableForPerson(db, person, { allocate })` در `lib/payroll/person-account.js`: **کارمند** (monthly/daily/hourly، یا سابقهٔ payroll_records/salary_structures، یا monthly_salary_rial>0) ⇒ `coa_payroll_payable` (۲۱۰۴)؛ **پیمانکار/نامشخص** ⇒ تفصیلی پرداختنی خود شخص (حساب بدهی شخص ← `persons.labor_payable_coa_code` ← بدهی طرف‌حساب ← تفصیلی تأمین‌کنندهٔ متصل ← تفصیلی جدید زیر `coa_payable` ۲۱۰۱ که روی `persons.labor_payable_coa_code` ذخیره می‌شود). نقش `employee` در party_roles به‌تنهایی کارمند نمی‌کند؛ نامشخص ⇒ لاگ `[labor-payable]` با flagged. نگاشت به دارایی (۱۱۰۳/۱۱۰۶/type=asset) ⇒ ۴۲۲ `E_LABOR_PAYABLE_ASSET` (rollback). `allocate:false` (پیش‌نمایش/heal dry-run) چیزی در کدینگ نمی‌نویسد. `healPieceLaborPersonPayable` از resolver جدید استفاده می‌کند. `resolvePersonPayableAccount` (حقوق) و `person_ledger` بدون تغییر.
