@@ -6,14 +6,38 @@
  * روش هزینه از resolvePolicy (کالا → انبار → سراسری) خوانده می‌شود — فقط MA در این heal
  * با replay زمانی اصلاح می‌شود؛ FIFO/specific گزارش و رد می‌شوند تا لایه بازسازی شود.
  *
- * پیش‌فرض: dry-run. اجرا: --apply
- * محدود: --product=ID  --invoice=NUM
+ * پیش‌فرض: dry-run. اجرا: --apply --revalue-transfer-in --reason="…"
+ * محدود: --product=ID  --invoice=NUM   خروجی گزارش: --out=PATH
+ *
+ * audit-kardex K1: نسخهٔ قبلی فقط transfer_out صفر را قیمت می‌داد و transfer_in جفتش صفر می‌ماند
+ * (کاردکس انبار مقصد کم می‌شد). --apply بدون --revalue-transfer-in رد می‌شود؛ با آن، در همان
+ * تراکنش ورودهای انتقال جفت با کتابخانهٔ مشترک lib/inventory/transfer-in-revalue اصلاح می‌شوند.
+ * برای اصلاح ورودهای قبلاً نشت‌کرده از API استفاده کنید:
+ *   GET  /api/inventory/ledger/revalue-transfer-in-preview
+ *   POST /api/inventory/ledger/revalue-transfer-in
  */
 const path = require('path');
 const fs = require('fs');
 
 const args = process.argv.slice(2);
 const APPLY = args.includes('--apply');
+const REVALUE_TI = args.includes('--revalue-transfer-in');
+const argVal = (name) => {
+  const a = args.find((x) => x.startsWith(`--${name}=`));
+  return a ? a.slice(name.length + 3) : '';
+};
+const REASON = String(argVal('reason') || '').trim();
+const OUT_PATH = argVal('out');
+if (APPLY && !REVALUE_TI) {
+  console.error('⛔ --apply بدون --revalue-transfer-in رد شد: این اسکریپت فقط خروج انتقال را قیمت می‌دهد و ورود جفتش صفر می‌ماند (نشت کاردکس انبار مقصد).\n'
+    + '   یا با «--apply --revalue-transfer-in --reason=\"…\"» اجرا کنید (ورودها با همان کتابخانه اصلاح می‌شوند)،\n'
+    + '   یا ورودهای نشت‌کرده را از API اصلاح کنید: GET /api/inventory/ledger/revalue-transfer-in-preview و POST /api/inventory/ledger/revalue-transfer-in');
+  process.exit(2);
+}
+if (APPLY && REASON.length < 10) {
+  console.error('⛔ با --apply علت (--reason="…" حداقل ۱۰ نویسه) الزامی است.');
+  process.exit(2);
+}
 const onlyProduct = Number((args.find((a) => a.startsWith('--product=')) || '').split('=')[1]) || null;
 const onlyInvoice = String((args.find((a) => a.startsWith('--invoice=')) || '').split('=')[1] || '').trim() || null;
 
@@ -275,11 +299,28 @@ function main() {
 
   const run = () => {
     for (const row of products) healProductMa(row.id);
+    const healed = report.products.filter((p) => p.fixes > 0).map((p) => p.product_id);
+    if (APPLY && healed.length) {
+      const TI = require('../lib/inventory/transfer-in-revalue');
+      const r = TI.applyInTx(db, { productIds: healed, reason: `${REASON} (heal v529)`, user: { id: 1 } });
+      report.transfer_in_revalue = {
+        created: r.rows.length,
+        totals: r.plan.totals,
+        correction_ids: r.rows.map((x) => x.correction_id),
+        excluded_summary: r.plan.excluded_summary,
+      };
+      if (r.rows.length) {
+        require('../db').audit(1, 'ledger_revalue_transfer_in', 'inventory_ledger', null, JSON.stringify({
+          reason: REASON, source: 'heal-zero-outbound-cost-v529', in_ids: r.rows.map((x) => x.in_id),
+          correction_ids: report.transfer_in_revalue.correction_ids, totals: r.plan.totals, gl_effect_rial: 0,
+        }));
+      }
+    }
   };
   if (APPLY) db.transaction(run)();
   else run();
 
-  const outPath = path.join(__dirname, '..', '..', '_heal-zero-outbound-v529-report.json');
+  const outPath = OUT_PATH || path.join(__dirname, '..', '..', '_heal-zero-outbound-v529-report.json');
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf8');
   console.log(JSON.stringify({
     ok: true,

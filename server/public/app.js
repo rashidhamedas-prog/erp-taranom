@@ -16735,6 +16735,7 @@ async function renderItemKardexTab(body){
       <button type="button" class="btn" id="kardexReload" data-csp-style="${CSP.style(`margin-bottom:2px`)}">نمایش</button>
       <button type="button" class="btn ghost" id="kardexPrint" data-csp-style="${CSP.style(`margin-bottom:2px`)}">🖨 چاپ</button>
       <a class="btn btn-ghost" id="kardexCsv" href="#" data-csp-style="${CSP.style(`margin-bottom:2px`)}" title="خروجی Excel/CSV با همین فیلترها">⬇ Excel/CSV</a>
+      ${canStockAdjustVoid()?`<button type="button" class="btn ghost" id="kardexRevalTi" data-csp-style="${CSP.style(`margin-bottom:2px`)}" title="ورودهای انتقال با مبلغ صفر که خروج جفتشان مبلغ دارد — پیش‌نمایش، علت و تأیید">اصلاح ارزش ورود انتقال</button>`:''}
     </div>
     <div id="kardexBody">${products.length?'<div class="muted">کالا را انتخاب کنید</div>':'<div class="empty">کالایی یافت نشد — دسترسی گروه کالا یا کاتالوگ را بررسی کنید</div>'}</div>`;
   initCustSearches(body);
@@ -16763,6 +16764,7 @@ async function renderItemKardexTab(body){
   el('kardexReload')?.addEventListener('click',reload);
   ['kardexWh','kardexEvt','kardexWip','kardexWhOnly','kardexCancelled'].forEach(id=>el(id)?.addEventListener('change',reload));
   el('kardexPrint')?.addEventListener('click',kardexPrint);
+  el('kardexRevalTi')?.addEventListener('click',()=>{ readFilters(); openTransferInRevalue({ warehouse_id:_kardexState.warehouse_id||'', onDone:reload }); });
   el('kardexCsv')?.addEventListener('click',function(ev){
     ev.preventDefault();
     readFilters();
@@ -25023,6 +25025,50 @@ async function openLedgerReverseCorrection(id, opts){
       }
       const r=await api('POST','/inventory/ledger/'+encodeURIComponent(id)+'/reverse-correction',body);
       showToast(r&&r.voucher_draft_id?`ابطال ثبت شد — پیش‌نویس سند برگشت #${r.voucher_draft_id} ساخته شد`:'ابطال اصلاحی ثبت شد');
+      closeStockAdjust();
+      if(typeof opts.onDone==='function'){ try{ opts.onDone(r); }catch(_){} }
+    }catch(_){ /* پیام را api() نشان داده */ }
+  });
+}
+/** audit-kardex K1: اصلاح ارزش ورود انتقال صفر — پیش‌نمایش (بدون نوشتن) ← علت ← تأیید ← ثبت ردیف فقط‌ارزشی. */
+async function openTransferInRevalue(opts){
+  opts=opts||{};
+  const qs=opts.warehouse_id?('?warehouse_id='+encodeURIComponent(opts.warehouse_id)):'';
+  let p=null;
+  try{ p=await api('GET','/inventory/ledger/revalue-transfer-in-preview'+qs); }catch(_){ return; }
+  if(!p) return;
+  const t=p.totals||{count:0,amount_rial:0};
+  const exSum=p.excluded_summary||{};
+  const exFa={zero_zero:'خروج و ورود صفر',reversed:'ابطال‌شده',coa_mismatch:'حساب موجودی متفاوت (نیاز به سند)',already_corrected:'قبلاً اصلاح‌شده',missing_pair:'بدون جفت خروج',not_candidate:'غیرمشمول'};
+  const exHtml=Object.keys(exSum).map(k=>`<li>${esc(exFa[k]||k)}: ${fmtQtyFa(exSum[k])}</li>`).join('');
+  const whHtml=(p.per_warehouse||[]).map(w=>`<tr><td>${esc(w.warehouse_name||('#'+w.warehouse_id))}</td><td class="mono">${fmtQtyFa(w.count)}</td><td class="mono">${fmt(w.amount_rial)}</td><td class="mono">${fmt(w.kardex_before_rial)}</td><td class="mono">${fmt(w.kardex_after_rial)}</td></tr>`).join('');
+  const rows=(p.candidates||[]).slice(0,300).map(c=>`<tr><td class="mono">#${esc(String(c.in_id))}</td><td class="mono">#${esc(String(c.out_id))}</td><td class="mono">${esc(String(c.product_id))}</td><td class="mono">${esc(String(c.from_warehouse_id))}→${esc(String(c.to_warehouse_id))}</td><td class="mono">${fmtQtyFa(c.qty)}</td><td class="mono">${esc(c.transfer_date||'')}</td><td class="mono">${fmt(c.delta_rial)}</td></tr>`).join('');
+  const blocked=!!p.blocker;
+  const can=!blocked && t.count>0;
+  sadjLayer(`<div class="modal-head"><h3>اصلاح ارزش ورود انتقال</h3></div>
+    <div class="modal-body">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-bottom:8px`)}">ورودهای انتقال با مبلغ صفر که خروج جفتشان مبلغ دارد. برای هر کدام یک ردیف «فقط ارزش» (بدون تعداد) در انبار مقصد به تاریخ ${esc(p.date||'')} ثبت می‌شود؛ هیچ ردیفی ویرایش یا حذف نمی‌شود. اثر دفتر کل: <b>صفر</b> (بدون سند). میانگین بهای کالا تغییر نمی‌کند.</div>
+      ${blocked?`<div data-csp-style="${CSP.style(`padding:8px 12px;border:1px solid var(--red);border-radius:8px;margin-bottom:8px`)}">⛔ ${esc(p.blocker.error||'')}</div>`:''}
+      <div data-csp-style="${CSP.style(`font-weight:700;margin-bottom:6px`)}">${fmtQtyFa(t.count)} ردیف — جمع ${fmt(t.amount_rial)} ریال</div>
+      ${whHtml?`<table class="tbl" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}"><thead><tr><th>انبار مقصد</th><th>تعداد</th><th>مبلغ (ریال)</th><th>ارزش کاردکس قبل</th><th>ارزش کاردکس بعد</th></tr></thead><tbody>${whHtml}</tbody></table>`:''}
+      ${exHtml?`<div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">کنار گذاشته‌شده:</div><ul data-csp-style="${CSP.style(`font-size:12px;line-height:1.8;margin:4px 0 8px`)}">${exHtml}</ul>`:''}
+      ${rows?`<div data-csp-style="${CSP.style(`max-height:260px;overflow:auto;margin-bottom:8px`)}"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>ورود</th><th>خروج</th><th>کالا</th><th>انبار</th><th>تعداد</th><th>تاریخ انتقال</th><th>اصلاح (ریال)</th></tr></thead><tbody>${rows}</tbody></table></div>`:''}
+      ${can?`<div class="fg"><label for="tirReason">علت اصلاح (حداقل ۱۰ نویسه)</label><input id="tirReason" type="text" maxlength="300"></div>`:''}
+    </div>
+    <div class="modal-foot">
+      ${can?`<button class="btn" id="tirGo">ثبت اصلاح</button>`:''}
+      <button class="btn ghost" id="tirClose">بستن</button>
+    </div>`, true);
+  el('tirClose')?.addEventListener('click',()=>closeStockAdjust());
+  el('tirGo')?.addEventListener('click',async()=>{
+    const reason=String((el('tirReason')||{}).value||'').trim();
+    if(reason.length<10){ showToast('علت اصلاح حداقل ۱۰ نویسه','error'); return; }
+    if(!confirm(`اصلاح ارزش ${t.count} ورود انتقال (جمع ${fmt(t.amount_rial)} ریال) قطعی ثبت شود؟`)) return;
+    try{
+      const body={ confirm:true, reason, ids:(p.candidates||[]).map(c=>c.in_id) };
+      if(opts.warehouse_id) body.warehouse_id=Number(opts.warehouse_id);
+      const r=await api('POST','/inventory/ledger/revalue-transfer-in',body);
+      showToast(r&&r.created?`${r.created} ردیف اصلاح ثبت شد — ${fmt(r.totals&&r.totals.amount_rial||0)} ریال`:'ردیفی برای اصلاح نبود');
       closeStockAdjust();
       if(typeof opts.onDone==='function'){ try{ opts.onDone(r); }catch(_){} }
     }catch(_){ /* پیام را api() نشان داده */ }
@@ -41723,6 +41769,15 @@ function renderAdminGuide(){
         <li><b>سود ناخالص</b> = فروش خالص − بهای تمام‌شده؛ <b>سود عملیاتی ساده</b> = سود ناخالص − هزینه‌های دوره (پرداخت هزینهٔ ثبت‌شده بدون سربار تولید + کارمزد بانکی + <b>پیش‌نویس هزینهٔ روزانهٔ تأییدشده</b> (P8؛ پیش‌نویس در انتظار/ردشده/لغو/ابطال‌شده حساب نمی‌شود) + هزینهٔ تأییدشدهٔ نماینده). فروش صندوق لمسی/فروش سریع فروشگاهی (P5) چون فاکتور قطعی می‌سازد خودبه‌خود در فروش و بهای تمام‌شده هست. <b>انگیزهٔ فروش P9</b> فقط به‌صورت سطر جدای «اطلاعاتی» (برآورد قواعد سرپرست/فروشنده منهای برگشت) نمایش داده می‌شود و از سود عملیاتی کسر نمی‌شود؛ با فیلتر شعبه/انبار نمایش داده نمی‌شود. استهلاک و حقوق در این گزارش نیست؛ عدد قطعی پس از بستن دوره از صورت سود و زیان گرفته شود.</li>
         <li>برای بازهٔ چندروزه جدول «به تفکیک روز» و «هزینه‌ها به تفکیک دسته» هم نمایش داده می‌شود. API: <span dir="ltr">GET /api/reports/daily-pnl?date|from&amp;to&amp;warehouse_id&amp;branch_id</span> (شعبه = کاربر ثبت‌کنندهٔ سند).</li>
         <li>هر دو گزارش فقط‌خواندنی‌اند و هیچ سندی نمی‌سازند.</li>
+      </ul>`),
+    helpSec('🔁','اصلاح ارزش ورود انتقال با مبلغ صفر (audit-kardex K1)',`
+      <p>برخی ورودهای انتقال بین انبار (transfer_in) با مبلغ <b>صفر</b> ثبت مانده‌اند در حالی که خروج جفتشان مبلغ دارد؛ نتیجه: ارزش کاردکس انبار مقصد کمتر از واقع است (دفتر کل درست است). در کاردکس کالا دکمهٔ <b>«اصلاح ارزش ورود انتقال»</b> (فقط مدیر یا دارندهٔ دسترسی «عملیات انبار — حذف»، فقط روی سرور مرکزی) این را رفع می‌کند.</p>
+      <ul>
+        <li>اول <b>پیش‌نمایش فقط‌خواندنی</b>: فهرست ردیف‌ها، جمع به تفکیک انبار مقصد، ارزش کاردکس هر انبار قبل و بعد، و ردیف‌های کنار گذاشته‌شده با علت (خروج و ورود هر دو صفر، ابطال‌شده، قبلاً اصلاح‌شده، حساب موجودی متفاوت). اگر فیلتر انبار کاردکس انتخاب شده باشد فقط همان انبار مقصد.</li>
+        <li><b>علت (حداقل ۱۰ نویسه)</b> و <b>تأیید نهایی</b> الزامی است. برای هر ورود یک ردیف <b>فقط ارزش</b> (بدون تعداد، نوع <span dir="ltr">transfer_in_revalue</span>) به مبلغ «خروج − ورود» در انبار مقصد ثبت می‌شود؛ ردیف‌های اصلی ویرایش یا حذف نمی‌شوند. همه با هم در یک تراکنش؛ هر خطا ⇒ هیچ چیز ثبت نمی‌شود. اجرای دوباره ردیف تکراری نمی‌سازد.</li>
+        <li><b>اثر دفتر کل صفر است</b> (هیچ سندی ثبت نمی‌شود) و میانگین بهای کالا تغییر نمی‌کند؛ فقط ارزش کاردکس و استخر ارزش انبار مقصد بالا می‌رود. جفتی که انبار مبدأ و مقصدش حساب موجودی متفاوت دارند خودکار اصلاح نمی‌شود (نیاز به سند جابه‌جایی دارد).</li>
+        <li>تاریخ اصلاح پیش‌فرض امروز است؛ اگر ماه در ارزش‌گذاری موجودی قفل باشد رد می‌شود. ابطال بعدی خود سند انتقال، ردیف اصلاح را هم برمی‌گرداند. گزارش اختلاف دفتر کل با کاردکس و تحلیل ورود صفر، جفت اصلاح‌شده را دیگر «نشت» حساب نمی‌کنند. هر اجرا در گزارش ممیزی (<span dir="ltr">ledger_revalue_transfer_in</span>) ثبت می‌شود.</li>
+        <li>API: <span dir="ltr">GET /api/inventory/ledger/revalue-transfer-in-preview?warehouse_id=&amp;ids=</span> و <span dir="ltr">POST /api/inventory/ledger/revalue-transfer-in</span> با بدنهٔ <span dir="ltr">{"confirm": true, "reason": "…", "warehouse_id"?, "ids"?, "date"?}</span>. اسکریپت قدیمی ترمیم خروج صفر v529 با <span dir="ltr">--apply</span> فقط همراه <span dir="ltr">--revalue-transfer-in --reason="…"</span> اجرا می‌شود.</li>
       </ul>`),
     helpSec('↩','ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی کاردکس + گزارش اختلاف موجودی انبار با کاردکس (v606)',`
       <p>ردیف‌های کاردکس که <b>سند مبدأ ندارند</b> — «موجودی اول دوره» قدیمی (opening_inventory)، «هم‌ترازی کاردکس» (stock_reconcile) و ردیف‌های opening — از ابطال عادی رد می‌شوند. برای آن‌ها در کاردکس کالا کنار ردیف دکمهٔ <b>«↩ ابطال اصلاحی»</b> هست (فقط مدیر یا دارندهٔ دسترسی «عملیات انبار — حذف»).</p>

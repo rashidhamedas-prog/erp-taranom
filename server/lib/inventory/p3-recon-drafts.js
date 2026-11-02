@@ -481,16 +481,20 @@ function buildPlan(db) {
 function computeZeroInboundCogsShare(db, opts = {}) {
   const wh = Number(opts.warehouseId || COGS_TARGET_WH);
   if (!tableExists(db, 'inventory_ledger')) return { warehouse_id: wh, pairs: 0, products: [], totals: {} };
+  // audit-kardex K1: pairs already revalued (in + Σ live transfer_in_revalue = out) are not leaked.
+  const corrSql = require('./transfer-in-revalue').correctionSumSql('i');
   const pairs = db.prepare(`
-    SELECT o.id AS out_id, i.id AS in_id, i.product_id, o.amount_rial AS out_amount
+    SELECT * FROM (
+    SELECT o.id AS out_id, i.id AS in_id, i.product_id, o.amount_rial AS out_amount, ${corrSql} AS corr_amount
     FROM inventory_ledger o
     JOIN inventory_ledger i
       ON i.source_id=o.source_id AND i.source_type=o.source_type
      AND i.event_type='transfer_in' AND i.status='posted' AND i.product_id=o.product_id
     WHERE o.status='posted' AND o.source_type='warehouse_transfer' AND o.event_type='transfer_out'
       AND i.warehouse_id=? AND COALESCE(i.amount_rial,0)=0 AND COALESCE(o.amount_rial,0)<>0
+    ) t WHERE ROUND(t.corr_amount) <> ROUND(t.out_amount)
   `).all(wh);
-  const restore = new Map(pairs.map((p) => [p.in_id, Math.abs(Math.round(n(p.out_amount)))]));
+  const restore = new Map(pairs.map((p) => [p.in_id, Math.abs(Math.round(n(p.out_amount) - n(p.corr_amount)))]));
   const byProduct = new Map();
   for (const p of pairs) byProduct.set(p.product_id, (byProduct.get(p.product_id) || 0) + 1);
   const rowsStmt = db.prepare(`
