@@ -4134,6 +4134,13 @@ function initSyncSchema(db, opts) {
   } catch (e) {
     console.warn('p3_recon_drafts_v4:', e.message);
   }
+  // FR-POS-DRAFTS-A — مهر هش سطرهای پیش‌نویس‌های P3 موجود (معافیت 1104 فقط برای همان سطرها)؛ بعد از v4 (فقط مرکز).
+  try {
+    const p3h = require('./lib/inventory/p3-recon-drafts').runP3DraftsLinesHashBackfill(db, { isDevice: isDevice() });
+    if (p3h && p3h.changed) console.log('✅ p3_recon_drafts_lines_hash_v1:', JSON.stringify(p3h));
+  } catch (e) {
+    console.warn('p3_recon_drafts_lines_hash_v1:', e.message);
+  }
 }
 
 // Device-side: reserve this device's provisional id ranges by pre-seeding
