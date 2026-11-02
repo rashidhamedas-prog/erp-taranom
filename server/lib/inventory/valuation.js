@@ -1018,10 +1018,20 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
       if (m) { used.add(m.id); pairOf.set(o.id, m); pairOf.set(m.id, o); }
     }
   }
+  // audit-kardex K1: transfer_in already replays at its paired out amount, so a transfer_in_revalue
+  // row is dropped here and only added back when its in-row has no pair (else it would double count).
+  const TI_REVALUE = require('./transfer-in-revalue').EVENT_TYPE;
+  const tiCorrByKey = new Map();
+  const tiKey = (r) => `${r.source_type || ''}|${r.source_id == null ? '' : r.source_id}|${whKey(r.warehouse_id)}`;
+  for (const r of all) {
+    if (r.event_type !== TI_REVALUE || String(r.status || '') !== 'posted' || r.reversed_of != null) continue;
+    tiCorrByKey.set(tiKey(r), (tiCorrByKey.get(tiKey(r)) || 0) + Math.round(Number(r.amount_rial) || 0));
+  }
   const rows = all.filter((r) => {
     if (String(r.status || '') !== 'posted') return false;
     if (r.reversed_of && statusById.get(r.reversed_of) === 'reversed') return false;
     if (String(r.source_type || '') === REPLAY_SELF_SOURCE) return false;
+    if (r.event_type === TI_REVALUE) return false;
     if (mode === 'warehouse') return true;
     if (isWarehouseOnlyRow(r) && poolKey(r.warehouse_id) === 0) return false;
     const et = String(r.event_type || '');
@@ -1090,6 +1100,8 @@ function previewReplay(db, { productId, warehouseId = null, fromDate = '' } = {}
             const pa = adj.get(pair.id) || { outbound: 0 };
             inAmt = Math.round(Number(pair.amount_rial) || 0) + pa.outbound;
           }
+        } else {
+          inAmt += tiCorrByKey.get(tiKey(r)) || 0;
         }
       }
       const qBefore = st.q;

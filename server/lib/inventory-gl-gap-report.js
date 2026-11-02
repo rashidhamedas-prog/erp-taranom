@@ -207,14 +207,17 @@ function buildInventoryGlGapReport(db, opts) {
   });
 
   // ── Cause a: transfer leakage ──
+  // audit-kardex K1: a live transfer_in_revalue row is part of the inbound value (in + Σcorr = out ⇒ no leak).
+  const corrSql = require('./inventory/transfer-in-revalue').correctionSumSql('i', { dateParam: true });
   const transferPairs = db.prepare(`
+    SELECT * FROM (
     SELECT o.id AS out_id, i.id AS in_id,
            o.source_id AS transfer_id,
            o.warehouse_id AS from_wh, i.warehouse_id AS to_wh,
            o.product_id AS product_id,
            o.qty_out AS qty,
            o.amount_rial AS out_amount, i.amount_rial AS in_amount,
-           (o.amount_rial - i.amount_rial) AS leak_rial,
+           ${corrSql} AS corr_amount,
            o.date AS date
     FROM inventory_ledger o
     JOIN inventory_ledger i
@@ -230,8 +233,11 @@ function buildInventoryGlGapReport(db, opts) {
       AND (
         (o.warehouse_id IN (${whPh}) OR i.warehouse_id IN (${whPh}))
       )
-      AND o.amount_rial != i.amount_rial
-  `).all(cutoff, cutoff, ...warehouses, ...warehouses);
+    ) t
+    WHERE t.out_amount != t.in_amount + t.corr_amount
+  `).all(cutoff, cutoff, cutoff, ...warehouses, ...warehouses).map((r) => ({
+    ...r, leak_rial: Math.round(Number(r.out_amount) || 0) - Math.round(Number(r.in_amount) || 0) - Math.round(Number(r.corr_amount) || 0),
+  }));
 
   // Same-account transfers: leakage is exactly out-in (no JE). Always count full leak for pairs touching mapped whs.
   const transferLeakRows = transferPairs.map((r) => ({
