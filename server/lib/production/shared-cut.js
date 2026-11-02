@@ -768,17 +768,18 @@ function postSharedCut(db, body, user) {
     });
     db.prepare('UPDATE cutting_lays SET cost_center_id=? WHERE id=?').run(cutCc, layId);
     assertJournalIdempotent(db, 'production_material_issue', layId);
+    const issueRial = assertSafeRial(common + lossRial, 'issue total');
     let journalId = null;
-    if (common > 0) {
+    if (issueRial > 0) {
       const je = postEvent(db, {
         event: 'PRD-01',
         sourceId: layId,
         date,
-        description: `مصرف خالص برش مشترک ${batchNo}`,
+        description: `مصرف پارچه برش مشترک ${batchNo}`,
         createdBy: user && user.id,
         costCenterId: cutCc,
         warehouseId: whRaw && whRaw.id,
-        lines: [dr(db, 'coa_wip', common), cr(db, 'coa_raw_materials', common)],
+        lines: [dr(db, 'coa_wip', issueRial), cr(db, 'coa_raw_materials', issueRial)],
       });
       journalId = je ? je.je_id : null;
     }
@@ -791,7 +792,7 @@ function postSharedCut(db, body, user) {
         date,
         description: `اتلاف طولی برش ${batchNo}`,
         createdBy: user && user.id,
-        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_raw_materials', lossRial)],
+        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_wip', lossRial)],
         costCenterId: cutCc,
         warehouseId: whRaw && whRaw.id,
       });
@@ -840,7 +841,7 @@ function postSharedCut(db, body, user) {
           layId,
           layNo,
           fabricProductId: body.fabric_product_id,
-          amountRial: common,
+          amountRial: common + lossRial,
           wasteAmountRial: lossRial,
           qtyPieces: plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
           meters: plan.laid_m,
@@ -1003,6 +1004,14 @@ function voidSharedCut(db, id, user, reason) {
     }
     db.prepare(`UPDATE cutting_batches SET status='reversed', reversed_at=strftime('%s','now'), reversed_by=?, reversal_journal_id=? WHERE id=?`)
       .run(user && user.id, revJe || null, batch.id);
+    // unlink ستون‌ها را وقتی لایه هنوز posted است بازسازی می‌کند؛ بعد از reversed دوباره از اسناد زنده.
+    const poId = lay && Number(lay.production_order_id);
+    if (poId) {
+      const po = db.prepare('SELECT status FROM production_orders WHERE id=?').get(poId);
+      if (po && !['closed', 'cancelled', 'voided'].includes(String(po.status || ''))) {
+        require('./order-cost-reconcile').applyDocumentCosts(db, poId);
+      }
+    }
   })();
   return getSharedCut(db, id);
 }
@@ -1193,17 +1202,18 @@ function amendSharedCut(db, id, body, user) {
     });
     db.prepare('UPDATE cutting_lays SET cost_center_id=? WHERE id=?').run(cutCc, layId);
     assertJournalIdempotent(db, 'production_material_issue', layId);
+    const issueRial = assertSafeRial(common + lossRial, 'issue total');
     let journalId = null;
-    if (common > 0) {
+    if (issueRial > 0) {
       const je = postEvent(db, {
         event: 'PRD-01',
         sourceId: layId,
         date,
-        description: `مصرف خالص برش مشترک (ویرایش) ${existing.batch_no}`,
+        description: `مصرف پارچه برش مشترک (ویرایش) ${existing.batch_no}`,
         createdBy: user && user.id,
         costCenterId: cutCc,
         warehouseId: whRaw && whRaw.id,
-        lines: [dr(db, 'coa_wip', common), cr(db, 'coa_raw_materials', common)],
+        lines: [dr(db, 'coa_wip', issueRial), cr(db, 'coa_raw_materials', issueRial)],
       });
       journalId = je ? je.je_id : null;
     }
@@ -1216,7 +1226,7 @@ function amendSharedCut(db, id, body, user) {
         date,
         description: `اتلاف طولی برش (ویرایش) ${existing.batch_no}`,
         createdBy: user && user.id,
-        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_raw_materials', lossRial)],
+        lines: [dr(db, 'coa_abnormal_waste', lossRial), cr(db, 'coa_wip', lossRial)],
         costCenterId: cutCc,
         warehouseId: whRaw && whRaw.id,
       });
@@ -1266,7 +1276,7 @@ function amendSharedCut(db, id, body, user) {
           layId,
           layNo: layRow && layRow.lay_no,
           fabricProductId: body.fabric_product_id,
-          amountRial: common,
+          amountRial: common + lossRial,
           wasteAmountRial: lossRial,
           qtyPieces: plan.outputs.reduce((s, o) => s + o.planned_pieces, 0),
           meters: plan.laid_m,
