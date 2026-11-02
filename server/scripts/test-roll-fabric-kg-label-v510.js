@@ -58,9 +58,11 @@ assert.strictEqual(isRollFabricProduct(db, 90), false, 'count material stays sta
 assert.strictEqual(isRollFabricProduct(db, 999), false, 'missing product');
 ok('yard still roll fabric; kg/count materials without rolls unchanged');
 assert.strictEqual(isRollFabricProduct(db, 90), false, 'reversed roll alone does not make roll fabric');
-assert.strictEqual(rollFabricUnitLabel(db, { id: 14, unit: 'کیلوگرم' }), 'متر طاقه');
+// P9: messages show the product's own unit (roll qty is stored in it), not the legacy «m» label.
+assert.strictEqual(rollFabricUnitLabel(db, { id: 14, unit: 'کیلوگرم', unit_id: 3 }), 'کیلوگرم طاقه');
+assert.strictEqual(rollFabricUnitLabel(db, { id: 64, unit: 'کيلو گرم' }), 'کیلوگرم طاقه');
 assert.strictEqual(rollFabricUnitLabel(db, { id: 70, unit: 'کیلوگرم' }), 'کیلوگرم');
 assert.strictEqual(rollFabricUnitLabel(db, { unit: 'یارد' }), 'یارد');
-ok('messages show the roll unit, not «کیلوگرم»');
+ok('messages show the product unit (P9)');
 db.close();
 console.log('PASS', n);

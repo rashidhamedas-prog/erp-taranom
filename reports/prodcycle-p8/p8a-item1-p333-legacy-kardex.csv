@@ -1,0 +1,27 @@
+﻿item,mode,target_table,target_id,action,field,old_value,new_value,account_code,debit_rial,credit_rial,warehouse_id,product_id,qty,amount_rial,gl_effect_rial,note
+item1,dry-run,inventory_ledger,799,void_ledger_row,status,posted,reversed,,,,33,333,85.626,310253566,,adjustment/stock_reconcile:333 1405/07/15 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,1157,void_ledger_row,status,posted,reversed,,,,33,333,-239.44,-867576600,,opening/opening_inventory:333 1405/06/31 — موجودی اول دوره
+item1,dry-run,inventory_ledger,1168,void_ledger_row,status,posted,reversed,,,,33,333,171.822,622572446,,adjustment/stock_reconcile:333 1405/07/21 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,1231,void_ledger_row,status,posted,reversed,,,,33,333,239.626,868250544,,adjustment/stock_reconcile:333 1405/07/23 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,1334,void_ledger_row,status,posted,reversed,,,,33,333,-132.64,-480602072,,opening/opening_inventory:333 1405/06/31 — موجودی اول دوره
+item1,dry-run,inventory_ledger,1356,void_ledger_row,status,posted,reversed,,,,33,333,143.5,519951730,,adjustment/stock_reconcile:333 1405/07/27 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,1386,void_ledger_row,status,posted,reversed,,,,33,333,120.71,437375423,,adjustment/stock_reconcile:333 1405/07/27 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,1405,void_ledger_row,status,posted,reversed,,,,33,333,403.25,1461118710,,adjustment/stock_reconcile:333 1405/07/27 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,1425,void_ledger_row,status,posted,reversed,,,,33,333,-1159.054,-4199666424,,opening/opening_inventory:333 1405/06/31 — موجودی اول دوره
+item1,dry-run,inventory_ledger,1484,void_ledger_row,status,posted,reversed,,,,33,333,622.87,2256880375,,adjustment/stock_reconcile:333 1405/07/28 — هم‌ترازی کاردکس با موجودی انبار
+item1,dry-run,inventory_ledger,2388,insert_ledger_reversal_row,reversed_of=1157,,reversal in=0 out=239.44000000000003 amt=867576600 date=1405/06/31,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1157 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2389,insert_ledger_reversal_row,reversed_of=1334,,reversal in=0 out=132.63999999999993 amt=480602072 date=1405/06/31,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1334 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2390,insert_ledger_reversal_row,reversed_of=1425,,reversal in=0 out=1159.0539999999999 amt=4199666424 date=1405/06/31,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1425 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2391,insert_ledger_reversal_row,reversed_of=799,,reversal in=85.62600000000003 out=0 amt=310253566 date=1405/07/15,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-0799 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2392,insert_ledger_reversal_row,reversed_of=1168,,reversal in=171.82199999999995 out=0 amt=622572446 date=1405/07/21,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1168 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2393,insert_ledger_reversal_row,reversed_of=1231,,reversal in=239.62599999999998 out=0 amt=868250544 date=1405/07/23,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1231 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2394,insert_ledger_reversal_row,reversed_of=1356,,reversal in=143.5 out=0 amt=519951730 date=1405/07/27,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1356 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2395,insert_ledger_reversal_row,reversed_of=1386,,reversal in=120.71000000000004 out=0 amt=437375423 date=1405/07/27,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1386 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2396,insert_ledger_reversal_row,reversed_of=1405,,reversal in=403.25 out=0 amt=1461118710 date=1405/07/27,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1405 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,inventory_ledger,2397,insert_ledger_reversal_row,reversed_of=1484,,reversal in=622.87 out=0 amt=2256880375 date=1405/07/28,,,,33,333,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال ردیف قدیمی بی‌سند INV-1484 (P8a — تصمیم مالک) — P8a dry-run
+item1,dry-run,product_opening_stock,333,update_field,status,needs_review,void,,,,33,333,,,,
+item1,dry-run,product_opening_stock,333,update_field,note,3 ردیف افتتاحیهٔ زنده — نیاز به بررسی,P8a: افتتاحیه‌های بی‌سند 1157،1334،1425 ابطال شد؛ موجودی از رسید طاقه‌های دوره است (بدون نیاز به سند افتتاحیه) — P8a dry-run,,,,33,333,,,,
+item1,dry-run,product_opening_stock,333,update_field,reviewed_by,,1,,,,33,333,,,,
+item1,dry-run,inventory_valuation_buckets,333:33,update_field,qty,2.0799999999999272,18.91,,,,33,333,,,,
+item1,dry-run,inventory_valuation_buckets,333:33,update_field,value_rial,7536582,68517681,,,,33,333,,,,
+item1,dry-run,KARDEX,,kardex_delta,,-237.36 / -860040017,18.91 / 68517681,,,,33,333,256.27,928557698,,کاردکس زنده (مقدار / ارزش ریال)

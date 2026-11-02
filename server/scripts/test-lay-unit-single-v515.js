@@ -217,15 +217,16 @@ try {
     eq('kg user-factor void restores 15', bal(rK2), 15, 1e-9);
 
     // ── mixed-unit rolls ─────────────────────────────────────────
+    // P9: an «m»-labelled roll of a kg product is in kg (product unit); a real mix is kg + yd.
     const mixBody = {
       ...kBody, idempotency_key: 'v515-mix-1', actual_meters: 8,
-      rolls: [{ batch_id: rK, meters: 4 }, { batch_id: rKm, meters: 4 }],
+      rolls: [{ batch_id: rK, meters: 4 }, { batch_id: rY1, meters: 4 }],
     };
     ok('mixed units: plan → E_CUT_ROLL_UNIT', codeOf(() => planCutting(db, mixBody)) === 'E_CUT_ROLL_UNIT');
     const laysBeforeMix = db.prepare('SELECT COUNT(*) c FROM cutting_lays').get().c;
     ok('mixed units: post → E_CUT_ROLL_UNIT', codeOf(() => postCuttingLay(db, mixBody, user)) === 'E_CUT_ROLL_UNIT');
     ok('mixed units: nothing written', db.prepare('SELECT COUNT(*) c FROM cutting_lays').get().c === laysBeforeMix);
-    ok('mixed units: rolls untouched', bal(rK) === 20 && bal(rKm) === 30);
+    ok('mixed units: rolls untouched', bal(rK) === 20 && bal(rKm) === 30 && Math.abs(bal(rY1) - 40) < 1e-6);
     ok('mixed units on update → E_CUT_ROLL_UNIT', codeOf(() => updateCuttingLay(db, yLay.id, {
       ...yBody, rolls: [{ batch_id: rY1, meters: 10 }, { batch_id: rKm, meters: 11 }],
     }, user)) === 'E_CUT_ROLL_UNIT');

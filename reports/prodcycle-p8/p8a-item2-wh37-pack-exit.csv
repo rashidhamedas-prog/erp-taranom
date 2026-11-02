@@ -1,0 +1,38 @@
+﻿item,mode,target_table,target_id,action,field,old_value,new_value,account_code,debit_rial,credit_rial,warehouse_id,product_id,qty,amount_rial,gl_effect_rial,note
+item2,dry-run,inventory_ledger,1456,void_ledger_row,status,posted,reversed,,,,37,332,30,458536530,,cutting_pack/cutting_pack:15 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 11
+item2,dry-run,inventory_ledger,1457,void_ledger_row,status,posted,reversed,,,,37,332,22,336260122,,cutting_pack/cutting_pack:17 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 11
+item2,dry-run,inventory_ledger,1458,void_ledger_row,status,posted,reversed,,,,37,332,22,336260122,,cutting_pack/cutting_pack:19 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 11
+item2,dry-run,inventory_ledger,1459,void_ledger_row,status,posted,reversed,,,,37,332,22,336260122,,cutting_pack/cutting_pack:21 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 11
+item2,dry-run,inventory_ledger,1460,void_ledger_row,status,posted,reversed,,,,37,334,30,620934870,,cutting_pack/cutting_pack:16 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 12
+item2,dry-run,inventory_ledger,1461,void_ledger_row,status,posted,reversed,,,,37,334,22,455352238,,cutting_pack/cutting_pack:18 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 12
+item2,dry-run,inventory_ledger,1462,void_ledger_row,status,posted,reversed,,,,37,334,22,455352238,,cutting_pack/cutting_pack:20 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 12
+item2,dry-run,inventory_ledger,1463,void_ledger_row,status,posted,reversed,,,,37,334,22,455352238,,cutting_pack/cutting_pack:22 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 12
+item2,dry-run,inventory_ledger,1479,void_ledger_row,status,posted,reversed,,,,37,332,32,395316320,,cutting_pack/cutting_pack:23 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 13
+item2,dry-run,inventory_ledger,1480,void_ledger_row,status,posted,reversed,,,,37,332,24,296487240,,cutting_pack/cutting_pack:24 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 13
+item2,dry-run,inventory_ledger,1481,void_ledger_row,status,posted,reversed,,,,37,332,12,148243620,,cutting_pack/cutting_pack:25 1405/07/05 — تخلیه WIP بسته برش هنگام رسید 13
+item2,dry-run,inventory_ledger,2388,insert_ledger_reversal_row,reversed_of=1456,,reversal in=30 out=0 amt=458536530 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1456 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2389,insert_ledger_row,,,cutting_pack in=0 out=30 amt=156912519 date=1405/07/05,,,,37,332,-30,-156912519,,تخلیه WIP بسته برش هنگام رسید 11 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2390,insert_ledger_reversal_row,reversed_of=1457,,reversal in=22 out=0 amt=336260122 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1457 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2391,insert_ledger_row,,,cutting_pack in=0 out=22 amt=115069181 date=1405/07/05,,,,37,332,-22,-115069181,,تخلیه WIP بسته برش هنگام رسید 11 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2392,insert_ledger_reversal_row,reversed_of=1458,,reversal in=22 out=0 amt=336260122 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1458 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2393,insert_ledger_row,,,cutting_pack in=0 out=22 amt=115069181 date=1405/07/05,,,,37,332,-22,-115069181,,تخلیه WIP بسته برش هنگام رسید 11 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2394,insert_ledger_reversal_row,reversed_of=1459,,reversal in=22 out=0 amt=336260122 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1459 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2395,insert_ledger_row,,,cutting_pack in=0 out=22 amt=115069181 date=1405/07/05,,,,37,332,-22,-115069181,,تخلیه WIP بسته برش هنگام رسید 11 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2396,insert_ledger_reversal_row,reversed_of=1460,,reversal in=30 out=0 amt=620934870 date=1405/07/05,,,,37,334,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1460 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2397,insert_ledger_row,,,cutting_pack in=0 out=30 amt=199625810 date=1405/07/05,,,,37,334,-30,-199625810,,تخلیه WIP بسته برش هنگام رسید 12 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2398,insert_ledger_reversal_row,reversed_of=1461,,reversal in=22 out=0 amt=455352238 date=1405/07/05,,,,37,334,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1461 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2399,insert_ledger_row,,,cutting_pack in=0 out=22 amt=146392260 date=1405/07/05,,,,37,334,-22,-146392260,,تخلیه WIP بسته برش هنگام رسید 12 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2400,insert_ledger_reversal_row,reversed_of=1462,,reversal in=22 out=0 amt=455352238 date=1405/07/05,,,,37,334,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1462 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2401,insert_ledger_row,,,cutting_pack in=0 out=22 amt=146392260 date=1405/07/05,,,,37,334,-22,-146392260,,تخلیه WIP بسته برش هنگام رسید 12 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2402,insert_ledger_reversal_row,reversed_of=1463,,reversal in=22 out=0 amt=455352238 date=1405/07/05,,,,37,334,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1463 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2403,insert_ledger_row,,,cutting_pack in=0 out=22 amt=146392260 date=1405/07/05,,,,37,334,-22,-146392260,,تخلیه WIP بسته برش هنگام رسید 12 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2404,insert_ledger_reversal_row,reversed_of=1479,,reversal in=32 out=0 amt=395316320 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1479 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2405,insert_ledger_row,,,cutting_pack in=0 out=32 amt=168581757 date=1405/07/05,,,,37,332,-32,-168581757,,تخلیه WIP بسته برش هنگام رسید 13 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2406,insert_ledger_reversal_row,reversed_of=1480,,reversal in=24 out=0 amt=296487240 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1480 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2407,insert_ledger_row,,,cutting_pack in=0 out=24 amt=126490669 date=1405/07/05,,,,37,332,-24,-126490669,,تخلیه WIP بسته برش هنگام رسید 13 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_ledger,2408,insert_ledger_reversal_row,reversed_of=1481,,reversal in=12 out=0 amt=148243620 date=1405/07/05,,,,37,332,0,0,,(ردیف معکوس — از کاردکس زنده حذف) ابطال خروج WIP با بهای میانگین FG INV-1481 (P8a) — P8a dry-run
+item2,dry-run,inventory_ledger,2409,insert_ledger_row,,,cutting_pack in=0 out=12 amt=60981098 date=1405/07/05,,,,37,332,-12,-60981098,,تخلیه WIP بسته برش هنگام رسید 13 — بهای متناسب بسته (اصلاح P8a)
+item2,dry-run,inventory_valuation_buckets,332:37,update_field,value_rial,-483993656,0,,,,37,332,,,,
+item2,dry-run,inventory_valuation_buckets,334:37,update_field,value_rial,-1348188994,0,,,,37,334,,,,
+item2,dry-run,KARDEX,,kardex_delta,,0 / -1449190490,0 / 0,,,,37,332,0,1449190490,,کاردکس زنده (مقدار / ارزش ریال)
+item2,dry-run,KARDEX,,kardex_delta,,0 / -1348188994,0 / 0,,,,37,334,0,1348188994,,کاردکس زنده (مقدار / ارزش ریال)

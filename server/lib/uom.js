@@ -290,6 +290,83 @@ function resolveRollEntry(db, prod, body = {}) {
   return { stock, entry, entryQty, stockQty, factor, mode, token: rollUnitToken(stock) };
 }
 
+/**
+ * P9 — the roll/material unit is the product's own unit.
+ * Catalog row of the product stock unit plus the batch token and Persian name;
+ * uncatalogued product text is returned as-is (row null).
+ */
+function productRollUnit(db, prod) {
+  let row = null;
+  try { row = stockUnitForProduct(db, prod); } catch (_) { row = null; }
+  if (row) return { row, token: rollUnitToken(row), name: row.name };
+  const text = String((prod && prod.unit) || '').trim();
+  return { row: null, token: text, name: text };
+}
+
+/**
+ * Does a stored batch token denote the product's own unit?
+ * Uncatalogued product units cannot be judged and pass.
+ */
+function rollTokenMatchesProduct(db, prod, token) {
+  const pu = productRollUnit(db, prod);
+  const t = String(token == null ? '' : token).trim();
+  if (!pu.row) return !t || !pu.token || normKey(t) === normKey(pu.token);
+  if (!t) return false;
+  let row = null;
+  try { row = matchText(db, t); } catch (_) { row = null; }
+  if (!row) return false;
+  return Number(row.id) === Number(pu.row.id);
+}
+
+function tokenLabel(db, token) {
+  const t = String(token == null ? '' : token).trim();
+  if (!t) return '—';
+  let row = null;
+  try { row = matchText(db, t); } catch (_) { row = null; }
+  return row ? row.name : t;
+}
+
+/** Stored batch unit must equal the product unit (after conversion). */
+function assertRollUnitMatchesProduct(db, prod, token, context) {
+  if (rollTokenMatchesProduct(db, prod, token)) return;
+  const pu = productRollUnit(db, prod);
+  throw httpErr(
+    400,
+    `${context ? context + ': ' : ''}واحد طاقه/بچ «${tokenLabel(db, token)}» با واحد کالا «${pu.name || '—'}» یکی نیست؛ مقدار باید به واحد کالا تبدیل و به همان واحد ذخیره شود`,
+    'E_FABRIC_UNIT_MISMATCH'
+  );
+}
+
+/**
+ * Attributed material (non-roll) entry: the typed unit may differ from the
+ * product unit only inside one dimension with catalog factors; the quantity
+ * is converted to the product unit. Other units are rejected.
+ * body: unit (text) | entry_unit_id , qty
+ */
+function resolveMaterialEntry(db, prod, body = {}, qty) {
+  const pu = productRollUnit(db, prod);
+  const q = Number(qty);
+  const idRaw = body.entry_unit_id != null && body.entry_unit_id !== '' ? body.entry_unit_id : null;
+  const text = body.unit != null ? String(body.unit).trim() : '';
+  if (!pu.row || (!idRaw && !text)) {
+    return { qty: q, entry: pu.row, entryQty: q, factor: 1, converted: false };
+  }
+  let entry = idRaw ? getUnit(db, idRaw) : matchText(db, text);
+  if (!entry) {
+    throw httpErr(400, `واحد «${text || idRaw}» در کاتالوگ نیست و با واحد کالا «${pu.name}» یکی نیست`, 'E_FABRIC_UNIT_MISMATCH');
+  }
+  if (Number(entry.id) === Number(pu.row.id)) {
+    return { qty: q, entry, entryQty: q, factor: 1, converted: false };
+  }
+  const sameDim = (entry.dimension || 'count') === (pu.row.dimension || 'count');
+  if (!sameDim || !(Number(entry.factor_to_ref) > 0) || !(Number(pu.row.factor_to_ref) > 0)) {
+    throw httpErr(400, `مقدار به «${entry.name}» وارد شده ولی واحد کالا «${pu.name}» است و تبدیل کاتالوگی ندارد؛ به واحد کالا وارد کنید`, 'E_FABRIC_UNIT_MISMATCH');
+  }
+  const factor = convertBetween(entry, pu.row, 1);
+  const stockQty = Math.round(q * factor * 1e6) / 1e6;
+  return { qty: stockQty, entry, entryQty: q, factor, converted: true };
+}
+
 function policyFromRow(row) {
   if (!row) return { known: false };
   return {
@@ -467,6 +544,10 @@ module.exports = {
   ROLL_ENTRY_DIMENSIONS,
   fabricReceiptUnits,
   resolveRollEntry,
+  productRollUnit,
+  rollTokenMatchesProduct,
+  assertRollUnitMatchesProduct,
+  resolveMaterialEntry,
   policyForProduct,
   resolveProductUnit,
   convertBetween,

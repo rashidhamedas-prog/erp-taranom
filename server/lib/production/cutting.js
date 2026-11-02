@@ -797,9 +797,12 @@ function isRollFabricProduct(db, productOrId) {
   return onActiveBomCuttingOperation(db, prod.id);
 }
 
-/** برچسب واحد برای پیام: واحد طاقه‌های همین پارچه، وگرنه واحد کالا. */
+/** برچسب واحد برای پیام — P9: همیشه واحد خود کالا (مقدار طاقه‌ها به واحد کالاست). */
 function rollFabricUnitLabel(db, prod) {
   if (!prod) return 'متر';
+  let name = '';
+  try { name = require('../uom').productRollUnit(db, prod).name; } catch (_) { name = ''; }
+  name = name || String(prod.unit || '').trim();
   try {
     if (prod.id) {
       const b = db.prepare(`
@@ -808,12 +811,15 @@ function rollFabricUnitLabel(db, prod) {
         ORDER BY id DESC LIMIT 1
       `).get(Number(prod.id));
       if (b) {
-        const row = require('./lay-unit').unitRowForToken(db, b.unit);
-        return `${row ? row.name : (b.unit || 'متر')} طاقه`;
+        if (!name) {
+          const row = require('./lay-unit').unitRowForToken(db, b.unit);
+          name = row ? row.name : (b.unit || '');
+        }
+        return `${name || 'متر'} طاقه`;
       }
     }
   } catch (_) { /* fall through */ }
-  return prod.unit || 'متر';
+  return name || 'متر';
 }
 
 function pickFabricLine(db, lines, preferredProductId) {

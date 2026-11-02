@@ -1533,6 +1533,17 @@ function reverseOrder(db, orderId, userId, reason = '') {
   })();
 }
 
+/** P9 — Persian name of the product's own unit (BOM consumption is in that unit). */
+function productUnitLabelSafe(db, productId) {
+  try {
+    const p = db.prepare('SELECT * FROM products WHERE id=?').get(Number(productId));
+    if (!p) return '';
+    return require('../uom').productRollUnit(db, p).name || String(p.unit || '');
+  } catch (_) {
+    return '';
+  }
+}
+
 function issueTemplate(db, { orderId, qtyStarted }) {
   const po = getOrder(db, orderId);
   const qty = explodeQtyForOrder(db, po, qtyStarted != null ? num(qtyStarted) : null);
@@ -1584,6 +1595,7 @@ function issueTemplate(db, { orderId, qtyStarted }) {
         avg_cost_ok: avg > 0 ? 1 : 0,
         line_kind: L.line_kind,
         bom_line_id: L.bom_line_id,
+        unit_label: productUnitLabelSafe(db, L.product_id),
         fabric_cut_meters: fabricCutMeters,
         fabric_qty_allowed: fabricQtyAllowed,
         fabric_cut_locked: fabricCutLocked,
