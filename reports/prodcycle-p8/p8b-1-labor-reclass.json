@@ -1,0 +1,146 @@
+{
+  "item": "P8b-1",
+  "person": {
+    "id": 132,
+    "name": "مهدیه ابراهیمی",
+    "coa_code": "110301000015",
+    "party_id": 136
+  },
+  "role": {
+    "role": "contractor",
+    "reason": "role_unknown_default_contractor",
+    "flagged": true
+  },
+  "resolver": {
+    "account_code": "210101000006",
+    "account_name": "مهدیه ابراهیمی",
+    "detail_account_id": null,
+    "role": "contractor",
+    "role_reason": "role_unknown_default_contractor",
+    "reason": "contractor_supplier_payable",
+    "flagged": true,
+    "legacy_code": "110301000015",
+    "legacy_rejected": true
+  },
+  "asset": {
+    "code": "110301000015",
+    "name": "مهدیه ابراهیمی"
+  },
+  "payable": {
+    "code": "210101000006",
+    "name": "مهدیه ابراهیمی"
+  },
+  "labor": [
+    {
+      "je_id": 747,
+      "doc_no": "LB-0023",
+      "order_id": 14,
+      "credit_rial": 192000000
+    },
+    {
+      "je_id": 750,
+      "doc_no": "LB-0024",
+      "order_id": 14,
+      "credit_rial": 211200000
+    },
+    {
+      "je_id": 775,
+      "doc_no": "LB-0026",
+      "order_id": 15,
+      "credit_rial": 136000000
+    },
+    {
+      "je_id": 1192,
+      "doc_no": "LB-0039",
+      "order_id": 19,
+      "credit_rial": 50400000
+    },
+    {
+      "je_id": 1197,
+      "doc_no": "LB-0040",
+      "order_id": 19,
+      "credit_rial": 50400000
+    }
+  ],
+  "payments": [
+    {
+      "je_id": 824,
+      "debit_rial": 270000000
+    },
+    {
+      "je_id": 826,
+      "debit_rial": 150000000
+    }
+  ],
+  "labor_total_rial": 640000000,
+  "payments_total_rial": 420000000,
+  "asset_movement": {
+    "byCat": {
+      "opening": {
+        "debit_rial": 0,
+        "credit_rial": 40396000,
+        "je_ids": [
+          165
+        ]
+      },
+      "invoice": {
+        "debit_rial": 17024000,
+        "credit_rial": 0,
+        "je_ids": [
+          685,
+          687,
+          689
+        ]
+      },
+      "production_labor": {
+        "debit_rial": 0,
+        "credit_rial": 640000000,
+        "je_ids": [
+          747,
+          750,
+          775,
+          1192,
+          1197
+        ]
+      },
+      "person_payment": {
+        "debit_rial": 420000000,
+        "credit_rial": 0,
+        "je_ids": [
+          824,
+          826
+        ]
+      }
+    },
+    "balance": {
+      "debit_rial": 437024000,
+      "credit_rial": 680396000,
+      "net_rial": -243372000
+    }
+  },
+  "payable_movement": {
+    "byCat": {},
+    "balance": {
+      "debit_rial": 0,
+      "credit_rial": 0,
+      "net_rial": 0
+    }
+  },
+  "after": {
+    "A": {
+      "asset_net_rial": 396628000,
+      "payable_net_rial": -640000000
+    },
+    "B": {
+      "asset_net_rial": -23372000,
+      "payable_net_rial": -220000000
+    }
+  },
+  "person_ledger": {
+    "rows": 11,
+    "debit_rial": 437024000,
+    "credit_rial": 680396000,
+    "net_rial": -243372000
+  },
+  "csv": "/tmp/p8b/out/p8b-1-labor-reclass.csv"
+}

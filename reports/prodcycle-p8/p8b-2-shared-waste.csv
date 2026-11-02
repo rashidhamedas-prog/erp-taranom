@@ -1,0 +1,56 @@
+﻿item,target_table,target_id,action,account_code,detail_account_id,cost_center_id,debit_rial,credit_rial,person_id,note
+P8b-2,journal_lines,JE 802,gl_void,1111,,3,110450099,0,,soft-void PRD-01 قدیمی لایه LAY-0030
+P8b-2,journal_lines,JE 802,gl_void,1110,,3,0,110450099,,soft-void PRD-01 قدیمی لایه LAY-0030
+P8b-2,journal_lines,JE 803,gl_void,5221,,3,55081188,0,,soft-void PRD-09 قدیمی لایه LAY-0030
+P8b-2,journal_lines,JE 803,gl_void,1110,,3,0,55081188,,soft-void PRD-09 قدیمی لایه LAY-0030
+P8b-2,journal_lines,new JE (JV-1202),gl_new,1111,,3,165531287,0,,PRD-01 ناخالص لایه LAY-0030 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1202),gl_new,1110,,3,0,165531287,,PRD-01 ناخالص لایه LAY-0030 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1203),gl_new,5221,,3,55081188,0,,PRD-09 بستانکار WIP لایه LAY-0030 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1203),gl_new,1111,,3,0,55081188,,PRD-09 بستانکار WIP لایه LAY-0030 (تاریخ 1405/07/15)
+P8b-2,production_material_issues,60,row_update,,,3,,,,amount_rial/std_amount_rial 110450099 → 165531287; unit_cost_rial 5999462 → 8991379
+P8b-2,cutting_lays,30,row_update,,,3,,,,journal_id 802 → سند جدید؛ waste_journal_id 803 → سند جدید (cutting_batches 10 هم)
+P8b-2,journal_lines,JE 804,gl_void,1111,,3,140831969,0,,soft-void PRD-01 قدیمی لایه LAY-0031
+P8b-2,journal_lines,JE 804,gl_void,1110,,3,0,140831969,,soft-void PRD-01 قدیمی لایه LAY-0031
+P8b-2,journal_lines,JE 805,gl_void,5221,,3,32647697,0,,soft-void PRD-09 قدیمی لایه LAY-0031
+P8b-2,journal_lines,JE 805,gl_void,1110,,3,0,32647697,,soft-void PRD-09 قدیمی لایه LAY-0031
+P8b-2,journal_lines,new JE (JV-1204),gl_new,1111,,3,173479666,0,,PRD-01 ناخالص لایه LAY-0031 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1204),gl_new,1110,,3,0,173479666,,PRD-01 ناخالص لایه LAY-0031 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1205),gl_new,5221,,3,32647697,0,,PRD-09 بستانکار WIP لایه LAY-0031 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1205),gl_new,1111,,3,0,32647697,,PRD-09 بستانکار WIP لایه LAY-0031 (تاریخ 1405/07/15)
+P8b-2,production_material_issues,61,row_update,,,3,,,,amount_rial/std_amount_rial 140831969 → 173479666; unit_cost_rial 7299262 → 8991379
+P8b-2,cutting_lays,31,row_update,,,3,,,,journal_id 804 → سند جدید؛ waste_journal_id 805 → سند جدید (cutting_batches 11 هم)
+P8b-2,journal_lines,JE 806,gl_void,1111,,3,125762418,0,,soft-void PRD-01 قدیمی لایه LAY-0032
+P8b-2,journal_lines,JE 806,gl_void,1110,,3,0,125762418,,soft-void PRD-01 قدیمی لایه LAY-0032
+P8b-2,journal_lines,JE 807,gl_void,5221,,3,47717248,0,,soft-void PRD-09 قدیمی لایه LAY-0032
+P8b-2,journal_lines,JE 807,gl_void,1110,,3,0,47717248,,soft-void PRD-09 قدیمی لایه LAY-0032
+P8b-2,journal_lines,new JE (JV-1206),gl_new,1111,,3,173479666,0,,PRD-01 ناخالص لایه LAY-0032 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1206),gl_new,1110,,3,0,173479666,,PRD-01 ناخالص لایه LAY-0032 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1207),gl_new,5221,,3,47717248,0,,PRD-09 بستانکار WIP لایه LAY-0032 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1207),gl_new,1111,,3,0,47717248,,PRD-09 بستانکار WIP لایه LAY-0032 (تاریخ 1405/07/15)
+P8b-2,production_material_issues,62,row_update,,,3,,,,amount_rial/std_amount_rial 125762418 → 173479666; unit_cost_rial 6518214 → 8991379
+P8b-2,cutting_lays,32,row_update,,,3,,,,journal_id 806 → سند جدید؛ waste_journal_id 807 → سند جدید (cutting_batches 12 هم)
+P8b-2,journal_lines,JE 816,gl_void,1111,,3,126023168,0,,soft-void PRD-01 قدیمی لایه LAY-0033
+P8b-2,journal_lines,JE 816,gl_void,1110,,3,0,126023168,,soft-void PRD-01 قدیمی لایه LAY-0033
+P8b-2,journal_lines,JE 817,gl_void,5221,,3,56214102,0,,soft-void PRD-09 قدیمی لایه LAY-0033
+P8b-2,journal_lines,JE 817,gl_void,1110,,3,0,56214102,,soft-void PRD-09 قدیمی لایه LAY-0033
+P8b-2,journal_lines,new JE (JV-1208),gl_new,1111,,3,182237270,0,,PRD-01 ناخالص لایه LAY-0033 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1208),gl_new,1110,,3,0,182237270,,PRD-01 ناخالص لایه LAY-0033 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1209),gl_new,5221,,3,56214102,0,,PRD-09 بستانکار WIP لایه LAY-0033 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1209),gl_new,1111,,3,0,56214102,,PRD-09 بستانکار WIP لایه LAY-0033 (تاریخ 1405/07/15)
+P8b-2,production_material_issues,65,row_update,,,3,,,,amount_rial/std_amount_rial 126023168 → 182237270; unit_cost_rial 6343022 → 9172401
+P8b-2,cutting_lays,33,row_update,,,3,,,,journal_id 816 → سند جدید؛ waste_journal_id 817 → سند جدید (cutting_batches 13 هم)
+P8b-2,journal_lines,JE 810,gl_void,1111,,3,156135296,0,,soft-void PRD-01 قدیمی لایه LAY-0034
+P8b-2,journal_lines,JE 810,gl_void,1110,,3,0,156135296,,soft-void PRD-01 قدیمی لایه LAY-0034
+P8b-2,journal_lines,JE 811,gl_void,5221,,3,25040991,0,,soft-void PRD-09 قدیمی لایه LAY-0034
+P8b-2,journal_lines,JE 811,gl_void,1110,,3,0,25040991,,soft-void PRD-09 قدیمی لایه LAY-0034
+P8b-2,journal_lines,new JE (JV-1210),gl_new,1111,,3,181176287,0,,PRD-01 ناخالص لایه LAY-0034 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1210),gl_new,1110,,3,0,181176287,,PRD-01 ناخالص لایه LAY-0034 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1211),gl_new,5221,,3,25040991,0,,PRD-09 بستانکار WIP لایه LAY-0034 (تاریخ 1405/07/15)
+P8b-2,journal_lines,new JE (JV-1211),gl_new,1111,,3,0,25040991,,PRD-09 بستانکار WIP لایه LAY-0034 (تاریخ 1405/07/15)
+P8b-2,production_material_issues,64,row_update,,,3,,,,amount_rial/std_amount_rial 156135296 → 181176287; unit_cost_rial 7748650 → 8991379
+P8b-2,cutting_lays,34,row_update,,,3,,,,journal_id 810 → سند جدید؛ waste_journal_id 811 → سند جدید (cutting_batches 14 هم)
+P8b-2,production_order_stages,54,row_update,,,,,,,material_added_rial 659202950 → 875904176; waste_abnormal_rial 0 → 216701226; cost_out_rial 815932404 (بدون تغییر)
+P8b-2,production_orders,19,row_update,,,,,,,PO-0019 (in_progress) material_cost_rial 681121488 → 897822714; abnormal_waste_rial 216701226 → 216701226; اتلاف داخل WIP 0 → 216701226; رسید مورد انتظار 1009210942 (بدون تغییر)
+P8b-2,journal_lines,1110,info,1110,,,4400229925,2466930351,,ماندهٔ خالص 1933299574 — بعد از اصلاح بدون تغییر
+P8b-2,journal_lines,1111,info,1111,,,3905077253,2640528705,,ماندهٔ خالص 1264548548 — بعد از اصلاح بدون تغییر
+P8b-2,journal_lines,5221,info,5221,,,220700687,0,,ماندهٔ خالص 220700687 — بعد از اصلاح بدون تغییر
