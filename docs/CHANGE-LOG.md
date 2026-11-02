@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۸/۱۱ — production-cycle P6: ضایعات غیرعادی برش مشترک بستانکار کار در جریان (1111) (SW v613)
+- **Commit:** squash روی main (#166) ([PR #166](https://github.com/rashidhamedas-prog/erp-taranom/pull/166))؛ commit شاخه `e65c9d33` (`fix/prodcycle-p6-waste-wip`).
+- **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
+- **مشکل:** برش مشترک (`shared-cut.js`) اتلاف طولی و سهم غیرعادی پهن را مستقیم Dr5221 / **Cr1110** می‌زد و فقط خالص common وارد WIP می‌شد (برش معمولی درست بود).
+- **رفع (ثبت و ویرایش):** PRD-01 Dr1111 / Cr1110 = کل پارچه (common + اتلاف)؛ PRD-09 Dr5221 / **Cr1111** = اتلاف؛ خالص 1111 = common؛ `cutting_batch_allocations` همچنان روی common؛ خروج موجودی (`production_issue`) بدون تغییر. ابطال/ویرایش (R13) هر دو سند با `reverseJournalEntry`.
+- **مرحله/سفارش:** `applyCuttingLayToStage` برای برش مشترک هم `amountRial = common + waste` و `wasteAmountRial = waste` (حالت خاص `sharedLay` حذف؛ ناهمخوانی apply/unlink هم رفع شد). `order-cost-reconcile.js` و costOut مرحله: تشخیص per-lay «اتلاف از WIP خارج شده» (کلاسیک همیشه؛ مشترک فقط وقتی `waste_journal_id` بستانکار حساب WIP است) ⇒ برش‌های مشترک قدیمی (Cr1110) رفتار قبلی را دارند. `voidSharedCut` بعد از ابطال ستون‌های بهای سفارش را از اسناد زنده بازسازی می‌کند.
+- **Help:** راهنمای مدیر، بخش برش (P6) + متن پیش‌نمایش اصلاح بها.
+- **ادغام:** تعارض `app.js` (راهنمای برش مشترک) با P2 — هر دو حفظ شد: بند جدید «تسهیم رسید نهایی سفارش چندمحصولی» (P2) + متن به‌روز «اصلاح بها (v503)» (P6).
+- **تست:** جدید `test-prodcycle-p6-shared-waste` ۴۸/۴۸؛ prodcycle-p1 ۲۶/۲۶، p2 ۲۷/۲۷، p5 ۲۶/۲۶، prod-cut-shared ۵۱/۵۱، cutting-alloc-basis-v470 ۲۲/۲۲، prod-02-cutting ۳۹/۳۹، cutting-lay-multi-v469 ۳۰/۳۰، sms ۲۲/۲۲، `_diag-sync-gaps` mismatches=[]. شکست‌های journey-adr006-v471، lay-unit-v514، closed-month-gates-v525، production-fixed-advanced و test-sync از قبل روی main.
+- **داده:** هیچ. P8 (JE 803/805/807/811/817 سفارش 19): PRD-01 خالص ⇒ کل و PRD-09 Cr1110 ⇒ Cr1111، **هم‌زمان** `production_material_issues.amount_rial` (cutting_lay) و `material_added_rial` مرحله ⇒ common+waste، سپس `applyDocumentCosts`.
+- **SW:** `erp-taranom-v613`؛ `app.js?v=613`.
+- **فایل‌ها:** `server/lib/production/{shared-cut,engine-advanced,order-cost-reconcile}.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-prod-cut-shared.js`، `server/scripts/test-prodcycle-p6-shared-waste.js` (جدید)، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۱۱ — production-cycle P2: تسهیم برش مشترک بر پایهٔ `cutting_batch_allocations` + مراحل اختصاصی (SW v612)
 - **Commit:** squash روی main (#164) ([PR #164](https://github.com/rashidhamedas-prog/erp-taranom/pull/164))؛ commit شاخه `b8e7b9da` (`fix/prodcycle-p2-shared-cut-alloc`).
 - **Deploy:** ⏳ در انتظار «GO deploy production-cycle»
