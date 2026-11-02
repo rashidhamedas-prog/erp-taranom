@@ -31262,11 +31262,14 @@ async function deleteSalesReturn(id){
 /* ============================================================
    MANUAL JOURNAL VOUCHERS — double-entry, must balance
 ============================================================ */
+let _voucherDrafts=[];
 async function renderVouchersTab(body){
-  const [d,drafts]=await Promise.all([
+  const [d,draftsRaw]=await Promise.all([
     fetchAllJournalDocs('ref_type=manual_voucher,account_payment,account_receipt'),
-    api('GET','/accounting/vouchers/drafts')||[]
+    api('GET','/accounting/vouchers/drafts')
   ]);
+  const drafts=Array.isArray(draftsRaw)?draftsRaw:[];
+  _voucherDrafts=drafts;
   const typeLabel={manual_voucher:'سند دستی',account_payment:'پرداخت به حساب',account_receipt:'دریافت از حساب'};
   body.innerHTML=`
     <div class="toolbar" data-csp-style="${CSP.style(`margin-bottom:12px`)}">
@@ -31276,14 +31279,26 @@ async function renderVouchersTab(body){
     ${drafts.length?`<div class="panel" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
       <div class="panel-head"><h4>📋 پیش‌نویس‌ها (${drafts.length})</h4></div>
       <div class="panel-body tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
-        <th>تاریخ</th><th>شرح</th><th>ثبت‌کننده</th><th>عملیات</th>
+        <th>تاریخ</th><th>شرح</th><th>مبلغ (ریال)</th><th>ثبت‌کننده</th><th>عملیات</th>
       </tr></thead><tbody>${drafts.map(dr=>`<tr>
-        <td class="mono">${escDate(dr.date)}</td><td>${esc(dr.description||'-')}</td><td class="muted">${esc(dr.created_by_name||'-')}</td>
+        <td class="mono">${escDate(dr.date)}</td>
+        <td><div data-csp-style="${CSP.style(`display:flex;align-items:center;gap:4px;max-width:360px`)}">
+          ${dr.p3_key?`<span class="tag" title="پیش‌نویس اصلاحی P3 (${esc(dr.p3_key)})${dr.p3_exempt?'':' — سطرها تغییر کرده؛ معافیت 1104 برقرار نیست'}" data-csp-style="${CSP.style(`flex:none;background:var(--purple-light);color:var(--purple)`)}">P3</span>`:''}
+          ${dr.superseded?`<span class="tag" title="منسوخ — فقط از مسیر رسمی مغایرت‌گیری" data-csp-style="${CSP.style(`flex:none;background:#fde2e2;color:var(--red)`)}">منسوخ</span>`:''}
+          <span title="${esc(dr.description||'')}" data-csp-style="${CSP.style(`overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0`)}">${esc(dr.description||'-')}</span>
+        </div></td>
+        <td class="mono">${fmt(dr.total_debit||0)}</td>
+        <td class="muted">${esc(dr.created_by_name||'-')}</td>
         <td data-csp-style="${CSP.style(`white-space:nowrap`)}">
-          <button class="btn sm green" data-csp-click="${CSP.bind('click',function(event){postVoucherDraft((dr.id))})}">▶️ ثبت نهایی</button>
-          <button class="btn sm red" data-csp-click="${CSP.bind('click',function(event){deleteVoucherDraft((dr.id))})}">🗑️</button>
+          <button class="btn sm ghost" title="مشاهدهٔ سطرها" data-csp-click="${CSP.bind('click',function(event){openVoucherDraft((dr.id),'view')})}">👁️ مشاهده</button>
+          <button class="btn sm blue" title="ویرایش پیش‌نویس" ${dr.superseded?'disabled':''} data-csp-click="${CSP.bind('click',function(event){openVoucherDraft((dr.id),'edit')})}">✏️ ویرایش</button>
+          <button class="btn sm green" ${dr.superseded?'disabled title="پیش‌نویس منسوخ قابل ثبت نیست"':''} data-csp-click="${CSP.bind('click',function(event){postVoucherDraft((dr.id))})}">▶️ ثبت نهایی</button>
+          <button class="btn sm red" ${dr.superseded?'disabled title="پیش‌نویس منسوخ قابل حذف نیست"':''} data-csp-click="${CSP.bind('click',function(event){deleteVoucherDraft((dr.id))})}">🗑️</button>
         </td>
-      </tr>`).join('')}</tbody></table></div>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr data-csp-style="${CSP.style(`font-weight:700`)}">
+        <td colspan="2">جمع پیش‌نویس‌ها</td><td class="mono">${fmt(drafts.reduce((t,dr)=>t+(Number(dr.total_debit)||0),0))}</td><td colspan="2"></td>
+      </tr></tfoot></table></div>
     </div>`:''}
     <div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px`)}">${d.total||0} سند (دستی / پرداخت به حساب / دریافت از حساب)</div>
     ${(d.entries||[]).map(e=>`
@@ -31394,40 +31409,76 @@ function personOptions(selectedId){
   return `<option value="">-- انتخاب شخص --</option>` + (CACHE.persons||[]).map(p=>`<option value="${p.id}" ${p.id===selectedId?'selected':''}>${esc(p.name)}${p.category_name?' ('+esc(p.category_name)+')':''}</option>`).join('');
 }
 let _voucherIdem='';
-async function voucherModal(){
+// پیش‌نویس در حال ویرایش ({id, version}) — null یعنی سند/پیش‌نویس جدید.
+let _voucherDraftEdit=null;
+function voucherLineFromSaved(l){
+  return {
+    target_type:l.person_id?'person':'account',code:l.code||'',person_id:l.person_id||'',
+    debit:Number(l.debit)||0,credit:Number(l.credit)||0,description:l.description||'',
+    tafsili2_code:l.tafsili2_code||'',detail_account_id:l.detail_account_id||'',
+    cost_center_id:l.cost_center_id||'',project_id:l.project_id||'',tax_type:l.tax_type||''
+  };
+}
+// opts: {draft, mode:'view'|'edit'} — مشاهده/ویرایش پیش‌نویس در همین مودال سند دستی.
+async function voucherModal(opts){
+  const draft=opts&&opts.draft||null;
+  const mode=draft?(opts.mode==='edit'?'edit':'view'):'new';
+  _voucherDraftEdit=mode==='edit'?{id:draft.id,version:Number(draft.version)||0}:null;
   _voucherIdem=(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():('vc-'+Date.now()+'-'+Math.random().toString(16).slice(2));
   if(!CACHE.chartOfAccounts) CACHE.chartOfAccounts=await api('GET','/accounting/chart-of-accounts')||[];
   if(!CACHE.persons) CACHE.persons=await api('GET','/persons')||[];
   if(!CACHE.costCenters) CACHE.costCenters=await api('GET','/accounting/cost-centers')||[];
   if(!CACHE.voucherTemplates) CACHE.voucherTemplates=await api('GET','/accounting/vouchers/templates')||[];
-  voucherLines=[{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''},{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''}];
+  voucherLines=draft&&Array.isArray(draft.lines)&&draft.lines.length
+    ? draft.lines.map(voucherLineFromSaved)
+    : [{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''},{target_type:'account',code:'',person_id:'',debit:0,credit:0,description:'',tafsili2_code:''}];
+  const title=mode==='view'?`👁️ مشاهدهٔ پیش‌نویس #${esc(draft.id)}`:(mode==='edit'?`✏️ ویرایش پیش‌نویس #${esc(draft.id)}`:'📝 سند حسابداری دستی');
+  const foot=mode==='view'
+    ?`<button class="btn green" disabled title="فقط مشاهده">💾 ذخیره</button>
+      ${draft.superseded?'':`<button class="btn blue" data-csp-click="${CSP.bind('click',function(event){openVoucherDraft((draft.id),'edit')})}">✏️ ویرایش</button>`}
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button>`
+    :mode==='edit'
+    ?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveVoucherDraftEdit()})}">💾 ذخیرهٔ تغییرات پیش‌نویس</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>`
+    :`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveVoucher()})}">💾 ثبت سند</button>
+      <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){saveVoucherAsDraft()})}">📋 ذخیره به‌عنوان پیش‌نویس</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){saveVoucherAsTemplate()})}">📑 ذخیره به‌عنوان قالب</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>`;
+  const p3Note=draft&&draft.p3_key
+    ?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:10px;font-size:12px;padding:8px;border-radius:8px;background:var(--purple-light)`)}">پیش‌نویس اصلاحی P3 (${esc(draft.p3_key)}) — معافیت ثبت روی 1104 فقط با همان سطرهای اصلی برقرار است${draft.p3_exempt?'':' (سطرها تغییر کرده‌اند؛ معافیت برقرار نیست)'}؛ تغییر شرح آزاد است و برچسب [p3:…] حفظ می‌شود.</div>`:'';
   openModal(`
-    <div class="modal-head"><h3>📝 سند حسابداری دستی</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-head"><h3>${title}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body">
+      ${p3Note}
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-        <div class="fg"><label>تاریخ</label><input id="vc-date" data-jdate value="${todayJalali()}"></div>
-        <div class="fg full"><label>شرح سند * ${hlp('توضیح کلی سند، مثال: پرداخت اجاره دفتر، ثبت هزینه تبلیغات.')}</label><input id="vc-desc"></div>
-        ${CACHE.voucherTemplates.length?`<div class="fg full"><label>بارگذاری از قالب</label><select data-csp-change="${CSP.bind('change',function(event){loadVoucherTemplate(this.value)})}">
+        <div class="fg"><label>تاریخ</label><input id="vc-date" data-jdate value="${esc(draft?(draft.date||''):todayJalali())}"></div>
+        <div class="fg full"><label>شرح سند * ${hlp('توضیح کلی سند، مثال: پرداخت اجاره دفتر، ثبت هزینه تبلیغات.')}</label><input id="vc-desc" value="${esc(draft?(draft.description||''):'')}"></div>
+        ${!draft&&CACHE.voucherTemplates.length?`<div class="fg full"><label>بارگذاری از قالب</label><select data-csp-change="${CSP.bind('change',function(event){loadVoucherTemplate(this.value)})}">
           <option value="">-- بدون قالب --</option>
           ${CACHE.voucherTemplates.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}
         </select></div>`:''}
         ${(CACHE.costCenters||[]).length?`<div class="fg full"><label>${expenseCcFieldLabel('اگر سطر بدهکار هزینه/بهای تمام‌شده باشد و تنظیم الزام روشن باشد، مرکز هزینه الزامی است.')}</label><select id="vc-cc">
           <option value="">${isExpenseCcRequired()?'— انتخاب مرکز —':'-- بدون مرکز هزینه --'}</option>
-          ${CACHE.costCenters.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}
+          ${CACHE.costCenters.map(c=>`<option value="${c.id}" ${draft&&Number(draft.cost_center_id)===Number(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select></div>`:''}
       </div>
       <div id="vcLines"></div>
       <button class="btn sm ghost" data-csp-style="${CSP.style(`margin-top:8px`)}" data-csp-click="${CSP.bind('click',function(event){addVoucherLine()})}">➕ ردیف جدید</button>
       <div id="vcBalance" data-csp-style="${CSP.style(`margin-top:12px;font-weight:700;font-size:13px`)}"></div>
     </div>
-    <div class="modal-foot">
-      <button class="btn green" data-csp-click="${CSP.bind('click',function(event){saveVoucher()})}">💾 ثبت سند</button>
-      <button class="btn orange" data-csp-click="${CSP.bind('click',function(event){saveVoucherAsDraft()})}">📋 ذخیره به‌عنوان پیش‌نویس</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){saveVoucherAsTemplate()})}">📑 ذخیره به‌عنوان قالب</button>
-      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
-    </div>`,true);
+    <div class="modal-foot">${foot}</div>`,true);
   attachDatepickers(el('modalRoot'));
   renderVoucherLines();
+  if(mode==='view'){
+    const root=el('modalRoot');
+    if(root) root.querySelectorAll('.modal-body input,.modal-body select,.modal-body textarea,.modal-body button').forEach(x=>{ x.disabled=true; });
+  }
+}
+function openVoucherDraft(id, mode){
+  const dr=(_voucherDrafts||[]).find(x=>Number(x.id)===Number(id));
+  if(!dr){ showToast('پیش‌نویس یافت نشد — فهرست را تازه کنید','error'); return; }
+  if(mode==='edit'&&dr.superseded){ showToast('پیش‌نویس منسوخ قابل ویرایش نیست','error'); return; }
+  voucherModal({draft:dr,mode});
 }
 function loadVoucherTemplate(id){
   if(!id) return;
@@ -31554,12 +31605,47 @@ async function saveVoucherAsTemplate(){
     CACHE.voucherTemplates=await api('GET','/accounting/vouchers/templates')||[];
   }catch(e){}
 }
+const VC_COA_NOT_POSTABLE_HINT='حساب انتخاب‌شده سطح پست نیست — یک حساب برگ (معین/تفصیلی) انتخاب کنید یا برای اصلاح P3 از 1104 با خطوط اصلی استفاده کنید';
+function voucherDraftErrMsg(code, error){
+  if(code==='E_COA_NOT_POSTABLE'||code==='E_ACCOUNT_NOT_LEAF') return (error?error+' — ':'')+VC_COA_NOT_POSTABLE_HINT;
+  if(code==='E_DRAFT_VERSION_CONFLICT') return 'این پیش‌نویس در این فاصله تغییر کرده است — فهرست تازه شد؛ دوباره «ویرایش» را بزنید';
+  if(code==='E_P3_DRAFT_SUPERSEDED') return error||'این پیش‌نویس منسوخ است و فقط از مسیر رسمی مغایرت‌گیری قابل اصلاح است';
+  if(code==='E_P3_DRAFT_ADMIN_ONLY') return error||'حذف پیش‌نویس اصلاحی P3 فقط با مدیر سیستم مجاز است';
+  if(code==='E_SOD_MAKER_CHECKER') return 'سازندهٔ پیش‌نویس نمی‌تواند خودش آن را ثبت/حذف کند — کاربر دیگری (یا مدیر برای حذف) اقدام کند';
+  return error||'خطا رخ داد';
+}
+function voucherDraftErrToast(e){
+  const p=(e&&e.payload)||{};
+  showToast(voucherDraftErrMsg(e&&e.code||p.code, p.error||(e&&e.message)),'error');
+  if((e&&e.code)==='E_DRAFT_VERSION_CONFLICT'){ closeModal(); loadAccTab('vouchers'); }
+}
+async function saveVoucherDraftEdit(){
+  const ed=_voucherDraftEdit; if(!ed) return;
+  const desc=el('vc-desc').value.trim();
+  if(!desc){ showToast('شرح سند الزامی است','error'); return; }
+  const totD=voucherLines.reduce((a,l)=>a+(l.debit||0),0);
+  const totC=voucherLines.reduce((a,l)=>a+(l.credit||0),0);
+  if(Math.abs(totD-totC)>0.01){ showToast('سند نامتوازن است — بدهکار باید با بستانکار برابر باشد','error'); return; }
+  const lines=buildVoucherLinesPayload();
+  if(lines.length<2){ showToast('حداقل دو ردیف معتبر لازم است','error'); return; }
+  try{
+    await api('PUT','/accounting/vouchers/drafts/'+ed.id,{date:el('vc-date').value,description:desc,cost_center_id:+el('vc-cc')?.value||null,lines,version:ed.version},false,true);
+    _voucherDraftEdit=null;
+    closeModal(); showToast('پیش‌نویس ذخیره شد'); loadAccTab('vouchers');
+  }catch(e){ voucherDraftErrToast(e); }
+}
 async function postVoucherDraft(id){
-  try{ await api('POST','/accounting/vouchers/drafts/'+id+'/post'); showToast('سند ثبت شد'); loadAccTab('vouchers'); }catch(e){}
+  let chk=null;
+  try{ chk=await api('GET','/accounting/vouchers/drafts/'+id+'/check',null,false,true); }
+  catch(e){ voucherDraftErrToast(e); return; }
+  if(chk&&chk.ok===false){ showToast(voucherDraftErrMsg(chk.code, chk.error),'error'); return; }
+  try{ await api('POST','/accounting/vouchers/drafts/'+id+'/post',null,false,true); showToast('سند ثبت شد'); loadAccTab('vouchers'); }
+  catch(e){ voucherDraftErrToast(e); }
 }
 async function deleteVoucherDraft(id){
   if(!confirm('این پیش‌نویس حذف شود؟')) return;
-  try{ await api('DELETE','/accounting/vouchers/drafts/'+id); showToast('حذف شد'); loadAccTab('vouchers'); }catch(e){}
+  try{ await api('DELETE','/accounting/vouchers/drafts/'+id,null,false,true); showToast('حذف شد'); loadAccTab('vouchers'); }
+  catch(e){ voucherDraftErrToast(e); }
 }
 function voucherTemplatesModal(){
   const templates=CACHE.voucherTemplates||[];
@@ -41673,6 +41759,15 @@ function renderAdminGuide(){
         <li><b>پورسانت بازاریاب آزاد (P9):</b> سندش همچنان «پیش‌نویس» ساخته می‌شود و تا تأیید، هیچ اثری روی هزینه، بدهی شخص یا تراز ندارد.</li>
         <li><b>ابطال اصلاحیهٔ تطبیق</b> (فهرست اصلاحیه‌ها ← ابطال): برنامه اول پیش‌نمایش فقط‌خواندنی را نشان می‌دهد (ماندهٔ قبل/بعد درخت حساب و اختلاف با کاردکس)، سپس <b>علت (حداقل ۵ نویسه)</b> و <b>تأیید نهایی</b> می‌خواهد. در API بدنهٔ <span dir="ltr">{"confirm": true, "reason": "…"}</span> الزامی است؛ بدون آن خطای ۴۰۰ (<span dir="ltr">E_RECON_REVERSE_REASON_REQUIRED</span> / <span dir="ltr">E_RECON_REVERSE_CONFIRM_REQUIRED</span>) و هیچ چیزی نوشته نمی‌شود. علت در خود اصلاحیه و گزارش ممیزی ذخیره می‌شود.</li>
         <li><b>برگشت JE ۱۰۱۶:</b> گام اول همیشه پیش‌نمایش <span dir="ltr">GET …/fixes/1/reverse-preview</span> است؛ اگر ماندهٔ بعد از ابطال درخت ۱۱۰۴ دقیقاً ۱۲٬۶۸۰٬۰۷۹٬۱۴۲ و اختلاف بعد از ابطال دقیقاً ‎+۱٬۶۸۲٬۸۲۲٬۲۸۹ ریال نبود، ابطال نکنید و به مدیر گزارش دهید. اجرا فقط توسط مدیر.</li>
+      </ul>`),
+    helpSec('✏️','مشاهده، ویرایش و حذف پیش‌نویس سند (FR-POS-DRAFTS)',`
+      <p>در <b>حسابداری ← سند دستی ← پیش‌نویس‌ها</b> هر پیش‌نویس ستون <b>مبلغ</b> (جمع بدهکار) و ردیف <b>جمع پیش‌نویس‌ها</b> دارد؛ شرح بلند کوتاه نمایش داده می‌شود و متن کامل با نگه‌داشتن ماوس دیده می‌شود. نشان <b>P3</b> یعنی پیش‌نویس اصلاحی موجودی و نشان <b>منسوخ</b> یعنی پیش‌نویس برگشت JE ۱۰۱۶ (غیرقابل ویرایش، ثبت و حذف — خطای ۴۰۹ <span dir="ltr">E_P3_DRAFT_SUPERSEDED</span>).</p>
+      <ul>
+        <li><b>👁️ مشاهده / ✏️ ویرایش:</b> سطرها در همان فرم سند دستی باز می‌شوند. ذخیرهٔ ویرایش همان اعتبارسنجی «ثبت نهایی» را دارد (تراز بدهکار/بستانکار و حساب برگ)؛ هر خطا ⇒ هیچ تغییری ذخیره نمی‌شود. همهٔ تغییرات (قبل/بعد) در گزارش ممیزی ثبت می‌شود.</li>
+        <li><b>تداخل نسخه:</b> اگر کاربر دیگری همان پیش‌نویس را زودتر ذخیره کرده باشد، ذخیره با پیام «این پیش‌نویس در این فاصله تغییر کرده است» (<span dir="ltr">E_DRAFT_VERSION_CONFLICT</span>) رد و فهرست تازه می‌شود؛ دوباره «ویرایش» را بزنید.</li>
+        <li><b>معافیت ۱۱۰۴ پیش‌نویس‌های P3 به سطرها گره خورده است:</b> فقط با همان سطرهای اصلی (کد، مبلغ، شخص) ثبت روی ۱۱۰۴ مجاز است. تغییر شرح آزاد است (برچسب <span dir="ltr">[p3:…]</span> خودکار حفظ می‌شود)، اما تغییر سطرها روی ۱۱۰۴ با خطای «حساب انتخاب‌شده سطح پست نیست» رد می‌شود؛ برگرداندن سطرهای اصلی دوباره آن را قابل ثبت می‌کند.</li>
+        <li><b>ثبت نهایی:</b> پیش از ثبت، برنامه بررسی فقط‌خواندنی (<span dir="ltr">GET …/vouchers/drafts/:id/check</span>) انجام می‌دهد و علت عدم امکان ثبت را به فارسی نشان می‌دهد. سازندهٔ پیش‌نویس نمی‌تواند خودش آن را ثبت کند.</li>
+        <li><b>حذف:</b> فقط کاربری غیر از سازنده یا مدیر سیستم؛ حذف پیش‌نویس P3 فقط با مدیر (<span dir="ltr">E_P3_DRAFT_ADMIN_ONLY</span>). نسخهٔ کامل پیش‌نویس حذف‌شده (تاریخ، شرح، سطرها، سازنده، نسخه) در گزارش ممیزی می‌ماند.</li>
       </ul>`),
     helpSec('🧾','اصلاح P3: پیش‌نویس‌ها روی ۱۱۰۴۰۱ و برگشت JE ۱۰۱۶ فقط از مسیر رسمی (v604)',`
       <p><b>(جایگزین‌شده با FR-P3 بالا: سطرها دوباره روی ۱۱۰۴.)</b> طبق تصمیم مدیر، سطرهای موجودیِ پیش‌نویس‌های P3 روی حساب برگ <b>۱۱۰۴۰۱ «موجودی کالا»</b> (زیرحساب ۱۱۰۴) می‌نشینند تا «ثبت پیش‌نویس» با خطای «سطح پست نیست» متوقف نشود. کنترل اختلاف همچنان روی <b>جمع ۱۱۰۴ و همهٔ زیرحساب‌هایش</b> با کاردکس انبارهای ۳۴ و ۳۵ است.</p>
