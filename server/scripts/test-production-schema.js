@@ -115,7 +115,7 @@ try {
   const money = db.prepare(`
     SELECT m.name AS tbl, p.name AS col, p.type AS type
     FROM sqlite_master m, pragma_table_info(m.name) p
-    WHERE m.type='table' AND p.name LIKE '%_rial' AND upper(p.type) <> 'INTEGER'
+    WHERE m.type='table' AND p.name LIKE '%\\_rial' ESCAPE '\\' AND upper(p.type) <> 'INTEGER'
   `).all();
   ok('TS-07 هیچ ستون پولی REAL نیست', money.length === 0,
     money.map(r => `${r.tbl}.${r.col}=${r.type}`).join(', '));
