@@ -50,7 +50,11 @@ ok(booksSrc.includes('function updateInvoiceCustomerLedger'), 'updateInvoiceCust
 ok(!/entry_type:\s*'reversal'/.test(
   booksSrc.slice(booksSrc.indexOf('function updateInvoiceCustomerLedger'), booksSrc.indexOf('function reverseInvoiceCustomerLedger'))
 ), 'updateInvoiceCustomerLedger never inserts reversal');
-ok(!amendSrc.includes('reverseInventoryMovement'), 'amend-invoice no reverseInventoryMovement');
+// Stock single source: the ledger is append-only for qty, so an amended line is expressed as a stock
+// reversal movement + a fresh posting (was: UPDATE inventory_ledger in place). Money side stays
+// rewrite-only (no COGS / sale reversal JE) — asserted below.
+ok(amendSrc.includes('reverseInventoryMovement') && !/UPDATE inventory_ledger/.test(amendSrc),
+  'amend-invoice reverses stock via reverseInventoryMovement + reposts (no in-place UPDATE inventory_ledger)');
 ok(!amendSrc.includes('reverseStockBySource'), 'amend-invoice no reverseStockBySource');
 ok(!amendSrc.includes('invoice_cogs_reversal'), 'amend-invoice no invoice_cogs_reversal');
 ok(!amendSrc.includes('postToLedger'), 'amend-invoice does not postToLedger (rewrite only)');

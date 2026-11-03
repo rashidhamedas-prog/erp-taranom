@@ -7,6 +7,7 @@ const router = require('express').Router();
 const { getDB, audit } = require('../db');
 const { auth, adminOnly, centralOnlyStrict } = require('../middleware/auth');
 const { requireUserPassword, pickConfirmPassword } = require('../lib/password-verify');
+const { rebuildAllStockCaches } = require('../lib/inventory/stock-cache');
 
 const PROTECTED = new Set([
   'users', 'settings', 'chart_of_accounts', 'api_keys', 'fiscal_years',
@@ -63,8 +64,7 @@ const SECTIONS = {
       'warehouse_stock', 'products', 'product_categories',
     ],
     afterTx: (db) => {
-      try { db.prepare('UPDATE products SET stock=0').run(); } catch (_) {}
-      try { db.prepare('UPDATE warehouse_stock SET qty=0').run(); } catch (_) {}
+      rebuildAllStockCaches(db);
     },
   },
   parties: {

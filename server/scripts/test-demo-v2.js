@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 'use strict';
 
 const assert = require('assert');

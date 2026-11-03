@@ -140,9 +140,10 @@ function receiptState(invId) {
     `).run(admin.id, arLeaf).lastInsertRowid;
     const prodId = db.prepare(`
       INSERT INTO products (user_id, name, code, price, stock, vat_class, average_cost_rial, cost, warehouse_id)
-      VALUES (?, 'کالای P6-fix', 'SKU-P6FX', 10000000, 100, 'exempt', 1000000, 1000000, ?)
+      VALUES (?, 'کالای P6-fix', 'SKU-P6FX', 10000000, 0, 'exempt', 1000000, 1000000, ?)
     `).run(admin.id, whId).lastInsertRowid;
-    db.prepare('INSERT OR REPLACE INTO warehouse_stock (warehouse_id, product_id, qty) VALUES (?,?,?)').run(whId, prodId, 100);
+    // Stock single source: opening quantity is a ledger receipt document, never a direct cache write.
+    require('./lib/stock-fixture').seedStock(db, { productId: prodId, warehouseId: whId, qty: 100, unitCostRial: 1000000 });
 
     const term = await api('POST', '/api/pos/terminals', { name: 'کارتخوان بدون coa', terminal_id: 'P6FX-T0', bank_id: bankId });
     ok(term.status === 200 && term.data.coa_code == null, 'terminal without coa_code', term.data);

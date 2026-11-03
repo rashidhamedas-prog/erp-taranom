@@ -98,9 +98,11 @@ ok(!!fabLine && Number(fabLine.fabric_cut_locked) === 1, 'fabric locked in templ
 ok(!!fabLine && Number(fabLine.qty_actual) === 0, 'fabric qty_actual 0');
 ok(!!zipLine && Number(zipLine.qty_actual) === Number(zipLine.qty_standard), 'zipper still full std');
 
-db.prepare('UPDATE products SET stock=100, average_cost_rial=50000 WHERE id=?').run(zipId);
-db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,100)')
-  .run(zipId, whRaw.id);
+db.prepare('UPDATE products SET average_cost_rial=50000 WHERE id=?').run(zipId);
+require('../lib/inventory/ledger').postInventoryMovement(db, {
+  eventType: 'opening', productId: zipId, warehouseId: whRaw.id, qtyIn: 100, unitCostRial: 50000,
+  sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+});
 
 const iss = engine.issueMaterialsVariable(db, {
   orderId: po.id,

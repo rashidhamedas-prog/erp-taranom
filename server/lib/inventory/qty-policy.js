@@ -132,13 +132,13 @@ function allocateIntegers(weights, total) {
 }
 
 /**
- * One-shot heal: piece/matrix projections must match the integer movement ledger.
+ * One-shot heal: piece/matrix stock figures must not be fractional.
  *
- * The v238 float reconcile (`qty * global/sum` via round3) rewrote apparel
- * counts into fractions (14 → 6.462) while inventory_movements kept the
- * integers the user saved (opening_seed + transfers). Projection is restored
- * from that ledger. A warehouse row with no movements is a phantom split and
- * returns to 0. Continuous units (متر/کیلو) are left alone.
+ * The v238 float reconcile (`qty * global/sum` via round3) once rewrote apparel caches into
+ * fractions (14 → 6.462). SSOT: the caches are derived from the live inventory_ledger, so the
+ * heal re-derives every piece product whose cached figure is fractional (stock-cache.js is the
+ * only writer). A fraction that is in the ledger itself is data — it is reported, never rounded
+ * here (fixing it needs an adjustment document).
  *
  * Idempotent via settings key apparel_qty_ledger_heal_v1.
  */
@@ -148,220 +148,39 @@ function healApparelIntegerStock(db) {
   }
   const flag = db.prepare("SELECT value FROM settings WHERE key='apparel_qty_ledger_heal_v1'").get();
   if (flag && String(flag.value) === '1') return { already: true };
+  if (!tableExists(db, 'products')) return { skipped: true, reason: 'no_products' };
+  if (!tableExists(db, 'inventory_ledger')) return { skipped: true, reason: 'no_ledger' };
 
-  const hasVws = tableExists(db, 'variant_warehouse_stock');
-  const hasPv = tableExists(db, 'product_variants');
-  const hasWs = tableExists(db, 'warehouse_stock');
-  const hasP = tableExists(db, 'products');
-  if (!hasP) return { skipped: true, reason: 'no_products' };
-
-  let variantsFixed = 0;
-  let productsFixed = 0;
-  let vwsFixed = 0;
-  let wsFixed = 0;
-
+  const dirty = new Set();
+  const frac = (sql) => {
+    try { for (const r of db.prepare(sql).all()) dirty.add(Number(r.id)); } catch (_) { /* optional table */ }
+  };
+  frac('SELECT id FROM products WHERE ABS(stock - ROUND(stock)) > 0.0001');
+  if (tableExists(db, 'warehouse_stock')) {
+    frac('SELECT DISTINCT product_id AS id FROM warehouse_stock WHERE ABS(qty - ROUND(qty)) > 0.0001');
+  }
+  if (tableExists(db, 'product_variants')) {
+    frac('SELECT DISTINCT product_id AS id FROM product_variants WHERE ABS(stock - ROUND(stock)) > 0.0001');
+    if (tableExists(db, 'variant_warehouse_stock')) {
+      frac(`SELECT DISTINCT pv.product_id AS id FROM variant_warehouse_stock vws
+        JOIN product_variants pv ON pv.id=vws.variant_id WHERE ABS(vws.qty - ROUND(vws.qty)) > 0.0001`);
+    }
+  }
+  const productIds = [...dirty].filter((id) => requiresIntegerQty(db, id));
+  const ledgerFractional = [];
   const tx = db.transaction(() => {
-    if (hasPv && hasVws) {
-      const variants = db.prepare(`
-        SELECT id, product_id, stock FROM product_variants
-        WHERE active=1 AND COALESCE(is_default,0)=0
-      `).all();
-      const vwsRows = db.prepare(
-        'SELECT warehouse_id, qty FROM variant_warehouse_stock WHERE variant_id=?'
-      );
-      const vwsUpd = db.prepare(
-        'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
-      );
-      const varUpd = db.prepare('UPDATE product_variants SET stock=? WHERE id=?');
-      const hasMov = tableExists(db, 'inventory_movements');
-      const ledWh = hasMov ? db.prepare(`
-        SELECT COUNT(*) AS c, COALESCE(SUM(qty_delta),0) AS s
-        FROM inventory_movements
-        WHERE variant_id=? AND warehouse_id=?
-      `) : null;
-      const ledVar = hasMov ? db.prepare(
-        'SELECT COUNT(*) AS c FROM inventory_movements WHERE variant_id=?'
-      ) : null;
-      const sumVar = db.prepare(
-        'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
-      );
-
-      const dirtyProducts = new Set();
-      for (const v of variants) {
-        if (!requiresIntegerQty(db, v.product_id)) continue;
-        const rows = vwsRows.all(v.id);
-        const needs = rows.some((r) => !isIntegerQty(r.qty)) || !isIntegerQty(v.stock);
-        if (!needs) continue;
-        dirtyProducts.add(v.product_id);
-        if (!rows.length) {
-          const rounded = Math.round(Number(v.stock) || 0);
-          if (Number(v.stock) !== rounded) {
-            varUpd.run(rounded, v.id);
-            variantsFixed += 1;
-          }
-          continue;
-        }
-        const variantHasLedger = ledVar ? (Number(ledVar.get(v.id).c) || 0) > 0 : false;
-        let changed = false;
-        for (const r of rows) {
-          let target;
-          if (ledWh) {
-            const st = ledWh.get(v.id, r.warehouse_id);
-            const c = Number(st && st.c) || 0;
-            if (c > 0) target = Math.round(Number(st.s) || 0);
-            else if (variantHasLedger) target = 0;
-            else target = Math.round(Number(r.qty) || 0);
-          } else {
-            target = Math.round(Number(r.qty) || 0);
-          }
-          if (Number(r.qty) !== target) {
-            vwsUpd.run(target, v.id, r.warehouse_id);
-            vwsFixed += 1;
-            changed = true;
-          }
-        }
-        const total = Math.round(Number(sumVar.get(v.id).s) || 0);
-        if (Number(v.stock) !== total) {
-          varUpd.run(total, v.id);
-          changed = true;
-        }
-        if (changed) variantsFixed += 1;
-      }
-
-      // Rebuild warehouse_stock + products.stock only for matrix products
-      // whose piece projection was fractional. Healthy integer rows are not
-      // rewritten, so sync triggers do not fire for unchanged stock.
-      if (hasWs) {
-        const fracWs = db.prepare(`
-          SELECT DISTINCT product_id AS id FROM warehouse_stock
-          WHERE ABS(qty - ROUND(qty)) > 0.0001
-        `).all();
-        for (const row of fracWs) dirtyProducts.add(row.id);
-      }
-      const fracHead = db.prepare(`
-        SELECT id FROM products WHERE ABS(stock - ROUND(stock)) > 0.0001
-      `).all();
-      for (const row of fracHead) {
-        if (hasActiveMatrixVariants(db, row.id)) dirtyProducts.add(row.id);
-      }
-
-      const sumByWh = db.prepare(`
-        SELECT vws.warehouse_id AS warehouse_id, COALESCE(SUM(vws.qty),0) AS qty
-        FROM variant_warehouse_stock vws
-        JOIN product_variants pv ON pv.id=vws.variant_id
-        WHERE pv.product_id=? AND COALESCE(pv.is_default,0)=0 AND pv.active=1
-        GROUP BY vws.warehouse_id
-      `);
-      const wsCur = hasWs ? db.prepare(
-        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-      ) : null;
-      const wsUpsert = hasWs ? db.prepare(`
-        INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-        ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-      `) : null;
-      const prodCur = db.prepare('SELECT stock FROM products WHERE id=?');
-      const prodUpd = db.prepare('UPDATE products SET stock=? WHERE id=?');
-
-      for (const productId of dirtyProducts) {
-        if (!requiresIntegerQty(db, productId)) continue;
-        const whs = sumByWh.all(productId);
-        let total = 0;
-        for (const w of whs) {
-          const q = Math.round(Number(w.qty) || 0);
-          total += q;
-          if (!wsUpsert) continue;
-          const cur = wsCur.get(productId, w.warehouse_id);
-          if (!cur || Number(cur.qty) !== q) {
-            wsUpsert.run(productId, w.warehouse_id, q);
-            wsFixed += 1;
-          }
-        }
-        const head = prodCur.get(productId);
-        if (head && Number(head.stock) !== total) {
-          prodUpd.run(total, productId);
-          productsFixed += 1;
-        }
-      }
+    if (productIds.length) require('./stock-cache').rebuildAllStockCaches(db, { productIds });
+    for (const id of productIds) {
+      const p = db.prepare('SELECT stock FROM products WHERE id=?').get(id);
+      if (p && !isIntegerQty(p.stock)) ledgerFractional.push(id);
     }
-
-    // Non-matrix piece products: ledger when movements exist, else nearest integer
-    if (hasWs) {
-      const piece = db.prepare(`
-        SELECT id, stock, unit FROM products
-        WHERE ABS(stock - ROUND(stock)) > 0.0001
-      `).all();
-      const wsAll = db.prepare(
-        'SELECT warehouse_id, qty FROM warehouse_stock WHERE product_id=?'
-      );
-      const wsUpd = db.prepare(
-        'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-      );
-      const prodUpd = db.prepare('UPDATE products SET stock=? WHERE id=?');
-      const ledWh = tableExists(db, 'inventory_movements') ? db.prepare(`
-        SELECT COUNT(*) AS c, COALESCE(SUM(qty_delta),0) AS s
-        FROM inventory_movements
-        WHERE product_id=? AND warehouse_id=? AND variant_id IS NULL
-      `) : null;
-      const ledProd = tableExists(db, 'inventory_movements') ? db.prepare(`
-        SELECT COUNT(*) AS c FROM inventory_movements
-        WHERE product_id=? AND variant_id IS NULL
-      `) : null;
-      for (const p of piece) {
-        if (hasActiveMatrixVariants(db, p.id)) continue;
-        if (!requiresIntegerQty(db, p.id, p.unit)) continue;
-        const rows = wsAll.all(p.id);
-        const productHasLedger = ledProd ? (Number(ledProd.get(p.id).c) || 0) > 0 : false;
-        if (rows.length) {
-          let total = 0;
-          rows.forEach((r) => {
-            let target;
-            if (ledWh) {
-              const st = ledWh.get(p.id, r.warehouse_id);
-              const c = Number(st && st.c) || 0;
-              if (c > 0) target = Math.round(Number(st.s) || 0);
-              else if (productHasLedger) target = 0;
-              else target = Math.round(Number(r.qty) || 0);
-            } else {
-              target = Math.round(Number(r.qty) || 0);
-            }
-            total += target;
-            if (Number(r.qty) !== target) {
-              wsUpd.run(target, p.id, r.warehouse_id);
-              wsFixed += 1;
-            }
-          });
-          if (Number(p.stock) !== total) {
-            prodUpd.run(total, p.id);
-            productsFixed += 1;
-          }
-        } else {
-          const rounded = Math.round(Number(p.stock) || 0);
-          if (Number(p.stock) !== rounded) {
-            prodUpd.run(rounded, p.id);
-            productsFixed += 1;
-          }
-        }
-      }
-    } else {
-      const piece = db.prepare(`
-        SELECT id, stock, unit FROM products
-        WHERE ABS(stock - ROUND(stock)) > 0.0001
-      `).all();
-      const prodUpd = db.prepare('UPDATE products SET stock=? WHERE id=?');
-      for (const p of piece) {
-        if (!requiresIntegerQty(db, p.id, p.unit)) continue;
-        prodUpd.run(Math.round(Number(p.stock) || 0), p.id);
-        productsFixed += 1;
-      }
-    }
-
     db.prepare(
       "INSERT OR REPLACE INTO settings (key,value) VALUES ('apparel_qty_ledger_heal_v1','1')"
     ).run();
   });
   tx();
 
-  return { variantsFixed, productsFixed, vwsFixed, wsFixed };
+  return { productsRebuilt: productIds.length, ledgerFractional };
 }
 
 module.exports = {

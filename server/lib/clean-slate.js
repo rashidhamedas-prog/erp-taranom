@@ -292,8 +292,6 @@ function probeTablesForMode(mode) {
 function resetMasterBalances(db) {
   const stmts = [
     'UPDATE customers SET balance=0, churn_score=0',
-    'UPDATE products SET stock=0',
-    'UPDATE warehouse_stock SET qty=0',
     'UPDATE number_sequences SET current_value=0',
   ];
   for (const sql of stmts) {
@@ -348,13 +346,16 @@ function purgeTransactionalData(db, opts = {}) {
         }
       }
       if (mode === 'open-clean' || mode === 'full' || mode === 'wipe_master') {
-        try { db.prepare('DELETE FROM warehouse_stock').run(); } catch { /* ignore */ }
         try { db.prepare('UPDATE users SET party_id=NULL').run(); } catch { /* column may not exist */ }
         try { db.exec('UPDATE number_sequences SET current_value=0'); } catch { /* ignore */ }
         // chart_of_accounts is ALWAYS_KEEP — strip tafsili/detail rows explicitly
         purgeDetailCoding(db);
       } else {
         resetMasterBalances(db);
+      }
+      // inventory_ledger was wiped above; all surviving stock projections must now derive to zero.
+      try { require('./inventory/stock-cache').rebuildAllStockCaches(db); } catch (e) {
+        errors.push('stock_cache: ' + (e.message || e));
       }
       resetSqliteSequence(db, wiped);
       clearTransactionalSettings(db);

@@ -96,30 +96,12 @@ function resolveVariantBreakdown(db, plan, breakdown) {
     if (breakdown) throw rcErr('کالا رنگ×سایز نیست؛ variant_breakdown لازم نیست', 400, 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN');
     return null;
   }
-  if (!breakdown) {
-    throw rcErr('کالای رنگ×سایز: برای ابطال با اثر موجودی، توزیع واریانت (variant_breakdown) الزامی است', 409,
-      'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_REQUIRED', { product_id: plan.product_id, qty: Math.abs(plan.qty_delta) });
-  }
-  const sum = round3(breakdown.reduce((a, x) => a + x.qty, 0));
-  if (Math.abs(sum - Math.abs(plan.qty_delta)) > 1e-9) {
-    throw rcErr(`جمع توزیع واریانت (${sum}) باید برابر تعداد ردیف (${Math.abs(plan.qty_delta)}) باشد`, 409,
-      'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_SUM', { sum, qty: Math.abs(plan.qty_delta) });
-  }
-  const sign = plan.qty_delta < 0 ? -1 : 1;
-  return breakdown.map((x) => {
-    const v = db.prepare('SELECT id, product_id FROM product_variants WHERE id=?').get(x.variant_id);
-    if (!v || Number(v.product_id) !== Number(plan.product_id)) {
-      throw rcErr(`واریانت ${x.variant_id} متعلق به این کالا نیست`, 409, 'E_LEDGER_REVERSE_VARIANT_FOREIGN', { variant_id: x.variant_id });
-    }
-    const before = vwsQty(db, x.variant_id, plan.warehouse_id) || 0;
-    const after = round3(before + sign * x.qty);
-    if (after < -1e-9) {
-      throw rcErr(`موجودی رنگ‌سایز واریانت ${x.variant_id} منفی می‌شود (${after})`, 409, 'E_REVERSE_STOCK_NEGATIVE', {
-        variant_id: x.variant_id, available: before, needed: x.qty,
-      });
-    }
-    return { variant_id: x.variant_id, qty_delta: round3(sign * x.qty), before, after };
-  });
+  throw rcErr(
+    'این ردیف تاریخیِ کالای رنگ×سایز واریانت ندارد؛ ابطال خودکار آن بدون ساخت ردیف بی‌واریانت جدید ممکن نیست. ابتدا با شمارش واریانت‌ها اصلاحش کنید',
+    409,
+    'E_LEDGER_REVERSE_UNATTRIBUTED_MATRIX',
+    { product_id: plan.product_id, qty: Math.abs(plan.qty_delta) }
+  );
 }
 
 function isReversalRow(row) {
@@ -181,16 +163,16 @@ function kardexOf(db, productId, warehouseId) {
 
 function wsQty(db, productId, warehouseId) {
   if (!warehouseId) return null;
-  const r = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(productId, warehouseId);
-  return r ? round3(r.qty) : 0;
+  return round3(require('./stock-cache').derivedQty(db, { productId, warehouseId }));
 }
 
 function vwsQty(db, variantId, warehouseId) {
   if (!variantId || !warehouseId) return null;
-  try {
-    const r = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(variantId, warehouseId);
-    return r ? round3(r.qty) : 0;
-  } catch (_) { return null; }
+  const v = db.prepare('SELECT product_id FROM product_variants WHERE id=?').get(variantId);
+  if (!v) return null;
+  return round3(require('./stock-cache').derivedQty(db, {
+    productId: v.product_id, warehouseId, variantId,
+  }));
 }
 
 function tableHasColumn(db, table, col) {
@@ -254,7 +236,9 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   if (!withStockOk && warehouseId != null) {
     warnings.push(`با اثر موجودی، موجودی انبار منفی می‌شود (${wsAfterWith}${vwsAfterWith != null ? ` / رنگ‌سایز ${vwsAfterWith}` : ''}) و ثبت رد خواهد شد`);
   }
-  if (matrix && !variantId) warnings.push('کالای رنگ×سایز: ردیف واریانت ندارد؛ با اثر موجودی، توزیع واریانت (variant_breakdown) الزامی است');
+  if (matrix && !variantId) warnings.push(
+    'این ردیف تاریخیِ کالای رنگ×سایز واریانت ندارد و ابطال خودکار آن در مدل SSOT پشتیبانی نمی‌شود؛ ابتدا با شمارش واریانت‌ها اصلاحش کنید'
+  );
   let variantLayer = null;
   if (matrix && !variantId && warehouseId != null) {
     try {
@@ -304,10 +288,11 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
       after_kardex_only: vws,
     } : null,
     matrix,
-    variant_breakdown_required: !!(matrix && !variantId),
+    variant_breakdown_required: false,
+    variant_breakdown_supported: !(matrix && !variantId),
     variant_layer_in_warehouse: variantLayer,
-    with_stock_allowed: !blocker && withStockOk,
-    kardex_only_allowed: !blocker,
+    with_stock_allowed: !blocker && withStockOk && !(matrix && !variantId),
+    kardex_only_allowed: false,
     voucher_draft: draft ? {
       will_create: !!draft.needed, je_id: draft.je_id, je_status: draft.je_status, lines: draft.lines,
     } : null,
@@ -321,38 +306,16 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   return { plan: out, row, draft };
 }
 
-function applyStockEffect(db, { row, plan, user, reversalId, note, variantPlan }) {
+function applyStockEffect(db, { plan, user, note }) {
   const productId = plan.product_id;
   const warehouseId = plan.warehouse_id;
-  const delta = plan.qty_delta;
-  db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)').run(productId, warehouseId);
-  const wsBefore = wsQty(db, productId, warehouseId);
-  const wsAfter = round3(wsBefore + delta);
-  if (wsAfter < -1e-9) {
-    throw rcErr(`موجودی انبار منفی می‌شود (${wsAfter})`, 409, 'E_REVERSE_STOCK_NEGATIVE', {
-      warehouse_id: warehouseId, available: wsBefore, needed: Math.abs(delta),
-    });
-  }
-  db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?').run(wsAfter, productId, warehouseId);
-  const p = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(round3((Number(p && p.stock) || 0) + delta), productId);
+  const wsBefore = plan.warehouse_stock.before;
   try {
     db.prepare('INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)')
-      .run(productId, (user && user.id) || 0, delta, note);
+      .run(productId, (user && user.id) || 0, plan.qty_delta, note);
   } catch (_) { /* legacy stock_logs optional */ }
-  if (plan.variant_id) {
-    require('./movement').postVariantLayer(db, {
-      productId, variantId: plan.variant_id, warehouseId, qtyDelta: delta,
-      docType: DOC_TYPE, docId: reversalId, docLine: 0, userId: user && user.id, note, allowNegative: false,
-    });
-  }
-  (variantPlan || []).forEach((v, i) => {
-    require('./movement').postVariantLayer(db, {
-      productId, variantId: v.variant_id, warehouseId, qtyDelta: v.qty_delta,
-      docType: DOC_TYPE, docId: reversalId, docLine: i + 1, userId: user && user.id, note, allowNegative: false,
-    });
-  });
-  return { before: wsBefore, after: wsAfter };
+  require('./stock-cache').rebuildStockCache(db, productId);
+  return { before: wsBefore, after: wsQty(db, productId, warehouseId) };
 }
 
 /**
@@ -365,6 +328,13 @@ function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
   db.transaction(() => {
     const { plan, row, draft } = planCorrection(db, ledgerId, { stockEffect });
     if (plan.blocker) throw rcErr(plan.blocker.error, plan.blocker.status, plan.blocker.code, { ledger_id: plan.ledger_id });
+    if (stockEffect === 'kardex_only') {
+      throw rcErr(
+        'حالت «فقط کاردکس» با منبع حقیقت واحد موجودی سازگار نیست؛ ابطال را با اثر موجودی ثبت کنید',
+        409,
+        'E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT'
+      );
+    }
     let variantPlan = null;
     if (stockEffect === 'with_stock' && plan.warehouse_id != null) {
       variantPlan = resolveVariantBreakdown(db, plan, variantBreakdown);
@@ -385,11 +355,11 @@ function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
     const revDate = date || require('../../jalali').todayJalali();
     const note = `ابطال اصلاحی ${row.tx_no || ('#' + row.id)} (${stockEffect === 'with_stock' ? 'با اثر موجودی' : 'فقط کاردکس'}) — ${reason}`.slice(0, 300);
     const rev = require('./ledger').reverseInventoryMovement(db, row.id, {
-      createdBy: user && user.id, date: revDate, note, skipStock: true,
+      createdBy: user && user.id, date: revDate, note,
     });
     let ws = { before: plan.warehouse_stock.before, after: plan.warehouse_stock.before };
     if (stockEffect === 'with_stock') {
-      ws = applyStockEffect(db, { row, plan, user, reversalId: Number(rev.id), note, variantPlan });
+      ws = applyStockEffect(db, { plan, user, note });
     }
     let draftId = null;
     if (draft && draft.needed) {

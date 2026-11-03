@@ -195,6 +195,44 @@ router.get('/', auth, (req, res) => {
     ${whereSql} ORDER BY CAST(p.stock AS REAL) DESC, p.id DESC
     ${pq.limitSql}
   `).all(...params, ...pq.limitParams);
+  // Single grouped query over inventory_ledger (LIVE rule) so list/card stock always equals kardex
+  try {
+    const ids = rows.map((r) => Number(r.id)).filter((n) => n > 0);
+    if (ids.length && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()) {
+      const { LEDGER_LIVE_SQL } = require('../lib/inventory/layer-reconcile');
+      const { WAREHOUSE_ONLY_EVENTS } = require('../lib/inventory/stock-cache');
+      const woList = WAREHOUSE_ONLY_EVENTS.map((e) => `'${e}'`).join(',');
+      const ph = ids.map(() => '?').join(',');
+      const ledRows = db.prepare(`
+        SELECT product_id, warehouse_id,
+          SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS q,
+          SUM(CASE WHEN COALESCE(event_type,'') NOT IN (${woList}) THEN COALESCE(qty_in,0) - COALESCE(qty_out,0) ELSE 0 END) AS hq
+        FROM inventory_ledger
+        WHERE product_id IN (${ph}) AND (${LEDGER_LIVE_SQL})
+        GROUP BY product_id, warehouse_id
+      `).all(...ids);
+      if (ledRows.length) {
+        const byProd = new Map();
+        const byProdWh = new Map();
+        for (const lr of ledRows) {
+          const pid = Number(lr.product_id);
+          byProd.set(pid, (byProd.get(pid) || 0) + (Number(lr.hq) || 0));
+          if (lr.warehouse_id != null) {
+            const k = `${pid}:${Number(lr.warehouse_id)}`;
+            byProdWh.set(k, (byProdWh.get(k) || 0) + (Number(lr.q) || 0));
+          }
+        }
+        const r3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+        for (const row of rows) {
+          const pid = Number(row.id);
+          if (byProd.has(pid)) row.stock = r3(byProd.get(pid));
+          if (warehouseId && byProdWh.has(`${pid}:${warehouseId}`)) {
+            row.wh_qty = r3(byProdWh.get(`${pid}:${warehouseId}`));
+          }
+        }
+      }
+    }
+  } catch (_) { /* keep cached columns on error */ }
   // Attach gallery filenames for album UI (catalog / marketer / cards)
   for (const row of rows) {
     let imgs = listProductImages(db, row.id);
@@ -358,6 +396,12 @@ router.get('/:id', auth, (req, res) => {
     try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
   }
   if (!row.image && row.images && row.images[0]) row.image = row.images[0].filename;
+  try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger' AND EXISTS (SELECT 1 FROM inventory_ledger WHERE product_id=? LIMIT 1)").get(row.id)) {
+      const { derivedQty } = require('../lib/inventory/stock-cache');
+      row.stock = derivedQty(db, { productId: row.id });
+    }
+  } catch (_) {}
   attachVariantFlags(db, row);
   res.json(applyCatalogCostPolicy(db, req.user, jsonSafeProduct(row)));
 });
@@ -380,59 +424,53 @@ router.get('/:id/kardex', auth, (req, res) => {
   `).get(...params);
   if (!product) return res.status(404).json({ error: 'محصول یافت نشد' });
 
-  // Prefer immutable inventory_ledger when present
+  // Prefer immutable inventory_ledger when present (live rows only via LEDGER_LIVE_SQL)
   const hasLedger = db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'"
   ).get();
   if (hasLedger) {
+    const { LEDGER_LIVE_SQL } = require('../lib/inventory/layer-reconcile');
+    const { derivedQty } = require('../lib/inventory/stock-cache');
+    product.stock = derivedQty(db, { productId: product.id });
     const rows = db.prepare(`
       SELECT l.*, u.name as user_name, w.name as warehouse_name
       FROM inventory_ledger l
       LEFT JOIN users u ON l.created_by=u.id
       LEFT JOIN warehouses w ON l.warehouse_id=w.id
-      WHERE l.product_id=? AND l.status IN ('posted','reversed')
+      WHERE l.product_id=? AND (${LEDGER_LIVE_SQL})
       ORDER BY l.date ASC, l.id ASC
     `).all(req.params.id);
-    if (rows.length) {
-      const { isVoidPairStockRow } = require('../lib/ledgers');
-      const liveRows = rows.filter((l) => !isVoidPairStockRow(l));
-      const logs = liveRows.map(l => ({
-        id: l.id,
-        tx_no: l.tx_no,
-        event_type: l.event_type,
-        change: (Number(l.qty_in) || 0) - (Number(l.qty_out) || 0),
-        qty_in: l.qty_in,
-        qty_out: l.qty_out,
-        running_balance: l.qty_balance,
-        unit_cost_rial: l.unit_cost_rial,
-        amount_rial: l.amount_rial,
-        avg_cost_after_rial: l.avg_cost_after_rial,
-        note: l.note,
-        date: l.date,
-        warehouse_name: l.warehouse_name,
-        user_name: l.user_name,
-        created_at: l.created_at,
-        status: l.status,
-        source: 'inventory_ledger',
-      }));
-      require('../lib/report-order').sortReportRows(logs, { date: 'date', dir: 'asc' });
-      let runQty = 0;
-      for (const l of logs) {
-        runQty += Number(l.change) || 0;
-        l.running_balance = runQty;
-      }
-      return res.json(applyCatalogCostPolicy(db, req.user, { product, logs, source: 'inventory_ledger' }));
+    const { isVoidPairStockRow } = require('../lib/ledgers');
+    const liveRows = rows.filter((l) => !isVoidPairStockRow(l));
+    const logs = liveRows.map(l => ({
+      id: l.id,
+      tx_no: l.tx_no,
+      event_type: l.event_type,
+      change: (Number(l.qty_in) || 0) - (Number(l.qty_out) || 0),
+      qty_in: l.qty_in,
+      qty_out: l.qty_out,
+      running_balance: l.qty_balance,
+      unit_cost_rial: l.unit_cost_rial,
+      amount_rial: l.amount_rial,
+      avg_cost_after_rial: l.avg_cost_after_rial,
+      note: l.note,
+      date: l.date,
+      warehouse_name: l.warehouse_name,
+      user_name: l.user_name,
+      created_at: l.created_at,
+      status: l.status,
+      source: 'inventory_ledger',
+    }));
+    require('../lib/report-order').sortReportRows(logs, { date: 'date', dir: 'asc' });
+    let runQty = 0;
+    for (const l of logs) {
+      runQty += Number(l.change) || 0;
+      l.running_balance = runQty;
     }
+    return res.json(applyCatalogCostPolicy(db, req.user, { product, logs, source: 'inventory_ledger' }));
   }
 
-  const logs = db.prepare(`
-    SELECT sl.*, u.name as user_name FROM stock_logs sl LEFT JOIN users u ON sl.user_id=u.id
-    WHERE sl.product_id=? ORDER BY sl.created_at ASC, sl.id ASC
-  `).all(req.params.id);
-  const totalChange = logs.reduce((a, l) => a + (l.change || 0), 0);
-  let running = (product.stock || 0) - totalChange;
-  logs.forEach(l => { running += (l.change || 0); l.running_balance = running; l.source = 'stock_logs'; });
-  res.json(applyCatalogCostPolicy(db, req.user, { product, logs, source: 'stock_logs' }));
+  return res.json(applyCatalogCostPolicy(db, req.user, { product, logs: [], source: 'inventory_ledger' }));
 });
 
 // ── Barcode support (ported from CRM v4) ────────────────────────────────────
@@ -619,10 +657,6 @@ router.post('/', auth, adminOrAccounting, uploadProductMedia, async (req, res) =
     if (resolvedUnit.unit_id) {
       db.prepare('UPDATE products SET unit_id=? WHERE id=?').run(resolvedUnit.unit_id, result.lastInsertRowid);
     }
-    if (defaultWarehouse) {
-      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-        .run(result.lastInsertRowid, defaultWarehouse.id);
-    }
     if (req.body.retail_price != null && req.body.retail_price !== '') {
       const rp = Math.round(parseFloat(req.body.retail_price) || 0);
       db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?').run(rp, rp, result.lastInsertRowid);
@@ -772,12 +806,16 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
     if (Number.isFinite(want)) {
       if (isExcelUpsert) {
         if (!excelHasMoves) excelWantStock = want;
-      } else if (Math.abs(want - (Number(prod.stock) || 0)) > 1e-6) {
-        return res.status(409).json({
-          error: 'موجودی فقط با سند تعدیل/افتتاحیه تغییر می‌کند — از «تعدیل موجودی» استفاده کنید',
-          code: 'E_STOCK_VIA_DOCUMENT',
-          current_stock: Number(prod.stock) || 0,
-        });
+      } else {
+        // Compared against the ledger-derived on-hand (single source), not the cache column.
+        const liveStock = require('../lib/inventory/stock-cache').derivedQty(db, { productId: Number(req.params.id) });
+        if (Math.abs(want - liveStock) > 1e-6) {
+          return res.status(409).json({
+            error: 'موجودی فقط با سند تعدیل/افتتاحیه تغییر می‌کند — از «تعدیل موجودی» استفاده کنید',
+            code: 'E_STOCK_VIA_DOCUMENT',
+            current_stock: liveStock,
+          });
+        }
       }
     }
   }
@@ -1062,8 +1100,16 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
       }
     } catch (_) { /* optional */ }
 
+  // Stock single-source: a product with kardex history can never be deleted (the ledger is the truth).
+  try {
+    const hist = db.prepare('SELECT 1 AS x FROM inventory_ledger WHERE product_id=? LIMIT 1').get(pid);
+    if (hist) {
+      return res.status(409).json({ error: 'این کالا گردش انبار (کاردکس) دارد و قابل حذف نیست', code: 'E_PRODUCT_HAS_LEDGER' });
+    }
+  } catch (_) { /* ledger table absent in tiny fixtures */ }
   try {
     db.transaction(() => {
+      // Only zero cache rows can remain here (no ledger history) — dropped so the product row can go (FK).
       db.prepare('DELETE FROM warehouse_stock WHERE product_id=?').run(pid);
       try { db.prepare('DELETE FROM stock_logs WHERE product_id=?').run(pid); } catch (_) {}
       try { db.prepare('DELETE FROM stocktaking_items WHERE product_id=?').run(pid); } catch (_) {}

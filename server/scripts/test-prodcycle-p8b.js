@@ -169,7 +169,10 @@ try {
     INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, cost, item_type)
     VALUES (?, 'پارچه P8b', 'FAB-P8B', 0, 100000, 'متر', 1000, 1000, 'raw')
   `).run(admin.id).lastInsertRowid;
-  db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,100000)').run(fab, whRaw);
+  require('../lib/inventory/ledger').postInventoryMovement(db, {
+    eventType: 'opening', productId: fab, warehouseId: whRaw, qtyIn: 100000, unitCostRial: 1000,
+    sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+  });
   const a = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'A-P8b','FG-AP8B','عدد','finished',1)`).run(admin.id).lastInsertRowid;
   const b = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'B-P8b','FG-BP8B','عدد','finished',1)`).run(admin.id).lastInsertRowid;
   const whFg = (db.prepare("SELECT id FROM warehouses WHERE code='WH-FG'").get() || {}).id;

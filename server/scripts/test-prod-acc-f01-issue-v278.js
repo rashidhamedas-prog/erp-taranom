@@ -47,8 +47,12 @@ const pid = db.prepare(`
   INSERT INTO products (user_id, name, code, stock, average_cost_rial, cost, unit, is_manufactured)
   VALUES (?,'نخ تست','YARN-F01',100,1000,100,'متر',0)
 `).run(uid).lastInsertRowid;
-db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(pid, whA, 5);
-db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(pid, whB, 95);
+for (const [wh, q] of [[whA, 5], [whB, 95]]) {
+  require('../lib/inventory/ledger').postInventoryMovement(db, {
+    eventType: 'opening', productId: pid, warehouseId: wh, qtyIn: q, unitCostRial: 1000,
+    sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+  });
+}
 
 console.log('F01 — issue from WH-A with only 5 when header stock=100');
 let threw = null;

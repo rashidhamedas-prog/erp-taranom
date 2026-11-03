@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v369 — Invoice amend must reverse+repost POS books (pos_receipt JE + customer_ledger),
  * not only patch settlements / balance_due (T-0018 class bug).

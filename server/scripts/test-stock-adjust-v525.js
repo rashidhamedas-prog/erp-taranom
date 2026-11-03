@@ -102,9 +102,9 @@ async function main() {
     }, extra));
   }
   let srcSeq = 9000;
-  function receive(pid, wh, qty, unit = 500000) {
+  function receive(pid, wh, qty, unit = 500000, variantId = undefined) {
     return L.postInventoryMovement(db, {
-      eventType: 'purchase', productId: pid, warehouseId: wh, qty, unitCostRial: unit,
+      eventType: 'purchase', productId: pid, warehouseId: wh, qty, unitCostRial: unit, variantId,
       sourceType: 'purchase', sourceId: ++srcSeq, date: todayJalali(), createdBy: adminId,
     });
   }
@@ -116,7 +116,7 @@ async function main() {
   const colorId = insert('product_colors', { name: 'قرمز', code: 'RED', active: 1 });
   const sizeM = insert('product_sizes', { name: 'M', code: 'M', active: 1 });
   const VMX = insert('product_variants', { product_id: PMX, color_id: colorId, size_id: sizeM, sku: 'MX-RED-M', stock: 0, active: 1, is_default: 0 });
-  receive(PMX, whFG, 4, 400000);
+  receive(PMX, whFG, 4, 400000, VMX); // matrix product: the receipt row must carry its variant
   M.postVariantLayer(db, { productId: PMX, variantId: VMX, warehouseId: whFG, qtyDelta: 4, docType: 'seed', docId: 1, userId: adminId, note: 'seed' });
 
   ok(whQty(PFG, whFG) === 10 && whQty(PRAW, whRAW) === 50 && whQty(PWIP, whWIP) === 5, 'seed: stock received', {

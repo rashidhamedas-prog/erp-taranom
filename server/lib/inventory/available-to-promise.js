@@ -110,7 +110,7 @@ function salesAllowsNegative(db, warehouseId) {
 }
 
 /**
- * On-hand on the exact layer the sale posts to.
+ * On-hand on the exact layer the sale posts to (kept equal to inventory_ledger by rebuildStockCache).
  * @returns {{ qty:number, layer:'variant_warehouse'|'variant'|'warehouse'|'product' }}
  */
 function layerOnHand(db, { productId, variantId, warehouseId }) {
@@ -119,7 +119,13 @@ function layerOnHand(db, { productId, variantId, warehouseId }) {
       const row = db.prepare(
         'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
       ).get(variantId, warehouseId);
-      return { qty: row ? round3(Number(row.qty) || 0) : 0, layer: 'variant_warehouse' };
+      if (row) return { qty: round3(Number(row.qty) || 0), layer: 'variant_warehouse' };
+      try {
+        const { derivedQty } = require('./stock-cache');
+        return { qty: round3(derivedQty(db, { productId, variantId, warehouseId })), layer: 'variant_warehouse' };
+      } catch (_) {
+        return { qty: 0, layer: 'variant_warehouse' };
+      }
     }
     const v = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(variantId);
     return { qty: round3(Number(v && v.stock) || 0), layer: 'variant' };

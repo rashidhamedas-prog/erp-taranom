@@ -561,7 +561,7 @@ function applyRow(db, p, { reason, date, user }) {
   const wh = p.warehouse_id;
   const qty = p.qty;
   const note = `[${TAG}:ledger#${row.id}] تعیین انبار «${p.warehouse_name || wh}» برای برگشت از فروش #${row.source_id} — ${reason}`.slice(0, 300);
-  const rev = L.reverseInventoryMovement(db, row.id, { createdBy: userId, date, note, skipStock: true });
+  const rev = L.reverseInventoryMovement(db, row.id, { createdBy: userId, date, note });
   const mv = L.postInventoryMovement(db, {
     eventType: 'sale_return',
     productId: p.product_id,
@@ -572,24 +572,14 @@ function applyRow(db, p, { reason, date, user }) {
     sourceType: row.source_type,
     sourceId: row.source_id,
     batchId: row.batch_id || undefined,
-    variantId: row.variant_id || null,
+    variantId: p.variant_id || null,
     date,
     note,
     createdBy: userId,
     updateAvg: false,
-    skipStock: true,
   });
-  db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)').run(p.product_id, wh);
-  db.prepare('UPDATE warehouse_stock SET qty=ROUND(qty+?,3) WHERE product_id=? AND warehouse_id=?').run(qty, p.product_id, wh);
-  if (!p.header_stock.includes_row) {
-    db.prepare('UPDATE products SET stock=ROUND(COALESCE(stock,0)+?,3) WHERE id=?').run(qty, p.product_id);
-    try {
-      db.prepare('INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)').run(p.product_id, userId || 0, qty, note);
-    } catch (_) { /* legacy stock_logs optional */ }
-  }
   let skuVoidId = null;
   let skuId = null;
-  let healId = null;
   if (p.variant) {
     const v = p.variant;
     if (v._mov) {
@@ -604,24 +594,20 @@ function applyRow(db, p, { reason, date, user }) {
       docType: SKU_DOC, docId: Number(row.source_id), docLine: nextDocLine(db, SKU_DOC, Number(row.source_id)),
       userId, note: `${note} / رنگ×سایز`.slice(0, 300), allowNegative: true,
     }).id);
-    if (v.pv_heal_qty > 0) {
-      healId = Number(M.postStockMovement(db, {
-        productId: p.product_id, variantId: v.variant_id, warehouseId: null, qtyDelta: v.pv_heal_qty,
-        docType: PV_HEAL_DOC, docId: Number(mv.id), docLine: 0,
-        userId, note: `${note} / هم‌ترازی موجودی واریانت با جمع انبارها`.slice(0, 300),
-        allowNegative: true, applyHeaderStock: false, writeStockLog: false,
-      }).id);
-    }
   }
+  const cache = require('./stock-cache');
+  cache.rebuildStockCache(db, p.product_id);
+  const derived = cache.deriveProductStock(db, p.product_id);
   const prodNow = db.prepare('SELECT stock FROM products WHERE id=?').get(p.product_id);
-  verify('header', prodNow && prodNow.stock, p.header_stock.after);
+  verify('header', prodNow && prodNow.stock, derived.header);
   const wsNow = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(p.product_id, wh);
-  verify('warehouse_stock', wsNow && wsNow.qty, p.warehouse_stock.after);
+  verify('warehouse_stock', wsNow && wsNow.qty, derived.warehouses.get(Number(wh)) || 0);
   if (p.variant) {
     const pvNow = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(p.variant.variant_id);
-    verify('variant_stock', pvNow && pvNow.stock, p.variant.pv.after);
+    verify('variant_stock', pvNow && pvNow.stock, derived.variants.get(Number(p.variant.variant_id)) || 0);
     const vwsNow = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(p.variant.variant_id, wh);
-    verify('variant_warehouse_stock', vwsNow && vwsNow.qty, p.variant.vws.after);
+    verify('variant_warehouse_stock', vwsNow && vwsNow.qty,
+      derived.variantWarehouses.get(`${Number(p.variant.variant_id)}:${Number(wh)}`) || 0);
   }
   return {
     ledger_id: p.ledger_id,
@@ -631,7 +617,7 @@ function applyRow(db, p, { reason, date, user }) {
     new_tx_no: mv.tx_no,
     sku_void_movement_id: skuVoidId,
     sku_movement_id: skuId,
-    pv_heal_movement_id: healId,
+    pv_heal_movement_id: null,
   };
 }
 

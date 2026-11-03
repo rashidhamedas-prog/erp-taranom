@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * RETURNS P2-finance — linked sales return reduces invoice settled/open balance.
  * Run: node server/scripts/test-returns-p2-finance-v341.js

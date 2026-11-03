@@ -4,16 +4,29 @@ const { swAtLeast } = require('./lib/sw-at-least');
  * Piece/matrix stock stays integer. A float projection (6.462) is restored
  * from the movement ledger (opening 14 minus transfer 2 = 12), not rounded to 6.
  * Run: node server/scripts/test-apparel-integer-ledger-v258.js
+ *
+ * Stock single source: the REAL schema is booted (initDB) and every quantity is a ledger document
+ * (seedStock / setStock → inventory_ledger). The only direct cache writes left are the deliberate
+ * CORRUPTION of the derived caches (the legacy v238 float reconcile this heal exists to undo).
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const Database = require('better-sqlite3');
-const { healApparelIntegerStock, parseStockQty } = require('../lib/inventory/qty-policy');
 
-const testDb = path.join(__dirname, '_apparel-integer-ledger-v258.db');
-for (const suffix of ['', '-wal', '-shm']) {
-  try { fs.unlinkSync(testDb + suffix); } catch (_) {}
-}
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'apparel-int-v258-'));
+process.env.DB_PATH = path.join(tmp, 'test.db');
+process.env.SYNC_ROLE = 'central';
+process.env.ERP_TEST_ISOLATION = '1';
+process.env.SMS_DISABLED = '1';
+process.env.JWT_SECRET = 'test-apparel-int-v258-secret-32chars!!!!!';
+process.env.AUTH_SESSION_DB_PATH = path.join(tmp, 'sessions.db');
+process.env.NODE_ENV = 'test';
+
+const { getDB, initDB } = require('../db');
+initDB();
+const db = getDB();
+const { healApparelIntegerStock, parseStockQty } = require('../lib/inventory/qty-policy');
+const { seedStock, setStock } = require('./lib/stock-fixture');
 
 let pass = 0;
 let fail = 0;
@@ -21,85 +34,63 @@ function ok(cond, label, extra) {
   if (cond) { pass += 1; console.log('  OK', label); }
   else { fail += 1; console.log(' FAIL', label, extra == null ? '' : String(extra)); }
 }
+function insert(table, obj) {
+  const cols = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+  const keys = Object.keys(obj).filter((k) => cols.has(k));
+  return Number(db.prepare(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`)
+    .run(...keys.map((k) => obj[k])).lastInsertRowid);
+}
+const one = (sql, ...a) => db.prepare(sql).get(...a) || { qty: 0, stock: 0 };
 
-const db = new Database(testDb);
-db.exec(`
-  CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-  CREATE TABLE products (
-    id INTEGER PRIMARY KEY, name TEXT, unit TEXT, stock REAL DEFAULT 0,
-    warehouse_id INTEGER, colors INTEGER DEFAULT 1, code TEXT, pack_size INTEGER DEFAULT 1,
-    is_style INTEGER DEFAULT 1, has_variants INTEGER DEFAULT 1
-  );
-  CREATE TABLE product_colors (id INTEGER PRIMARY KEY, name TEXT, code TEXT, active INTEGER DEFAULT 1, sort_order INTEGER DEFAULT 0);
-  CREATE TABLE product_sizes (id INTEGER PRIMARY KEY, name TEXT, code TEXT, active INTEGER DEFAULT 1, sort_order INTEGER DEFAULT 0);
-  CREATE TABLE product_variants (
-    id INTEGER PRIMARY KEY, product_id INTEGER, color_id INTEGER, size_id INTEGER,
-    sku TEXT, barcode TEXT, stock REAL DEFAULT 0, active INTEGER DEFAULT 1,
-    is_default INTEGER DEFAULT 0, status TEXT DEFAULT 'active', price REAL, price_rial REAL, cost REAL
-  );
-  CREATE TABLE product_style_colors (product_id INTEGER, color_id INTEGER, PRIMARY KEY (product_id, color_id));
-  CREATE TABLE product_style_sizes (product_id INTEGER, size_id INTEGER, PRIMARY KEY (product_id, size_id));
-  CREATE TABLE warehouses (id INTEGER PRIMARY KEY, name TEXT, code TEXT);
-  CREATE TABLE warehouse_stock (
-    product_id INTEGER, warehouse_id INTEGER, qty REAL DEFAULT 0,
-    PRIMARY KEY (product_id, warehouse_id)
-  );
-  CREATE TABLE variant_warehouse_stock (
-    variant_id INTEGER, warehouse_id INTEGER, qty REAL DEFAULT 0,
-    PRIMARY KEY (variant_id, warehouse_id)
-  );
-  CREATE TABLE inventory_movements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER, variant_id INTEGER, warehouse_id INTEGER,
-    qty_delta REAL, doc_type TEXT, doc_id INTEGER, doc_line INTEGER,
-    user_id INTEGER, note TEXT, created_at INTEGER
-  );
-`);
+const adminId = insert('users', { name: 'مدیر', username: 'aiv_admin', password: 'x', role: 'admin', active: 1, must_change_password: 0 });
+const wh34 = insert('warehouses', { name: 'انبار محصول', code: 'AIV-34', active: 1, allow_negative: 1, warehouse_type: 'finished_goods', inventory_system: 'perpetual' });
+const wh35 = insert('warehouses', { name: 'انبار کیمیا', code: 'AIV-35', active: 1, allow_negative: 1, warehouse_type: 'finished_goods', inventory_system: 'perpetual' });
+const black = insert('product_colors', { name: 'مشکی', code: 'AIVB', active: 1 });
+const size1 = insert('product_sizes', { name: 'سایز 1', code: 'AIVS1', active: 1 });
+const size2 = insert('product_sizes', { name: 'سایز 2', code: 'AIVS2', active: 1 });
 
-db.prepare('INSERT INTO products (id,name,unit,stock,warehouse_id,code) VALUES (109,?,?,45.033,34,?)')
-  .run('کت کتان درسا', 'عدد', '7157');
-db.prepare('INSERT INTO warehouses (id,name,code) VALUES (34,?,?),(35,?,?)')
-  .run('انبار محصول', 'WH-MS076DVQ', 'انبار کیمیا', 'WH-KIMIA');
-db.prepare('INSERT INTO product_colors (id,name) VALUES (1,?)').run('مشکی');
-db.prepare('INSERT INTO product_sizes (id,name) VALUES (2,?)').run('سایز 1');
-db.prepare(`INSERT INTO product_variants (id,product_id,color_id,size_id,sku,stock,is_default)
-  VALUES (64,109,1,2,'7157-blk',8.462,0)`).run();
-db.prepare('INSERT INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (64,34,6.462),(64,35,2)').run();
-db.prepare(`INSERT INTO inventory_movements (product_id,variant_id,warehouse_id,qty_delta,doc_type)
-  VALUES (109,64,34,14,'opening_seed'),(109,64,34,-2,'wh_transfer_out'),(109,64,35,2,'wh_transfer_in')`).run();
-db.prepare('INSERT INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (70,35,0.5)').run();
-db.prepare(`INSERT INTO product_variants (id,product_id,color_id,size_id,sku,stock,is_default)
-  VALUES (70,109,1,2,'phantom',0.5,0)`).run();
-db.prepare(`INSERT INTO inventory_movements (product_id,variant_id,warehouse_id,qty_delta,doc_type)
-  VALUES (109,70,34,4,'opening_seed')`).run();
-db.prepare('INSERT INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (70,34,1.5)').run();
-db.prepare('INSERT INTO products (id,name,unit,stock,warehouse_id,code) VALUES (200,?,?,9,34,?)')
-  .run('کالای سالم', 'عدد', '9000');
-db.prepare(`INSERT INTO product_variants (id,product_id,color_id,size_id,sku,stock,is_default)
-  VALUES (80,200,1,2,'9000-ok',9,0)`).run();
-db.prepare('INSERT INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (80,34,9)').run();
-db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (200,34,9)').run();
-db.prepare('INSERT INTO products (id,name,unit,stock,warehouse_id,code) VALUES (300,?,?,1.25,34,?)')
-  .run('پارچه', 'متر', 'FAB');
+const P = insert('products', { user_id: adminId, name: 'کت کتان درسا', code: '7157', unit: 'عدد', price: 1000, cost: 1000, average_cost_rial: 1000, warehouse_id: wh34, stock: 0 });
+const V64 = insert('product_variants', { product_id: P, color_id: black, size_id: size1, sku: '7157-blk', stock: 0, active: 1, is_default: 0 });
+const V70 = insert('product_variants', { product_id: P, color_id: black, size_id: size2, sku: 'phantom', stock: 0, active: 1, is_default: 0 });
+const PH = insert('products', { user_id: adminId, name: 'کالای سالم', code: '9000', unit: 'عدد', price: 1000, cost: 1000, average_cost_rial: 1000, warehouse_id: wh34, stock: 0 });
+const V80 = insert('product_variants', { product_id: PH, color_id: black, size_id: size1, sku: '9000-ok', stock: 0, active: 1, is_default: 0 });
+const PF = insert('products', { user_id: adminId, name: 'پارچه', code: 'FAB', unit: 'متر', price: 1000, cost: 1000, average_cost_rial: 1000, warehouse_id: wh34, stock: 0 });
+
+// ── ledger documents (the truth): opening 14 − transfer 2 in wh34, transfer-in 2 in wh35, sibling 4 ──
+seedStock(db, { productId: P, variantId: V64, warehouseId: wh34, qty: 14, note: 'opening_seed' });
+setStock(db, { productId: P, variantId: V64, warehouseId: wh34, target: 12, note: 'wh_transfer_out' });
+seedStock(db, { productId: P, variantId: V64, warehouseId: wh35, qty: 2, note: 'wh_transfer_in' });
+seedStock(db, { productId: P, variantId: V70, warehouseId: wh34, qty: 4, note: 'opening_seed' });
+seedStock(db, { productId: PH, variantId: V80, warehouseId: wh34, qty: 9 });
+seedStock(db, { productId: PF, warehouseId: wh34, qty: 1.25 });
+
+// ── deliberate corruption of the DERIVED caches (legacy v238 float reconcile) ──
+db.prepare('UPDATE variant_warehouse_stock SET qty=6.462 WHERE variant_id=? AND warehouse_id=?').run(V64, wh34);
+db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (?,?,0.5)').run(V70, wh35);
+db.prepare('UPDATE variant_warehouse_stock SET qty=1.5 WHERE variant_id=? AND warehouse_id=?').run(V70, wh34);
+db.prepare('UPDATE product_variants SET stock=8.462 WHERE id=?').run(V64);
+db.prepare('UPDATE products SET stock=45.033 WHERE id=?').run(P);
+// heal may already have run at boot: re-arm its one-shot flag for this fixture
+db.prepare("DELETE FROM settings WHERE key='apparel_qty_ledger_heal_v1'").run();
 
 const healed = healApparelIntegerStock(db);
-ok(healed.vwsFixed >= 2, 'heal rewrites fractional projections', JSON.stringify(healed));
-const wh34 = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=64 AND warehouse_id=34').get();
-const wh35 = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=64 AND warehouse_id=35').get();
-const vstock = db.prepare('SELECT stock FROM product_variants WHERE id=64').get();
-ok(wh34.qty === 12, 'product warehouse restored to 14-2', wh34.qty);
-ok(wh35.qty === 2, 'transfer destination stays 2', wh35.qty);
+ok(healed.productsRebuilt >= 1, 'heal rewrites fractional projections', JSON.stringify(healed));
+const w34 = one('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', V64, wh34);
+const w35 = one('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', V64, wh35);
+const vstock = one('SELECT stock FROM product_variants WHERE id=?', V64);
+ok(w34.qty === 12, 'product warehouse restored to 14-2', w34.qty);
+ok(w35.qty === 2, 'transfer destination stays 2', w35.qty);
 ok(vstock.stock === 14, 'variant total is ledger sum', vstock.stock);
-const phantom = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=70 AND warehouse_id=35').get();
-const real70 = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=70 AND warehouse_id=34').get();
+const phantom = one('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', V70, wh35);
+const real70 = one('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', V70, wh34);
 ok(phantom.qty === 0, 'phantom split with no movements returns to 0', phantom.qty);
 ok(real70.qty === 4, 'sibling warehouse follows its own ledger', real70.qty);
-const head = db.prepare('SELECT stock FROM products WHERE id=109').get();
+const head = one('SELECT stock FROM products WHERE id=?', P);
 ok(head.stock === 18, 'product header is the integer variant sum', head.stock);
-const healthy = db.prepare('SELECT stock FROM products WHERE id=200').get();
-const healthyWs = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=200').get();
+const healthy = one('SELECT stock FROM products WHERE id=?', PH);
+const healthyWs = one('SELECT qty FROM warehouse_stock WHERE product_id=?', PH);
 ok(healthy.stock === 9 && healthyWs.qty === 9, 'integer product is left untouched', healthy.stock);
-const fabric = db.prepare('SELECT stock FROM products WHERE id=300').get();
+const fabric = one('SELECT stock FROM products WHERE id=?', PF);
 ok(fabric.stock === 1.25, 'fabric meters stay decimal', fabric.stock);
 const again = healApparelIntegerStock(db);
 ok(again.already === true, 'heal is idempotent');
@@ -111,7 +102,7 @@ try {
   rejected = e && e.code === 'E_QTY_NOT_INTEGER';
 }
 ok(rejected, 'piece qty policy rejects 0.75');
-const kept = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=64 AND warehouse_id=34').get();
+const kept = one('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', V64, wh34);
 ok(kept.qty === 12, 'heal left the restored integer in place', kept.qty);
 const svc = fs.readFileSync(path.join(__dirname, '../lib/product-variants/service.js'), 'utf8');
 ok(/integer:\s*true,\s*strict:\s*true/.test(svc), 'stock matrix enforces integer qty');
@@ -128,7 +119,6 @@ ok(/Math\.round\(parseQty\(inp\.value/.test(app), 'SKU save sends an integer');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 ok(swAtLeast(sw, 259), 'SW v259');
 
-db.close();
-try { fs.unlinkSync(testDb); } catch (_) {}
+try { db.close(); } catch (_) { /* shared handle */ }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

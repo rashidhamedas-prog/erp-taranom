@@ -174,12 +174,35 @@ function loadVariantRows(db) {
 
 function loadVws(db) {
   const map = new Map();
+  let ledgerHasVariantRows = false;
+  if (tableExists(db, 'inventory_ledger') && columnSet(db, 'inventory_ledger').has('variant_id')) {
+    const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
+    const lRows = db.prepare(`
+      SELECT variant_id, warehouse_id,
+        SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
+      FROM inventory_ledger
+      WHERE (${LEDGER_LIVE_SQL}) AND variant_id IS NOT NULL AND variant_id > 0 AND warehouse_id IS NOT NULL
+      GROUP BY variant_id, warehouse_id
+    `).all();
+    if (lRows.length > 0) {
+      ledgerHasVariantRows = true;
+      for (const row of lRows) {
+        const id = Number(row.variant_id);
+        if (!map.has(id)) map.set(id, []);
+        map.get(id).push({
+          warehouse_id: Number(row.warehouse_id),
+          qty: Number(row.qty) || 0,
+        });
+      }
+    }
+  }
   if (!tableExists(db, 'variant_warehouse_stock')) return map;
   const rows = db.prepare(
     'SELECT variant_id, warehouse_id, qty FROM variant_warehouse_stock'
   ).all();
   for (const row of rows) {
     const id = Number(row.variant_id);
+    if (ledgerHasVariantRows && map.has(id)) continue;
     if (!map.has(id)) map.set(id, []);
     map.get(id).push({
       warehouse_id: Number(row.warehouse_id),

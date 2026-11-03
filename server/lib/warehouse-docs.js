@@ -34,8 +34,17 @@ function whShortage(db, product, row) {
   return require('./inventory/shortage-error').attach(e, db, [row]);
 }
 
+/** Ledger-derived; a SKU also sees legacy live rows of the warehouse without variant_id (same as the ledger gate). */
 function availableForIssue(db, productId, warehouseId, variantId) {
-  if (variantId) return variantWarehouseQty(db, variantId, warehouseId);
+  if (variantId) {
+    const L = require('./inventory/ledger');
+    let q = variantWarehouseQty(db, variantId, warehouseId);
+    if (L.ledgerHasVariantColumn(db)) {
+      const legacy = L.unattributedQty(db, productId, warehouseId || null);
+      if (legacy > 0) q = Math.round((q + legacy) * 1000) / 1000;
+    }
+    return q;
+  }
   return warehouseQty(db, productId, warehouseId);
 }
 
@@ -571,10 +580,16 @@ function createWarehouseDocInTx(db, body, user, opts = {}) {
       });
       const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toWh);
       const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
-      const unit = Math.round(Number(product.average_cost_rial) || 0);
+      // Out-leg leaves at the SOURCE warehouse's current average (its valuation bucket) when that
+      // bucket holds qty and value; otherwise the ledger's pool rate / header average applies.
+      const srcBucket = require('./inventory/valuation').getBucket(db, product_id, fromWh);
+      const bucketUnit = srcBucket && Number(srcBucket.qty) > 1e-9 && Number(srcBucket.avg_rial) > 0
+        ? Math.round(Number(srcBucket.avg_rial)) : 0;
+      const unit = bucketUnit || Math.round(Number(product.average_cost_rial) || 0);
       const ledOut = postInventoryMovement(db, {
         eventType: 'transfer_out', productId: product_id, warehouseId: fromWh, qty: -qty,
         unitCostRial: unit, sourceType: 'warehouse_transfer', date, variantId,
+        ...(bucketUnit ? { amountRial: Math.round(bucketUnit * qty), priceFixed: true } : {}),
         batchId: batchId || null,
         note: `خروج انتقال به ${toWarehouse?.name}`, createdBy: user.id, updateAvg: false,
       });

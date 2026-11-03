@@ -149,9 +149,10 @@ ok(once.skipped === true, 'boot heal runs once (settings flag)');
 // Root cause: multi-colour amend must keep the summed qty in the ledger.
 const { replaceSaleStockInPlace } = require('../lib/amend-invoice');
 const pid2 = db.prepare(
-  "INSERT INTO products (name, code, unit, stock, warehouse_id, average_cost_rial, user_id) VALUES ('Vest','V508','عدد',20,?,1000,?)"
+  "INSERT INTO products (name, code, unit, stock, warehouse_id, average_cost_rial, user_id) VALUES ('Vest','V508','عدد',0,?,1000,?)"
 ).run(whA, adminId).lastInsertRowid;
-db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,20)').run(pid2, whA);
+mv({ eventType: 'opening', productId: pid2, warehouseId: whA, qtyIn: 20, unitCostRial: 1000,
+  sourceType: 'opening_stock_doc', sourceId: pid2, date: '1405/01/01', note: 'افتتاحیه تست V508' });
 const oldRows = [
   { product_id: pid2, qty: 2, variant_id: 9001 },
   { product_id: pid2, qty: 2, variant_id: 9002 },
@@ -176,8 +177,9 @@ db.transaction(() => {
   });
 })();
 const led2 = db.prepare(`
-  SELECT SUM(qty_out - qty_in) q FROM inventory_ledger WHERE source_type='invoice' AND source_id=? AND status='posted'
-`).get(inv2).q;
+  SELECT SUM(qty_out - qty_in) q FROM inventory_ledger
+  WHERE source_type='invoice' AND source_id=? AND status='posted' AND COALESCE(reversed_of,0)=0
+`).get(inv2).q; // live rule: amend now reverses (reversal row + original marked reversed) and reposts, so the pair is excluded
 ok(led2 === 5, 'amend keeps summed multi-colour qty in ledger (5) got=' + led2);
 const ws2 = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pid2, whA).qty;
 ok(ws2 === 15, 'warehouse moved by the extra unit only (16→15 from 20−4) got=' + ws2);
@@ -189,8 +191,6 @@ const pid3 = db.prepare(
   "INSERT INTO products (name, code, unit, stock, warehouse_id, average_cost_rial, user_id) VALUES ('Yalda','Y508','عدد',3,?,1000,?)"
 ).run(whA, adminId).lastInsertRowid;
 db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,3)').run(pid3, whA);
-const v3 = db.prepare('INSERT INTO product_variants (product_id, sku) VALUES (?,?)').run(pid3, 'Y508-1').lastInsertRowid;
-db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,8)').run(v3, whA);
 mv({ eventType: 'opening', productId: pid3, warehouseId: whA, qty: 10, unitCostRial: 1000,
   sourceType: 'opening_inventory', sourceId: pid3, date: '1405/06/31', note: 'موجودی اول دوره', skipStock: true });
 mv({ eventType: 'production_receipt', productId: pid3, warehouseId: whA, qty: 10, unitCostRial: 1000,
@@ -201,6 +201,9 @@ mv({ eventType: 'adjustment', productId: pid3, warehouseId: whA, qty: -4, unitCo
   sourceType: 'stock_reconcile', sourceId: pid3, date: '1405/07/07', note: 'هم‌ترازی کاردکس با موجودی انبار', skipStock: true });
 mv({ eventType: 'adjustment', productId: pid3, warehouseId: whA, qty: -11, unitCostRial: 1000,
   sourceType: 'stock_reconcile', sourceId: pid3, date: '1405/07/08', note: 'هم‌ترازی کاردکس با موجودی انبار', skipStock: true });
+// Historical independent variant book is fixture evidence for this legacy heal.
+const v3 = db.prepare('INSERT INTO product_variants (product_id, sku) VALUES (?,?)').run(pid3, 'Y508-1').lastInsertRowid;
+db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,8)').run(v3, whA);
 const y0 = buildStockLedger(db, { product_id: pid3 });
 ok(y0.closing_qty === 3 && y0.book_gap_qty === 0, 'Yalda before: ledger chased the wrong card (3)');
 const agreeDry = heal.healAgreedBooks(db, { apply: false });

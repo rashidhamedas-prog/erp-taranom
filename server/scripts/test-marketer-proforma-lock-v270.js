@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Static invariant: Marketer checkout never offers invoice-type choice;
  * channel always seeds proforma. Server already enforces E_SALES_PROFORMA_ONLY.

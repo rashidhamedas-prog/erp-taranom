@@ -512,15 +512,11 @@ function insertConsignmentLine(db, {
   let issueLedgerId = null;
   let issueJeId = null;
   if (direction === 'out') {
-    const seedQty = product.warehouse_id === warehouse.id ? (Number(product.stock) || 0) : 0;
-    db.prepare(`
-      INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-      ON CONFLICT(product_id, warehouse_id) DO NOTHING
-    `).run(product.id, warehouse.id, seedQty);
     const mv = postInventoryMovement(db, {
       eventType: 'issue',
       productId: product.id,
       warehouseId: warehouse.id,
+      variantId,
       qtyOut: qty,
       sourceType: 'consignment',
       sourceId: 0,
@@ -763,6 +759,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
       productId: row.product_id,
       warehouseId: row.warehouse_id,
       qtyIn: row.qty,
+      variantId: row.variant_id || null,
       sourceType: 'consignment',
       sourceId: row.id,
       date,
@@ -813,6 +810,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
         productId: row.product_id,
         warehouseId: row.warehouse_id,
         qtyIn: row.qty,
+        variantId: row.variant_id || null,
         unitCostRial: unitPriceRialFrom(row),
         amountRial: purchaseAmt,
         sourceType: 'consignment',
@@ -865,6 +863,7 @@ function applySettle(db, row, path, { date, note, user, body }) {
       productId: row.product_id,
       warehouseId: row.warehouse_id,
       qtyIn: row.qty,
+      variantId: row.variant_id || null,
       unitCostRial: unitPriceRialFrom(row),
       amountRial: effects.amt,
       sourceType: 'consignment',

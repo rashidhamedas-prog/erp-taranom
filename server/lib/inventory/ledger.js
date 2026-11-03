@@ -87,25 +87,16 @@ function getProduct(db, productId) {
   return p;
 }
 
-function ensureWhRow(db, productId, warehouseId) {
-  if (!warehouseId) return;
-  db.prepare(
-    'INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,0)'
-  ).run(productId, warehouseId);
+/** SSOT: stock caches are rebuilt from the ledger (stock-cache.js) — no placeholder rows. Kept for callers. */
+function ensureWhRow() {}
+
+/** On-hand of (product, warehouse) — ledger-derived (= warehouse_stock cache after rebuild). */
+function warehouseQty(db, productId, warehouseId) {
+  return stockOf(db, { productId, warehouseId: warehouseId || null });
 }
 
-function warehouseQty(db, productId, warehouseId) {
-  if (!warehouseId) {
-    const p = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
-    return Number(p?.stock) || 0;
-  }
-  const ws = db.prepare(
-    'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-  ).get(productId, warehouseId);
-  if (ws && ws.qty != null) return Number(ws.qty) || 0;
-  const p = db.prepare('SELECT warehouse_id, stock FROM products WHERE id=?').get(productId);
-  if (p && p.warehouse_id === parseInt(warehouseId, 10)) return Number(p.stock) || 0;
-  return 0;
+function rebuildCache(db, productId) {
+  return require('./stock-cache').rebuildStockCache(db, productId);
 }
 
 /**
@@ -230,7 +221,7 @@ function cleanQty(n) {
 /**
  * P1 SSOT: on-hand quantity = Σ live kardex rows (same LEDGER_LIVE_SQL as layer-reconcile).
  * products.stock / warehouse_stock / variant_warehouse_stock / product_variants.stock are CACHES
- * that postInventoryMovement keeps in step; this function is what they must agree with.
+ * rebuilt from the ledger by stock-cache.rebuildStockCache; this function is what they must agree with.
  *
  * - warehouseId omitted → company-wide, WIP-staging (warehouse-only) rows excluded because
  *   they never reach the sellable header products.stock.
@@ -266,62 +257,96 @@ function stockOf(db, { productId, warehouseId = null, variantId = null } = {}) {
 }
 
 /**
- * Apply qty delta to products.stock + warehouse_stock.
- * warehouseOnly: WIP staging — only warehouse_stock moves, the sellable header stays.
- * Returns { qtyBefore, qtyAfter, avgBefore }.
+ * SSOT gate for a qty row about to be inserted (no stock writes — the cache is rebuilt
+ * from the ledger after the insert). Figures are ledger-derived (stockOf):
+ *   header (company-wide, WIP staging excluded) / (product, warehouse) / (variant, warehouse).
+ * Only an outbound delta can be refused; an inbound row never makes a shortage worse.
+ * warehouseOnly: WIP staging — the sellable header is not gated and does not move.
+ * Variant gate: legacy live rows of the warehouse without variant_id (unattributed) still
+ * count as available so pre-SSOT kardex data does not block sales until healed.
+ * Returns { qtyBefore, qtyAfter, avgBefore, product } (header figures).
  */
-function applyStockDelta(db, {
-  productId, warehouseId, qtyDelta, allowNegative: allowNegOpt, warehouseOnly = false,
+function assertStockGate(db, {
+  productId, warehouseId, variantId = null, qtyDelta, allowNegative: allowNegOpt, warehouseOnly = false, product,
 }) {
-  const prod = getProduct(db, productId);
-  const qtyBefore = Number(prod.stock) || 0;
+  const prod = product || getProduct(db, productId);
+  const qtyBefore = stockOf(db, { productId });
   const avgBefore = Math.round(Number(prod.average_cost_rial) || 0);
-  const qtyAfter = qtyBefore + qtyDelta;
-  const allowNeg = allowNegOpt === true || allowNegative(db, warehouseId);
-
+  const qtyAfter = warehouseOnly ? qtyBefore : cleanQty(qtyBefore + qtyDelta);
   if (warehouseOnly && !warehouseId) throw invErr('E_INV_WAREHOUSE_REQUIRED', 400, { product_id: productId });
+  const out = { qtyBefore, qtyAfter, avgBefore, product: prod };
+  if (!(qtyDelta < 0)) return out;
+  const allowNeg = allowNegOpt === true || allowNegative(db, warehouseId);
+  if (allowNeg) return out;
+  const needed = Math.abs(qtyDelta);
 
-  if (!warehouseOnly && qtyAfter < -1e-9 && !allowNeg) {
+  if (!warehouseOnly && qtyAfter < -1e-9) {
     throw shortageAttach(invErr('E_NEGATIVE_STOCK', 409, {
       product_id: productId,
       name: prod.name,
       available: qtyBefore,
-      needed: Math.abs(qtyDelta),
-    }), db, [{ product_id: productId, warehouse_id: warehouseId || null, available: qtyBefore, needed: Math.abs(qtyDelta) }]);
+      needed,
+    }), db, [{ product_id: productId, warehouse_id: warehouseId || null, available: qtyBefore, needed }]);
   }
-
-  // P1: real qty is stored (never clamped to 0). Negative only reaches here when allowNeg;
-  // otherwise the shortage was thrown above. Tiny float dust (-1e-12) is normalised to 0.
-  const stockStored = warehouseOnly
-    ? qtyBefore
-    : cleanQty(qtyAfter);
-  if (!warehouseOnly) {
-    db.prepare('UPDATE products SET stock=? WHERE id=?').run(stockStored, productId);
-  }
-
   if (warehouseId) {
-    ensureWhRow(db, productId, warehouseId);
-    const whBefore = warehouseQty(db, productId, warehouseId);
-    const whAfter = whBefore + qtyDelta;
-    if (whAfter < -1e-9 && !allowNeg) {
+    const whBefore = stockOf(db, { productId, warehouseId });
+    if (whBefore + qtyDelta < -1e-9) {
       throw shortageAttach(invErr('E_NEGATIVE_STOCK', 409, {
         product_id: productId,
         name: prod.name,
         warehouse_id: warehouseId,
         available: whBefore,
-        needed: Math.abs(qtyDelta),
-      }), db, [{ product_id: productId, warehouse_id: warehouseId, available: whBefore, needed: Math.abs(qtyDelta) }]);
-    }
-    const whStored = cleanQty(whAfter);
-    db.prepare(
-      'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-    ).run(whStored, productId, warehouseId);
-    if (!warehouseOnly && qtyDelta > 0 && (!prod.warehouse_id || prod.warehouse_id === warehouseId)) {
-      db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(warehouseId, productId);
+        needed,
+      }), db, [{ product_id: productId, warehouse_id: warehouseId, available: whBefore, needed }]);
     }
   }
+  if (variantId && ledgerHasVariantColumn(db)) {
+    let vBefore = stockOf(db, { productId, warehouseId: warehouseId || null, variantId });
+    const legacy = unattributedQty(db, productId, warehouseId || null);
+    if (legacy > 0) vBefore += legacy;
+    vBefore = Math.round(vBefore * 1000) / 1000;
+    if (vBefore + qtyDelta < -1e-9) {
+      throw shortageAttach(invErr('E_NEGATIVE_STOCK', 409, {
+        product_id: productId,
+        name: prod.name,
+        variant_id: variantId,
+        warehouse_id: warehouseId || null,
+        available: vBefore,
+        needed,
+      }), db, [{ product_id: productId, variant_id: variantId, warehouse_id: warehouseId || null, available: vBefore, needed }]);
+    }
+  }
+  return out;
+}
 
-  return { qtyBefore, qtyAfter: stockStored, avgBefore, product: prod };
+/** Live ledger qty of (product[, warehouse]) that carries no variant_id (pre-SSOT rows). */
+function unattributedQty(db, productId, warehouseId) {
+  const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
+  const where = ['product_id=?', `(${LEDGER_LIVE_SQL})`, 'variant_id IS NULL'];
+  const params = [productId];
+  if (warehouseId) { where.push('warehouse_id=?'); params.push(warehouseId); } else {
+    const set = [...WAREHOUSE_ONLY_EVENTS].map((e) => `'${e}'`).join(',');
+    where.push(`COALESCE(event_type,'') NOT IN (${set})`);
+  }
+  const r = db.prepare(
+    `SELECT COALESCE(SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)),0) AS q FROM inventory_ledger WHERE ${where.join(' AND ')}`
+  ).get(...params);
+  return Math.round((Number(r && r.q) || 0) * 1000) / 1000;
+}
+
+/**
+ * Deprecated (pre-SSOT cache delta writer). Now only gates and re-derives the caches from the
+ * ledger: a stock change without a ledger row no longer exists. Callers that used it to move
+ * caches must post a ledger row (postInventoryMovement) instead.
+ */
+function applyStockDelta(db, {
+  productId, warehouseId, qtyDelta, allowNegative: allowNegOpt, warehouseOnly = false, variantId = null,
+}) {
+  const info = assertStockGate(db, {
+    productId, warehouseId, variantId, qtyDelta, allowNegative: allowNegOpt, warehouseOnly,
+  });
+  rebuildCache(db, productId);
+  return info;
 }
 
 function writeHeaderAvg(db, productId, avg) {
@@ -390,8 +415,9 @@ function ledgerHasVariantColumn(db) {
  * @param {number} [opts.unitCostRial]  for inbound; outbound defaults to current avg
  * @param {number} [opts.amountRial]    override total
  * @param {boolean} [opts.updateAvg=true]
- * @param {boolean} [opts.skipStock=false]  ledger-only: no warehouse_stock/products.stock
- *   and no stock_logs (opening/backfill already have qty on those tables)
+ * @param {boolean} [opts.skipStock=false]  no negative gate, no average/layers, no stock_logs
+ *   (opening/backfill seeds). SSOT: the row still counts in every stock figure — the caches are
+ *   rebuilt from the ledger after the insert, so a caller must not move them separately.
  * @param {boolean} [opts.warehouseOnly=false]  WIP staging (F06): warehouse_stock moves but
  *   the sellable header products.stock, the moving average, cost layers and stock_logs do not.
  *   Used by a cutting pack linked to a production order; finalize is the only WIP→FG increase.
@@ -429,11 +455,33 @@ function postInventoryMovement(db, opts) {
   // row — but it IS an inventory_ledger row (warehouse kardex), so callers must pass its amount.
   const noHeader = !!skipStock || !!warehouseOnly;
 
+  const isReversal = isReversalEvent(eventType, reversedOf);
+  const ledVariantId = opts.variantId != null && Number(opts.variantId) > 0
+    ? Math.trunc(Number(opts.variantId)) : null;
+  const writeVariant = ledVariantId != null && ledgerHasVariantColumn(db);
+  if (ledVariantId) {
+    let vr = null;
+    try { vr = db.prepare('SELECT product_id FROM product_variants WHERE id=?').get(ledVariantId); } catch (_) { vr = null; }
+    if (vr && Number(vr.product_id) !== Number(productId)) {
+      throw invErr('E_VARIANT_MISMATCH', 400, { product_id: productId, variant_id: ledVariantId, message: 'واریانت متعلق به این کالا نیست' });
+    }
+  }
+  // SSOT: every qty row of a matrix product names its SKU; reversals copy the original (legacy NULL allowed).
+  if (!valueOnly && !isReversal && !ledVariantId && ledgerHasVariantColumn(db)
+    && require('./movement').hasActiveMatrixVariants(db, productId)) {
+    throw invErr('E_VARIANT_REQUIRED', 400, {
+      product_id: productId, event_type: eventType,
+      message: 'برای کالای ماتریسی انتخاب واریانت الزامی است',
+    });
+  }
+
   // Snapshot first (no mutation) so zero-cost outbound can fail before stock changes.
+  // Quantities are ledger-derived (stockOf), never read from the caches.
   const prodSnap = getProduct(db, productId);
+  const headerQty = stockOf(db, { productId });
   let stockInfo = {
-    qtyBefore: Number(prodSnap.stock) || 0,
-    qtyAfter: Number(prodSnap.stock) || 0,
+    qtyBefore: headerQty,
+    qtyAfter: warehouseOnly ? headerQty : cleanQty(headerQty + delta),
     avgBefore: Math.round(Number(prodSnap.average_cost_rial) || 0),
     product: prodSnap,
   };
@@ -441,7 +489,6 @@ function postInventoryMovement(db, opts) {
   const V = require('./valuation');
   const policy = V.resolvePolicy(db, { productId, warehouseId });
   const method = policy.method;
-  const isReversal = isReversalEvent(eventType, reversedOf);
   const valueBasedOut = qtyOut > 0 && !valueOnly && isValueBasedOutbound(eventType, reversedOf);
   const isAlign = isAlignSeedOpts(eventType, sourceType, note);
 
@@ -454,9 +501,10 @@ function postInventoryMovement(db, opts) {
   // v522 pool AVCO: default-costed outbound takes the pool rate of its (product, warehouse):
   // separate warehouse pool → bucket avg; shared pool in a mixed product → Σvalue/Σqty of
   // shared buckets; pure shared → header avg. Transfers carry this source rate to the destination.
+  // opts.priceFixed: the caller already priced the row at its pool (e.g. transfer source bucket avg).
   let poolPriced = false;
   if (qtyOut > 0 && !valueOnly && !valueBasedOut && !warehouseOnly && warehouseId
-    && method === 'moving_average') {
+    && method === 'moving_average' && !opts.priceFixed) {
     const callerUnit = Math.round(Number(unitCostRial) || 0);
     const defaultUnit = !callerUnit || callerUnit === stockInfo.avgBefore;
     const defaultAmount = amountRial == null
@@ -543,9 +591,15 @@ function postInventoryMovement(db, opts) {
   }
 
   if (!skipStock && !valueOnly) {
-    stockInfo = applyStockDelta(db, {
-      productId, warehouseId, qtyDelta: delta, allowNegative: opts.allowNegative, warehouseOnly,
+    stockInfo = assertStockGate(db, {
+      productId, warehouseId, variantId: ledVariantId, qtyDelta: delta,
+      allowNegative: opts.allowNegative, warehouseOnly, product: prodSnap,
     });
+    // Home warehouse (not a stock figure): first inbound warehouse becomes the product default.
+    if (warehouseId && !warehouseOnly && delta > 0
+      && (!prodSnap.warehouse_id || Number(prodSnap.warehouse_id) === Number(warehouseId))) {
+      db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(warehouseId, productId);
+    }
   }
 
   let avgAfter = stockInfo.avgBefore;
@@ -627,11 +681,7 @@ function postInventoryMovement(db, opts) {
   }
 
   const txNo = nextTxNo(db);
-  // Phase 2 (v575): variant_id is written on NEW rows only, and only when the column exists
-  // (additive column may land from a parallel migration). No backfill of old rows.
-  const ledVariantId = opts.variantId != null && Number(opts.variantId) > 0
-    ? Math.trunc(Number(opts.variantId)) : null;
-  const writeVariant = ledVariantId != null && ledgerHasVariantColumn(db);
+  // variant_id is written whenever the column exists (additive column; old rows are not backfilled here).
   const result = db.prepare(`
     INSERT INTO inventory_ledger (
       tx_no, event_type, product_id, warehouse_id,
@@ -648,6 +698,8 @@ function postInventoryMovement(db, opts) {
   );
 
   const ledgerId = result.lastInsertRowid;
+  // SSOT: the four stock figures are re-derived from the live ledger (only writer: stock-cache.js).
+  if (!valueOnly) rebuildCache(db, productId);
 
   if (layerInId) {
     try {
@@ -749,7 +801,9 @@ function closedReceiptPoolUnit(db, { productId, warehouseId, stockInfo }) {
 /**
  * Reverse a posted ledger row (R12). Creates opposite movement + marks original reversed.
  */
-function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipStock, keepDate = false } = {}) {
+function reverseInventoryMovement(db, ledgerId, {
+  createdBy, date, note, skipStock, keepDate = false, allowNegative: allowNeg,
+} = {}) {
   const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
   if (!row) throw invErr('E_LEDGER_NOT_FOUND', 404);
   if (row.status === 'reversed') throw invErr('E_ALREADY_REVERSED', 409);
@@ -797,9 +851,12 @@ function reverseInventoryMovement(db, ledgerId, { createdBy, date, note, skipSto
     warehouseOnly: isWarehouseOnlyRow(row),
     skipStock: skip,
     valueOnly,
+    allowNegative: allowNeg === true,
   });
 
   db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(row.id);
+  // The pair (original reversed + reversal row) leaves the live set only now.
+  if (!valueOnly) rebuildCache(db, row.product_id);
   if ((Number(row.qty_in) || 0) > 0 || CLOSED_RETURN_EVENTS.has(String(row.event_type || ''))) {
     require('./value-approval').onLedgerReversed(db, row.id, { createdBy, note: note || `معکوس ${row.tx_no}` });
   }
@@ -1024,7 +1081,7 @@ function isZeroQtyValueGhost(row) {
 
 /**
  * Soft-retire a posted ledger row without posting an opposite movement.
- * Use when stock was already adjusted elsewhere (amend) or the row is a zero ghost.
+ * SSOT: the row leaves the live set, so its qty leaves every stock figure (caches rebuilt here).
  */
 function softRetireLedgerRow(db, ledgerId, { note } = {}) {
   const row = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
@@ -1035,6 +1092,7 @@ function softRetireLedgerRow(db, ledgerId, { note } = {}) {
   } else {
     db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(ledgerId);
   }
+  rebuildCache(db, row.product_id);
   return db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(ledgerId);
 }
 
@@ -1225,6 +1283,8 @@ module.exports = {
   invErr,
   ensureWhRow,
   applyStockDelta,
+  assertStockGate,
+  unattributedQty,
   isWarehouseOnlyRow,
   WAREHOUSE_ONLY_EVENTS,
 };

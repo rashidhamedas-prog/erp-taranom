@@ -1,12 +1,12 @@
 'use strict';
 /**
- * Variant-aware stock movements (inventory_movements + variant_warehouse_stock).
- * Matrix products require variant_id; fabric/batch callers must not use this path.
+ * Variant-aware stock movements (inventory_movements = audit/idempotency log of variant lines).
+ * SSOT: no stock figure is written here — quantities live in inventory_ledger and the caches are
+ * derived by stock-cache.js. Matrix products require variant_id; fabric/batch callers must not use this path.
  */
 const { round3 } = require('../round3');
 const {
   requiresIntegerQty,
-  allocateIntegers,
   healApparelIntegerStock,
 } = require('./qty-policy');
 const { unitPriceRialForVariant } = require('./pack-unit-price');
@@ -16,10 +16,6 @@ function movErr(code, status, message) {
   e.code = code;
   e.status = status || 400;
   return e;
-}
-
-function shortErr(db, message, row) {
-  return require('./shortage-error').attach(movErr('E_NEGATIVE_STOCK', 409, message), db, [row]);
 }
 
 function tableExists(db, name) {
@@ -50,13 +46,14 @@ function findExistingMovement(db, { docType, docId, docLine, warehouseId, varian
 }
 
 /**
- * One-shot opening seed: only when a matrix product has exactly one warehouse_stock row.
- * Copies product_variants.stock → variant_warehouse_stock and posts opening movements.
+ * One-shot opening seed audit: only when a matrix product has exactly one warehouse_stock row.
+ * Records product_variants.stock as opening_seed movements (audit only).
+ * SSOT: variant_warehouse_stock is never written here — it is derived from the ledger.
  * Multi-warehouse products are left untouched.
  */
 function seedVariantWarehouseOpening(db) {
   if (!tableExists(db, 'product_variants') || !tableExists(db, 'warehouse_stock')) return;
-  if (!tableExists(db, 'variant_warehouse_stock') || !tableExists(db, 'inventory_movements')) return;
+  if (!tableExists(db, 'inventory_movements')) return;
 
   const products = db.prepare(`
     SELECT DISTINCT pv.product_id AS id
@@ -71,14 +68,6 @@ function seedVariantWarehouseOpening(db) {
     SELECT id, stock FROM product_variants
     WHERE product_id=? AND active=1 AND COALESCE(is_default,0)=0
   `);
-  const vwsGet = db.prepare(
-    'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
-  );
-  const vwsIns = db.prepare(`
-    INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty)
-    VALUES (?,?,?)
-    ON CONFLICT(variant_id, warehouse_id) DO NOTHING
-  `);
 
   for (const p of products) {
     const whRows = whCountStmt.all(p.id);
@@ -87,9 +76,6 @@ function seedVariantWarehouseOpening(db) {
     const variants = variantsStmt.all(p.id);
     for (const v of variants) {
       const stock = round3(Number(v.stock) || 0);
-      if (!vwsGet.get(v.id, warehouseId)) {
-        vwsIns.run(v.id, warehouseId, stock);
-      }
       const existingOpen = findExistingMovement(db, {
         docType: 'opening_seed',
         docId: p.id,
@@ -177,29 +163,6 @@ function ensureInventorySchema(db) {
 }
 
 /**
- * Ensure a VWS row exists. Always seed 0 — never copy product_variants.stock.
- * Seeding with global stock on first touch of a destination warehouse caused
- * phantom double-count (transfer-in: insert global then +qty).
- */
-function ensureVariantWhRow(db, variantId, warehouseId, _seedQtyIgnored) {
-  if (!variantId || !warehouseId) return;
-  db.prepare(`
-    INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty)
-    VALUES (?,?,0)
-    ON CONFLICT(variant_id, warehouse_id) DO NOTHING
-  `).run(variantId, warehouseId);
-}
-
-function ensureProductWhRow(db, productId, warehouseId, _seedQtyIgnored) {
-  if (!productId || !warehouseId) return;
-  db.prepare(`
-    INSERT INTO warehouse_stock (product_id, warehouse_id, qty)
-    VALUES (?,?,0)
-    ON CONFLICT(product_id, warehouse_id) DO NOTHING
-  `).run(productId, warehouseId);
-}
-
-/**
  * @param {object} opts
  * @param {number} opts.productId
  * @param {number|null} [opts.variantId]
@@ -211,8 +174,9 @@ function ensureProductWhRow(db, productId, warehouseId, _seedQtyIgnored) {
  * @param {number|null} [opts.userId]
  * @param {string} [opts.note]
  * @param {boolean} [opts.allowNegative=false]  fail-closed; callers that need neg must pass true
- * @param {boolean} [opts.applyHeaderStock=true]  when false, only variant projections + movement row
- * @param {boolean} [opts.writeStockLog=true]
+ * @param {boolean} [opts.applyHeaderStock=true]  when false, only the movement row (variant layer of
+ *   a caller ledger row); when true, the qty is also posted as an inventory_ledger row
+ * @param {boolean} [opts.writeStockLog]  ignored — stock_logs follow the ledger row
  */
 function postStockMovement(db, opts) {
   const productId = parseInt(opts.productId, 10);
@@ -247,7 +211,6 @@ function postStockMovement(db, opts) {
   const note = opts.note != null ? String(opts.note) : '';
   const allowNegative = opts.allowNegative === true;
   const applyHeaderStock = opts.applyHeaderStock !== false;
-  const writeStockLog = opts.writeStockLog !== false;
 
   if (hasActiveMatrixVariants(db, productId) && !variantId) {
     throw movErr('E_VARIANT_REQUIRED', 400, 'برای کالای ماتریسی انتخاب واریانت الزامی است');
@@ -270,89 +233,32 @@ function postStockMovement(db, opts) {
     if (!Number(v.active) && !/_void$/.test(docType)) {
       throw movErr('E_VARIANT_INACTIVE', 400, 'واریانت غیرفعال است و در پک/حرکت موجودی مجاز نیست');
     }
-    const nextVar = round3((Number(v.stock) || 0) + qtyDelta);
-    if (nextVar < -1e-9 && !allowNegative) {
-      throw shortErr(db, 'موجودی واریانت کافی نیست', {
-        product_id: productId, variant_id: variantId, warehouse_id: warehouseId,
-        available: Number(v.stock) || 0, needed: Math.abs(qtyDelta),
-      });
-    }
-    try {
-      require('../product-variants').adjustVariantStock(db, variantId, qtyDelta, 'delta');
-    } catch (_) {
-      db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(nextVar, variantId);
-    }
-
-    if (warehouseId) {
-      ensureVariantWhRow(db, variantId, warehouseId);
-      const cur = db.prepare(
-        'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
-      ).get(variantId, warehouseId);
-      const whBefore = round3(Number(cur && cur.qty) || 0);
-      const whAfter = round3(whBefore + qtyDelta);
-      if (whAfter < -1e-9 && !allowNegative) {
-        throw shortErr(db, 'موجودی واریانت×انبار کافی نیست', {
-          product_id: productId, variant_id: variantId, warehouse_id: warehouseId,
-          available: whBefore, needed: Math.abs(qtyDelta),
-        });
-      }
-      // Deduct path: atomic conditional UPDATE when negative stock is forbidden.
-      if (qtyDelta < 0 && !allowNegative) {
-        const need = round3(Math.abs(qtyDelta));
-        const r = db.prepare(`
-          UPDATE variant_warehouse_stock
-          SET qty = qty - ?
-          WHERE variant_id=? AND warehouse_id=? AND qty >= ?
-        `).run(need, variantId, warehouseId, need);
-        if (!r.changes) {
-          throw shortErr(db, 'موجودی واریانت×انبار کافی نیست', {
-            product_id: productId, variant_id: variantId, warehouse_id: warehouseId,
-            available: whBefore, needed: need,
-          });
-        }
-      } else {
-        db.prepare(
-          'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
-        ).run(whAfter, variantId, warehouseId);
-      }
-    }
   }
 
+  // SSOT: this function never writes a stock figure.
+  //  - applyHeaderStock false (variant layer): the caller's inventory_ledger row (with variant_id)
+  //    is the quantity and was gated there; this only records the audit/idempotency movement.
+  //  - applyHeaderStock true (legacy non-perpetual docs, feature_perpetual_docs=0): there is no
+  //    caller ledger row, so the quantity is posted here as a ledger row (gated, cost-neutral).
   if (applyHeaderStock) {
-    const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(productId);
+    const prod = db.prepare('SELECT id, average_cost_rial FROM products WHERE id=?').get(productId);
     if (!prod) throw movErr('E_PRODUCT_NOT_FOUND', 404, 'کالا یافت نشد');
-    const nextStock = round3((Number(prod.stock) || 0) + qtyDelta);
-    if (nextStock < -1e-9 && !allowNegative) {
-      throw shortErr(db, 'موجودی کالا کافی نیست', {
-        product_id: productId, warehouse_id: warehouseId,
-        available: Number(prod.stock) || 0, needed: Math.abs(qtyDelta),
-      });
-    }
-    db.prepare('UPDATE products SET stock=? WHERE id=?').run(nextStock, productId);
-
-    if (warehouseId) {
-      ensureProductWhRow(db, productId, warehouseId);
-      const ws = db.prepare(
-        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-      ).get(productId, warehouseId);
-      const whBefore = round3(Number(ws && ws.qty) || 0);
-      const whAfter = round3(whBefore + qtyDelta);
-      if (whAfter < -1e-9 && !allowNegative) {
-        throw shortErr(db, 'موجودی انبار کافی نیست', {
-          product_id: productId, warehouse_id: warehouseId,
-          available: whBefore, needed: Math.abs(qtyDelta),
-        });
-      }
-      db.prepare(
-        'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-      ).run(whAfter, productId, warehouseId);
-    }
-
-    if (writeStockLog && tableExists(db, 'stock_logs')) {
-      db.prepare(
-        'INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)'
-      ).run(productId, userId || 0, qtyDelta, note || docType);
-    }
+    const L = require('./ledger');
+    L.postInventoryMovement(db, {
+      eventType: qtyDelta > 0 ? 'receipt' : 'issue',
+      productId,
+      warehouseId,
+      variantId,
+      qty: qtyDelta,
+      unitCostRial: Math.round(Number(prod.average_cost_rial) || 0),
+      sourceType: `mov_${docType}`,
+      sourceId: docId,
+      note: note || docType,
+      createdBy: userId || null,
+      updateAvg: false,
+      allowZeroCost: true,
+      allowNegative,
+    });
   }
 
   const ins = db.prepare(`
@@ -372,6 +278,11 @@ function postStockMovement(db, opts) {
   );
 
   const movement = db.prepare('SELECT * FROM inventory_movements WHERE id=?').get(ins.lastInsertRowid);
+  // Idempotent re-derive (covers callers whose ledger row was written before this layer).
+  require('./stock-cache').rebuildStockCache(db, productId);
+  if (variantId) {
+    try { require('../product-variants').afterVariantStockWrite(db, productId); } catch (_) { /* optional */ }
+  }
   try {
     require('../website-stock-sync').notifyStockChanged(db, productId, { warehouseId });
   } catch (_) { /* sync is best-effort */ }
@@ -379,12 +290,8 @@ function postStockMovement(db, opts) {
 }
 
 /**
- * Reverse every movement for a document by posting opposite deltas
- * with doc_type suffix `_void` (unique key differs). Idempotent.
- */
-/**
- * Variant×warehouse layer only. Header products.stock / warehouse_stock stay
- * with the perpetual inventory_ledger posting. Idempotent via inventory_movements.
+ * Variant×warehouse audit layer only (the caller's inventory_ledger row carries the qty and
+ * the variant_id). Idempotent via inventory_movements.
  */
 function postVariantLayer(db, opts) {
   const productId = parseInt(opts.productId, 10);
@@ -411,6 +318,23 @@ function postVariantLayer(db, opts) {
   });
 }
 
+/** Live ledger row posted by a header movement (postStockMovement applyHeaderStock) — or null. */
+function findHeaderLedgerRow(db, m) {
+  const q = round3(Number(m.qty_delta) || 0);
+  if (!q) return null;
+  const hasVar = require('./ledger').ledgerHasVariantColumn(db);
+  return db.prepare(`
+    SELECT id FROM inventory_ledger
+    WHERE source_type=? AND source_id=? AND product_id=?
+      AND COALESCE(warehouse_id,0)=COALESCE(?,0)
+      ${hasVar ? 'AND COALESCE(variant_id,0)=COALESCE(?,0)' : ''}
+      AND status='posted' AND reversed_of IS NULL
+      AND ABS((COALESCE(qty_in,0) - COALESCE(qty_out,0)) - ?) < 0.0005
+    ORDER BY id ASC LIMIT 1
+  `).get(`mov_${m.doc_type}`, m.doc_id, m.product_id, m.warehouse_id,
+    ...(hasVar ? [m.variant_id] : []), q) || null;
+}
+
 function reverseStockDocument(db, { docType, docId, userId, note, applyHeaderStock } = {}) {
   if (!docType || docId == null) return [];
   const rows = db.prepare(`
@@ -432,6 +356,19 @@ function reverseStockDocument(db, { docType, docId, userId, note, applyHeaderSto
       out.push(existing);
       continue;
     }
+    // Header void (R12): reverse the ledger row the original header movement posted. A legacy
+    // pre-SSOT header movement has no ledger row — it never reached the derived stock, so the
+    // void moves nothing either (only the audit movement is recorded).
+    if (applyHeaderStock !== false) {
+      const led = findHeaderLedgerRow(db, m);
+      if (led) {
+        require('./ledger').reverseInventoryMovement(db, led.id, {
+          createdBy: userId != null ? userId : m.user_id,
+          note: note || (`ابطال ${m.doc_type}`),
+          allowNegative: true,
+        });
+      }
+    }
     const posted = postStockMovement(db, {
       productId: m.product_id,
       variantId: m.variant_id,
@@ -443,7 +380,7 @@ function reverseStockDocument(db, { docType, docId, userId, note, applyHeaderSto
       userId: userId != null ? userId : m.user_id,
       note: note || (`ابطال ${m.doc_type}`),
       allowNegative: true,
-      applyHeaderStock: applyHeaderStock !== false,
+      applyHeaderStock: false,
     });
     out.push(posted);
   }
@@ -654,12 +591,20 @@ function expandLivePack(db, productId, warehouseId, opts) {
 }
 
 /**
- * Available qty at variant×warehouse.
- * With warehouseId: missing VWS row = 0 (no global fallback).
- * Without warehouseId: product_variants.stock (company-wide total).
+ * Available qty at variant×warehouse — ledger-derived (live rows stamped with the variant).
+ * Without warehouseId: company-wide variant total (WIP staging excluded).
+ * Old DBs without inventory_ledger.variant_id fall back to the caches.
  */
 function variantWarehouseQty(db, variantId, warehouseId) {
   if (!variantId) return 0;
+  const L = require('./ledger');
+  if (L.ledgerHasVariantColumn(db)) {
+    const v = db.prepare('SELECT product_id FROM product_variants WHERE id=?').get(variantId);
+    if (!v) return 0;
+    return require('./stock-cache').derivedQty(db, {
+      productId: v.product_id, warehouseId: warehouseId || null, variantId,
+    });
+  }
   if (warehouseId && tableExists(db, 'variant_warehouse_stock')) {
     const row = db.prepare(
       'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
@@ -671,9 +616,9 @@ function variantWarehouseQty(db, variantId, warehouseId) {
 }
 
 /**
- * One-shot: collapse phantom double-count from VWS seed-with-global bug,
- * then rebuild warehouse_stock / products.stock from VWS for matrix SKUs.
- * Idempotent via settings flag vws_wh_reconcile_v1.
+ * One-shot (flag vws_wh_reconcile_v1): historically collapsed the VWS seed-with-global
+ * double count by rewriting the caches. SSOT: the caches of every matrix product are simply
+ * re-derived from the live ledger (stock-cache.js is the only writer).
  */
 function reconcileVariantWarehouseProjections(db) {
   if (!tableExists(db, 'variant_warehouse_stock') || !tableExists(db, 'product_variants')) {
@@ -684,94 +629,16 @@ function reconcileVariantWarehouseProjections(db) {
   }
   const flag = db.prepare("SELECT value FROM settings WHERE key='vws_wh_reconcile_v1'").get();
   if (flag && String(flag.value) === '1') return { already: true };
+  if (!tableExists(db, 'inventory_ledger')) return { skipped: true, reason: 'no_ledger' };
 
-  const variants = db.prepare(`
-    SELECT id, product_id, stock FROM product_variants
-    WHERE active=1 AND COALESCE(is_default,0)=0
-  `).all();
-  const vwsRows = db.prepare(
-    'SELECT variant_id, warehouse_id, qty FROM variant_warehouse_stock WHERE variant_id=?'
-  );
-  const vwsUpd = db.prepare(
-    'UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?'
-  );
-  const varUpd = db.prepare('UPDATE product_variants SET stock=? WHERE id=?');
-
-  let scaled = 0;
-  for (const v of variants) {
-    const rows = vwsRows.all(v.id);
-    if (!rows.length) continue;
-    const sum = rows.reduce((a, r) => a + round3(Number(r.qty) || 0), 0);
-    const global = round3(Number(v.stock) || 0);
-    if (sum > global + 0.001 && global >= 0) {
-      if (global === 0 || sum <= 0) {
-        for (const r of rows) vwsUpd.run(0, v.id, r.warehouse_id);
-      } else if (requiresIntegerQty(db, v.product_id)) {
-        // Integer-safe scale (largest remainder) — never invent 0.667 from 2/3
-        const target = Math.round(global);
-        const next = allocateIntegers(rows.map((r) => Number(r.qty) || 0), target);
-        rows.forEach((r, i) => vwsUpd.run(next[i], v.id, r.warehouse_id));
-      } else {
-        const factor = global / sum;
-        let assigned = 0;
-        for (let i = 0; i < rows.length; i++) {
-          const r = rows[i];
-          let next;
-          if (i === rows.length - 1) next = round3(global - assigned);
-          else {
-            next = round3((Number(r.qty) || 0) * factor);
-            assigned = round3(assigned + next);
-          }
-          if (next < 0) next = 0;
-          vwsUpd.run(next, v.id, r.warehouse_id);
-        }
-      }
-      scaled += 1;
-    }
-  }
-
-  // Rebuild warehouse_stock + products.stock from VWS for matrix products
-  const matrixProducts = db.prepare(`
+  const productIds = db.prepare(`
     SELECT DISTINCT product_id AS id FROM product_variants
     WHERE active=1 AND COALESCE(is_default,0)=0
-  `).all();
-  const sumByWh = db.prepare(`
-    SELECT vws.warehouse_id AS warehouse_id, COALESCE(SUM(vws.qty),0) AS qty
-    FROM variant_warehouse_stock vws
-    JOIN product_variants pv ON pv.id=vws.variant_id
-    WHERE pv.product_id=? AND COALESCE(pv.is_default,0)=0 AND pv.active=1
-    GROUP BY vws.warehouse_id
-  `);
-  const wsUpsert = db.prepare(`
-    INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-    ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-  `);
-  const prodUpd = db.prepare('UPDATE products SET stock=? WHERE id=?');
-  let rebuilt = 0;
-  for (const p of matrixProducts) {
-    const whs = sumByWh.all(p.id);
-    let total = 0;
-    for (const w of whs) {
-      const q = round3(Number(w.qty) || 0);
-      total = round3(total + q);
-      wsUpsert.run(p.id, w.warehouse_id, q);
-    }
-    prodUpd.run(total, p.id);
-    const vids = db.prepare(`
-      SELECT id FROM product_variants
-      WHERE product_id=? AND active=1 AND COALESCE(is_default,0)=0
-    `).all(p.id);
-    for (const row of vids) {
-      const s = db.prepare(
-        'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
-      ).get(row.id);
-      varUpd.run(round3(Number(s && s.s) || 0), row.id);
-    }
-    rebuilt += 1;
-  }
+  `).all().map((r) => Number(r.id));
+  if (productIds.length) require('./stock-cache').rebuildAllStockCaches(db, { productIds });
 
   db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('vws_wh_reconcile_v1','1')").run();
-  return { scaled, rebuilt };
+  return { scaled: 0, rebuilt: productIds.length };
 }
 
 module.exports = {

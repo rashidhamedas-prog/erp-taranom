@@ -335,7 +335,25 @@ router.get('/inventory-valuation', auth, warehouseReportView, (req, res) => {
 router.get('/inventory-health', auth, warehouseReportView, (req, res) => {
   const db = getDB();
   const { from, to } = req.query;
-  const products = db.prepare('SELECT id,code,name,stock,unit,stock_alert FROM products ORDER BY name').all();
+  const { LEDGER_LIVE_SQL } = require('../lib/inventory/layer-reconcile');
+  const { WAREHOUSE_ONLY_EVENTS } = require('../lib/inventory/stock-cache');
+  const woList = WAREHOUSE_ONLY_EVENTS.map((e) => `'${e}'`).join(',');
+  const hasLed = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get();
+  const ledMap = new Map();
+  if (hasLed) {
+    for (const r of db.prepare(`
+      SELECT product_id, COALESCE(SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)),0) AS q
+      FROM inventory_ledger
+      WHERE (${LEDGER_LIVE_SQL}) AND COALESCE(event_type,'') NOT IN (${woList})
+      GROUP BY product_id
+    `).all()) {
+      ledMap.set(Number(r.product_id), Math.round((Number(r.q) || 0) * 1000) / 1000);
+    }
+  }
+  const products = db.prepare('SELECT id,code,name,stock,unit,stock_alert FROM products ORDER BY name').all().map((p) => ({
+    ...p,
+    stock: ledMap.has(Number(p.id)) ? ledMap.get(Number(p.id)) : (Number(p.stock) || 0),
+  }));
   const soldByProduct = aggregateSalesByProduct(db, from, to);
   const negative = products.filter(p => (p.stock || 0) <= 0);
   const fastMoving = Object.values(soldByProduct).sort((a, b) => b.qty - a.qty).slice(0, 20);

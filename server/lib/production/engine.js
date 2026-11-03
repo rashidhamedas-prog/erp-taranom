@@ -1144,6 +1144,7 @@ function postReceiptFixed(db, { orderId, body, userId }) {
         sourceType: 'production_receipt',
         sourceId: orderId,
         date,
+        variantLines: fgLines,
       });
 
       let docNo = '';
@@ -1839,6 +1840,7 @@ function issueMaterialsVariable(db, { orderId, body, userId }) {
           productId: L.product_id, warehouseId: whId, qty: -AQ,
           unitCostRial: unitCost, userId,
           note: `برگشت ${issueNo}`,
+          variantLines: apparelLines,
         });
       }
 
@@ -2164,6 +2166,7 @@ function postReceiptVariable(db, { orderId, body, userId }) {
         productId: po.product_id, warehouseId: po.warehouse_fg_id,
         qtyIn: qtyGood, amountRial: wipNet, userId, note: `تولید ${po.order_no}`,
         sourceType: 'production_receipt', sourceId: orderId, date,
+        variantLines: fgLines,
       });
       let docNo = '';
       try { docNo = allocateNumber(db, 'production_receipt', 'PR'); }

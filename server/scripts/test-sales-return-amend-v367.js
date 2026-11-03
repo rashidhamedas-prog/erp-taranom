@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v367 — R13 in-place amend of posted sales returns (same id).
  * Run: node server/scripts/test-sales-return-amend-v367.js

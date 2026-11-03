@@ -102,18 +102,16 @@ async function main() {
     user_id: adminId, name: 'بارونی مموری 110', code: 'BR-110', price: 100000, cost: 50000,
     stock: 0, warehouse_id: whA, unit: 'عدد',
   }));
-  const wsIns = db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)');
-  wsIns.run(prodId, whA, 11);
-  wsIns.run(prodId, whB, 14);
-
   const colorId = insert('product_colors', { name: 'مشکی', code: 'XBLK', active: 1 });
   const sizeId = insert('product_sizes', { name: 'L', code: 'XL', active: 1 });
   const varId = Number(insert('product_variants', {
     product_id: prodId, color_id: colorId, size_id: sizeId, sku: 'BR-110-BLK-L', stock: 0, active: 1, is_default: 0,
   }));
-  const vwsIns = db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (?,?,?)');
-  vwsIns.run(varId, whA, 11);
-  vwsIns.run(varId, whB, 14);
+  // Stock single source: stock is created by ledger documents (receipt rows carrying variant_id);
+  // warehouse_stock / variant_warehouse_stock are derived caches. Product-level = Σ of its variants.
+  const { seedStock } = require('./lib/stock-fixture');
+  seedStock(db, { productId: prodId, variantId: varId, warehouseId: whA, qty: 11 });
+  seedStock(db, { productId: prodId, variantId: varId, warehouseId: whB, qty: 14 });
 
   // second product with NO warehouse_stock rows at all (must read 0, must not be seeded)
   const prodBare = Number(insert('products', {

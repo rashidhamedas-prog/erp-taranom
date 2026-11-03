@@ -461,6 +461,7 @@ function voidCycleCount(db, sessionId, { createdBy } = {}) {
     const leds = db.prepare(`
       SELECT id FROM inventory_ledger
       WHERE source_type='stocktaking' AND source_id=? AND COALESCE(status,'posted')='posted'
+        AND reversed_of IS NULL AND COALESCE(event_type,'') <> 'reversal'
       ORDER BY id DESC
     `).all(session.id);
     for (const l of leds) {

@@ -19,6 +19,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { swAtLeast } = require('./lib/sw-at-least');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-reports-v577-'));
 process.env.DB_PATH = path.join(tmp, 'test.db');
@@ -40,6 +41,7 @@ const {
 } = require('../lib/inventory/valuation');
 const { computeLayerReconcile } = require('../lib/inventory/layer-reconcile');
 const { buildVariantStockReport } = require('../lib/inventory/variant-report');
+const { rebuildAllStockCaches } = require('../lib/inventory/stock-cache');
 
 let pass = 0;
 let fail = 0;
@@ -96,53 +98,49 @@ async function main() {
     user_id: adminId, name, code, price: 5000000, cost: 1000, average_cost_rial: 1000,
     stock: 0, warehouse_id: whA, unit: 'عدد', ...extra,
   }));
-  const wsSet = db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)');
+  // Stock single source: the ledger rows below ARE the stock documents (raw rows because they model reversed pairs,
+  // value-only ghosts and NULL-warehouse rows postInventoryMovement refuses). warehouse_stock / products.stock /
+  // variant_warehouse_stock are derived — rebuilt from the ledger once the fixtures are in (see rebuildAllStockCaches).
 
   // ── fixtures mirroring prod acceptance numbers ───────────────────────────────
   // 168: in 12 / out 3 → qty 9, Σledger value 10,889,268
-  const p168 = mk('کالای ۱۶۸', 'R4-168', { stock: 9 });
+  const p168 = mk('کالای ۱۶۸', 'R4-168');
   led({ product_id: p168, warehouse_id: whA, event_type: 'purchase', qty_in: 12, amount_rial: 14000000 });
   led({ product_id: p168, warehouse_id: whA, event_type: 'sale', qty_out: 3, amount_rial: 3110732 });
-  wsSet.run(p168, whA, 9);
   // 174: 6 pcs → 8,460,000
-  const p174 = mk('کالای ۱۷۴', 'R4-174', { stock: 6 });
+  const p174 = mk('کالای ۱۷۴', 'R4-174');
   led({ product_id: p174, warehouse_id: whA, event_type: 'purchase', qty_in: 6, amount_rial: 8460000 });
-  wsSet.run(p174, whA, 6);
   // 137: two warehouses, Σ = 52,729,484
-  const p137 = mk('کالای ۱۳۷', 'R4-137', { stock: 7 });
+  const p137 = mk('کالای ۱۳۷', 'R4-137');
   led({ product_id: p137, warehouse_id: whA, event_type: 'purchase', qty_in: 4, amount_rial: 20000000 });
   led({ product_id: p137, warehouse_id: whB, event_type: 'purchase', qty_in: 3, amount_rial: 32729484 });
-  wsSet.run(p137, whA, 4);
-  wsSet.run(p137, whB, 3);
   // 334: WIP ghost — in 50 / out 50 but value −894,234,074 left behind
-  const p334 = mk('کالای ۳۳۴ (WIP)', 'R4-334', { stock: 0 });
+  const p334 = mk('کالای ۳۳۴ (WIP)', 'R4-334');
   led({ product_id: p334, warehouse_id: whW, event_type: 'production_receipt', qty_in: 50, amount_rial: 100000000 });
   led({ product_id: p334, warehouse_id: whW, event_type: 'production_issue', qty_out: 50, amount_rial: 994234074 });
   // 6: ghost −17,000,000 (qty 0, value only)
-  const p6 = mk('کالای ۶', 'R4-6', { stock: 0 });
+  const p6 = mk('کالای ۶', 'R4-6');
   led({ product_id: p6, warehouse_id: whA, event_type: 'adjustment', source_type: 'value_adjust', qty_in: 0, qty_out: 0, amount_rial: -17000000 });
 
   // reversed pair must be ignored (original status=reversed, reversal row has reversed_of)
-  const pRev = mk('کالای معکوس', 'R4-REV', { stock: 2 });
+  const pRev = mk('کالای معکوس', 'R4-REV');
   led({ product_id: pRev, warehouse_id: whA, event_type: 'purchase', qty_in: 2, amount_rial: 2000 });
   const revOrig = led({ product_id: pRev, warehouse_id: whA, event_type: 'purchase', qty_in: 5, amount_rial: 5000, status: 'reversed' });
   led({ product_id: pRev, warehouse_id: whA, event_type: 'purchase_reversal', qty_out: 5, amount_rial: 5000, reversed_of: revOrig });
-  wsSet.run(pRev, whA, 2);
 
   // NULL-warehouse ledger value — never dropped
-  const pNull = mk('کالای بدون انبار', 'R4-NULL', { stock: 0 });
+  const pNull = mk('کالای بدون انبار', 'R4-NULL');
   led({ product_id: pNull, warehouse_id: null, event_type: 'adjustment', qty_in: 0, qty_out: 0, amount_rial: 777000 });
 
   // weighted vs simple average (warehouse B): X qty 1 @100, Y qty 99 @200
-  const pX = mk('کالای X', 'R4-X', { stock: 1 });
-  const pY = mk('کالای Y', 'R4-Y', { stock: 99 });
+  const pX = mk('کالای X', 'R4-X');
+  const pY = mk('کالای Y', 'R4-Y');
   led({ product_id: pX, warehouse_id: whB, event_type: 'purchase', qty_in: 1, amount_rial: 100 });
   led({ product_id: pY, warehouse_id: whB, event_type: 'purchase', qty_in: 99, amount_rial: 19800 });
-  wsSet.run(pX, whB, 1);
-  wsSet.run(pY, whB, 99);
 
   // ── 1) Σ ledger value / qty per product ────────────────────────────────────────
   console.log('— 1) value = Σ ledger —');
+  rebuildAllStockCaches(db);
   const val = buildLedgerValuationRows(db, {});
   const prod = (id) => val.by_product.get(id);
   ok(prod(p168).ledger_value_rial === 10889268 && prod(p168).ledger_qty === 9, '168 → Σledger 10,889,268 / qty 9', prod(p168));
@@ -191,33 +189,28 @@ async function main() {
   ok(rep.source === 'kardex' && rep.value_basis === 'sum_ledger_rial', 'report declares source');
   ok(rep.totals.ghost_value_rial === -894234074 + -17000000 + 777000 || rep.totals.ghost_value_rial <= 0, 'totals.ghost_value_rial aggregated', rep.totals.ghost_value_rial);
 
-  // ── 6) layer drift vs Phase 1 reconcile (334: ledger 40, vws 41, ws 56) ──────
-  console.log('\n— 6) layer drift (40/41/56) —');
+  // ── 6) layer figures — SSOT: ws / vws / ledger can no longer disagree ──────────
+  // (was: drift fixture ledger 40 / vws 41 / ws 56. The caches are now derived from the ledger,
+  //  so the same document set yields ONE number in every layer and drift is structurally 0.)
+  console.log('\n— 6) layer figures (40 / 40 / 40, no drift) —');
   const colorId = insert('product_colors', { name: 'مشکی', code: 'R4BLK', active: 1 });
   const sizeId = insert('product_sizes', { name: 'M', code: 'R4M', active: 1 });
-  const pD = mk('کالای ۳۳۴ واریانتی', 'R4-334V', { stock: 56 });
-  led({ product_id: pD, warehouse_id: whA, event_type: 'purchase', qty_in: 40, amount_rial: 4000000 });
-  wsSet.run(pD, whA, 56);
+  const pD = mk('کالای ۳۳۴ واریانتی', 'R4-334V');
   const varId = Number(insert('product_variants', { product_id: pD, color_id: colorId, size_id: sizeId, sku: 'R4-334V-BLK-M', stock: 0, active: 1, is_default: 0 }));
-  db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id,warehouse_id,qty) VALUES (?,?,?)').run(varId, whA, 41);
+  led({ product_id: pD, variant_id: varId, warehouse_id: whA, event_type: 'purchase', qty_in: 40, amount_rial: 4000000 });
+  rebuildAllStockCaches(db);
   const vd = buildLedgerValuationRows(db, { productId: pD });
   const dRow = vd.rows.find((r) => r.warehouse_id === whA);
-  ok(dRow.ledger_qty === 40 && dRow.ws_qty === 56 && dRow.vws_sum === 41, 'ledger 40 / ws 56 / vws 41 exposed', dRow);
-  ok(dRow.flags.drift_ws_ledger && dRow.flags.drift_ws_vws && dRow.flags.drift_any && dRow.flagged, 'drift flags set', dRow.flags);
-  ok(dRow.drift_qty === 16, 'drift_qty = ws − ledger = 16', dRow.drift_qty);
+  ok(dRow.ledger_qty === 40 && dRow.ws_qty === 40 && dRow.vws_sum === 40, 'ledger 40 / ws 40 / vws 40 (one source)', dRow);
+  ok(!dRow.flags.drift_ws_ledger && !dRow.flags.drift_ws_vws && !dRow.flags.drift_any, 'no drift flags', dRow.flags);
+  ok(dRow.drift_qty === 0, 'drift_qty = ws − ledger = 0', dRow.drift_qty);
   const rec = computeLayerReconcile(db, { productId: pD });
-  ok(rec.rows.some((r) => r.flags.ws_vs_ledger && r.flags.ws_vs_vws), 'Phase 1 reconcile agrees (same drift)');
+  ok(!rec.rows.some((r) => r.flags.ws_vs_ledger || r.flags.ws_vs_vws), 'Phase 1 reconcile agrees (no drift)');
   const vr = buildVariantStockReport(db, { product_id: pD });
   const layer = vr.layers.find((l) => l.product_id === pD && l.warehouse_id === whA);
-  ok(layer && layer.variant_qty === 41 && layer.kardex_qty === 40 && layer.drift === true && layer.drift_qty === 1, 'variant report layer: 41 vs kardex 40 → drift flag', layer);
-  ok(vr.cells.every((c) => c.layer_drift === true), 'variant cells carry layer_drift');
-  ok(vr.kpis.layer_drift_count === 1 && vr.notes.warehouse_total_source === 'kardex', 'kpi + declared source');
-  // aligned product → no drift
-  db.prepare('UPDATE variant_warehouse_stock SET qty=40 WHERE variant_id=?').run(varId);
-  const vr2 = buildVariantStockReport(db, { product_id: pD });
-  ok(vr2.layers.find((l) => l.warehouse_id === whA).drift === false && vr2.kpis.layer_drift_count === 0, 'same number → no drift flag');
-  db.prepare('UPDATE variant_warehouse_stock SET qty=41 WHERE variant_id=?').run(varId);
-
+  ok(layer && layer.variant_qty === 40 && layer.kardex_qty === 40 && layer.drift === false && layer.drift_qty === 0, 'variant report layer: 40 vs kardex 40 → no drift', layer);
+  ok(vr.cells.every((c) => !c.layer_drift), 'variant cells carry no layer_drift');
+  ok(vr.kpis.layer_drift_count === 0 && vr.notes.warehouse_total_source === 'kardex', 'kpi + declared source');
   // ── 7) HTTP: reports + RBAC ───────────────────────────────────────────────────
   console.log('\n— 7) HTTP + RBAC —');
   const express = require('express');
@@ -287,26 +280,26 @@ async function main() {
   ok(adv.data.totals && typeof adv.data.totals.ghost_value_rial === 'number', 'totals expose ghost_value_rial');
 
   const vrep = await api('GET', `/api/warehouses/stock/variant-report?product_id=${pD}`);
-  ok(vrep.status === 200 && vrep.data.layers.find((l) => l.warehouse_id === whA).drift === true, 'variant-report HTTP: drift layer 41 vs 40');
+  ok(vrep.status === 200 && vrep.data.layers.find((l) => l.warehouse_id === whA).drift === false, 'variant-report HTTP: layer 40 vs 40 → no drift');
 
   const sbw = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${p168}`);
   const sbwA = sbw.data.warehouses.find((x) => x.warehouse_id === whA);
   ok(sbw.status === 200 && sbwA.kardex_qty === 9 && sbwA.kardex_value_rial === 10889268 && sbwA.declared_source === 'kardex', 'stock-by-warehouse exposes kardex qty/value', sbwA);
   const sbwD = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${pD}`);
   const sbwDA = sbwD.data.warehouses.find((x) => x.warehouse_id === whA);
-  ok(sbwDA.qty === 56 && sbwDA.kardex_qty === 40 && sbwDA.drift === true && sbwDA.drift_qty === 16, 'stock-by-warehouse: qty(ws 56) vs kardex 40 → drift', sbwDA);
+  ok(sbwDA.qty === 40 && sbwDA.kardex_qty === 40 && sbwDA.drift === false && sbwDA.drift_qty === 0, 'stock-by-warehouse: qty(ws 40) = kardex 40 → no drift (SSOT)', sbwDA);
   const sbwK = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${pD}&source=kardex`);
   ok(sbwK.data.warehouses.find((x) => x.warehouse_id === whA).qty === 40, 'source=kardex → qty is kardex');
   const sbwV = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${pD}&variant_id=${varId}`);
   const sbwVA = sbwV.data.warehouses.find((x) => x.warehouse_id === whA);
-  ok(sbwVA.qty === 41 && sbwVA.source === 'vws', 'variant read stays vws (variant_id not complete in ledger)', sbwVA);
+  ok(sbwVA.qty === 40, 'variant read = 40 (vws derived from the variant-stamped ledger row)', sbwVA);
   const sbwB = await api('POST', '/api/inventory/stock-by-warehouse/batch', { items: [{ product_id: p168 }, { product_id: pD, variant_id: varId }] });
   ok(sbwB.status === 200 && sbwB.data.results.length === 2 && sbwB.data.results[0].warehouses.some((x) => x.kardex_qty === 9), 'batch endpoint carries kardex fields');
 
   const whStock = await api('GET', `/api/warehouses/${whA}/stock`);
   const whStockD = (whStock.data || []).find((x) => x.id === pD);
-  ok(whStock.status === 200 && whStockD && whStockD.stock === 56 && whStockD.kardex_qty === 40 && whStockD.drift === true,
-    '/:id/stock keeps ws stock and adds kardex_qty + drift', whStockD);
+  ok(whStock.status === 200 && whStockD && whStockD.stock === 40 && whStockD.kardex_qty === 40 && whStockD.drift === false,
+    '/:id/stock keeps ws stock and adds kardex_qty + drift (aligned)', whStockD);
 
   // RBAC
   const urls = [
@@ -344,7 +337,7 @@ async function main() {
   ok(!/requirePermission\('invoices', 'view'\)/.test(invSrc), 'inventory.js no invoices:view gate');
   ok(/requireWarehouseReportView/.test(invSrc) && /requireWarehouseReportView/.test(advSrc) && /requireWarehouseReportView/.test(whSrc), 'all three routers use requireWarehouseReportView');
   ok(!/'\/inventory-valuation', auth, adminOrAccounting/.test(advSrc), 'adv-reports inventory-valuation not adminOrAccounting-only');
-  ok(/erp-taranom-v5(7[7-9]|[89]\d)/.test(read('public/sw.js')), 'SW ≥ v577');
+  ok(swAtLeast(read('public/sw.js'), 577), 'SW ≥ v577');
 
   server.close();
   console.log(`\n${fail ? '✗' : '✓'} ${pass} passed, ${fail} failed`);

@@ -16,8 +16,9 @@ const {
   applyHeaderWarehouseToLines, requireFirmHeaderWarehouse, assertWarehouseLines,
 } = require('./sales-document');
 const {
-  applyStockDelta, postInventoryMovement, warehouseQty, allowNegative,
+  postInventoryMovement, reverseInventoryMovement, allowNegative,
 } = require('./inventory/ledger');
+const { derivedQty, rebuildStockCache } = require('./inventory/stock-cache');
 const { persistInvoicePayPlan } = require('./invoice-payments');
 const { rialToLedger } = require('./money');
 const { resolveCashAccount } = require('../db');
@@ -112,13 +113,6 @@ function takeMovements(unused, meta) {
   return taken;
 }
 
-function adjustVariant(db, variantId, qtyDelta) {
-  if (!variantId || !qtyDelta) return;
-  try {
-    require('./product-variants').adjustVariantStock(db, variantId, qtyDelta, 'delta');
-  } catch (_) { /* variant may be gone */ }
-}
-
 function syncFabricAfterLedger(db, batchId) {
   if (!batchId) return;
   const { liveBatchMeters } = require('./inventory/fabric-rolls');
@@ -136,7 +130,7 @@ function noteAmended(note) {
   return (base + ' — اصلاح فاکتور').slice(0, 240);
 }
 
-function postNewSaleLine(db, { meta, qty, sourceId, userId, date, num }) {
+function postNewSaleLine(db, { meta, qty, sourceId, userId, date, num, allowZeroCost = false }) {
   const { availableBatchMeters, consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
   if (meta.isFabric && meta.batchId) {
     const onHand = availableBatchMeters(db, meta.batchId);
@@ -149,6 +143,7 @@ function postNewSaleLine(db, { meta, qty, sourceId, userId, date, num }) {
     productId: meta.productId,
     warehouseId: meta.warehouseId,
     qtyOut: qty,
+    variantId: meta.variantId || undefined,
     sourceType: 'invoice',
     sourceId,
     batchId: meta.batchId || null,
@@ -157,45 +152,113 @@ function postNewSaleLine(db, { meta, qty, sourceId, userId, date, num }) {
     createdBy: userId,
     updateAvg: false,
     allowNegative: !meta.isFabric,
+    ...(allowZeroCost ? { allowZeroCost: true } : {}),
   });
   if (meta.isFabric && meta.batchId) {
     consumeFabricRollOnSale(db, { batchId: meta.batchId, qty });
   }
-  if (meta.variantId) adjustVariant(db, meta.variantId, -qty);
   return Math.round(Number(mv.amount_rial) || 0);
 }
 
-function updateMovementQty(db, mv, qtyOut, date) {
-  const unit = Math.round(Number(mv.unit_cost_rial) || 0);
-  const amt = Math.round(unit * qtyOut);
-  const when = date != null && String(date).trim() !== '' ? String(date).trim() : null;
-  if (when) {
-    db.prepare('UPDATE inventory_ledger SET qty_out=?, amount_rial=?, date=? WHERE id=?')
-      .run(qtyOut, amt, when, mv.id);
-  } else {
-    db.prepare('UPDATE inventory_ledger SET qty_out=?, amount_rial=? WHERE id=?')
-      .run(qtyOut, amt, mv.id);
+/**
+ * Net qty change of a line that has no live ledger row to edit in place (legacy / unmatched):
+ * delta<0 → more sold (sale out), delta>0 → less sold (sale_return in). Always a ledger row —
+ * the stock figure is derived, never adjusted.
+ */
+function postAmendResidual(db, { meta, delta, sourceId, userId, date, num }) {
+  if (!meta.productId || Math.abs(delta) < 1e-9) return 0;
+  if (delta < 0) {
+    return postNewSaleLine(db, { meta, qty: -delta, sourceId, userId, date, num, allowZeroCost: true });
   }
-  return amt;
+  postInventoryMovement(db, {
+    eventType: 'sale_return',
+    productId: meta.productId,
+    warehouseId: meta.warehouseId,
+    qtyIn: delta,
+    variantId: meta.variantId || undefined,
+    sourceType: 'invoice',
+    sourceId,
+    batchId: meta.batchId || null,
+    date: date || '',
+    note: noteAmended(`فروش ${num}`),
+    createdBy: userId,
+    updateAvg: false,
+    allowZeroCost: true,
+  });
+  return 0;
 }
 
 /**
- * Soft-retire a sale ledger row during in-place amend (v364).
- * Stock qty was already corrected via applyStockDelta — do NOT post a reverse
- * movement (that would double-adjust warehouse). Mark reversed so kardex
- * (active-only) hides the ghost instead of showing qty=0 + leftover unit_cost.
+ * Retire a live sale-ledger row during amend. The ledger is append-only for quantity: the row is
+ * undone by a proper reversal movement (reverseInventoryMovement → reversal row + original marked
+ * reversed, cache rebuilt there), never by editing qty/status in place.
  */
-function retireAmendedMovement(db, mv) {
-  if (!mv || !mv.id) return;
-  if (String(mv.status || '') === 'reversed') return;
-  db.prepare(
-    "UPDATE inventory_ledger SET status='reversed', note=? WHERE id=? AND status='posted'"
-  ).run(noteAmended(mv.note), mv.id);
+function retireAmendedMovement(db, mv, ctx = {}) {
+  if (!mv || !mv.id) return null;
+  if (String(mv.status || '') === 'reversed') return null;
+  return reverseInventoryMovement(db, mv.id, {
+    createdBy: ctx.userId,
+    date: ctx.date != null && String(ctx.date).trim() !== '' ? String(ctx.date).trim() : undefined,
+    note: noteAmended(mv.note),
+    allowNegative: true,
+  });
 }
 
 /** @deprecated use retireAmendedMovement */
-function zeroMovement(db, mv) {
-  retireAmendedMovement(db, mv);
+function zeroMovement(db, mv, ctx) {
+  return retireAmendedMovement(db, mv, ctx);
+}
+
+/**
+ * Express a qty change of an already-posted sale line as reversal + fresh row(s) at the same unit
+ * cost (COGS = unit × new qty, exactly what the old in-place edit computed). Every row of `mvs`
+ * is reversed; `targets` = [{variantId, qty}] are posted anew (a legacy NULL-variant group is
+ * thereby re-posted per variant). Returns the COGS rial of the new rows.
+ */
+function updateMovementQty(db, mvs, targets, ctx) {
+  const list = (Array.isArray(mvs) ? mvs : [mvs]).filter(Boolean);
+  if (!list.length) return 0;
+  const costRow = list.find((m) => (Number(m.qty_out) || 0) > 0 && Number(m.unit_cost_rial) > 0)
+    || list.find((m) => (Number(m.qty_out) || 0) > 0) || list[0];
+  const unit = Math.round(Number(costRow.unit_cost_rial) || 0);
+  const when = ctx.date != null && String(ctx.date).trim() !== '' ? String(ctx.date).trim() : (costRow.date || '');
+  const keepVariant = (list.find((m) => m.variant_id) || {}).variant_id || undefined;
+  // Unchanged line (same qty, same variant stamp, no re-dating): nothing to reverse or repost.
+  if (list.length === 1 && targets.length === 1) {
+    const m = list[0];
+    const t = targets[0];
+    const sameQty = (Number(m.qty_out) || 0) > 0 && !(Number(m.qty_in) > 0)
+      && Math.abs((Number(m.qty_out) || 0) - t.qty) < 1e-9;
+    const sameVariant = Number(m.variant_id || 0) === Number(t.variantId || 0);
+    const sameDate = !ctx.date || String(ctx.date).trim() === '' || String(ctx.date).trim() === String(m.date || '');
+    if (sameQty && sameVariant && sameDate) return Math.round(unit * t.qty);
+  }
+  for (const mv of list) retireAmendedMovement(db, mv, ctx);
+  let cogs = 0;
+  for (const t of targets) {
+    if (!(t.qty > 1e-9)) continue;
+    const mv = postInventoryMovement(db, {
+      eventType: 'sale',
+      productId: Number(costRow.product_id),
+      warehouseId: costRow.warehouse_id || null,
+      qtyOut: t.qty,
+      variantId: t.variantId || keepVariant,
+      sourceType: 'invoice',
+      sourceId: costRow.source_id,
+      batchId: costRow.batch_id || null,
+      unitCostRial: unit || undefined,
+      amountRial: unit ? Math.round(unit * t.qty) : undefined,
+      priceFixed: !!unit,
+      date: when,
+      note: noteAmended(costRow.note),
+      createdBy: ctx.userId,
+      updateAvg: false,
+      allowNegative: true,
+      allowZeroCost: true,
+    });
+    cogs += Math.round(Number(mv.amount_rial) || 0);
+  }
+  return cogs;
 }
 
 /**
@@ -226,7 +289,7 @@ function assertSaleIncreasesCovered(db, oldAgg, newAgg, keys) {
     const extra = g.newQty - g.oldQty;
     if (extra <= 1e-9 || !g.warehouseId) continue;
     if (allowNegative(db, g.warehouseId)) continue;
-    const avail = warehouseQty(db, g.productId, g.warehouseId);
+    const avail = derivedQty(db, { productId: g.productId, warehouseId: g.warehouseId });
     if (avail - extra < -1e-9) {
       const p = db.prepare('SELECT name FROM products WHERE id=?').get(g.productId);
       const name = g.name || (p && p.name) || `کالا #${g.productId}`;
@@ -245,18 +308,21 @@ function assertSaleIncreasesCovered(db, oldAgg, newAgg, keys) {
 
 function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num }) {
   const perpetual = perpetualDocsEnabled(db);
+  const ctx = { userId, date };
   const oldAgg = aggregateStock(db, parseRows(row.rows), row.warehouse_id);
   const newAgg = aggregateStock(db, newRows, headerWh);
-  const unused = perpetual
-    ? db.prepare(`
+  // Stock single-source: every firm sale (perpetual or deductStock path) has live ledger rows
+  // with source_type='invoice'; they are edited in place, the stock cache is rebuilt at the end.
+  const unused = db.prepare(`
         SELECT * FROM inventory_ledger
         WHERE source_type='invoice' AND source_id=?
           AND status='posted' AND COALESCE(reversed_of,0)=0
         ORDER BY id ASC
-      `).all(row.id)
-    : [];
+      `).all(row.id);
 
   let cogsRial = 0;
+  // COGS JE exists only on the perpetual path (periodic close owns valuation otherwise).
+  const addCogs = (n) => { if (perpetual) cogsRial += n; };
   const used = new Map();
   const markWh = (whId) => {
     if (!whId) return;
@@ -267,9 +333,9 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
 
   const keys = new Set([...oldAgg.keys(), ...newAgg.keys()]);
   assertSaleIncreasesCovered(db, oldAgg, newAgg, keys);
-  // inventory_ledger has no variant column: every colour/size row of one
-  // product+warehouse+batch matches the same movements. Such groups must be
-  // settled once on the summed qty, or the first variant swallows the rest.
+  // Legacy ledger rows carry no variant_id: every colour/size line of one product+warehouse+batch
+  // matches the same movements. Such groups must be settled once on the summed qty, or the first
+  // variant swallows the rest. Rows that already carry variant_id are matched per variant.
   const ledgerKey = (m) => `${m.productId}|${m.warehouseId || 0}|${m.batchId || 0}`;
   const ledgerGroups = new Map();
   for (const key of keys) {
@@ -281,53 +347,26 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
   const multiVariant = new Set();
   for (const [lk, ks] of ledgerGroups) {
     const fabric = ks.some((k) => (newAgg.get(k) || oldAgg.get(k)).isFabric);
-    if (ks.length > 1 && !fabric) multiVariant.add(lk);
+    if (ks.length <= 1 || fabric) continue;
+    const legacyRows = unused.some((m) => m.variant_id == null && ledgerKey({
+      productId: m.product_id, warehouseId: m.warehouse_id, batchId: m.batch_id,
+    }) === lk);
+    if (legacyRows) multiVariant.add(lk);
   }
   for (const lk of multiVariant) {
-    let newTotal = 0;
     let meta = null;
+    const targets = [];
     for (const key of ledgerGroups.get(lk)) {
-      const old = oldAgg.get(key);
       const neu = newAgg.get(key);
-      const m = neu || old;
+      const m = neu || oldAgg.get(key);
       meta = meta || m;
-      const oldQty = old ? old.qty : 0;
-      const newQty = neu ? neu.qty : 0;
-      newTotal += newQty;
-      const delta = oldQty - newQty;
-      if (Math.abs(delta) > 1e-9) {
-        applyStockDelta(db, {
-          productId: m.productId, warehouseId: m.warehouseId,
-          qtyDelta: delta, allowNegative: true,
-        });
-        if (m.variantId) adjustVariant(db, m.variantId, delta);
-      }
+      if (neu && neu.qty > 1e-9) targets.push({ variantId: neu.variantId, qty: neu.qty });
     }
     markWh(meta.warehouseId);
     const mvs = takeMovements(unused, { ...meta, variantId: null });
     if (mvs.length) {
-      if (newTotal <= 1e-9) {
-        for (const mv of mvs) retireAmendedMovement(db, mv);
-      } else {
-        cogsRial += updateMovementQty(db, mvs[0], newTotal, date);
-        for (let i = 1; i < mvs.length; i++) retireAmendedMovement(db, mvs[i]);
-      }
-    } else if (perpetual && newTotal > 1e-9) {
-      const mv = postInventoryMovement(db, {
-        eventType: 'sale',
-        productId: meta.productId,
-        warehouseId: meta.warehouseId,
-        qtyOut: newTotal,
-        sourceType: 'invoice',
-        sourceId: row.id,
-        batchId: meta.batchId || null,
-        date: date || '',
-        note: `فروش ${num}`,
-        createdBy: userId,
-        updateAvg: false,
-        skipStock: true,
-      });
-      cogsRial += Math.round(Number(mv.amount_rial) || 0);
+      // Legacy NULL-variant rows are reversed and re-posted per variant (rows always carry variant_id).
+      addCogs(updateMovementQty(db, mvs, targets, ctx));
     }
   }
 
@@ -351,78 +390,53 @@ function replaceSaleStockInPlace(db, { row, newRows, headerWh, userId, date, num
     }
 
     if (old && neu) {
-      if (!meta.isFabric && Math.abs(delta) > 1e-9) {
-        applyStockDelta(db, {
-          productId: meta.productId, warehouseId: meta.warehouseId,
-          qtyDelta: delta, allowNegative: true,
-        });
-      }
-      if (meta.variantId && Math.abs(delta) > 1e-9) adjustVariant(db, meta.variantId, delta);
       if (mvs.length) {
-        if (newQty <= 0) {
-          for (const mv of mvs) retireAmendedMovement(db, mv);
-        } else {
-          cogsRial += updateMovementQty(db, mvs[0], newQty, date);
-          for (let i = 1; i < mvs.length; i++) retireAmendedMovement(db, mvs[i]);
-        }
+        addCogs(updateMovementQty(db, mvs, newQty > 1e-9
+          ? [{ variantId: meta.variantId, qty: newQty }] : [], ctx));
         if (meta.isFabric && meta.batchId) syncFabricAfterLedger(db, meta.batchId);
-      } else if (perpetual && newQty > 0 && Math.abs(oldQty) < 1e-9) {
-        cogsRial += postNewSaleLine(db, { meta, qty: newQty, sourceId: row.id, userId, date, num });
-      } else if (meta.isFabric && meta.batchId && Math.abs(delta) > 1e-9) {
-        const { adjustBatchQty } = require('./inventory/batch-serial');
-        adjustBatchQty(db, meta.batchId, delta);
+      } else if (meta.isFabric) {
+        if (meta.batchId && Math.abs(delta) > 1e-9) {
+          const { adjustBatchQty } = require('./inventory/batch-serial');
+          adjustBatchQty(db, meta.batchId, delta);
+        }
+      } else if (Math.abs(delta) > 1e-9) {
+        addCogs(postAmendResidual(db, { meta, delta, sourceId: row.id, userId, date, num }));
       }
     } else if (old && !neu) {
-      if (!meta.isFabric) {
-        applyStockDelta(db, {
-          productId: meta.productId, warehouseId: meta.warehouseId,
-          qtyDelta: oldQty, allowNegative: true,
-        });
-      }
-      if (meta.variantId) adjustVariant(db, meta.variantId, oldQty);
       if (mvs.length) {
-        for (const mv of mvs) retireAmendedMovement(db, mv);
+        for (const mv of mvs) retireAmendedMovement(db, mv, ctx);
         if (meta.isFabric && meta.batchId) syncFabricAfterLedger(db, meta.batchId);
-      } else if (meta.isFabric && meta.batchId) {
-        const { adjustBatchQty } = require('./inventory/batch-serial');
-        adjustBatchQty(db, meta.batchId, oldQty);
+      } else if (meta.isFabric) {
+        if (meta.batchId) {
+          const { adjustBatchQty } = require('./inventory/batch-serial');
+          adjustBatchQty(db, meta.batchId, oldQty);
+        }
+      } else {
+        addCogs(postAmendResidual(db, { meta, delta: oldQty, sourceId: row.id, userId, date, num }));
       }
     } else if (neu && !old) {
       if (perpetual) {
         cogsRial += postNewSaleLine(db, { meta, qty: newQty, sourceId: row.id, userId, date, num });
+      } else if (meta.isFabric && meta.batchId) {
+        const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
+        consumeFabricRollOnSale(db, { batchId: meta.batchId, qty: newQty });
       } else {
-        if (!meta.isFabric) {
-          applyStockDelta(db, {
-            productId: meta.productId, warehouseId: meta.warehouseId,
-            qtyDelta: -newQty, allowNegative: true,
-          });
-        }
-        if (meta.isFabric && meta.batchId) {
-          const { consumeFabricRollOnSale } = require('./inventory/fabric-rolls');
-          consumeFabricRollOnSale(db, { batchId: meta.batchId, qty: newQty });
-        }
-        if (meta.variantId) adjustVariant(db, meta.variantId, -newQty);
+        postNewSaleLine(db, { meta, qty: newQty, sourceId: row.id, userId, date, num, allowZeroCost: true });
       }
     }
   }
 
+  // Ledger rows of lines that no longer exist on the invoice: retire (qty leaves the live Σ).
   for (const mv of unused) {
-    const qIn = Number(mv.qty_in) || 0;
-    const qOut = Number(mv.qty_out) || 0;
-    const q = qOut || qIn;
-    if (q <= 0) {
-      retireAmendedMovement(db, mv);
-      continue;
-    }
-    if (!mv.batch_id) {
-      applyStockDelta(db, {
-        productId: mv.product_id, warehouseId: mv.warehouse_id,
-        qtyDelta: qOut > 0 ? qOut : -qIn, allowNegative: true,
-      });
-    }
-    retireAmendedMovement(db, mv);
+    retireAmendedMovement(db, mv, ctx);
     if (mv.batch_id) syncFabricAfterLedger(db, mv.batch_id);
   }
+
+  // Rows were edited / retired directly → refresh the derived stock caches of every touched product.
+  const touched = new Set();
+  for (const k of keys) touched.add((newAgg.get(k) || oldAgg.get(k)).productId);
+  for (const mv of unused) touched.add(Number(mv.product_id));
+  for (const pid of touched) if (pid) rebuildStockCache(db, pid);
 
   return {
     cogsRial,

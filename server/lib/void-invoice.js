@@ -14,7 +14,7 @@ const { reverseSettlementInTx } = require('./void-settlement');
 const { todayJalali } = require('../jalali');
 const notif = require('./notifications');
 const { persistPrivateUpload } = require('./private-uploads');
-const { reverseStockBySource, postCogsFromMovements, isFirmSale, perpetualDocsEnabled, freightChargedToCounterparty } = require('./sales-document');
+const { reverseStockBySource, postCogsFromMovements, isFirmSale, freightChargedToCounterparty } = require('./sales-document');
 const { salesJournalLines, reverseInvoiceCustomerLedger } = require('./customer-books');
 
 function cancelTitleForRole(role) {
@@ -111,64 +111,28 @@ function voidInvoiceFully(db, invId, user, opts = {}) {
     require('./void-settlement').reverseChequeRecordsForInvoice(db, row.id, user.id);
 
     if (row.stock_deducted) {
-      const invRows = JSON.parse(row.rows || '[]');
-      if (perpetualDocsEnabled(db)) {
-        const reversed = reverseStockBySource(db, 'invoice', row.id, {
-          createdBy: user.id, date: todayJalali(), note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
-        });
-        let skuMoves = 0;
+      // Stock single-source: on-hand figures derive from inventory_ledger, so a void is purely a
+      // ledger reversal (rows keep their variant_id / warehouse). The inventory_movements rows
+      // (invoice_sku / invoice) are only the variant-line audit log — reversed log-only.
+      // Legacy docs with no ledger rows have nothing to restore (their figure was never in the ledger).
+      reverseStockBySource(db, 'invoice', row.id, {
+        createdBy: user.id, date: todayJalali(), note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
+      });
+      const { reverseStockDocument } = require('./inventory/movement');
+      for (const docType of ['invoice_sku', 'invoice']) {
+        let hasLog = 0;
         try {
-          skuMoves = db.prepare(
-            "SELECT COUNT(*) AS c FROM inventory_movements WHERE doc_type='invoice_sku' AND doc_id=?"
-          ).get(row.id).c;
-        } catch (_) { skuMoves = 0; }
-        if (skuMoves) {
-          require('./inventory/movement').reverseStockDocument(db, {
-            docType: 'invoice_sku',
+          hasLog = db.prepare('SELECT COUNT(*) AS c FROM inventory_movements WHERE doc_type=? AND doc_id=?')
+            .get(docType, row.id).c;
+        } catch (_) { hasLog = 0; }
+        if (hasLog) {
+          reverseStockDocument(db, {
+            docType,
             docId: row.id,
             userId: user.id,
-            note: `بازگشت رنگ×سایز از لغو فاکتور ${row.num}`,
+            note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
             applyHeaderStock: false,
           });
-        } else if (invRows.length) {
-          for (const r of invRows) {
-            if (!r.variant_id || r.row_type === 'income') continue;
-            try {
-              require('./product-variants').adjustVariantStock(db, r.variant_id, Number(r.qty) || 0, 'delta');
-            } catch (_) { /* variant row may have been removed */ }
-          }
-        }
-        if (!reversed.length) {
-          // Legacy firm docs without inventory_ledger rows
-          for (const r of invRows) {
-            if (r.row_type === 'income' || !r.product_id) continue;
-            db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-              r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
-            );
-            const whId = r.warehouse_id || row.warehouse_id;
-            if (whId) {
-              db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-                .run(r.product_id, whId, r.qty);
-            }
-          }
-        }
-      } else {
-        for (const r of invRows) {
-          if (r.row_type === 'income' || !r.product_id) continue;
-          if (r.variant_id) {
-            try {
-              require('./product-variants').adjustVariantStock(db, r.variant_id, Number(r.qty) || 0, 'delta');
-            } catch (_) { /* optional */ }
-          }
-          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(
-            r.product_id, user.id, r.qty, `بازگشت موجودی از لغو فاکتور ${row.num}`
-          );
-          if (row.warehouse_id) {
-            db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+excluded.qty')
-              .run(r.product_id, row.warehouse_id, r.qty);
-          }
         }
       }
     }

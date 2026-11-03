@@ -1883,6 +1883,7 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
         sourceType: 'production_receipt',
         sourceId: po.id,
         date,
+        variantLines: fgLinesByProduct.get(Number(a.product_id)) || [],
       });
 
       let docNo = '';

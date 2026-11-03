@@ -105,29 +105,14 @@ function openReadonlySqlite(filePath) {
 }
 
 function restoreStockFromWarehouse(db) {
-  if (!tableExists(db, 'products') || !tableExists(db, 'warehouse_stock')) {
+  if (!tableExists(db, 'products') || !tableExists(db, 'inventory_ledger')) {
     return { stockRestored: 0 };
   }
-  const rows = db.prepare(`
-    SELECT p.id AS id,
-           COALESCE(p.stock, 0) AS stock,
-           COALESCE((SELECT SUM(ws.qty) FROM warehouse_stock ws WHERE ws.product_id=p.id), 0) AS wh_qty
-    FROM products p
-  `).all();
-  const upd = db.prepare('UPDATE products SET stock=? WHERE id=?');
-  let stockRestored = 0;
-  const tx = db.transaction(() => {
-    for (const r of rows) {
-      const stock = parseQty(r.stock);
-      const wh = parseQty(r.wh_qty);
-      if (stock === 0 && wh > 0) {
-        upd.run(wh, r.id);
-        stockRestored++;
-      }
-    }
-  });
-  tx();
-  return { stockRestored };
+  const { stockCacheVsLedger, rebuildAllStockCaches } = require('./inventory/stock-cache');
+  const before = stockCacheVsLedger(db, { limit: Number.MAX_SAFE_INTEGER });
+  const ids = [...new Set(before.rows.map((r) => Number(r.product_id)).filter(Boolean))];
+  rebuildAllStockCaches(db, { productIds: ids });
+  return { stockRestored: ids.length };
 }
 
 function applyBackupProductMeta(db, bakProducts) {
@@ -138,7 +123,6 @@ function applyBackupProductMeta(db, bakProducts) {
   const updPrice = db.prepare('UPDATE products SET price=? WHERE id=?');
   const updCode = db.prepare('UPDATE products SET code=? WHERE id=?');
   const updNote = db.prepare('UPDATE products SET note=? WHERE id=?');
-  const updStock = db.prepare('UPDATE products SET stock=? WHERE id=?');
 
   const tx = db.transaction(() => {
     for (const row of cur) {
@@ -168,26 +152,7 @@ function applyBackupProductMeta(db, bakProducts) {
         updNote.run(bakNote, row.id);
         summary.noteRestored++;
       }
-      const curStock = parseQty(row.stock);
-      const bakStock = parseQty(b.stock);
-      if (curStock === 0 && bakStock > 0) {
-        const wh = tableExists(db, 'warehouse_stock')
-          ? parseQty(db.prepare('SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?').get(row.id).q)
-          : 0;
-        if (wh === 0) {
-          updStock.run(bakStock, row.id);
-          try {
-            const p = db.prepare('SELECT warehouse_id FROM products WHERE id=?').get(row.id);
-            if (p && p.warehouse_id) {
-              db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-                .run(row.id, p.warehouse_id, bakStock);
-              db.prepare(`UPDATE warehouse_stock SET qty=?
-                WHERE product_id=? AND warehouse_id=? AND COALESCE(qty,0)=0`).run(bakStock, row.id, p.warehouse_id);
-            }
-          } catch (_) {}
-          summary.stockRestored++;
-        }
-      }
+      // Backup stock is not restored: inventory_ledger is the quantity source of truth.
     }
   });
   tx();

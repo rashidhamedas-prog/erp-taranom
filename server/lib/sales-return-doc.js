@@ -291,10 +291,26 @@ function postSalesReturnEffects(db, {
       db.prepare('UPDATE sales_returns SET cost_amount=? WHERE id=?').run(cost, retId);
     }
   } else {
+    // Periodic / non-perpetual: still a ledger row (stock figure is derived from the ledger);
+    // no COGS JE here — period-close owns valuation. Lines keep their variant_id.
+    const { postInventoryMovement } = require('./inventory/ledger');
     for (const r of built) {
-      db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-        .run(r.product_id, userId, r.qty, `برگشت از فروش #${retId}`);
+      if (!r.product_id) continue;
+      const whId = r.warehouse_id ? parseInt(r.warehouse_id, 10) : parentWhId;
+      postInventoryMovement(db, {
+        eventType: 'sale_return',
+        productId: r.product_id,
+        warehouseId: whId || null,
+        qtyIn: Number(r.qty) || 0,
+        variantId: r.variant_id ? Number(r.variant_id) : undefined,
+        sourceType: 'sales_return',
+        sourceId: retId,
+        date: date || todayJalali(),
+        note: note || `برگشت از فروش #${retId}`,
+        createdBy: userId,
+        updateAvg: false,
+        allowZeroCost: true,
+      });
     }
   }
 
@@ -388,37 +404,23 @@ function reverseSalesReturnEffects(db, row, userId, reason) {
     return warehouseUsesPerpetualValuation(db, wh);
   });
 
-  if (perpetualDocsEnabled(db)) {
-    const reversed = reverseStockBySource(db, 'sales_return', row.id, {
-      createdBy: userId,
-      date: todayJalali(),
-      note: reason || `ابطال برگشت از فروش #${row.id}`,
+  // Stock single-source: the return's qty lives in ledger rows (perpetual and periodic paths alike),
+  // so cancelling it is a ledger reversal. Legacy returns that never had ledger rows have no
+  // ledger qty to take back. inventory_movements (sale_return_sku) is the log-only layer.
+  reverseStockBySource(db, 'sales_return', row.id, {
+    createdBy: userId,
+    date: todayJalali(),
+    note: reason || `ابطال برگشت از فروش #${row.id}`,
+  });
+  try {
+    require('./inventory/movement').reverseStockDocument(db, {
+      docType: 'sale_return_sku',
+      docId: row.id,
+      userId,
+      note: `ابطال رنگ×سایز برگشت از فروش #${row.id}`,
+      applyHeaderStock: false,
     });
-    try {
-      require('./inventory/movement').reverseStockDocument(db, {
-        docType: 'sale_return_sku',
-        docId: row.id,
-        userId,
-        note: `ابطال رنگ×سایز برگشت از فروش #${row.id}`,
-        applyHeaderStock: false,
-      });
-    } catch (_) { /* older returns have no sku layer */ }
-    if (!reversed.length) {
-      const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-          .run(r.product_id, userId, -r.qty, reason || `ابطال برگشت از فروش #${row.id}`);
-      }
-    }
-  } else {
-    const invRows = JSON.parse(row.rows || '[]');
-    for (const r of invRows) {
-      db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-      db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-        .run(r.product_id, userId, -r.qty, reason || `ابطال برگشت از فروش #${row.id}`);
-    }
-  }
+  } catch (_) { /* older returns have no sku layer */ }
 
   const parts = returnMoneyParts(row);
   const { amountNet, vatAmount, gross, goodsAmount, hdrDiscAmt, extraDiscAmt } = parts;

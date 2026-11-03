@@ -1414,6 +1414,11 @@ function createTriggers(db) {
         active INTEGER NOT NULL DEFAULT 0
       );
       INSERT OR IGNORE INTO erp_neg_override_flags (id, active) VALUES (1, 0);
+      CREATE TABLE IF NOT EXISTS stock_cache_writer_flag (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        active INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT OR IGNORE INTO stock_cache_writer_flag (id, active) VALUES (1, 0);
       DROP TRIGGER IF EXISTS trg_ws_no_negative;
       DROP TRIGGER IF EXISTS trg_ws_no_negative_ins;
       CREATE TRIGGER trg_ws_no_negative
@@ -1431,6 +1436,9 @@ function createTriggers(db) {
         )
         AND NOT EXISTS (
           SELECT 1 FROM erp_neg_override_flags o WHERE o.id=1 AND COALESCE(o.active,0)=1
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM stock_cache_writer_flag f WHERE f.id=1 AND COALESCE(f.active,0)=1
         );
       END;
       CREATE TRIGGER trg_ws_no_negative_ins
@@ -1448,6 +1456,9 @@ function createTriggers(db) {
         )
         AND NOT EXISTS (
           SELECT 1 FROM erp_neg_override_flags o WHERE o.id=1 AND COALESCE(o.active,0)=1
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM stock_cache_writer_flag f WHERE f.id=1 AND COALESCE(f.active,0)=1
         );
       END;
     `);

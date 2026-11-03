@@ -38,6 +38,7 @@ const {
   decideSaleFulfillment, isBackorderRequested, isProvisionalRequest,
 } = require('../lib/inventory/available-to-promise');
 const { runWithSaleContext, consumeOpenReservationsForSale } = require('../lib/inventory/reservation');
+const { postInventoryMovement } = require('../lib/inventory/ledger');
 const shortageErr = require('../lib/inventory/shortage-error');
 const { assertJalaliDocDate } = require('../lib/validators');
 const {
@@ -535,17 +536,24 @@ function deductStock(db, rows, warehouseId, userId, metaOut) {
     const whId = resolveRowWarehouseId(db, r, warehouseId);
     const whName = whId ? (used.get(whId) || '') : '';
     const allowNeg = warehouseAllowsNegative(db, whId) || !!(metaOut && metaOut.forceNegative);
-    // Legacy seed — same rule as postSaleStockMovements / ledger.warehouseQty: a product that predates
-    // warehouse_stock gets its home-warehouse row from products.stock (0 elsewhere). The ATP check reads
-    // that rule, so the movement must act on the same number instead of a fresh 0 row.
-    if (whId) {
-      const prod = db.prepare('SELECT stock, warehouse_id FROM products WHERE id=?').get(r.product_id);
-      const seedQty = prod && Number(prod.warehouse_id) === Number(whId) ? (Number(prod.stock) || 0) : 0;
-      db.prepare(
-        'INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO NOTHING'
-      ).run(r.product_id, whId, seedQty);
-    }
     try {
+      // Stock single-source: the quantity change is a ledger row (periodic/legacy path posts the row
+      // without COGS JE — period-close owns valuation). inventory_movements below is only the log.
+      postInventoryMovement(db, {
+        eventType: 'sale',
+        productId: r.product_id,
+        warehouseId: whId || null,
+        qtyOut: Number(r.qty) || 0,
+        variantId: r.variant_id ? Number(r.variant_id) : undefined,
+        sourceType: 'invoice',
+        sourceId: docId != null ? docId : null,
+        date: (metaOut && metaOut.date) || '',
+        note: 'کسر موجودی از فاکتور رسمی' + (whName ? ` (${whName})` : ''),
+        createdBy: userId || null,
+        updateAvg: false,
+        allowNegative: allowNeg,
+        allowZeroCost: true,
+      });
       postStockMovement(db, {
         productId: r.product_id,
         variantId: r.variant_id || null,
@@ -939,7 +947,7 @@ router.post('/', auth, requirePermission('invoices', 'create'), (req, res) => {
             allocMethod, vatFlag, ccId,
             parseInt(moadian_invoice_type, 10) || 1, requestKey);
       const invId = result.lastInsertRowid;
-      const stockMeta = { docId: invId, custId: cust_id };
+      const stockMeta = { docId: invId, custId: cust_id, date: entryDate };
       let saleCogsRial = 0;
       let fulfillment = null;
 
@@ -1365,24 +1373,8 @@ router.delete('/:id', auth, requirePermission('invoices', 'delete'), (req, res) 
     let result;
     // Stock reversal + full void are one unit: any failure leaves stock, JE and invoice untouched.
     db.transaction(() => {
-      // When deductStock posted inventory_movements, reverse those first and clear
-      // stock_deducted so voidInvoiceFully does not double-restore header stock.
-      // Legacy / perpetual docs (no inventory_movements) keep void-invoice path.
-      if (row.stock_deducted) {
-        const movCount = db.prepare(
-          "SELECT COUNT(*) AS c FROM inventory_movements WHERE doc_type='invoice' AND doc_id=?"
-        ).get(row.id).c;
-        if (movCount > 0) {
-          const { reverseStockDocument } = require('../lib/inventory/movement');
-          reverseStockDocument(db, {
-            docType: 'invoice',
-            docId: row.id,
-            userId: req.user.id,
-            note: `بازگشت موجودی از لغو فاکتور ${row.num}`,
-          });
-          db.prepare('UPDATE invoices SET stock_deducted=0 WHERE id=?').run(row.id);
-        }
-      }
+      // Stock single-source: voidInvoiceFully reverses the ledger rows of the invoice (perpetual and
+      // deductStock paths alike) and the inventory_movements audit log (invoice / invoice_sku).
       // Backorder / provisional invoices have stock_deducted=0 → nothing was taken, nothing is restored.
       result = voidInvoiceFully(db, row.id, req.user, { reason: 'void' });
       if (result.restoredToProforma && row.fulfillment_state) {
@@ -1526,7 +1518,7 @@ router.post('/:id/convert', auth, (req, res) => {
             convertMovements = stocked.movements || [];
             convertNegOverrides = stocked.negativeOverrides || [];
           } else {
-            const stockErr = deductStock(db, rows, convertWhId, req.user.id, { docId: inv.id, custId: inv.cust_id });
+            const stockErr = deductStock(db, rows, convertWhId, req.user.id, { docId: inv.id, custId: inv.cust_id, date: inv.date || '' });
             if (stockErr) throw new Error(stockErr);
           }
           stockDeducted = 1;

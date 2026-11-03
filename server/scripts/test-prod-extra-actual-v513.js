@@ -57,7 +57,10 @@ try {
     INSERT INTO products (user_id, name, code, price, stock, unit, average_cost_rial, cost, item_type)
     VALUES (?, 'پارچه v513', 'FAB-511', 0, 100000, 'متر', 1000, 1000, 'raw')
   `).run(admin.id).lastInsertRowid;
-  db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,100000)').run(fab, whRaw);
+  require('../lib/inventory/ledger').postInventoryMovement(db, {
+    eventType: 'opening', productId: fab, warehouseId: whRaw, qtyIn: 100000, unitCostRial: 1000,
+    sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+  });
   const a = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'A511','FG-A511','عدد','finished',1)`).run(admin.id).lastInsertRowid;
   const b = db.prepare(`INSERT INTO products (user_id, name, code, unit, item_type, is_manufactured) VALUES (?,'B511','FG-B511','عدد','finished',1)`).run(admin.id).lastInsertRowid;
   const poShared = db.prepare(`
@@ -126,10 +129,10 @@ try {
       UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?
     `).run(avg, type, type === 'finished' ? 1 : 0, avg, 'X511-' + id, id);
     if (stock) {
-      db.prepare(`
-        INSERT INTO warehouse_stock (warehouse_id, product_id, qty) VALUES (?,?,?)
-        ON CONFLICT(warehouse_id, product_id) DO UPDATE SET qty=excluded.qty
-      `).run(whRaw, id, stock);
+      require('../lib/inventory/ledger').postInventoryMovement(db, {
+        eventType: 'opening', productId: id, warehouseId: whRaw, qtyIn: stock, unitCostRial: avg || 1,
+        sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+      });
     }
     return id;
   }

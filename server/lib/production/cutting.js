@@ -630,6 +630,91 @@ const PACK_RELIEF_SQL = `
     AND COALESCE(qty_out,0)>0 AND status='posted' AND reversed_of IS NULL
 `;
 
+/**
+ * Colour×size still staged in a pack: live inbound minus relieved per variant. The pack's
+ * per-SKU inbound rows are the source; a legacy pack (one unattributed inbound row) falls back
+ * to its bundles, then to its variant layer.
+ */
+function packVariantRemaining(db, pack) {
+  const live = `source_type='cutting_pack' AND source_id=? AND event_type='cutting_pack'
+    AND status='posted' AND reversed_of IS NULL AND variant_id IS NOT NULL`;
+  let base = db.prepare(`
+    SELECT variant_id, SUM(qty_in) AS q FROM inventory_ledger
+    WHERE ${live} AND COALESCE(qty_in,0)>0 GROUP BY variant_id ORDER BY MIN(id)
+  `).all(pack.id);
+  if (!base.length) {
+    base = db.prepare(`
+      SELECT variant_id, SUM(qty) AS q FROM cutting_pack_bundles
+      WHERE pack_id=? AND variant_id IS NOT NULL AND COALESCE(qty,0)>0 GROUP BY variant_id ORDER BY MIN(id)
+    `).all(pack.id);
+  }
+  if (!base.length) {
+    base = db.prepare(`
+      SELECT variant_id, SUM(qty_delta) AS q FROM inventory_movements
+      WHERE doc_type='cutting_pack' AND doc_id=? AND variant_id IS NOT NULL AND qty_delta>0
+      GROUP BY variant_id ORDER BY MIN(id)
+    `).all(pack.id);
+  }
+  const out = new Map(db.prepare(`
+    SELECT variant_id, SUM(qty_out) AS q FROM inventory_ledger
+    WHERE ${live} AND COALESCE(qty_out,0)>0 GROUP BY variant_id
+  `).all(pack.id).map((r) => [Number(r.variant_id), Number(r.q) || 0]));
+  return base
+    .map((r) => ({
+      variantId: Number(r.variant_id),
+      qty: Math.round(((Number(r.q) || 0) - (out.get(Number(r.variant_id)) || 0)) * 1000) / 1000,
+    }))
+    .filter((r) => r.qty > 1e-9);
+}
+
+/** Split `take` over the pack's remaining SKUs (all of them on a full exit, else pro rata, whole pieces when possible). */
+function packReliefLines(db, pack, productId, take) {
+  const { hasActiveMatrixVariants } = require('../inventory/movement');
+  if (!hasActiveMatrixVariants(db, productId)) return [];
+  const rem = packVariantRemaining(db, pack);
+  const total = rem.reduce((s, r) => s + r.qty, 0);
+  if (!rem.length || !(total > 0)) return [];
+  if (take >= total - 1e-9) return rem;
+  const whole = Number.isInteger(take) && rem.every((r) => Number.isInteger(r.qty));
+  const lines = rem.map((r) => {
+    const exact = take * r.qty / total;
+    const q = whole ? Math.floor(exact) : Math.round(exact * 1000) / 1000;
+    return { variantId: r.variantId, qty: q, frac: exact - q, cap: r.qty };
+  });
+  let left = Math.round((take - lines.reduce((s, l) => s + l.qty, 0)) * 1000) / 1000;
+  if (whole) {
+    for (const l of lines.slice().sort((a, b) => b.frac - a.frac)) {
+      if (!(left > 0)) break;
+      if (l.qty + 1 <= l.cap) { l.qty += 1; left -= 1; }
+    }
+  } else if (left) {
+    const l = lines[lines.length - 1];
+    l.qty = Math.round((l.qty + left) * 1000) / 1000;
+  }
+  return lines.filter((l) => l.qty > 0).map((l) => ({ variantId: l.variantId, qty: l.qty }));
+}
+
+/** Live inbound ledger rows of a pack (one per colour×size for matrix packs). */
+function packInboundLedgerIds(db, pack) {
+  const ids = db.prepare(`
+    SELECT id FROM inventory_ledger
+    WHERE source_type='cutting_pack' AND source_id=? AND product_id=?
+      AND event_type IN ('production_receipt','cutting_pack') AND COALESCE(qty_in,0)>0
+      AND status='posted' AND reversed_of IS NULL
+    ORDER BY id DESC
+  `).all(pack.id, pack.product_id).map((r) => Number(r.id));
+  if (!ids.length && pack.ledger_id) {
+    const r = db.prepare('SELECT status FROM inventory_ledger WHERE id=?').get(pack.ledger_id);
+    if (r && r.status === 'posted') ids.push(Number(pack.ledger_id));
+  }
+  return ids;
+}
+
+/** R13: reverse every inbound row a pack posted. */
+function reversePackInbound(db, pack, opts) {
+  return packInboundLedgerIds(db, pack).map((id) => reverseInventoryMovement(db, id, opts));
+}
+
 function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, receiptId }) {
   const has = db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='cutting_packs'"
@@ -658,7 +743,7 @@ function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, r
     const amount = take >= remainingQty - 1e-9
       ? remainingAmt
       : Math.min(remainingAmt, Math.round(packAmt * take / packQty));
-    postInventoryMovement(db, {
+    require('../inventory/apparel-lines').postLedgerByVariant(db, {
       eventType: 'cutting_pack',
       productId,
       warehouseId: wh,
@@ -673,7 +758,7 @@ function relieveStagedPackQty(db, { orderId, productId, qtyGood, userId, date, r
       createdBy: userId || null,
       updateAvg: false,
       warehouseOnly: true,
-    });
+    }, packReliefLines(db, p, productId, take));
     try {
       require('../inventory/apparel-lines').reverseApparelDoc(db, {
         docType: 'cutting_pack', docId: p.id, userId: userId || null,
@@ -2281,6 +2366,10 @@ function postSharedCuttingPacks(db, lay, body, user, key) {
       `).get(lay.id, row.product_id);
       if (already) continue;
       const unitCost = row.qty > 0 ? Math.round(row.amount_rial / row.qty) : 0;
+      // Matrix output: resolve colour×size before any stock row (fail closed, E_VARIANT_REQUIRED).
+      const packLines = require('../inventory/apparel-lines').resolveApparelLines(db, {
+        productId: row.product_id, qty: row.qty, sizeBreakdown: row.sizes, color: lay.color || '',
+      });
       let packNo;
       try {
         const { allocateNumber } = require('../../db');
@@ -2299,7 +2388,7 @@ function postSharedCuttingPacks(db, lay, body, user, key) {
         row.amount_rial, unitCost, JSON.stringify(row.sizes), idem, date,
         String(body.note || 'بسته‌بندی برش مشترک').trim(), user.id
       ).lastInsertRowid;
-      const led = postInventoryMovement(db, {
+      const led = require('../inventory/apparel-lines').postLedgerByVariant(db, {
         eventType: postsFg ? 'production_receipt' : 'cutting_pack',
         productId: row.product_id,
         warehouseId: wh.id,
@@ -2313,7 +2402,7 @@ function postSharedCuttingPacks(db, lay, body, user, key) {
         createdBy: user.id,
         updateAvg: !!postsFg,
         warehouseOnly: !postsFg,
-      });
+      }, packLines);
       let journalId = null;
       if (postsFg && row.amount_rial > 0) {
         const je = postEvent(db, {
@@ -2445,7 +2534,7 @@ function postCuttingPack(db, layId, body, user) {
         }
       }
 
-      const led = postInventoryMovement(db, {
+      const led = apparel.postLedgerByVariant(db, {
         eventType: postsFg ? 'production_receipt' : 'cutting_pack',
         productId: lay.product_id,
         warehouseId: wh.id,
@@ -2461,7 +2550,7 @@ function postCuttingPack(db, layId, body, user) {
         // Linked PO: qty stages in the WIP warehouse only — sellable products.stock
         // stays untouched until finalize posts the single WIP→FG receipt.
         warehouseOnly: !postsFg,
-      });
+      }, fgLines);
 
       let journalId = null;
       if (postsFg && wipNet > 0) {
@@ -2539,12 +2628,10 @@ function voidCuttingPack(db, packId, user, { reason } = {}) {
   if (pack.status === 'reversed') throw httpErr(409, 'این رسید قبلاً ابطال شده است', 'E_PACK_REVERSED');
   const { reverseJournalEntry } = require('../void-journal');
   db.transaction(() => {
-    if (pack.ledger_id) {
-      reverseInventoryMovement(db, pack.ledger_id, {
-        createdBy: user.id,
-        note: reason || 'ابطال رسید برش',
-      });
-    }
+    reversePackInbound(db, pack, {
+      createdBy: user.id,
+      note: reason || 'ابطال رسید برش',
+    });
     require('../inventory/apparel-lines').reverseApparelDoc(db, {
       docType: 'cutting_pack', docId: pack.id, userId: user.id,
       note: reason || 'ابطال رسید برش',
@@ -2617,6 +2704,7 @@ module.exports = {
   assertOrderCutQtyMatches,
   relieveStagedPackQty,
   reverseStagedPackRelief,
+  reversePackInbound,
   layFgCoveredByOrder,
   reverseOrderFgDeltas,
   fgDeltaLaysForOrder,
