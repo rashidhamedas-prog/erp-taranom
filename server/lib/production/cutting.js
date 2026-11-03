@@ -344,7 +344,144 @@ function orderRequiresFabricCutting(db, po) {
   return isRollFabricProduct(db, Number(fabricLine.product_id));
 }
 
+/**
+ * قطعه‌های برش‌خوردهٔ سفارش با یک پارچهٔ مشخص.
+ * لایهٔ قدیمی بدون fabric_product_id به پارچهٔ اصلی فرمول نسبت داده می‌شود.
+ * productId=null یعنی همهٔ لایه‌های سفارش (جمع qty_pieces مثل مسیر تک‌محصول).
+ */
+function layPiecesForFabric(db, orderId, productId, fabricProductId, isPrimary) {
+  const oid = Number(orderId) || 0;
+  const fid = Number(fabricProductId) || 0;
+  if (!oid || !fid) return 0;
+  const fabricCond = isPrimary
+    ? '(l.fabric_product_id = ? OR l.fabric_product_id IS NULL)'
+    : 'l.fabric_product_id = ?';
+  if (!productId) {
+    return Number(db.prepare(`
+      SELECT COALESCE(SUM(COALESCE(l.qty_pieces,0)),0) AS s
+      FROM cutting_lays l
+      WHERE l.production_order_id=? AND COALESCE(l.status,'posted')<>'reversed' AND ${fabricCond}
+    `).get(oid, fid)?.s) || 0;
+  }
+  const pid = Number(productId);
+  const shared = Number(db.prepare(`
+    SELECT COALESCE(SUM(o.planned_pieces),0) AS s
+    FROM cutting_batch_outputs o
+    JOIN cutting_batches b ON b.id = o.batch_id
+    JOIN cutting_lays l ON l.id = b.lay_id
+    WHERE l.production_order_id=? AND o.product_id=?
+      AND COALESCE(l.status,'posted')<>'reversed'
+      AND COALESCE(b.status,'posted')<>'reversed'
+      AND ${fabricCond}
+  `).get(oid, pid, fid)?.s) || 0;
+  const classic = Number(db.prepare(`
+    SELECT COALESCE(SUM(COALESCE(l.qty_pieces,0)),0) AS s
+    FROM cutting_lays l
+    WHERE l.production_order_id=? AND l.product_id=? AND l.batch_id IS NULL
+      AND COALESCE(l.status,'posted')<>'reversed' AND ${fabricCond}
+  `).get(oid, pid, fid)?.s) || 0;
+  return shared + classic;
+}
+
+/**
+ * پارچه‌های طاقه‌ای فرمول سفارش (برای productId در سفارش چند-فرمولی، فرمول همان محصول).
+ * خروجی: [{ product_id, name, is_primary }]
+ */
+function orderRollFabricLines(db, po, productId) {
+  if (!po) return [];
+  let bomId = po.bom_id;
+  const pid = Number(productId) || 0;
+  if (pid) {
+    try {
+      const { orderBomPeerLines } = require('./bom');
+      const peer = (orderBomPeerLines(po) || []).find((p) => Number(p.product_id) === pid);
+      if (peer) bomId = peer.bom_id;
+    } catch (_) { /* header BOM */ }
+  }
+  if (!bomId) return [];
+  try {
+    return rollFabricLinesForBom(db, {
+      productId: pid || po.product_id,
+      bomId,
+      date: po.date,
+      sizeBreakdown: parseJson(po.size_breakdown, {}) || {},
+      scopeProductId: pid || null,
+    }).lines;
+  } catch (_) {
+    return [];
+  }
+}
+
+function orderRollFabricProductIds(db, po, productId) {
+  return orderRollFabricLines(db, po, productId).map((L) => Number(L.product_id));
+}
+
+/** با ۲+ پارچهٔ طاقه‌ای، قطعهٔ برش‌خورده = کمترین قطعهٔ برش‌خورده در بین پارچه‌ها. */
+function minLayPiecesAcrossFabrics(db, orderId, productId, fabrics) {
+  let min = null;
+  for (const f of fabrics) {
+    const q = layPiecesForFabric(db, orderId, productId, f.product_id, !!f.is_primary);
+    min = min == null ? q : Math.min(min, q);
+  }
+  return min || 0;
+}
+
 function cuttingQtyForOrder(db, orderId) {
+  const oid = Number(orderId) || 0;
+  if (!oid) return { lay_qty: 0, pack_qty: 0 };
+  const legacy = cuttingQtyForOrderLegacy(db, oid);
+  const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(oid);
+  if (!po) return legacy;
+  const { orderBomPeerLines } = require('./bom');
+  const peers = orderBomPeerLines(po);
+  if (peers && peers.length) {
+    const multi = peers.some((p) => orderRollFabricLines(db, po, p.product_id).length >= 2);
+    if (!multi) return legacy;
+    const lay_qty = peers.reduce((s, p) => s + cuttingQtyForOrderProduct(db, oid, p.product_id).lay_qty, 0);
+    return { lay_qty, pack_qty: legacy.pack_qty };
+  }
+  const fabrics = orderRollFabricLines(db, po);
+  if (fabrics.length < 2) return legacy;
+  return { lay_qty: minLayPiecesAcrossFabrics(db, oid, null, fabrics), pack_qty: legacy.pack_qty };
+}
+
+/**
+ * پوشش هر پارچهٔ طاقه‌ای سفارش. products=[{product_id, need}] (پیش‌فرض: محصول اصلی با qty_planned).
+ * فقط برای ۲+ پارچه پر می‌شود؛ تک‌پارچه رفتار قدیمی دارد (fabrics=[]).
+ */
+function cuttingFabricCoverage(db, po, products) {
+  const out = { fabrics: [], missing: [] };
+  if (!po) return out;
+  const { orderBomPeerLines } = require('./bom');
+  const peers = orderBomPeerLines(po);
+  const rows = Array.isArray(products) && products.length
+    ? products
+    : (peers || [{ product_id: po.product_id, need: Number(po.qty_planned) || 0 }]);
+  const byFabric = new Map();
+  for (const r of rows) {
+    const pid = Number(r.product_id) || 0;
+    const need = Number(r.need != null ? r.need : r.qty_planned) || 0;
+    const fabrics = orderRollFabricLines(db, po, peers ? pid : null);
+    if (fabrics.length < 2) continue;
+    for (const f of fabrics) {
+      const key = Number(f.product_id);
+      if (!byFabric.has(key)) {
+        byFabric.set(key, { product_id: key, name: f.name, need: 0, lay_qty: 0, covered: false });
+      }
+      const agg = byFabric.get(key);
+      agg.need += need;
+      agg.lay_qty += layPiecesForFabric(db, po.id, peers ? pid : null, key, !!f.is_primary);
+    }
+  }
+  for (const f of byFabric.values()) {
+    f.covered = f.need > 0 && Math.abs(f.lay_qty - f.need) <= 0.001;
+    out.fabrics.push(f);
+    if (!f.covered) out.missing.push(f);
+  }
+  return out;
+}
+
+function cuttingQtyForOrderLegacy(db, orderId) {
   const oid = Number(orderId) || 0;
   if (!oid) return { lay_qty: 0, pack_qty: 0 };
   const hasLay = db.prepare(
@@ -413,6 +550,18 @@ function assertFabricCuttingPathForFgReceipt(db, po, qtyGood) {
 }
 
 function cuttingQtyForOrderProduct(db, orderId, productId) {
+  const legacy = cuttingQtyForOrderProductLegacy(db, orderId, productId);
+  const oid = Number(orderId) || 0;
+  const pid = Number(productId) || 0;
+  if (!oid || !pid) return legacy;
+  const po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(oid);
+  if (!po) return legacy;
+  const fabrics = orderRollFabricLines(db, po, pid);
+  if (fabrics.length < 2) return legacy;
+  return { lay_qty: minLayPiecesAcrossFabrics(db, oid, pid, fabrics), pack_qty: legacy.pack_qty };
+}
+
+function cuttingQtyForOrderProductLegacy(db, orderId, productId) {
   const oid = Number(orderId) || 0;
   const pid = Number(productId) || 0;
   if (!oid || !pid) return { lay_qty: 0, pack_qty: 0 };
@@ -874,6 +1023,103 @@ function fabricLineFromBom(db, { productId, bomId, date, sizeBreakdown, fabricPr
     fabricLine: fabric,
     matrixMeters: fabric ? Number(fabric.qty_net) || 0 : 0,
     sizeMatrix,
+  };
+}
+
+/**
+ * همهٔ خطوط پارچهٔ طاقه‌ای فرمول (یکتا بر اساس کالا). پارچهٔ طاقه‌ای جز با لایه‌چینی مصرف نمی‌شود،
+ * پس هر کدام لایه‌چینی خودش را لازم دارد. is_primary = همان انتخاب pickFabricLine.
+ * scopeProductId: در فرمول چندمحصولی، خط اختصاصی محصول دیگر حذف می‌شود.
+ */
+function rollFabricLinesForBom(db, { productId, bomId, date, sizeBreakdown, scopeProductId } = {}) {
+  let bom = null;
+  if (bomId) {
+    bom = db.prepare('SELECT * FROM bom_headers WHERE id=? AND deleted_at IS NULL').get(Number(bomId));
+  }
+  if (!bom && productId) {
+    try { bom = resolveBom(db, { productId, date: date || todayJalali() }); }
+    catch (_) { bom = null; }
+  }
+  if (!bom) return { bom: null, primary_fabric_product_id: null, lines: [] };
+  const bd = sizeBreakdown && Object.keys(sizeBreakdown).length ? sizeBreakdown : {};
+  const qtyPieces = Object.values(bd).reduce((s, n) => s + (Number(n) || 0), 0) || 1;
+  const ex = explodeBom(db, { bomId: bom.id, qty: qtyPieces, sizeBreakdown: bd, priceBasis: 'average' });
+  const scope = Number(scopeProductId) || 0;
+  const all = (ex.lines || []).filter((L) => {
+    if (!L || !L.product_id) return false;
+    if (scope && String(L.product_scope || 'shared').toLowerCase() === 'exclusive'
+      && Number(L.scoped_product_id) !== scope) return false;
+    return true;
+  });
+  const primary = pickFabricLine(db, all, null);
+  const byProduct = new Map();
+  for (const L of all) {
+    const pid = Number(L.product_id);
+    if (!isRollFabricProduct(db, pid)) continue;
+    if (!byProduct.has(pid)) {
+      const p = db.prepare('SELECT name, unit FROM products WHERE id=?').get(pid) || {};
+      byProduct.set(pid, {
+        product_id: pid,
+        bom_line_id: L.bom_line_id || null,
+        name: p.name || ('#' + pid),
+        unit: p.unit || '',
+        qty_net: 0,
+        is_primary: 0,
+      });
+    }
+    byProduct.get(pid).qty_net = round6(byProduct.get(pid).qty_net + (Number(L.qty_net) || 0));
+  }
+  const lines = [...byProduct.values()];
+  const primaryId = primary && byProduct.has(Number(primary.product_id))
+    ? Number(primary.product_id)
+    : (lines[0] ? lines[0].product_id : null);
+  lines.forEach((L) => { L.is_primary = L.product_id === primaryId ? 1 : 0; });
+  lines.sort((a, b) => b.is_primary - a.is_primary);
+  return { bom, primary_fabric_product_id: primaryId, lines };
+}
+
+/** خطوط پارچهٔ طاقه‌ای برای فرم لایه‌چینی + وضعیت برش هر پارچه روی سفارش (در صورت وجود). */
+function fabricLinesForLay(db, { productId, bomId, productionOrderId, date } = {}) {
+  let po = null;
+  if (productionOrderId) {
+    po = db.prepare('SELECT * FROM production_orders WHERE id=?').get(Number(productionOrderId));
+  }
+  let bid = bomId || null;
+  if (!bid && po) {
+    try {
+      const { orderBomPeerLines } = require('./bom');
+      const peer = (orderBomPeerLines(po) || []).find((p) => Number(p.product_id) === Number(productId));
+      bid = peer ? peer.bom_id : po.bom_id;
+    } catch (_) { bid = po.bom_id; }
+  }
+  const res = rollFabricLinesForBom(db, {
+    productId: productId || (po && po.product_id),
+    bomId: bid,
+    date: date || (po && po.date),
+    sizeBreakdown: po ? (parseJson(po.size_breakdown, {}) || {}) : {},
+    scopeProductId: productId || null,
+  });
+  let need = null;
+  let peer = null;
+  if (po) {
+    const { orderBomPeerLines } = require('./bom');
+    const peers = orderBomPeerLines(po);
+    peer = peers && peers.find((p) => Number(p.product_id) === Number(productId));
+    need = peer ? Number(peer.qty_planned) || 0 : Number(po.qty_planned) || 0;
+  }
+  const lines = res.lines.map((L) => {
+    if (!po) return Object.assign({}, L, { need: null, lay_qty: null, covered: null });
+    const lay_qty = layPiecesForFabric(db, po.id, peer ? peer.product_id : null, L.product_id, !!L.is_primary);
+    return Object.assign({}, L, {
+      need,
+      lay_qty,
+      covered: need > 0 && Math.abs(lay_qty - need) <= 0.001 ? 1 : 0,
+    });
+  });
+  return {
+    bom_id: res.bom ? res.bom.id : null,
+    primary_fabric_product_id: res.primary_fabric_product_id,
+    lines,
   };
 }
 
@@ -2360,6 +2606,12 @@ module.exports = {
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
   cuttingQtyForOrderProduct,
+  cuttingFabricCoverage,
+  orderRollFabricLines,
+  orderRollFabricProductIds,
+  rollFabricLinesForBom,
+  fabricLinesForLay,
+  layPiecesForFabric,
   fabricCuttingGateInfo,
   assertFabricCuttingPathForFgReceipt,
   assertOrderCutQtyMatches,

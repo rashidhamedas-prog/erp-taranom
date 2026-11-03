@@ -18992,6 +18992,8 @@ async function cuttingLayModal(editId, opts){
   window._cutEditRollBoost={};
   window._cutIdemKey=window._cutEditId?null:newCutIdemKey();
   window._cutFabricProductId=null;
+  window._cutFabricLines=[];
+  window._cutEditFabricId=null;
   window._cutMultiMode=false;
   window._cutMultiProducts=[];
   window._cutSharedBatchId=null;
@@ -19009,6 +19011,7 @@ async function cuttingLayModal(editId, opts){
       return;
     }
     window._cutSharedBatchId=lay.batch_id?Number(lay.batch_id):null;
+    window._cutEditFabricId=Number(lay.fabric_product_id)>0?Number(lay.fabric_product_id):null;
     // قفل تعداد فقط پوشش سفارش بدون PACK زنده (pack_via_order_fg)
     window._cutQtyLocked=Number(lay.fg_covered_by_order)===1||Number(lay.pack_via_order_fg)===1;
     (lay.rolls||[]).filter(r=>r.status==='posted').forEach(r=>{
@@ -19031,7 +19034,7 @@ async function cuttingLayModal(editId, opts){
   const ccOpts=ccRows.map(c=>'<option value="'+c.id+'"'+(String(c.id)===ccSelected?' selected':'')+'>'+esc((c.code?c.code+' — ':'')+c.name)+'</option>').join('');
   const title=window._cutEditId?('ویرایش لایه‌چینی '+(lay.lay_no||'')):(window._cutReturnOrderId?'خروجی برش — لایه‌چینی':'لایه‌چینی و برش');
   const stageBanner=window._cutReturnOrderId
-    ? `<p class="prod-empty" data-csp-style="${CSP.style(`margin:0 0 10px;line-height:1.7`)}">خروجی این مرحلهٔ برش همین‌جا ثبت می‌شود. طول مارکر، لایه و طاقه را وارد کنید. با ثبت، پارچه از طاقه مصرف می‌شود و مرحلهٔ برش همین سفارش تکمیل می‌شود. حوالهٔ جدا برای پارچهٔ طولی زده نمی‌شود.</p>`
+    ? `<p class="prod-empty" data-csp-style="${CSP.style(`margin:0 0 10px;line-height:1.7`)}">خروجی این مرحلهٔ برش همین‌جا ثبت می‌شود. طول مارکر، لایه و طاقه را وارد کنید. با ثبت، پارچه از طاقه مصرف می‌شود و مرحلهٔ برش همین سفارش تکمیل می‌شود. حوالهٔ جدا برای پارچهٔ طولی زده نمی‌شود.${window._cutFabricsText?('<br>'+esc(window._cutFabricsText)):''}</p>`
     : '';
   showModal(title,`
     ${stageBanner}
@@ -19063,6 +19066,7 @@ async function cuttingLayModal(editId, opts){
     ${window._cutEditId?(window._cutQtyLocked
       ?'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">این لایه با رسید سفارش پوشش شده. ویرایش متر، طاقه، رنگ، عرض و مرکز هزینه، اختلاف بها را به موجودی همان محصول می‌برد (اگر موجودی تمام شده باشد، سهم فروش‌رفته به بهای تمام‌شده می‌رود). تعداد قطعه و سفارش در ویرایش قفل است. ابطال همین لایه طاقه و سهم بها را برمی‌گرداند و تعداد محصول را عوض نمی‌کند.</p>'
       :'<p class="muted" data-csp-style="'+CSP.style('margin:6px 0;font-size:12px;line-height:1.7')+'">ویرایش = ابطال کامل اثرات قبلی همین شماره لایه و ثبت مجدد (موجودی طاقه و سند حسابداری). کالا قابل تغییر نیست. اگر PACK مستقیم دارد اول ابطالش کنید.</p>'):''}
+    <div class="fg" id="cl-fabric-line-wrap" hidden data-csp-style="${CSP.style(`margin:8px 0`)}"><label for="cl-fabric-line">پارچهٔ فرمول (خط BOM)</label><select id="cl-fabric-line" data-csp-change="${CSP.bind('change',function(){cuttingFabricLineChanged()})}"></select></div>
     <p class="muted" id="cl-fabric-hint" data-csp-style="${CSP.style(`margin:8px 0;font-size:12px;line-height:1.7`)}">طاقه‌ها فقط از «دریافت طاقه / خرید طاقه‌ای» با همان پارچهٔ فرمول و همان رنگ فیلتر می‌شوند.</p>
     <div id="cl-single-box">
     <div class="muted" data-csp-style="${CSP.style(`margin:10px 0 6px;font-size:12px`)}">ماتریس سایز از سایزبندی همان کالا (تعداد)</div>
@@ -19203,16 +19207,80 @@ function cuttingFgProductIds(){
   if(cuttingIsMultiMode()) cuttingMultiProducts().forEach(p=>push(p.product_id));
   return ids;
 }
+function cuttingFabricLineLabel(L){
+  let t=(L.name||('#'+L.product_id))+' (#'+L.product_id+')';
+  if(L.need!=null) t+=' — برش‌شده '+toFa(L.lay_qty||0)+' از '+toFa(L.need)+(Number(L.covered)===1?' ✓':'');
+  return t;
+}
+/** «پارچه‌ها: دورس ۱۰۰/۱۰۰ ✓ · کشبافت ۰/۱۰۰ ✗» — ورودی: [{product_id,name,need,lay_qty,covered}] */
+function cuttingFabricStatusText(arr){
+  if(!Array.isArray(arr) || !arr.length) return '';
+  return 'پارچه‌ها: '+arr.map(f=>(f.name||('#'+f.product_id))+' '+toFa(f.lay_qty||0)+'/'+toFa(f.need||0)+(Number(f.covered)===1?' ✓':' ✗')).join(' · ');
+}
+function cuttingUpdateFabricHint(){
+  const hint=el('cl-fabric-hint'); if(!hint) return;
+  const lines=window._cutFabricLines||[];
+  if(!lines.length){ hint.textContent='برای این کالا پارچهٔ طاقه‌ای در فرمول پیدا نشد؛ طاقه‌ها فیلتر کالا ندارند.'; return; }
+  if(lines.length<2){
+    hint.textContent='پارچهٔ فرمول: '+(lines[0].name||('#'+lines[0].product_id))+' (#'+lines[0].product_id+') — طاقه‌های همین کالا. فاصله، نیم‌فاصله و «و» در رنگ یکی حساب می‌شود.';
+    return;
+  }
+  let t='این فرمول '+toFa(lines.length)+' پارچهٔ طاقه‌ای دارد؛ برای هر پارچه یک لایه‌چینی جدا ثبت کنید. تا همهٔ پارچه‌ها برش نخورند، مرحلهٔ برش بسته نمی‌شود.';
+  const missing=lines.filter(L=>L.need!=null && Number(L.covered)!==1);
+  if(missing.length) t+=' پارچه‌های برش‌نخورده: '+missing.map(L=>(L.name||('#'+L.product_id))+' ('+toFa(L.lay_qty||0)+' از '+toFa(L.need)+')').join('، ')+'.';
+  hint.textContent=t;
+}
+async function cuttingFabricLineChanged(){
+  window._cutFabricProductId=Number(el('cl-fabric-line')?.value)||null;
+  cuttingUpdateFabricHint();
+  await cuttingLoadRollColors();
+  await cuttingRefreshRollPicker();
+  if(!document.querySelector('.cl-roll')) cuttingRefreshLayUnit();
+}
 async function cuttingResolveFabricAndRolls(){
   const ids=cuttingFgProductIds();
   let pid=ids[0]||0;
+  const fsel=el('cl-fabric-line'), fwrap=el('cl-fabric-line-wrap');
+  const prevSel=Number(fsel&&fsel.value)||window._cutEditFabricId||0;
   window._cutFabricProductId=null;
+  window._cutFabricLines=[];
+  if(fwrap) fwrap.hidden=true;
   const hint=el('cl-fabric-hint');
   if(!pid){
     if(hint) hint.textContent='کالای دوخته‌شده را انتخاب کنید تا پارچهٔ فرمول و طاقه‌های مجاز مشخص شوند.';
     cuttingRenderRollPicker([]);
     return;
   }
+  // v-multi-fabric: همهٔ خط‌های پارچهٔ طاقه‌ای BOM (برای هر پارچه یک لایه‌چینی جدا)
+  let lines=null;
+  try{
+    const poEl=el('cl-po');
+    const poId=Number(poEl&&poEl.value)||((poEl&&poEl.options.length<=1)?(Number(poEl.dataset.selected)||0):0);
+    const r=await api('GET','/production/cutting-lays/fabric-lines?product_id='+encodeURIComponent(pid)+(poId?'&production_order_id='+poId:''));
+    if(r && Array.isArray(r.lines)) lines=r.lines;
+  }catch(_){ lines=null; }
+  if(lines){
+    window._cutFabricLines=lines;
+    if(lines.length && fsel){
+      const has=id=>lines.some(L=>Number(L.product_id)===Number(id));
+      let pick=(prevSel && has(prevSel))?prevSel:0;
+      if(!pick && lines.some(L=>L.need!=null)){
+        const nc=lines.find(L=>Number(L.covered)!==1);
+        if(nc) pick=Number(nc.product_id);
+      }
+      if(!pick){ const pr=lines.find(L=>Number(L.is_primary)===1)||lines[0]; pick=Number(pr.product_id); }
+      fsel.innerHTML=lines.map(L=>'<option value="'+Number(L.product_id)+'">'+esc(cuttingFabricLineLabel(L))+'</option>').join('');
+      fsel.value=String(pick);
+      fsel.disabled=lines.length===1;
+      if(fwrap) fwrap.hidden=false;
+      window._cutFabricProductId=pick;
+    }
+    cuttingUpdateFabricHint();
+    await cuttingLoadRollColors();
+    await cuttingRefreshRollPicker();
+    return;
+  }
+  // fallback: سرور قدیمی بدون fabric-lines → تشخیص تک‌پارچه از preview
   try{
     const q='product_id='+encodeURIComponent(pid)
       +'&marker_length_m=1&ply_count=1&size_breakdown='+encodeURIComponent(JSON.stringify({tmp:1}));
@@ -19221,7 +19289,7 @@ async function cuttingResolveFabricAndRolls(){
     const bd={}; bd[sizes[0]||'38']=1;
     const p=await api('GET','/production/cutting-lays/preview?product_id='+pid
       +'&marker_length_m=1&ply_count=1&size_breakdown='+encodeURIComponent(JSON.stringify(bd)));
-    window._cutFabricProductId=p.fabric_product_id||null;
+    window._cutFabricProductId=window._cutEditFabricId||p.fabric_product_id||null;
     if(hint){
       hint.textContent=window._cutFabricProductId
         ? ('پارچهٔ فرمول: #'+window._cutFabricProductId+' — طاقه‌های همین کالا. فاصله، نیم‌فاصله و «و» در رنگ یکی حساب می‌شود.')
@@ -28384,8 +28452,14 @@ async function prodStageOutputModal(orderId,stageId,qtyIn,scopeLabel){
   try{ tpl=await api('GET','/production/execution/orders/'+orderId+'/stages/'+stageId+'/issue-template'); }
   catch(_){ tpl=null; }
   if(tpl && tpl.cut_lay && Number(tpl.cut_lay.required)===1 && Number(tpl.cut_lay.covered)!==1){
-    showToast('خروجی برش با لایه‌چینی ثبت می‌شود؛ پارچه از طاقه مصرف می‌شود');
+    const cl=tpl.cut_lay;
+    const fabs=Array.isArray(cl.fabrics)?cl.fabrics:[];
+    const miss=Array.isArray(cl.missing_fabrics)?cl.missing_fabrics:[];
+    const fabricsText=fabs.length>1?cuttingFabricStatusText(fabs):'';
+    showToast('خروجی برش با لایه‌چینی ثبت می‌شود؛ پارچه از طاقه مصرف می‌شود'+(fabs.length>1&&miss.length?(' — برش‌نخورده: '+miss.map(f=>f.name||('#'+f.product_id)).join('، ')):''));
+    window._cutFabricsText=fabricsText;
     await cuttingLayModal(null,{orderId:orderId});
+    window._cutFabricsText='';
     return;
   }
   const whId=Number(tpl&&tpl.warehouse_raw_id)||0;
@@ -42867,6 +42941,7 @@ function renderAdminGuide(){
         <li><b>پارچهٔ یاردی هم مثل متری</b> فقط از لایه‌چینی مصرف می‌شود. حوالهٔ مرحله و رسید محصول قبل از برش و بسته‌بندی برای این واحد بسته است.</li>
         <li><b>پارچهٔ طاقه‌ای:</b> کالایی که واحدش متر/یارد است، یا در «دریافت طاقه» طاقه دارد، پارچهٔ طاقه‌ای حساب می‌شود؛ حتی اگر در کارت کالا واحد «کیلوگرم» نوشته شده باشد (طاقه همیشه متری ثبت می‌شود). چنین پارچه‌ای از حوالهٔ مرحله کم نمی‌شود و فقط با لایه‌چینی مصرف می‌شود. بهتر است واحد کارت کالا را هم با طاقه یکی کنید.</li>
         <li><b>ثبت خروجی برش:</b> اگر همان مرحله پارچهٔ طاقه‌ای دارد و لایه‌چینی هنوز با سفارش برابر نیست، دکمهٔ «ثبت خروجی» فرم لایه‌چینی را برای همان سفارش باز می‌کند. هر طاقه جدا ثبت می‌شود و پارچه همان لحظه از طاقه می‌رود، ولی مرحلهٔ برش و مرحلهٔ بعد فقط وقتی بسته/باز می‌شوند که تعداد برش — برای هر محصول در سفارش چندمحصولی — با تعداد همان سفارش برابر باشد. یک طاقهٔ کمتر یا بیشتر مرحله را تمام نمی‌کند.</li>
+        <li><b>فرمول با چند پارچهٔ طاقه‌ای (مثلاً دورس + کشبافت):</b> در فرم لایه‌چینی فیلد «پارچهٔ فرمول (خط BOM)» همهٔ پارچه‌های طاقه‌ای همان فرمول را نشان می‌دهد (با سفارش انتخاب‌شده: «برش‌شده X از Y» و ✓ برای پوشش‌یافته). پارچه را انتخاب کنید؛ فهرست طاقه‌ها فقط همان پارچه را نشان می‌دهد. برای هر پارچه یک لایه‌چینی جدا ثبت کنید. مرحلهٔ برش (و مرحلهٔ بعد) تا وقتی هر پارچهٔ طاقه‌ای لایه‌چینی مخصوص خودش را به اندازهٔ تعداد قطعات سفارش نداشته باشد بسته نمی‌شود؛ پارچه‌های برش‌نخورده در فرم و در پیام مرحله فهرست می‌شوند. هنگام ویرایش یک لایه، پارچهٔ همان لایه از پیش انتخاب است.</li>
         <li><b>جستجوی کالای دوخته‌شده (v487):</b> فرم خروجی برش اول کاتالوگ کامل کالا را بار می‌کند. تا وقتی سفارش انتخاب است، جستجوی «کالای دوخته‌شده» و «افزودن کالا» فقط محصولات همان سفارش را نشان می‌دهد (حتی اگر پرچم ساختنی خالی باشد) و نام انتخاب‌شده در کادر می‌ماند. ی/ک عربی و نیم‌فاصله در جستجو یکی‌اند. اگر عبارت در همین فهرست نباشد، پیام می‌گوید در فهرست فعلی نیست؛ اگر کاتالوگ اصلاً نیاید، پیام «فهرست کالا خالی است» است.</li>
       </ul>`),
     helpSec('✂️','برش مشترک / مسیر بها تا انبار (v471 / ADR-006)',`
