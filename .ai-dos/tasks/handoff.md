@@ -1,3 +1,10 @@
+## 2026-11-03 — FIX-WIP-BY-ORDER-SOURCE (SW v625) — merge only, deploy after «GO deploy wip-by-order»
+
+- Worktree `D:/proje/wt-wip-by-order`, branch `fix/wip-by-order-source-resolve` off `origin/main` `523e80d9`.
+- Stale claims overridden (both merged long ago): `PROD-CUT-MP01` on `server/lib/production/schema.js` (claimed 2026-10-18, `f072969e`), `FIX-LAY-PRODUCT-ALLOC` on `public/*` + CHANGE-LOG (PR #186 deployed). Owners: please close those tasks.
+- New view `v_wip_doc_order(je_id, order_id, weight)`; `v_wip_by_order` columns unchanged. No data changes.
+- Gate: `test-wip-by-order-source` 8/8 (fails on old view), `test-production-reports` (T6-02 fixture now has source rows), health/cut-shared/p3/p6/7b/f02 green; prod copy PO-0019 224,319,128 → 0, Σorders = GL 1111 = 0, 60/60 docs mapped.
+
 ## 2026-11-02 — ⚠️ هماهنگی deploy: v607 (FR-POS-DRAFTS) → audit-kardex = v608
 
 - v607 (#155 + #156) روی ایران deploy می‌شود. تسک **audit-kardex**: پایه = `origin/main` بعد از commit v607؛ SW خودت = **`erp-taranom-v608`**؛ پیش از deploy، ✅ v607 در CHANGE-LOG را چک کن (دو deploy هم‌زمان ممنوع).

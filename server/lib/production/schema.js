@@ -1467,20 +1467,70 @@ function createTriggers(db) {
 
 function createViews(db) {
   const { jeNotDraftFor } = require('../je-live');
+  require('../void-journal').ensureReversalLinkColumns(db);
+  // ref_id means a different row per event (PRD-09 = waste, lay, subcontract or order id),
+  // so a document is tied to its order only through the source row that owns it.
+  // Batch documents are split across the batch's lays by lay amount; weights per je sum to 1.
+  // Lower prio wins when a document is reachable from more than one source.
   db.exec(`
+    DROP VIEW IF EXISTS v_wip_doc_order;
+    CREATE VIEW v_wip_doc_order AS
+    WITH src(je_id, order_id, weight, prio) AS (
+      SELECT je_id, order_id, 1.0, 1 FROM production_material_issues WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT je_id, order_id, 1.0, 1 FROM production_labor_entries WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT je_id, order_id, 1.0, 1 FROM production_overhead_applications WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT je_id, order_id, 1.0, 1 FROM production_receipts WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT je_id, order_id, 1.0, 1 FROM production_waste WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT je_id, order_id, 1.0, 1 FROM production_rework WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT je_id, order_id, 1.0, 1 FROM production_subcontract WHERE je_id IS NOT NULL AND order_id IS NOT NULL
+      UNION SELECT cp.journal_id, COALESCE(cp.production_order_id, l.production_order_id), 1.0, 1
+        FROM cutting_packs cp LEFT JOIN cutting_lays l ON l.id = cp.lay_id
+        WHERE cp.journal_id IS NOT NULL AND COALESCE(cp.production_order_id, l.production_order_id) IS NOT NULL
+      UNION SELECT bj.je_id, bl.production_order_id,
+             CASE WHEN bl.tot > 0 THEN bl.amt * 1.0 / bl.tot ELSE 1.0 / bl.n END, 2
+        FROM (SELECT id AS batch_id, journal_id AS je_id FROM cutting_batches WHERE journal_id IS NOT NULL
+              UNION SELECT id, waste_journal_id FROM cutting_batches WHERE waste_journal_id IS NOT NULL) bj
+        JOIN (SELECT b.id AS batch_id, l.production_order_id, COALESCE(l.amount_rial, 0) AS amt,
+                     SUM(COALESCE(l.amount_rial, 0)) OVER (PARTITION BY b.id) AS tot,
+                     COUNT(*) OVER (PARTITION BY b.id) AS n
+                FROM cutting_batches b
+                JOIN cutting_lays l ON l.batch_id = b.id OR (l.batch_id IS NULL AND l.id = b.lay_id)
+               WHERE l.production_order_id IS NOT NULL) bl ON bl.batch_id = bj.batch_id
+      UNION SELECT journal_id, production_order_id, 1.0, 3 FROM cutting_lays WHERE journal_id IS NOT NULL AND production_order_id IS NOT NULL
+      UNION SELECT waste_journal_id, production_order_id, 1.0, 3 FROM cutting_lays WHERE waste_journal_id IS NOT NULL AND production_order_id IS NOT NULL
+      UNION SELECT extra_journal_id, production_order_id, 1.0, 3 FROM cutting_lays WHERE extra_journal_id IS NOT NULL AND production_order_id IS NOT NULL
+      UNION SELECT je.id, po.id, 1.0, 4 FROM journal_entries je JOIN production_orders po ON po.id = je.ref_id
+        WHERE je.ref_type IN ('order_cost_receipt_align', 'production_scrap', 'production_byproduct')
+      UNION SELECT je.id, COALESCE(l.fg_delta_order_id, l.production_order_id), 1.0, 4
+        FROM journal_entries je JOIN cutting_lays l ON l.id = je.ref_id
+        WHERE je.ref_type IN ('cutting_lay_fg_delta', 'cutting_lay')
+          AND COALESCE(l.fg_delta_order_id, l.production_order_id) IS NOT NULL
+    ),
+    best AS (SELECT je_id, MIN(prio) AS prio FROM src GROUP BY je_id),
+    resolved AS (SELECT s.je_id, s.order_id, s.weight FROM src s JOIN best b ON b.je_id = s.je_id AND b.prio = s.prio)
+    SELECT je_id, order_id, weight FROM resolved
+    UNION ALL
+    SELECT cv.id, r.order_id, r.weight
+      FROM journal_entries cv JOIN resolved r ON r.je_id = cv.reverses_je_id
+     WHERE cv.reverses_je_id IS NOT NULL AND cv.id NOT IN (SELECT je_id FROM resolved);
+
     DROP VIEW IF EXISTS v_wip_by_order;
     CREATE VIEW v_wip_by_order AS
     SELECT po.id AS order_id, po.order_no, po.product_id, po.status, po.period_label,
-           COALESCE(SUM(CASE WHEN jl.account_code = COALESCE((SELECT value FROM settings WHERE key='coa_wip'), '1111')
-                              OR jl.account_code = '1111'
-                        THEN COALESCE(jl.debit_rial,0) - COALESCE(jl.credit_rial,0) ELSE 0 END), 0) AS wip_rial
+           COALESCE(w.wip_rial, 0) AS wip_rial
     FROM production_orders po
-    LEFT JOIN journal_entries je ON je.ref_id = po.id
-                                AND je.ref_type LIKE 'production_%'
-                                AND COALESCE(je.deleted_at,0) = 0
-                                AND ${jeNotDraftFor(db, 'je')}
-    LEFT JOIN journal_lines jl   ON jl.entry_id = je.id
-    GROUP BY po.id;
+    LEFT JOIN (
+      SELECT m.order_id,
+             CAST(ROUND(SUM(m.weight * (COALESCE(jl.debit_rial,0) - COALESCE(jl.credit_rial,0)))) AS INTEGER) AS wip_rial
+      FROM v_wip_doc_order m
+      JOIN journal_entries je ON je.id = m.je_id
+                             AND COALESCE(je.deleted_at,0) = 0
+                             AND ${jeNotDraftFor(db, 'je')}
+      JOIN journal_lines jl   ON jl.entry_id = je.id
+      WHERE jl.account_code = COALESCE((SELECT value FROM settings WHERE key='coa_wip'), '1111')
+         OR jl.account_code = '1111'
+      GROUP BY m.order_id
+    ) w ON w.order_id = po.id;
 
     DROP VIEW IF EXISTS v_order_cost_summary;
     CREATE VIEW v_order_cost_summary AS

@@ -30,6 +30,7 @@ const SCRIPTS = [
   'test-production-access-api.js',
   'test-production-ui-smoke.js',
   'test-prod-cut-shared.js',
+  'test-wip-by-order-source.js',
 ];
 
 function ensureDir(d) {
