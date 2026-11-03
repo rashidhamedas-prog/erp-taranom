@@ -146,24 +146,90 @@ function writePersonLaborLedger(db, {
   }
 }
 
+/**
+ * Supplier book that owns the credited 2101xx leaf (same party first).
+ * A contractor's payable leaf usually comes from the linked supplier while
+ * persons.coa_code points elsewhere, so party-leaf-sync sees a single book on
+ * that leaf and never mirrors the person row — the supplier book must be
+ * written here or 7A (supplierBooksMismatchList) shows GL ≠ book.
+ */
+function supplierForLaborLeaf(db, leafCode, partyId) {
+  const code = leafCode != null ? String(leafCode).trim() : '';
+  if (!code) return null;
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT id, party_id FROM suppliers WHERE TRIM(coa_code)=? ORDER BY id
+    `).all(code);
+  } catch (_) {
+    return null;
+  }
+  if (!rows.length) return null;
+  const pid = Number(partyId) || 0;
+  if (pid) {
+    const same = rows.find((r) => Number(r.party_id) === pid);
+    if (same) return same;
+  }
+  return rows.length === 1 ? rows[0] : null;
+}
+
+function writeSupplierLaborLedger(db, {
+  leafCode, partyId, laborEntryId, date, description, amountRial, userId,
+}) {
+  const amt = Math.round(Number(amountRial) || 0);
+  const lid = Number(laborEntryId);
+  if (!(amt > 0) || !lid) return 0;
+  const sup = supplierForLaborLeaf(db, leafCode, partyId);
+  if (!sup) return 0;
+  const exists = db.prepare(`
+    SELECT id FROM supplier_ledger
+    WHERE supplier_id=? AND ref_type='production_labor' AND ref_id=?
+    LIMIT 1
+  `).get(sup.id, lid);
+  if (exists) return 0;
+  db.prepare(`
+    INSERT INTO supplier_ledger
+      (supplier_id, date, entry_type, ref_type, ref_id, description, debit, credit, user_id)
+    VALUES (?,?,?,?,?,?,0,?,?)
+  `).run(
+    sup.id,
+    date || '',
+    'production_labor',
+    'production_labor',
+    lid,
+    description || 'دستمزد تولید',
+    amt,
+    userId || null
+  );
+  return 1;
+}
+
 function retirePersonLaborLedger(db, laborEntryId) {
   const lid = Number(laborEntryId);
   if (!lid) return 0;
+  let n = 0;
   try {
     const { retirePersonLedgerByRef } = require('../party-ledger-retire');
-    return retirePersonLedgerByRef(db, {
+    n = retirePersonLedgerByRef(db, {
       refTypes: ['production_labor'],
       refId: lid,
     });
   } catch (_) {
     try {
-      return Number(db.prepare(`
+      n = Number(db.prepare(`
         DELETE FROM person_ledger WHERE ref_type='production_labor' AND ref_id=?
       `).run(lid).changes || 0);
     } catch (__) {
-      return 0;
+      n = 0;
     }
   }
+  // Supplier book on the contractor leaf may not share the person's party.
+  try {
+    n += Number(db.prepare(`
+      DELETE FROM supplier_ledger WHERE ref_type='production_labor' AND ref_id=?
+    `).run(lid).changes || 0);
+  } catch (_) { /* table optional */ }
+  return n;
 }
 
 function retirePersonLaborForEntries(db, entries) {
@@ -520,6 +586,15 @@ function absorbLaborJournal(db, {
           amountRial: amt,
           userId,
         });
+        writeSupplierLaborLedger(db, {
+          leafCode: entrySide.line.code,
+          partyId: entrySide.person.party_id,
+          laborEntryId: e.id,
+          date,
+          description: entryDesc,
+          amountRial: amt,
+          userId,
+        });
       }
       jes.push(je);
     }
@@ -644,6 +719,7 @@ module.exports = {
   formatLaborJeDescription,
   resolveLaborCreditSide,
   writePersonLaborLedger,
+  writeSupplierLaborLedger,
   retirePersonLaborLedger,
   retirePersonLaborForEntries,
   productLabelForOrder,
