@@ -11392,17 +11392,17 @@ function prodOsTableHtml(pid,d){
   const emptyRows=whs.filter(w=>!usedWh.has(Number(w.id))).map(w=>`<tr>
       <td>${esc(w.name)}</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td><td class="muted">—</td>
       <td><span class="muted">ثبت نشده</span></td>
-      <td>${canEdit?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openProdOpeningEditor(pid,{warehouse_id:Number(w.id)})})}">➕ افزودن</button>`:''}</td>
+      <td>${canEdit?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openProdOpeningWhEditor(pid,Number(w.id))})}">➕ افزودن</button>`:''}</td>
     </tr>`).join('');
   return `<div data-csp-style="${CSP.style(`display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px`)}">
       <label data-csp-style="${CSP.style(`margin:0`)}">📥 موجودی اول دوره ${pfv2Hlp('ردیف‌های افتتاحیهٔ کاردکس همین کالا در سال مالی جاری به تفکیک انبار و رنگ/سایز. «درست» = یک ردیف با سند حسابداری؛ «نیازمند بررسی» = چند ردیف تکراری؛ «بدون سند» = ردیف بدون سند حسابداری.')}</label>
-      ${canEdit?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openProdOpeningEditor(pid,{})})}">➕ افزودن ردیف</button>`
+      ${canEdit?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openProdOpeningWhEditor(pid,null)})}">➕ افزودن رنگ/سایز</button>`
         :`<span class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">فقط مشاهده — ویرایش با مجوز «موجودی اول دوره (اصلاحیه)»</span>`}
       <button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){loadProdOpeningStock(pid)})}">🔄</button>
     </div>
     <div class="tbl-wrap tbl-fit"><table class="tbl"><thead><tr><th>انبار</th><th>واریانت</th><th>تعداد</th><th>بهای واحد (ریال)</th><th>مبلغ (ریال)</th><th>وضعیت</th><th></th></tr></thead>
       <tbody>${(body+pendRows+emptyRows)||emptyRow(7)}</tbody></table></div>
-    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-top:6px`)}">ویرایش = اصلاحیهٔ رسمی با پیش‌نمایش، دلیل و تأیید (ردیف قبلی و سندش ابطال می‌شود). ردیف جدید پیش‌نویس سند افتتاحیه می‌سازد که باید کاربر دیگری در «موجودی اول دوره» ثبت قطعی کند.</div>`;
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-top:6px`)}">ویرایش = اصلاحیهٔ رسمی با پیش‌نمایش، دلیل و تأیید (ردیف قبلی و سندش ابطال می‌شود). «➕ افزودن» همهٔ رنگ/سایزهای یک انبار را یک‌جا می‌گیرد و <b>یک سند پیش‌نویس</b> برای کالا × انبار می‌سازد که باید کاربر دیگری در «اسناد افتتاحیهٔ انبار» ثبت قطعی کند.</div>`;
 }
 async function openProdOpeningEditor(productId, opts){
   opts=opts||{};
@@ -11583,6 +11583,164 @@ async function prodOsApply(){
   }catch(e){
     prodOsShowErr(prodOsErrMsg(e));
     prodOsSyncApply();
+  }
+}
+/* ===== ورود گروهی موجودی اول دوره: یک انبار × همهٔ رنگ/سایزها → یک سند پیش‌نویس (POST /api/opening-stock/product-warehouse) ===== */
+const PROD_OS_WH_ERR={
+  E_OPENING_EMPTY:'حداقل یک ردیف با تعداد بیشتر از صفر لازم است',
+  E_OPENING_DUP_LINE:'یک رنگ/سایز بیش از یک‌بار در ردیف‌ها آمده است',
+  E_OPENING_DRAFT_EXISTS:'برای این کالا و انبار قبلاً یک پیش‌نویس سند افتتاحیه وجود دارد — اول آن را ثبت قطعی یا ابطال کنید',
+  E_OPENING_DUPLICATE:'برای یکی از این رنگ/سایزها در این انبار قبلاً موجودی اول دوره ثبت شده است — برای اصلاح از ✏️ ویرایش استفاده کنید',
+  E_OPENING_COST_REQUIRED:'بهای واحد (بزرگ‌تر از صفر) برای همهٔ ردیف‌های دارای تعداد لازم است',
+  E_PERMISSION:'مجوز «موجودی اول دوره (اصلاحیه)» لازم است',
+};
+function prodOsWhNum(s){ const t=toEnDigits(String(s==null?'':s)).replace(/[,٬،\s]/g,''); return t===''?null:Number(t); }
+function prodOsWhBlock(wid,vid){
+  const d=window._prodOsData||{}; const key=Number(vid)||0; wid=Number(wid)||0;
+  if(!wid) return null;
+  const hit=(d.rows||[]).find(r=>r && Number(r.warehouse_id)===wid && (Number(r.variant_id)||0)===key);
+  if(hit) return { kind:'row' };
+  const p=(d.pending_docs||[]).find(x=>x && Number(x.warehouse_id)===wid && (Number(x.variant_id)||0)===key);
+  if(p) return { kind:'draft', doc_no:p.doc_no||('#'+p.doc_id) };
+  return null;
+}
+function prodOsWhShowErr(msg){
+  const box=el('osw-err'); if(!box) return;
+  box.textContent=msg||'';
+  box.hidden=!msg;
+}
+async function openProdOpeningWhEditor(productId, warehouseId){
+  const pid=Number(productId)||0; if(!pid) return;
+  const d=window._prodOsData||{};
+  if(!prodOsCanEdit(d)){ showToast('مجوز «موجودی اول دوره (اصلاحیه)» لازم است','error'); return; }
+  const whs=d.warehouses||[];
+  let all;
+  try{
+    const vd=await api('GET','/product-variants/style/'+pid,null,false,true);
+    all=((vd&&vd.variants)||[]).filter(v=>v && !Number(v.is_default));
+  }catch(_){ showToast('خطا در دریافت رنگ/سایزهای کالا','error'); return; }
+  const costVisible=window.__canSeeCostVis!==false;
+  const rows=all.length
+    ? all.map(v=>({ vid:Number(v.id), label:[v.color_name,displaySizeName(v.size_name)].filter(Boolean).join(' / ')||v.sku||('#'+v.id), inactive:v.active===0 }))
+    : [{ vid:null, label:'بدون رنگ/سایز', inactive:false }];
+  window._prodOsWh={ pid, rows, costVisible, busy:false };
+  const body=rows.map((r,i)=>`<tr id="osw-r-${i}">
+      <td><b>${esc(r.label)}</b>${r.inactive?`<div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">غیرفعال — با ثبت قطعی فعال می‌شود</div>`:''}<div class="muted" id="osw-b-${i}" hidden data-csp-style="${CSP.style(`font-size:11px`)}"></div></td>
+      <td><input id="osw-q-${i}" class="osw-in" type="text" inputmode="decimal" dir="ltr" autocomplete="off" data-csp-style="${CSP.style(`width:110px`)}"></td>
+      ${costVisible?`<td><input id="osw-c-${i}" class="osw-in" type="text" inputmode="numeric" dir="ltr" autocomplete="off" data-csp-style="${CSP.style(`width:140px`)}"></td>
+      <td class="mono" id="osw-a-${i}">—</td>`:''}
+    </tr>`).join('');
+  openNestedModal(`<div class="modal-head"><h3>📥 ثبت موجودی اول دوره — انبار × رنگ/سایزها</h3><button class="x" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">×</button></div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="fg"><label for="osw-wh">انبار *</label><select id="osw-wh"><option value="">— انتخاب انبار —</option>${whs.map(w=>`<option value="${w.id}" ${Number(warehouseId)===Number(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+        <div class="fg"><label for="osw-note">یادداشت (اختیاری)</label><input id="osw-note" maxlength="300" placeholder="مثلاً موجودی اول دوره ۱۴۰۵"></div>
+      </div>
+      <div class="tbl-wrap tbl-fit" data-csp-style="${CSP.style(`margin-top:8px`)}"><table class="tbl"><thead><tr><th>رنگ / سایز</th><th>تعداد</th>${costVisible?'<th>بهای واحد (ریال)</th><th>مبلغ (ریال)</th>':''}</tr></thead>
+        <tbody id="osw-body">${body}</tbody>
+        <tfoot><tr><td><b>جمع</b></td><td class="mono"><b id="osw-tq">۰</b></td>${costVisible?'<td></td><td class="mono"><b id="osw-tr">۰</b></td>':''}</tr></tfoot></table></div>
+      <div class="toolbar" data-csp-style="${CSP.style(`gap:8px;margin-top:8px`)}">
+        ${costVisible?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){prodOsWhApplyCost()})}">اعمال بها به همه ردیف‌ها</button>`:''}
+      </div>
+      <div id="osw-err" hidden data-csp-style="${CSP.style(`margin-top:8px;padding:8px 10px;border-radius:8px;background:#fee2e2;color:#991b1b;line-height:1.8`)}"></div>
+      <div class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9;margin-top:8px`)}">برای هر کالا × انبار <b>یک سند پیش‌نویس</b> با چند ردیف ساخته می‌شود. ردیف‌های بدون تعداد نادیده گرفته می‌شوند. ردیفی که برای آن انبار قبلاً ثبت یا پیش‌نویس شده غیرفعال است. ثبت قطعی توسط <b>کاربر دیگری</b> در «اسناد افتتاحیهٔ انبار» انجام می‌شود (سازنده نمی‌تواند ثبت قطعی کند).</div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn green" id="osw-save" data-csp-click="${CSP.bind('click',function(){prodOsWhSave()})}">💾 ذخیرهٔ پیش‌نویس سند</button>
+      <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeNestedModal()})}">انصراف</button>
+    </div>`, true);
+  const tb=el('osw-body'); if(tb) tb.addEventListener('input', prodOsWhTotals);
+  const sel=el('osw-wh'); if(sel) sel.addEventListener('change', function(){ prodOsWhShowErr(''); prodOsWhRefresh(); });
+  prodOsWhRefresh();
+}
+/** غیرفعال‌کردن ردیف‌هایی که برای انبار انتخاب‌شده قبلاً ثبت/پیش‌نویس شده‌اند */
+function prodOsWhRefresh(){
+  const st=window._prodOsWh; if(!st) return;
+  const wid=Number(el('osw-wh')?.value)||0;
+  st.rows.forEach((r,i)=>{
+    const blk=prodOsWhBlock(wid,r.vid);
+    const tr=el('osw-r-'+i), q=el('osw-q-'+i), c=el('osw-c-'+i), b=el('osw-b-'+i);
+    if(q) q.disabled=!!blk;
+    if(c) c.disabled=!!blk;
+    if(tr) tr.style.opacity=blk?'0.55':'';
+    if(b){
+      b.hidden=!blk;
+      b.textContent=blk?(blk.kind==='row'?'ثبت‌شده — برای اصلاح ✏️ ویرایش':('پیش‌نویس '+blk.doc_no)):'';
+    }
+  });
+  prodOsWhTotals();
+}
+function prodOsWhTotals(){
+  const st=window._prodOsWh; if(!st) return;
+  let tq=0, tr=0;
+  st.rows.forEach((r,i)=>{
+    const q=el('osw-q-'+i); if(!q || q.disabled) { const a0=el('osw-a-'+i); if(a0) a0.textContent='—'; return; }
+    const qty=prodOsWhNum(q.value), cost=st.costVisible?prodOsWhNum(el('osw-c-'+i)?.value):null;
+    const okQ=qty!=null && isFinite(qty) && qty>0;
+    const a=el('osw-a-'+i);
+    if(okQ){ tq+=qty; }
+    if(okQ && cost!=null && isFinite(cost) && cost>0){ tr+=qty*cost; if(a) a.textContent=fmt(Math.round(qty*cost)); }
+    else if(a) a.textContent='—';
+  });
+  const eq=el('osw-tq'); if(eq) eq.textContent=fmtQtyFa(tq);
+  const er=el('osw-tr'); if(er) er.textContent=fmt(Math.round(tr));
+}
+function prodOsWhApplyCost(){
+  const st=window._prodOsWh; if(!st || !st.costVisible) return;
+  let first=null;
+  for(let i=0;i<st.rows.length;i++){
+    const c=el('osw-c-'+i); if(!c || c.disabled) continue;
+    const v=prodOsWhNum(c.value);
+    if(v!=null && isFinite(v) && v>0){ first=c.value; break; }
+  }
+  if(first==null){ showToast('ابتدا بهای واحد یکی از ردیف‌ها را وارد کنید','error'); return; }
+  st.rows.forEach((r,i)=>{
+    const c=el('osw-c-'+i); if(!c || c.disabled) return;
+    if(prodOsWhNum(c.value)==null) c.value=first;
+  });
+  prodOsWhTotals();
+}
+async function prodOsWhSave(){
+  const st=window._prodOsWh; if(!st || st.busy) return;
+  const wid=Number(el('osw-wh')?.value)||0;
+  if(!wid){ prodOsWhShowErr('انبار را انتخاب کنید'); return; }
+  const lines=[];
+  for(let i=0;i<st.rows.length;i++){
+    const r=st.rows[i], q=el('osw-q-'+i);
+    if(!q || q.disabled) continue;
+    const rawQ=String(q.value||'').trim();
+    if(rawQ==='') continue;
+    const qty=prodOsWhNum(rawQ);
+    if(qty==null || !isFinite(qty) || qty<0){ prodOsWhShowErr(`تعداد «${r.label}» معتبر نیست`); return; }
+    if(qty===0) continue;
+    let cost=null;
+    if(st.costVisible){
+      cost=prodOsWhNum(el('osw-c-'+i)?.value);
+      if(cost==null || !isFinite(cost) || cost<=0){ prodOsWhShowErr(`بهای واحد «${r.label}» باید بزرگ‌تر از صفر باشد`); return; }
+    }
+    const ln={ variant_id:r.vid, qty };
+    if(cost!=null) ln.unit_cost_rial=cost;
+    lines.push(ln);
+  }
+  if(!lines.length){ prodOsWhShowErr('حداقل یک ردیف با تعداد بیشتر از صفر وارد کنید'); return; }
+  prodOsWhShowErr('');
+  st.busy=true;
+  const btn=el('osw-save'); if(btn) btn.disabled=true;
+  try{
+    const note=String(el('osw-note')?.value||'').trim();
+    const body={ product_id:st.pid, warehouse_id:wid, lines };
+    if(note) body.note=note;
+    const r=await api('POST','/opening-stock/product-warehouse',body,false,true);
+    if(!r){ st.busy=false; if(btn) btn.disabled=false; return; }
+    closeNestedModal();
+    window._prodOsWh=null;
+    showToast(`پیش‌نویس ${r.doc_no||''} با ${fmtQtyFa((r.lines||lines).length)} ردیف ساخته شد — ثبت قطعی توسط کاربر دیگر`);
+    await loadProdOpeningStock(st.pid);
+    if(el('p-variants-panel')){ try{ refreshProdVariantsPanel(st.pid); }catch(_){} }
+  }catch(e){
+    st.busy=false; if(btn) btn.disabled=false;
+    const code=(e&&e.payload&&(e.payload.code))||(e&&e.code)||'';
+    prodOsWhShowErr(PROD_OS_WH_ERR[code]||prodOsErrMsg(e));
   }
 }
 /** گزارش فقط‌خواندنی تکراری‌ها / بدون سند — GET /api/inventory/opening-duplicates */
@@ -13556,6 +13714,7 @@ ROUTES.stocktaking = async function(){
 /* ===== P2 — اسناد افتتاحیهٔ انبار (کالا × انبار × واریانت) ===== */
 const OS_STATUS={ draft:'پیش‌نویس', posted:'ثبت‌شده', void:'ابطال‌شده' };
 let _osMeta=null;
+let _osSel=new Set();
 async function osLoadMeta(){
   try{ _osMeta=await api('GET','/opening-stock/meta',null,false,true); }catch(_){ _osMeta=null; }
   return _osMeta||{};
@@ -13571,6 +13730,9 @@ async function renderOpeningStockTab(body){
     <button class="btn sm" data-csp-click="${CSP.bind('click',function(event){osLoadList()})}">🔍 اعمال</button>
     ${meta.can_create?`<button class="btn green" data-csp-click="${CSP.bind('click',function(event){osNewModal()})}">➕ سند افتتاحیهٔ جدید</button>`:`<span class="muted" title="نیاز به مجوز «انبار: ایجاد»">فقط مشاهده</span>`}
     <button class="btn sm ghost" title="گزارش فقط‌خواندنی ردیف‌های افتتاحیهٔ تکراری و بدون سند" data-csp-click="${CSP.bind('click',function(event){osOpenDuplicates()})}">🔎 تکراری‌ها / بدون سند</button>
+    ${meta.can_bulk_post?`<button class="btn sm green" id="osBulkPost" disabled title="ثبت قطعی همهٔ پیش‌نویس‌های انتخاب‌شده (هر سند در تراکنش جدا؛ سازنده نمی‌تواند سند خودش را ثبت کند)" data-csp-click="${CSP.bind('click',function(event){osBulkPost()})}">✅ ثبت قطعی گروهی</button>`:''}
+    ${meta.can_bulk_void?`<button class="btn sm red" id="osBulkVoid" disabled title="ابطال پیش‌نویس‌های انتخاب‌شده (فقط پیش‌نویس)" data-csp-click="${CSP.bind('click',function(event){osBulkVoid()})}">⛔ ابطال گروهی</button>`:''}
+    ${(meta.can_bulk_post||meta.can_bulk_void)?`<span class="muted" id="osSelCount" data-csp-style="${CSP.style(`font-size:12px`)}">انتخاب‌شده: ۰</span>`:''}
   </div>
   <div class="muted" data-csp-style="${CSP.style(`margin:0 0 10px;font-size:12px;line-height:1.9`)}">📥 موجودی اول دوره فقط از مسیر این سند ثبت می‌شود: پیش‌نویس هیچ اثری روی موجودی و دفتر ندارد؛ <b>ثبت قطعی باید توسط کاربر دیگری (غیر از سازنده)</b> انجام شود. اصلاح سند ثبت‌شده فقط با <b>ابطال</b> و ثبت سند جدید ممکن است.</div>
   <div id="osBody"><div class="muted">در حال بارگذاری...</div></div>`;
@@ -13582,19 +13744,25 @@ async function osLoadList(){
   box.innerHTML='<div class="muted">در حال بارگذاری...</div>';
   const d=await api('GET','/opening-stock'+(st?'?status='+encodeURIComponent(st):''));
   const rows=(d&&d.rows)||[];
+  _osSel=new Set();
+  const bulk=!!(_osMeta&&(_osMeta.can_bulk_post||_osMeta.can_bulk_void));
+  const nDraft=rows.filter(r=>r.status==='draft').length;
   box.innerHTML=`<div class="panel"><div class="panel-body tbl-wrap"><table class="tbl"><thead><tr>
+    ${bulk?`<th data-csp-style="${CSP.style(`width:36px`)}">${nDraft?`<input type="checkbox" id="osSelAll" title="انتخاب همهٔ پیش‌نویس‌ها" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(event){osSelAll(this.checked)})}">`:''}</th>`:''}
     <th>شماره</th><th>تاریخ</th><th>وضعیت</th><th>ردیف</th><th>ارزش (ریال)</th><th>سند حسابداری</th><th>سازنده</th><th>ثبت‌کننده</th><th>عملیات</th>
   </tr></thead><tbody>${rows.map(r=>`<tr>
+    ${bulk?`<td>${r.status==='draft'?`<input type="checkbox" class="os-sel" data-os-id="${esc(r.id)}" data-csp-style="${CSP.style(`width:auto`)}" data-csp-change="${CSP.bind('change',function(event){osSelToggle(r.id,this.checked)})}">`:''}</td>`:''}
     <td class="mono">${esc(r.doc_no||('#'+r.id))}</td>
     <td class="mono">${escDate(r.date)}</td>
     <td><span class="tag ${r.status==='posted'?'t-done':r.status==='draft'?'t-open':'t-new'}">${OS_STATUS[r.status]||esc(r.status)}</span></td>
     <td class="mono">${fmtQtyFa(r.line_count||0)}</td>
     <td class="mono">${fmt(r.total_rial||0)}</td>
     <td class="mono">${esc(r.je_no||'-')}</td>
-    <td class="muted">${esc(r.created_by_name||'-')}</td>
+    <td class="muted">${esc(r.created_by_name||'-')}${r.status==='draft'&&ME&&Number(r.created_by)===Number(ME.id)?`<div data-csp-style="${CSP.style(`font-size:11px`)}">سازنده: شما — ثبت قطعی توسط کاربر دیگر</div>`:''}</td>
     <td class="muted">${esc(r.posted_by_name||'-')}</td>
     <td><button class="btn sm" data-csp-click="${CSP.bind('click',function(event){osOpenDetail((r.id))})}">📋 جزئیات</button></td>
-  </tr>`).join('')||emptyRow(9)}</tbody></table></div></div>`;
+  </tr>`).join('')||emptyRow(bulk?10:9)}</tbody></table></div></div>`;
+  osSelSync();
 }
 async function osOpenDetail(id){
   const meta=_osMeta||await osLoadMeta();
@@ -13648,6 +13816,69 @@ async function osVoid(id){
   const reason=prompt('دلیل ابطال سند افتتاحیه:','');
   if(reason===null) return;
   try{ const d=await api('POST','/opening-stock/'+id+'/void',{reason}); if(!d) return; closeModal(); showToast('سند ابطال شد'); if(el('osBody')) osLoadList(); }catch(e){}
+}
+/* ثبت قطعی / ابطال گروهی پیش‌نویس‌ها — POST /api/opening-stock/bulk-post | bulk-void (فقط مدیر/حسابداری؛ هر سند تراکنش جدا) */
+function osSelSync(){
+  const n=_osSel.size;
+  const c=el('osSelCount'); if(c) c.textContent='انتخاب‌شده: '+fmtQtyFa(n);
+  ['osBulkPost','osBulkVoid'].forEach(id=>{ const b=el(id); if(b) b.disabled=!n; });
+  const all=el('osSelAll');
+  if(all){
+    const boxes=document.querySelectorAll('#osBody input.os-sel');
+    all.checked=boxes.length>0 && n>=boxes.length;
+  }
+}
+function osSelToggle(id,on){
+  id=Number(id); if(!id) return;
+  if(on) _osSel.add(id); else _osSel.delete(id);
+  osSelSync();
+}
+function osSelAll(on){
+  _osSel=new Set();
+  document.querySelectorAll('#osBody input.os-sel').forEach(b=>{
+    b.checked=!!on;
+    if(on){ const id=Number(b.getAttribute('data-os-id')); if(id) _osSel.add(id); }
+  });
+  osSelSync();
+}
+function osBulkResultModal(title,d,okLabel){
+  const results=(d&&d.results)||[];
+  const okN=Number(d&&d.ok_count)||0, failN=Number(d&&d.fail_count)||0;
+  const rowsHtml=results.map(r=>`<tr>
+      <td class="mono">${esc(r.doc_no||('#'+r.id))}</td>
+      <td>${r.ok?`<span class="tag t-done">✅ ${esc(okLabel)}</span>`:`<span class="tag t-silent">⛔ ناموفق</span>`}</td>
+      <td>${r.ok?(r.je_id?`<span class="mono">سند حسابداری #${esc(r.je_id)}</span>`:'<span class="muted">—</span>'):`<span data-csp-style="${CSP.style(`color:#991b1b`)}">${esc(r.error||r.code||'خطا')}</span>${r.code&&r.error?` <span class="muted mono" dir="ltr">${esc(r.code)}</span>`:''}`}</td>
+    </tr>`).join('');
+  showModal(title,`
+    <div data-csp-style="${CSP.style(`margin-bottom:8px;font-weight:600`)}">موفق ${fmtQtyFa(okN)} / ناموفق ${fmtQtyFa(failN)}</div>
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>شمارهٔ سند</th><th>نتیجه</th><th>سند حسابداری / دلیل</th></tr></thead>
+      <tbody>${rowsHtml||emptyRow(3)}</tbody></table></div>
+    <div class="toolbar" data-csp-style="${CSP.style(`margin-top:12px;gap:8px`)}"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`, true);
+}
+async function osBulkRun(path,payload,title,okLabel){
+  const btns=['osBulkPost','osBulkVoid'].map(el).filter(Boolean);
+  btns.forEach(b=>{ b.disabled=true; });
+  try{
+    const d=await api('POST',path,payload,false,true);
+    if(d){ osBulkResultModal(title,d,okLabel); }
+  }catch(e){
+    showToast((e&&e.message)||'خطا در عملیات گروهی','error');
+  }
+  _osSel=new Set();
+  if(el('osBody')) await osLoadList();
+  osSelSync();
+}
+async function osBulkPost(){
+  const ids=[..._osSel]; if(!ids.length) return;
+  if(!confirm(`${fmtQtyFa(ids.length)} سند پیش‌نویس ثبت قطعی شود؟ هر سند در تراکنش جدا ثبت می‌شود (موجودی، کاردکس و یک سند حسابداری)؛ اسنادی که خودتان ساخته‌اید رد می‌شوند.`)) return;
+  await osBulkRun('/opening-stock/bulk-post',{ ids },'✅ نتیجهٔ ثبت قطعی گروهی','ثبت شد');
+}
+async function osBulkVoid(){
+  const ids=[..._osSel]; if(!ids.length) return;
+  const reason=prompt(`دلیل ابطال ${fmtQtyFa(ids.length)} سند پیش‌نویس (حداقل ۳ نویسه):`,'');
+  if(reason===null) return;
+  if(String(reason).trim().length<3){ showToast('دلیل ابطال حداقل ۳ نویسه است','error'); return; }
+  await osBulkRun('/opening-stock/bulk-void',{ ids, reason:String(reason).trim() },'⛔ نتیجهٔ ابطال گروهی','ابطال شد');
 }
 /** ردیف‌های ورودی: کد کالا ⇥ کد/نام انبار ⇥ SKU واریانت (اختیاری) ⇥ تعداد ⇥ بهای واحد (ریال). جداکننده Tab (چسباندن از اکسل) یا ویرگول/؛ */
 function osParseLines(text){
@@ -42600,7 +42831,7 @@ function renderAdminGuide(){
         <li><b>جدول موجودی اول دوره</b> (فقط برای کالای ذخیره‌شده): انبار، واریانت، تعداد، بهای واحد، مبلغ و وضعیت — <b>درست</b> (یک ردیف با سند حسابداری)، <b>نیازمند بررسی</b> (چند ردیف تکراری) و <b>بدون سند</b> (ردیف بدون سند حسابداری). سندهای پیش‌نویس با برچسب «پیش‌نویس — منتظر ثبت» دیده می‌شوند. بدون مجوز بها، ستون‌های ریالی «—» است.</li>
         <li><b>ویرایش = اصلاحیهٔ رسمی</b>: تعداد/بها ← «پیش‌نمایش» (نوع عملیات، ردیف‌های ابطالی، سند(های) حسابداری، اثر بر حساب‌ها، موجودی پس از اصلاح، هشدارها) ← «دلیل اصلاح» (حداقل ۵ نویسه) ← تیک «تأیید می‌کنم» ← «ثبت اصلاحیه». ردیف قبلی و سند آن ابطال می‌شود؛ اگر سند با ردیف‌های دیگر مشترک باشد، به‌جای ابطال <b>سند جبرانی Dr 3102 / Cr موجودی</b> ثبت می‌شود.</li>
         <li><b>رفع تکرار (نیازمند بررسی)</b>: ردیف معتبر را از فهرست ردیف‌های کاردکس انتخاب کنید (در صورت نیاز تعداد/بها را جایگزین کنید)؛ بقیه همراه با <b>ابطال تعدیل جبرانی stock_reconcile</b> مرتبط برگشت می‌خورند.</li>
-        <li><b>ثبت موجودی جدید</b> برای انبار/واریانتی که ردیف ندارد («افزودن») <b>پیش‌نویس سند افتتاحیه</b> می‌سازد؛ ثبت قطعی با <b>کاربر دیگری</b> در «موجودی اول دوره» است (maker-checker).</li>
+        <li><b>ثبت موجودی جدید (چندردیفی، یک انبار):</b> «➕ افزودن» کنار هر انبار یا «➕ افزودن رنگ/سایز» در نوار بالای جدول، پنجرهٔ <b>همهٔ رنگ/سایزهای کالا</b> را برای همان انبار نشان می‌دهد (ردیف‌های غیرفعال هم با برچسب «غیرفعال — با ثبت قطعی فعال می‌شود»؛ کالای بدون رنگ/سایز یک ردیف «بدون رنگ/سایز»). تعداد و بهای واحد را وارد کنید (دکمهٔ «اعمال بها به همه ردیف‌ها» اولین بها را به خانه‌های خالی کپی می‌کند)؛ <b>ردیف‌های بدون تعداد نادیده گرفته می‌شوند</b>. ردیفی که برای آن انبار قبلاً ثبت شده («برای اصلاح ✏️ ویرایش») یا پیش‌نویس دارد غیرفعال است. نتیجه <b>یک سند پیش‌نویس برای هر کالا × انبار با N ردیف</b> است (نه یک سند برای هر رنگ/سایز)؛ ثبت قطعی با <b>کاربر دیگری</b> در «اسناد افتتاحیهٔ انبار» است (maker-checker). ✏️ ویرایش یک ردیف ثبت‌شده همچنان همان اصلاحیهٔ رسمی تک‌ردیفی است. API: <span dir="ltr">POST /api/opening-stock/product-warehouse</span> با <span dir="ltr">{"product_id","warehouse_id","note"?,"lines":[{"variant_id"|null,"qty","unit_cost_rial"}]}</span>؛ خطاها: <span dir="ltr">E_OPENING_EMPTY</span>، <span dir="ltr">E_OPENING_DUP_LINE</span>، <span dir="ltr">E_OPENING_DRAFT_EXISTS</span> (پیش‌نویس قبلی همین کالا×انبار)، <span dir="ltr">E_OPENING_DUPLICATE</span>، <span dir="ltr">E_OPENING_COST_REQUIRED</span>.</li>
         <li><b>مجوز</b>: <span dir="ltr">opening_stock:edit</span> («موجودی اول دوره (اصلاحیه)») — پیش‌فرض فقط مدیر و حسابداری؛ بقیه فقط مشاهده می‌کنند.</li>
         <li><b>بک‌فیل هنگام بوت</b> دیگر ردیف opening نمی‌سازد و فقط گزارش می‌دهد. گزارش فقط‌خواندنی تکراری‌ها/بدون سند: <span dir="ltr">GET /api/inventory/opening-duplicates</span> — دکمهٔ «🔎 تکراری‌ها / بدون سند» در تب اسناد افتتاحیهٔ انبار.</li>
         <li>API: <span dir="ltr">GET /api/inventory/opening-stock?product_id</span>، <span dir="ltr">POST /api/inventory/opening-stock/preview</span>، <span dir="ltr">POST /api/inventory/opening-stock/apply</span> (reason + confirm:true).</li>
@@ -42778,6 +43009,9 @@ function renderAdminGuide(){
         <li><b>اصلاح = ابطال + سند جدید:</b> «ابطال» (مجوز انبار: حذف/ابطال) موجودی، کاردکس، لایهٔ رنگ/سایز و سند حسابداری را کامل برمی‌گرداند (R13)؛ اگر موجودی قبلاً مصرف شده و برگشت منفی می‌شود ابطال رد می‌شود. حذف فیزیکی وجود ندارد.</li>
         <li><b>ایجاد کالا با موجودی:</b> کالا با موجودی صفر ساخته و یک پیش‌نویس تک‌خطی (انبار پیش‌فرض) ساخته می‌شود؛ موجودی بعد از ثبت قطعی توسط کاربر دیگر اعمال می‌شود. موجودی بدون بها همچنان رد می‌شود.</li>
         <li>مجوز: ایجاد پیش‌نویس و ثبت قطعی = «انبار: ایجاد»؛ مشاهده = «انبار: مشاهده». <span dir="ltr">ledger_leaf_enforcement</span> همان حالت قبلی (هشدار) می‌ماند.</li>
+        <li><b>سند چندخطی از کارت کالا:</b> ثبت قطعی کل سند <b>اتمیک</b> است و <b>یک سند حسابداری</b> می‌سازد: بدهکار حساب موجودیِ هر خط/انبار، بستانکار «تراز افتتاحیه» (<span dir="ltr">3102</span>)؛ اگر یک خط خطا بدهد کل سند ثبت نمی‌شود. رنگ/سایزِ غیرفعال همان کالا هنگام ثبت قطعی دوباره فعال می‌شود.</li>
+        <li><b>ثبت قطعی / ابطال گروهی (فقط مدیر و حسابداری):</b> در فهرست اسناد برای ردیف‌های «پیش‌نویس» تیک بزنید (یا «انتخاب همه»)، سپس «✅ ثبت قطعی گروهی» یا «⛔ ابطال گروهی» (با دلیل حداقل ۳ نویسه؛ فقط پیش‌نویس ابطال می‌شود). <b>هر سند در تراکنش جداگانه</b> اجرا می‌شود و قاعدهٔ سازنده ≠ ثبت‌کننده برای هر سند جدا اعمال می‌شود؛ پیش‌نویس‌هایی که خودتان ساخته‌اید با پیام خطا رد می‌شوند (علامت «سازنده: شما — ثبت قطعی توسط کاربر دیگر»). پایان کار، جدول نتیجه برای هر سند (✅ ثبت شد / ⛔ ناموفق + شمارهٔ سند حسابداری یا دلیل) و جمع «موفق X / ناموفق Y» نمایش داده می‌شود؛ شکست یک سند بقیه را متوقف نمی‌کند. هر عملیات در گزارش ممیزی (audit log) ثبت می‌شود.</li>
+        <li>API: <span dir="ltr">POST /api/opening-stock/bulk-post</span> با <span dir="ltr">{"ids":[…]}</span> و <span dir="ltr">POST /api/opening-stock/bulk-void</span> با <span dir="ltr">{"ids":[…],"reason":"…"}</span> ← <span dir="ltr">{total, ok_count, fail_count, results:[{id, doc_no, ok, je_id?, code?, error?}]}</span> (HTTP 200 حتی با شکست جزئی)؛ نمایش دکمه‌ها از <span dir="ltr">GET /api/opening-stock/meta</span> (<span dir="ltr">can_bulk_post</span>، <span dir="ltr">can_bulk_void</span>).</li>
       </ul>`),
     helpSec('🧾','هزینهٔ روزانه (پیش‌نویس → تأیید حسابدار) — P8 (v595)',`
       <p>صندوق‌دار هزینهٔ روزانه را از منوی <b>«هزینه روزانه»</b> فقط به‌صورت <b>پیش‌نویس</b> ثبت می‌کند (مبلغ ریال، تاریخ، دسته، شرح، منبع: <b>صندوق</b> / <b>تنخواه</b> / <b>جاری مالک</b>). تا تأیید حسابدار <b>هیچ سند حسابداری</b> ثبت نمی‌شود.</p>

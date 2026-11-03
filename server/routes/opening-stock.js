@@ -12,8 +12,10 @@
  */
 const router = require('express').Router();
 const { getDB, audit } = require('../db');
-const { auth } = require('../middleware/auth');
+const { auth, centralOnlyStrict } = require('../middleware/auth');
 const OS = require('../lib/inventory/opening-stock');
+const OR = require('../lib/inventory/opening-rolls');
+const POS = require('../lib/inventory/product-opening-stock');
 
 function sendErr(res, e) {
   const status = e && e.status ? e.status : 500;
@@ -31,14 +33,30 @@ const requireView = need(OS.canView, 'برای مشاهدهٔ اسناد افت�
 const requireCreate = need(OS.canCreate, 'برای ثبت سند افتتاحیهٔ انبار مجوز «انبار: ایجاد» لازم است');
 const requirePost = need(OS.canPost, 'برای ثبت قطعی سند افتتاحیه مجوز «انبار: ایجاد» لازم است');
 const requireVoid = need(OS.canVoid, 'برای ابطال سند افتتاحیه مجوز «انبار: حذف/ابطال» لازم است');
+const requireProductWarehouse = need(POS.canEdit, 'برای اصلاح موجودی اول دوره مجوز «موجودی اول دوره: ویرایش» لازم است');
+
+function requireAdminOrAccounting(req, res, next) {
+  if (OR.isAdminOrAccounting(req.user)) return next();
+  return res.status(403).json({ error: 'موجودی اول دوره مواد/طاقه فقط برای مدیر و حسابداری مجاز است', code: 'E_PERMISSION' });
+}
+function requireBulkRole(req, res, next) {
+  if (OR.isAdminOrAccounting(req.user)) return next();
+  return res.status(403).json({ error: 'عملیات گروهی اسناد افتتاحیه فقط برای مدیر و حسابداری', code: 'E_PERMISSION' });
+}
 
 router.get('/meta', auth, (req, res) => {
   const db = getDB();
+  const adminOrAccounting = OR.isAdminOrAccounting(req.user);
+  const canPost = OS.canPost(req.user, db);
+  const canVoid = OS.canVoid(req.user, db);
   res.json({
     can_view: OS.canView(req.user, db),
     can_create: OS.canCreate(req.user, db),
-    can_post: OS.canPost(req.user, db),
-    can_void: OS.canVoid(req.user, db),
+    can_post: canPost,
+    can_void: canVoid,
+    can_bulk_post: adminOrAccounting && canPost,
+    can_bulk_void: adminOrAccounting && canVoid,
+    can_product_warehouse: POS.canEdit(req.user, db),
   });
 });
 
@@ -56,26 +74,63 @@ router.get('/:id', auth, requireView, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+router.post('/product-warehouse', auth, requireProductWarehouse, centralOnlyStrict, (req, res) => {
+  try {
+    const db = getDB();
+    const body = req.body || {};
+    const doc = OS.createProductWarehouseDraft(db, body, req.user);
+    audit(req.user.id, 'create', 'opening_stock_doc', doc.id,
+      `پیش‌نویس ${doc.doc_no} از کارت کالا — کالا #${Number(body.product_id) || 0} انبار #${Number(body.warehouse_id) || 0} — ${doc.lines.length} ردیف`, req);
+    res.json(doc);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/bulk-post', auth, requireBulkRole, requirePost, centralOnlyStrict, (req, res) => {
+  try {
+    const out = OS.bulkPost(getDB(), (req.body || {}).ids, req.user);
+    for (const item of out.results) {
+      audit(req.user.id, item.ok ? 'post' : 'post_failed', 'opening_stock_doc', item.id,
+        item.ok ? `ثبت قطعی گروهی ${item.doc_no} — JE ${item.je_id}` : `${item.code}: ${item.error}`, req);
+    }
+    audit(req.user.id, 'bulk_post', 'opening_stock_doc', null, JSON.stringify({
+      ok: out.results.filter((x) => x.ok).map((x) => x.id),
+      failed: out.results.filter((x) => !x.ok).map((x) => ({ id: x.id, code: x.code })),
+    }), req);
+    res.json(out);
+  } catch (e) { sendErr(res, e); }
+});
+
+router.post('/bulk-void', auth, requireBulkRole, requireVoid, centralOnlyStrict, (req, res) => {
+  try {
+    const body = req.body || {};
+    const reason = String(body.reason || '').trim();
+    const out = OS.bulkVoid(getDB(), body.ids, req.user, { reason });
+    for (const item of out.results) {
+      audit(req.user.id, item.ok ? 'void' : 'void_failed', 'opening_stock_doc', item.id,
+        item.ok ? `ابطال گروهی ${item.doc_no} — ${reason}` : `${item.code}: ${item.error}`, req);
+    }
+    audit(req.user.id, 'bulk_void', 'opening_stock_doc', null, JSON.stringify({
+      ok: out.results.filter((x) => x.ok).map((x) => x.id),
+      failed: out.results.filter((x) => !x.ok).map((x) => ({ id: x.id, code: x.code })),
+    }), req);
+    res.json(out);
+  } catch (e) { sendErr(res, e); }
+});
+
 router.post('/', auth, requireCreate, (req, res) => {
   try {
     const doc = OS.createDraft(getDB(), req.body || {}, req.user);
-    audit(req.user.id, 'create', 'opening_stock_doc', doc.id, `پیش‌نویس ${doc.doc_no} — ${doc.lines.length} ردیف`);
+    audit(req.user.id, 'create', 'opening_stock_doc', doc.id, `پیش‌نویس ${doc.doc_no} — ${doc.lines.length} ردیف`, req);
     res.json(doc);
   } catch (e) { sendErr(res, e); }
 });
 
 // P7 — حالت «اول دوره» در دریافت مواد / طاقه (فقط مدیر و حسابداری).
-const OR = require('../lib/inventory/opening-rolls');
-function requireAdminOrAccounting(req, res, next) {
-  if (OR.isAdminOrAccounting(req.user)) return next();
-  return res.status(403).json({ error: 'موجودی اول دوره مواد/طاقه فقط برای مدیر و حسابداری مجاز است', code: 'E_PERMISSION' });
-}
-
 router.post('/rolls', auth, requireAdminOrAccounting, requireCreate, (req, res) => {
   try {
     const doc = OR.createRollsDraft(getDB(), req.body || {}, req.user);
     const rolls = doc.lines.reduce((a, l) => a + ((l.rolls && l.rolls.length) || 0), 0);
-    audit(req.user.id, 'create', 'opening_stock_doc', doc.id, `پیش‌نویس اول دوره مواد/طاقه ${doc.doc_no} — ${doc.lines.length} ردیف، ${rolls} طاقه/بچ`);
+    audit(req.user.id, 'create', 'opening_stock_doc', doc.id, `پیش‌نویس اول دوره مواد/طاقه ${doc.doc_no} — ${doc.lines.length} ردیف، ${rolls} طاقه/بچ`, req);
     res.json(doc);
   } catch (e) { sendErr(res, e); }
 });
@@ -86,8 +141,8 @@ router.post('/:id/rolls-amend', auth, requireAdminOrAccounting, requireCreate, r
     const id = parseInt(req.params.id, 10);
     const out = OR.amendRollsDoc(getDB(), id, req.body || {}, req.user);
     const reason = String((req.body || {}).reason || '').trim();
-    audit(req.user.id, 'void', 'opening_stock_doc', id, `ابطال برای ویرایش ${out.voided.doc_no} — ${reason}`);
-    audit(req.user.id, 'update', 'opening_stock_doc', out.doc.id, `ویرایش ${out.voided.doc_no} ⇒ پیش‌نویس ${out.doc.doc_no} — ${reason}`);
+    audit(req.user.id, 'void', 'opening_stock_doc', id, `ابطال برای ویرایش ${out.voided.doc_no} — ${reason}`, req);
+    audit(req.user.id, 'update', 'opening_stock_doc', out.doc.id, `ویرایش ${out.voided.doc_no} ⇒ پیش‌نویس ${out.doc.doc_no} — ${reason}`, req);
     res.json({ ...out.doc, voided_doc: { id: out.voided.id, doc_no: out.voided.doc_no, status: out.voided.status } });
   } catch (e) { sendErr(res, e); }
 });
@@ -95,7 +150,7 @@ router.post('/:id/rolls-amend', auth, requireAdminOrAccounting, requireCreate, r
 router.post('/:id/post', auth, requirePost, (req, res) => {
   try {
     const doc = OS.postDoc(getDB(), parseInt(req.params.id, 10), req.user);
-    audit(req.user.id, 'post', 'opening_stock_doc', doc.id, `ثبت قطعی ${doc.doc_no} — JE ${doc.je_id}`);
+    audit(req.user.id, 'post', 'opening_stock_doc', doc.id, `ثبت قطعی ${doc.doc_no} — JE ${doc.je_id}`, req);
     res.json(doc);
   } catch (e) { sendErr(res, e); }
 });
@@ -103,7 +158,7 @@ router.post('/:id/post', auth, requirePost, (req, res) => {
 router.post('/:id/void', auth, requireVoid, (req, res) => {
   try {
     const doc = OS.voidDoc(getDB(), parseInt(req.params.id, 10), req.user, { reason: (req.body || {}).reason });
-    audit(req.user.id, 'void', 'opening_stock_doc', doc.id, `ابطال ${doc.doc_no} — ${doc.void_reason || ''}`);
+    audit(req.user.id, 'void', 'opening_stock_doc', doc.id, `ابطال ${doc.doc_no} — ${doc.void_reason || ''}`, req);
     res.json(doc);
   } catch (e) { sendErr(res, e); }
 });
