@@ -2,7 +2,7 @@
 /**
  * P8 — Variable advanced (ADR-011: no 5210/5211 JE)
  */
-const { ok, eq, throws, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, throws, freshDb, seedOpeningStock, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const advBom = require('../lib/production/bom-advanced');
 const engine = require('../lib/production/engine');
@@ -46,14 +46,11 @@ db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_r
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_fg_id',?)").run(String(whFg));
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_scrap_id',?)").run(String(whScrap));
 
+// Stock only via inventory documents (P1 Kardex SSOT)
 for (const id of [p101, p201, p202, p203, p204, p205, p206, p299]) {
-  const p = db.prepare('SELECT stock FROM products WHERE id=?').get(id);
-  if (whRaw) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(id, whRaw, p.stock);
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(p.stock, id, whRaw);
-  }
+  const qty = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(id).stock) || 0;
+  db.prepare('UPDATE products SET stock=0 WHERE id=?').run(id);
+  seedOpeningStock(db, id, whRaw, qty);
 }
 
 const rates = [

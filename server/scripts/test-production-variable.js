@@ -4,7 +4,7 @@
  */
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
-const { ok, eq, throws, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, throws, freshDb, seedOpeningStock, setStockTo, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const engine = require('../lib/production/engine');
 const variance = require('../lib/production/variance');
@@ -44,6 +44,13 @@ const whRaw = db.prepare("SELECT id FROM warehouses WHERE code='WH-RAW'").get()?
 const whFg = db.prepare("SELECT id FROM warehouses WHERE code='WH-FG'").get()?.id;
 const whScrap = db.prepare("SELECT id FROM warehouses WHERE code='WH-SCRAP'").get()?.id || whRaw;
 const cc30 = db.prepare("SELECT id FROM cost_centers WHERE code='CC-30'").get()?.id;
+
+// Stock only via inventory documents (P1 Kardex SSOT)
+for (const id of Object.values(P)) {
+  const qty = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(id).stock) || 0;
+  db.prepare('UPDATE products SET stock=0 WHERE id=?').run(id);
+  seedOpeningStock(db, id, id === P.p101 ? whFg : whRaw, qty);
+}
 
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_raw_id',?)").run(String(whRaw));
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_fg_id',?)").run(String(whFg));
@@ -154,7 +161,8 @@ try {
   eq('T3-05 تجزیه انحراف', iss.totals.var_price_rial + iss.totals.var_qty_rial, indep, 0);
   ok('T3-07 بدون سند انحراف ADR-011', count5210() === 0);
 
-  db.prepare('UPDATE products SET stock=50, average_cost_rial=2100000 WHERE id=?').run(P.p101);
+  setStockTo(db, P.p101, whFg, 50);
+  db.prepare('UPDATE products SET average_cost_rial=2100000 WHERE id=?').run(P.p101);
   const r = engine.postReceiptVariable(db, {
     orderId: po.id,
     body: {
@@ -352,11 +360,11 @@ try {
   // reuse golden variable unit if available from earlier receipt
   const varUnit = db.prepare('SELECT unit_cost_rial FROM production_orders WHERE id=?').get(po.id)?.unit_cost_rial;
   const poF = makeOrder(300, 'fixed');
-  db.prepare('UPDATE products SET stock=50, average_cost_rial=2100000 WHERE id=?').run(P.p101);
+  setStockTo(db, P.p101, whFg, 50);
+  db.prepare('UPDATE products SET average_cost_rial=2100000 WHERE id=?').run(P.p101);
   // restore stock for materials used heavily
   for (const pid of [P.p201, P.p202, P.p203, P.p204, P.p205, P.p206]) {
-    db.prepare('UPDATE products SET stock=5000 WHERE id=?').run(pid);
-    db.prepare('UPDATE warehouse_stock SET qty=5000 WHERE product_id=? AND warehouse_id=?').run(pid, whRaw);
+    setStockTo(db, pid, whRaw, 5000);
   }
   const rf = engine.postReceiptFixed(db, {
     orderId: poF.id,
@@ -428,7 +436,8 @@ throws('T3-23 حواله بعد از رسید', () => {
     },
     userId: adminId,
   });
-  db.prepare('UPDATE products SET stock=50, average_cost_rial=2100000 WHERE id=?').run(P.p101);
+  setStockTo(db, P.p101, whFg, 50);
+  db.prepare('UPDATE products SET average_cost_rial=2100000 WHERE id=?').run(P.p101);
   engine.postReceiptVariable(db, {
     orderId: poX.id,
     body: { date: DATE, qty_produced: 5, labor: LABOR, auto_labor: true },

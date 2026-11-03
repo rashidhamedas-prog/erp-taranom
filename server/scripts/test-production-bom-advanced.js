@@ -99,11 +99,24 @@ try {
 
 // ensure crew on cut/iron
 db.prepare(`UPDATE bom_operations SET crew_size=2 WHERE bom_id=? AND seq IN (10,60)`).run(draft.id);
+// Subcontract op (seq 50) must name a supplier before activation
+const supplierId = db.prepare('INSERT INTO suppliers (name) VALUES (?)').run('خشکشویی تست').lastInsertRowid;
+db.prepare('UPDATE bom_operations SET subcontract_supplier_id=? WHERE bom_id=? AND seq=50').run(supplierId, draft.id);
 
-// T4-02 duplicate seq
-throws('T4-02 seq تکراری', () => {
-  adv.addOperation(db, draft.id, { seq: 10, cost_center_id: cc['CC-10'], labor_method: 'piece', labor_rate_rial: 1 }, adminId);
-}, 'E_SEQ_DUPLICATE');
+// T4-02 duplicate seq — v206+: same seq upserts the existing row (no second row)
+try {
+  const pSeq = seedProduct('تست seq', 0, 'finished', 1, 0);
+  const dSeq = bom.createBom(db, {
+    product_id: pSeq, name: 'seq dup', yield_percent: 100, has_routing: 1,
+    lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material' }],
+  }, adminId);
+  adv.addOperation(db, dSeq.id, { seq: 10, cost_center_id: cc['CC-10'], labor_method: 'piece', labor_rate_rial: 1000 }, adminId);
+  adv.addOperation(db, dSeq.id, { seq: 10, cost_center_id: cc['CC-10'], labor_method: 'piece', labor_rate_rial: 2000 }, adminId);
+  const rows = db.prepare('SELECT labor_rate_rial FROM bom_operations WHERE bom_id=? AND seq=10').all(dSeq.id);
+  ok('T4-02 seq تکراری → به‌روزرسانی همان ردیف', rows.length === 1 && Number(rows[0].labor_rate_rial) === 2000);
+} catch (e) {
+  ok('T4-02 seq تکراری → به‌روزرسانی همان ردیف', false, e.message);
+}
 
 // outputs
 adv.addOutput(db, draft.id, {
@@ -170,7 +183,9 @@ try {
   const by = r.outputs.find(o => o.type === 'by');
   eq('T4-14 محصول فرعی NRV', by?.amount_rial, 3391200, 5);
 
-  ok('T4-13/15 roll-up stages', r.stages.length === 6);
+  // v474: plant-wide overhead rows (plant=1, seq=null) follow the route stages
+  const routeStages = r.stages.filter(s => !s.plant);
+  ok('T4-13/15 roll-up stages', routeStages.length === 6, `stages=${r.stages.map(s => s.seq).join(',')}`);
 } catch (e) {
   ok('T4 roll-up golden', false, e.stack || e.message);
   console.error(e);
