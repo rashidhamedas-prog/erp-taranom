@@ -21,8 +21,8 @@ function seedProducts() {
       INSERT INTO products (user_id, name, price, stock)
       VALUES (1,?,?,?)
     `).run(name, 0, stock).lastInsertRowid;
-    db.prepare(`UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?`)
-      .run(avg, type, mfg, avg, id);
+    db.prepare(`UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?`)
+      .run(avg, type, mfg, avg, `P2F-${id}`, id);
     return id;
   };
   const p101 = run('مانتو کتان ترمه — سبز', 2100000, 'finished', 1, 50);

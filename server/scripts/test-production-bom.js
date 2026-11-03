@@ -95,7 +95,7 @@ try {
 // T1-02
 try {
   const r = bom.activateBom(db, bom1.id, '1405/01/01', adminId);
-  const row = db.prepare('SELECT status, default_bom_id FROM bom_headers bh JOIN products p ON p.id=bh.product_id WHERE bh.id=?').get(bom1.id);
+  const row = db.prepare('SELECT bh.status, p.default_bom_id FROM bom_headers bh JOIN products p ON p.id=bh.product_id WHERE bh.id=?').get(bom1.id);
   const prod = db.prepare('SELECT default_bom_id FROM products WHERE id=?').get(P.p101);
   ok('T1-02 فعال‌سازی', r.ok && db.prepare('SELECT status FROM bom_headers WHERE id=?').get(bom1.id).status === 'active'
     && prod.default_bom_id === bom1.id);
