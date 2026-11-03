@@ -279,6 +279,8 @@ const SYNCABLE_TABLES = [
   { name: 'commission_transfers',              upsertKey: 'id' },
   // موجودی اول دوره جدا از موجودی کل (append-only؛ اصلاحیه/حل تکراری فقط روی مرکز)
   { name: 'product_opening_stock',             upsertKey: 'id' },
+  // سند اصلاح تفکیک واریانت VR (append-only؛ ثبت/ابطال فقط روی مرکز)
+  { name: 'variant_reclass_docs',              upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -688,6 +690,11 @@ const FK_COLUMNS = [
   // P7 opening rolls (append-only)
   ['opening_stock_lines', 'entry_unit_id'],
   ['opening_stock_docs', 'amends_doc_id'],
+  // variant_reclass_docs (append-only)
+  ['variant_reclass_docs', 'product_id'],
+  ['variant_reclass_docs', 'warehouse_id'],
+  ['variant_reclass_docs', 'source_ledger_id'],
+  ['variant_reclass_docs', 'reversal_ledger_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

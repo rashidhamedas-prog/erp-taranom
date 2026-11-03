@@ -39,6 +39,7 @@ const BLOCKLIST = [
   '/api/inventory/line-availability', // v580 read-only POST (sellable qty) — never replay
   '/api/inventory/opening-stock/preview', // read-only POST (پیش‌نمایش اصلاحیهٔ موجودی اول دوره)
   '/api/inventory/opening-stock/migrate', // central-only one-shot migration
+  '/api/inventory/variant-reclass/preview', // read-only POST (پیش‌نمایش اصلاح تفکیک واریانت)
 ];
 const BLOCK_PATTERNS = [/\/import/, /\/export/, /\/backup/, /\/backfill/, /\/stock$/];
 
@@ -162,6 +163,7 @@ const PATH_TABLE_MAP = [
   ['/api/inventory/landed-cost', 'landed_cost_docs'],
   ['/api/inventory/ledger/revalue-transfer-in', 'inventory_ledger'], // audit-kardex K1 (central-only)
   ['/api/inventory/opening-stock', 'product_opening_stock'],
+  ['/api/inventory/variant-reclass', 'variant_reclass_docs'],
   ['/api/inventory/ledger', 'inventory_ledger'],
   ['/api/inventory/adjust', 'inventory_ledger'],
   ['/api/inventory/seed-avg-cost', 'products'],
