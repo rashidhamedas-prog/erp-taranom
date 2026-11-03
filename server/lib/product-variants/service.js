@@ -118,6 +118,7 @@ function generateMatrix(db, opts) {
 
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) throw Object.assign(new Error('مدل (style) یافت نشد'), { status: 404 });
+  const activeColorIdsBefore = activeMatrixColorIds(db, productId);
 
   const colorSpecs = Array.isArray(opts.colors) ? opts.colors : [];
   const sizeSpecs = Array.isArray(opts.sizes) ? opts.sizes : [];
@@ -234,7 +235,11 @@ function generateMatrix(db, opts) {
 
   result.total_skus = result.created.length + result.existing.length;
   result.variants = listVariants(db, productId, { include_default: false });
-  return result;
+  const activeColorIdsAfter = activeMatrixColorIds(db, productId);
+  return addZeroColorHint(
+    result,
+    [...activeColorIdsAfter].filter((colorId) => !activeColorIdsBefore.has(colorId))
+  );
 }
 
 function listVariants(db, productId, opts = {}) {
@@ -358,7 +363,7 @@ function updateVariant(db, id, body) {
 }
 
 /** Change stock on one SKU only — never touches siblings or products.stock unless requested. */
-function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set') {
+function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set', opts = {}) {
   const { parseStockQty, requiresIntegerQty } = require('../inventory/qty-policy');
   const row = db.prepare('SELECT * FROM product_variants WHERE id=?').get(id);
   if (!row) throw Object.assign(new Error('واریانت یافت نشد'), { status: 404 });
@@ -374,12 +379,57 @@ function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set') {
   if (!Number.isFinite(next)) {
     throw Object.assign(new Error('موجودی نامعتبر است'), { status: 400 });
   }
+  rememberColorStockHistory(db, row, next);
   db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(next, id);
-  afterVariantStockWrite(db, row.product_id);
+  afterVariantStockWrite(db, row.product_id, opts);
   return getVariant(db, id);
 }
 
 const STOCK_EPS = 1e-9;
+const ZERO_COLOR_HINT_FA = 'رنگ جدید با موجودی صفر فعال ماند؛ هر رنگ فقط وقتی موجودی همهٔ سایزهایش (پس از داشتن موجودی) به صفر برسد از پک زنده پنهان می‌شود.';
+// pv.stock-only DBs (no vws/ledger) leave no durable trace that a color once held stock.
+const colorStockHistory = new WeakMap();
+
+function rememberColorStockHistory(db, variantRow, nextStock) {
+  if (!variantRow || !variantRow.color_id) return;
+  if (Math.abs(Number(variantRow.stock) || 0) <= STOCK_EPS
+    && Math.abs(Number(nextStock) || 0) <= STOCK_EPS) return;
+  let byProduct = colorStockHistory.get(db);
+  if (!byProduct) colorStockHistory.set(db, (byProduct = new Map()));
+  const pid = Number(variantRow.product_id);
+  if (!byProduct.has(pid)) byProduct.set(pid, new Set());
+  byProduct.get(pid).add(Number(variantRow.color_id));
+}
+
+function colorHadStockInProcess(db, productId, colorId) {
+  const byProduct = colorStockHistory.get(db);
+  const set = byProduct && byProduct.get(Number(productId));
+  return !!(set && set.has(Number(colorId)));
+}
+
+function normalizeColorIds(ids) {
+  return [...new Set((ids || []).map(Number).filter((n) => Number.isFinite(n) && n > 0))];
+}
+
+function addZeroColorHint(result, colorIds) {
+  const kept = normalizeColorIds(colorIds);
+  if (!kept.length) return result;
+  result.kept_new_color_ids = kept;
+  result.zero_color_hint_fa = ZERO_COLOR_HINT_FA;
+  return result;
+}
+
+function activeMatrixColorIds(db, productId) {
+  try {
+    return new Set(db.prepare(`
+      SELECT DISTINCT color_id FROM product_variants
+      WHERE product_id=? AND COALESCE(is_default,0)=0
+        AND COALESCE(active,1)=1 AND color_id IS NOT NULL
+    `).all(productId).map((row) => Number(row.color_id)).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
 
 /**
  * True when this SKU still carries ANY quantity in any layer: product_variants.stock,
@@ -401,6 +451,39 @@ function variantCarriesStock(db, variantRow) {
       if (Math.abs(q) > STOCK_EPS) return true;
     }
   } catch (_) { /* ledger table may be absent in tiny fixtures */ }
+  return false;
+}
+
+/**
+ * A zero SKU counts as previously stocked when any durable stock projection/history exists.
+ * `variant_warehouse_stock` row existence (even now zero) intentionally counts as history:
+ * legacy imports/tests wrote that cache directly before immutable ledgers carried variant_id.
+ */
+function variantHasStockHistory(db, variantRow) {
+  if (Math.abs(Number(variantRow.stock) || 0) > STOCK_EPS) return true;
+  if (colorHadStockInProcess(db, variantRow.product_id, variantRow.color_id)) return true;
+  try {
+    const hit = db.prepare(
+      'SELECT 1 AS x FROM variant_warehouse_stock WHERE variant_id=? LIMIT 1'
+    ).get(variantRow.id);
+    if (hit) return true;
+  } catch (_) { /* VWS table may be absent in tiny fixtures */ }
+  try {
+    const L = require('../inventory/ledger');
+    if (L.ledgerHasVariantColumn(db)) {
+      const hit = db.prepare(
+        'SELECT 1 AS x FROM inventory_ledger WHERE variant_id=? LIMIT 1'
+      ).get(variantRow.id);
+      if (hit) return true;
+    }
+  } catch (_) { /* ledger table/column may be absent in tiny fixtures */ }
+  for (const table of ['inventory_movements', 'variant_stock_moves']) {
+    try {
+      const hit = db.prepare(`SELECT 1 AS x FROM ${table} WHERE variant_id=? LIMIT 1`)
+        .get(variantRow.id);
+      if (hit) return true;
+    } catch (_) { /* optional/legacy movement table */ }
+  }
   return false;
 }
 
@@ -428,9 +511,10 @@ function reactivateVariant(db, variantId) {
  * written here (P1 — the old `stock=0` wipe hid negatives) and product_style_colors is kept
  * (soft: re-adding the color or a postAdjust re-activates it without losing sort order).
  */
-function retireZeroStockColors(db, productId) {
+function retireZeroStockColors(db, productId, opts = {}) {
   const id = parseInt(productId, 10);
-  if (!id) return { retired: [] };
+  if (!id) return { retired: [], kept_new_color_ids: [] };
+  const keepColorIds = new Set(normalizeColorIds(opts.keepColorIds));
   let rows = [];
   try {
     rows = db.prepare(`
@@ -452,15 +536,22 @@ function retireZeroStockColors(db, productId) {
     WHERE product_id=? AND color_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1
   `);
   const retired = [];
+  const keptNew = [];
   for (const [colorId, list] of byColor) {
     const active = list.filter((r) => Number(r.active) !== 0);
     if (!active.length) continue;
     // every SKU of the color (active or not) must be clean — a hidden SKU holding qty blocks retirement
     if (list.some((r) => variantCarriesStock(db, r))) continue;
+    // A color is hidden only after it really carried stock and returned to zero.
+    // This also protects delayed website-outbox drains after a structure-only save.
+    if (keepColorIds.has(colorId) || !list.some((r) => variantHasStockHistory(db, r))) {
+      keptNew.push(colorId);
+      continue;
+    }
     deactivate.run(id, colorId);
     retired.push(colorId);
   }
-  return { retired };
+  return { retired, kept_new_color_ids: normalizeColorIds(keptNew) };
 }
 
 function websiteStockPushEnabled(db) {
@@ -489,10 +580,10 @@ function releaseColorRetire(db) {
   else colorRetireHolds.set(db, next);
 }
 
-function afterVariantStockWrite(db, productId) {
+function afterVariantStockWrite(db, productId, opts = {}) {
   if (colorRetireHolds.get(db) > 0) return { deferred: true, retired: [] };
   if (websiteStockPushEnabled(db)) return { deferred: true, retired: [] };
-  return retireZeroStockColors(db, productId);
+  return retireZeroStockColors(db, productId, opts);
 }
 
 function softDeleteVariant(db, id) {
@@ -636,6 +727,7 @@ function refreshLiveColorCount(db, productId, fallback = 1) {
 function applyStockMatrix(db, productId, cells, opts = {}) {
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
   if (!product) throw Object.assign(new Error('محصول یافت نشد'), { status: 404 });
+  const activeColorIdsBefore = activeMatrixColorIds(db, productId);
   const list = Array.isArray(cells) ? cells : [];
   const colorIds = [...new Set(list.map((c) => Number(c.color_id)).filter(Boolean))];
   const sizeIds = [...new Set(list.map((c) => Number(c.size_id)).filter(Boolean))];
@@ -643,7 +735,7 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
     ? parseInt(opts.warehouse_id, 10)
     : (product.warehouse_id ? parseInt(product.warehouse_id, 10) : null);
   if (colorIds.length && sizeIds.length) {
-    generateMatrix(db, {
+    const generated = generateMatrix(db, {
       product_id: productId,
       color_ids: colorIds,
       size_ids: sizeIds,
@@ -651,17 +743,46 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
       stock: 0,
     });
     deactivateUnselectedVariants(db, productId, colorIds, sizeIds);
+    opts = {
+      ...opts,
+      generatedKeepColorIds: generated.kept_new_color_ids || [],
+    };
   }
+  const activeColorIdsAfter = activeMatrixColorIds(db, productId);
+  const newlyActivated = [...activeColorIdsAfter]
+    .filter((colorId) => !activeColorIdsBefore.has(colorId));
+  // In the HTTP save flow generate-matrix is a separate request immediately before this one,
+  // so a selected never-stocked color is also considered new even though it was already active
+  // when stock-matrix began.
+  const neverStockedSelected = [];
+  for (const colorId of colorIds) {
+    let variants = [];
+    try {
+      variants = db.prepare(`
+        SELECT * FROM product_variants
+        WHERE product_id=? AND color_id=? AND COALESCE(is_default,0)=0
+      `).all(productId, colorId);
+    } catch (_) { variants = []; }
+    if (variants.length && !variants.some((v) => variantHasStockHistory(db, v))) {
+      neverStockedSelected.push(colorId);
+    }
+  }
+  const keepColorIds = normalizeColorIds([
+    ...(opts.generatedKeepColorIds || []),
+    ...newlyActivated,
+    ...neverStockedSelected,
+  ]);
+  afterVariantStockWrite(db, productId, { keepColorIds });
   refreshLiveColorCount(db, productId, colorIds.length);
   const live = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
-  return {
+  return addZeroColorHint({
     product_id: productId,
     stock: Number(live && live.stock) || 0,
     warehouse_id: warehouseId || null,
     updated: [],
     pack: packSizeFor(db, productId),
     variants: listVariants(db, productId, { include_default: false }),
-  };
+  }, keepColorIds);
 }
 
 /** Qty a SKU holds right now in the target warehouse (vws; company-wide pv.stock when no warehouse). */
@@ -740,7 +861,7 @@ function postStockMatrix(db, productId, cells, opts = {}, user = null) {
     } finally {
       releaseColorRetire(db);
     }
-    afterVariantStockWrite(db, productId);
+    afterVariantStockWrite(db, productId, { keepColorIds: out.kept_new_color_ids || [] });
     refreshLiveColorCount(db, productId);
     const live = db.prepare('SELECT stock FROM products WHERE id=?').get(productId);
     out.stock = Number(live && live.stock) || 0;

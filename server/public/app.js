@@ -13041,19 +13041,22 @@ async function saveProduct(id){
   ])];
   // ترتیب سایز از نوار ترتیب مودال (product_style_sizes.sort_order)
   const size_ids=(chips.sizes||[]).map(s=>Number(s.id)).filter(Boolean);
+  let zeroColorHint='';
   if(savedId && color_ids.length && size_ids.length){
     try{
-      await api('POST','/product-variants/generate-matrix',{ product_id:Number(savedId), color_ids, size_ids, auto_barcode:true });
+      const gm=await api('POST','/product-variants/generate-matrix',{ product_id:Number(savedId), color_ids, size_ids, auto_barcode:true });
+      if(gm && gm.zero_color_hint_fa) zeroColorHint=gm.zero_color_hint_fa;
     }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ساخت ماتریس SKU ناموفق بود','error'); }
     const cells=collectProdStockCells();
     if(cells.length){
       try{
-        await api('POST','/product-variants/stock-matrix',{
+        const mx=await api('POST','/product-variants/stock-matrix',{
           product_id:Number(savedId), cells,
           warehouse_id:el('p-matrix-wh')?.value||el('p-warehouse')?.value||undefined,
           // فقط ساختار SKU؛ تعداد از جدول موجودی اول دوره یا اسناد انبار
           structure_only:true
         });
+        if(mx && mx.zero_color_hint_fa) zeroColorHint=mx.zero_color_hint_fa;
       }catch(e){ showToast((e && e.message) || 'کالا ذخیره شد؛ ثبت موجودی رنگ×سایز ناموفق بود','error'); }
     }
   }
@@ -13069,6 +13072,7 @@ async function saveProduct(id){
   }else{
     showToast(id?'ذخیره شد':'ذخیره شد — موجودی اول دوره را در بخش «موجودی» همین کالا ثبت کنید');
   }
+  if(zeroColorHint) setTimeout(()=>showToast(zeroColorHint),1600);
   try{
     await _refreshProdWithCats(_prodCanEdit);
     if(window._accProdRefresh){ try{ window._accProdRefresh(); }catch(_){} window._accProdRefresh=null; }
@@ -42686,7 +42690,7 @@ function renderAdminGuide(){
       <ul>
         <li><b>ویرایش کالا:</b> فیلد «موجودی کلی» و خانه‌های ماتریس رنگ×سایز در کالای موجود فقط‌خواندنی است. دکمهٔ «⚖️ تعدیل موجودی» (یا کلیک روی خانهٔ ماتریس) فرم تعدیل را با <b>انبار + رنگ/سایز</b> باز می‌کند. درخواست ذخیرهٔ کالا با عدد موجودی متفاوت خطای <span dir="ltr">E_STOCK_VIA_DOCUMENT</span> (۴۰۹) می‌دهد.</li>
         <li><b>ماتریس و تنظیم موجودی (API/اکسل):</b> هر خانهٔ <b>تغییرکرده</b> یک تعدیل «شمارش» همان رنگ/سایز و انبار می‌شود (یک ردیف کاردکس با رنگ/سایز + سند). خانهٔ بدون تغییر چیزی ثبت نمی‌کند. «تنظیم موجودی» تک‌کالا انبار را الزامی می‌خواهد و برای کالای ماتریسی رنگ/سایز را هم (<span dir="ltr">E_VARIANT_REQUIRED</span>).</li>
-        <li><b>رنگ صفر:</b> رنگ فقط وقتی از پک زنده خارج می‌شود که <b>همهٔ سایزهایش دقیقاً صفر</b> باشد (نه جمع صفر: S=−۱ و M=+۱ می‌ماند) و در کاردکس هم مانده نداشته باشد. رنگ حذف/صفر‌نویسی نمی‌شود؛ فقط غیرفعال می‌شود و با تعدیل بعدی دوباره فعال می‌شود. برداشتن تیک رنگی که موجودی دارد، موجودی را پاک نمی‌کند.</li>
+        <li><b>رنگ صفر:</b> رنگ فقط وقتی از پک زنده خارج می‌شود که <b>همهٔ سایزهایش دقیقاً صفر</b> باشد (نه جمع صفر: S=−۱ و M=+۱ می‌ماند) و در کاردکس هم مانده نداشته باشد. رنگ حذف/صفر‌نویسی نمی‌شود؛ فقط غیرفعال می‌شود و با تعدیل بعدی دوباره فعال می‌شود. برداشتن تیک رنگی که موجودی دارد، موجودی را پاک نمی‌کند. <b>رنگ تازه‌اضافه‌شده</b> با موجودی صفر پس از ذخیرهٔ کالا فعال می‌ماند (حتی بعد از ارسال موجودی به سایت)؛ فقط وقتی موجودی گرفت و دوباره به صفر رسید از پک زنده پنهان می‌شود.</li>
         <li><b>موجودی منفی واقعی:</b> در انباری که «اجازهٔ موجودی منفی» دارد فروش تا منفی مجاز است و عدد واقعی (مثلاً <span dir="ltr">−۳</span>) ذخیره و با رنگ قرمز نمایش داده می‌شود؛ دیگر به صفر گرد نمی‌شود. انبار عادی همچنان فروش بیش از موجودی را رد می‌کند.</li>
         <li><b>گزارش تطبیق موجودی:</b> انبار ↔ رنگ/سایز ↔ کاردکس برای همین سندها بدون انحراف است؛ مانده هر کالا/انبار/رنگ با تابع واحد «Σ کاردکس زنده» (<span dir="ltr">stockOf</span>) قابل محاسبه است.</li>
       </ul>`),
@@ -42695,6 +42699,7 @@ function renderAdminGuide(){
       <ul>
         <li><b>پیش‌نویس:</b> فقط خطوط سند ذخیره می‌شود (بدون موجودی، کاردکس یا سند حسابداری). هر خط: کد کالا، کد/نام انبار، SKU رنگ/سایز (برای کالای ماتریسی الزامی)، تعداد و بهای واحد (ریال) — هر دو باید بزرگ‌تر از صفر باشند. ورود گروهی با چسباندن از اکسل (Tab) یا ویرگول.</li>
         <li><b>ثبت قطعی:</b> فقط توسط <b>کاربر دیگری</b> غیر از سازنده (تفکیک وظایف؛ حتی مدیر سیستم؛ <span dir="ltr">E_SOD_MAKER_CHECKER</span>). در یک تراکنش: حرکت <span dir="ltr">opening</span> در کاردکس برای هر خط + لایهٔ رنگ/سایز + <b>یک</b> سند حسابداری تراز: بدهکار حساب موجودیِ هر انبار / بستانکار «تراز افتتاحیه» (<span dir="ltr">3102</span>) به تاریخ شروع سال مالی. ماه قفل‌شدهٔ موجودی → <span dir="ltr">E_INV_PERIOD_LOCKED</span> (۴۲۲).</li>
+        <li><b>رنگ/سایز غیرفعال:</b> اگر رنگ/سایز خط سند (از همان کالا) به‌خاطر موجودی صفر غیرفعال شده باشد، ثبت قطعی آن را در همان تراکنش دوباره فعال می‌کند و دیگر خطای <span dir="ltr">E_VARIANT_INACTIVE</span> نمی‌دهد (مثل تعدیل دستی). رنگ/سایزِ کالای دیگر همچنان <span dir="ltr">E_VARIANT_MISMATCH</span> است.</li>
         <li><b>یکتایی:</b> هر کالا × انبار × واریانت در یک سال مالی فقط یک‌بار (بین اسناد ثبت‌شده)؛ تکرار → <span dir="ltr">E_OPENING_DUPLICATE</span> (۴۰۹). کالای ماتریسی بدون رنگ/سایز → <span dir="ltr">E_VARIANT_REQUIRED</span> (۴۰۰).</li>
         <li><b>اصلاح = ابطال + سند جدید:</b> «ابطال» (مجوز انبار: حذف/ابطال) موجودی، کاردکس، لایهٔ رنگ/سایز و سند حسابداری را کامل برمی‌گرداند (R13)؛ اگر موجودی قبلاً مصرف شده و برگشت منفی می‌شود ابطال رد می‌شود. حذف فیزیکی وجود ندارد.</li>
         <li><b>ایجاد کالا با موجودی:</b> کالا با موجودی صفر ساخته و یک پیش‌نویس تک‌خطی (انبار پیش‌فرض) ساخته می‌شود؛ موجودی بعد از ثبت قطعی توسط کاربر دیگر اعمال می‌شود. موجودی بدون بها همچنان رد می‌شود.</li>

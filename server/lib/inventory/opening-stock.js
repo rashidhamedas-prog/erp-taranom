@@ -127,15 +127,17 @@ function validateLine(db, raw, idx = 0) {
   if (matrix && !variantId) {
     throw osErr('E_VARIANT_REQUIRED', 400, `ردیف ${n}: برای کالای ماتریسی «${product.name}» رنگ/سایز (واریانت) الزامی است`);
   }
+  let variantInactive = false;
   if (variantId) {
     const v = db.prepare('SELECT id, product_id, active FROM product_variants WHERE id=?').get(variantId);
     if (!v) throw osErr('E_VARIANT_NOT_FOUND', 404, `ردیف ${n}: واریانت یافت نشد`);
     if (Number(v.product_id) !== productId) throw osErr('E_VARIANT_MISMATCH', 400, `ردیف ${n}: واریانت متعلق به این کالا نیست`);
-    if (!Number(v.active)) throw osErr('E_VARIANT_INACTIVE', 400, `ردیف ${n}: واریانت غیرفعال است`);
+    // واریانت بازنشسته (مثلاً retireZeroStockColors) رد نمی‌شود؛ postDoc آن را فعال می‌کند (مثل manual-adjust).
+    variantInactive = !Number(v.active);
   }
   return {
     product_id: productId, warehouse_id: warehouseId, variant_id: variantId, qty, unit_cost_rial: unitCost,
-    product_name: product.name,
+    product_name: product.name, variant_inactive: variantInactive,
   };
 }
 
@@ -322,6 +324,8 @@ function postDoc(db, id, user) {
     const OR = require('./opening-rolls');
     if (checked.some((c) => OR.hasRolls(c.row))) OR.assertRole(user);
     for (const { row, l } of checked) {
+      // اتمیک با post: rollback تراکنش، فعال‌سازی را هم برمی‌گرداند.
+      if (l.variant_id && l.variant_inactive) require('../product-variants').reactivateVariant(db, l.variant_id);
       if (OR.hasRolls(row)) {
         const parts = OR.postRollsLine(db, { doc, row, l, date, user, source: SOURCE });
         let claimed;

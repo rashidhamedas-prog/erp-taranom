@@ -319,9 +319,9 @@ async function main() {
 
     // ── 9b. bulk / Excel refs (code, warehouse code, variant sku) ──
     console.log('\n— bulk refs —');
-    // NOTE (P1 dependency): on main, adjustVariantStock → retireZeroStockColors deactivates a matrix colour
-    // whose stock returns to 0 (e.g. after the void above). P1 "safe colour retire" removes that; until it
-    // lands we re-activate here so this test is independent of it.
+    // NOTE: retireZeroStockColors may deactivate a matrix colour whose stock returned to 0 (e.g. after the
+    // void above). Opening docs now accept such variants (postDoc reactivates them — see
+    // test-opening-inactive-variant.js); the explicit re-activate below just keeps this section focused on refs.
     db.prepare("UPDATE product_variants SET active=1, status='active' WHERE product_id=?").run(PM);
     const PBulk = product('کالای گروهی', whFG);
     r = await api('POST', '/api/opening-stock', { note: 'اکسل', lines: [
