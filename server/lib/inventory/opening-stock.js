@@ -286,6 +286,121 @@ function createDraft(db, body, user) {
 }
 
 /**
+ * پیش‌نویس یک کالا در یک انبار از کارت کالا.
+ * ردیف‌های با تعداد خالی/صفر نادیده گرفته می‌شوند و کالا/انبار فقط از سرآیند می‌آیند.
+ */
+function createProductWarehouseDraft(db, body, user) {
+  const b = body || {};
+  const productId = Math.trunc(Number(b.product_id) || 0);
+  const warehouseId = Math.trunc(Number(b.warehouse_id) || 0);
+  const rawLines = Array.isArray(b.lines) ? b.lines : [];
+  const lines = rawLines
+    .filter((r) => r && r.qty != null && r.qty !== '' && round3(r.qty) !== 0)
+    .map((r) => ({
+      product_id: productId,
+      warehouse_id: warehouseId,
+      variant_id: r.variant_id != null && r.variant_id !== '' && Number(r.variant_id) > 0
+        ? Math.trunc(Number(r.variant_id)) : null,
+      qty: round3(r.qty),
+      unit_cost_rial: r.unit_cost_rial,
+    }));
+  if (!lines.length) throw osErr('E_OPENING_EMPTY', 400, 'حداقل یک ردیف با تعداد بزرگ‌تر از صفر لازم است');
+
+  const seen = new Set();
+  for (let i = 0; i < lines.length; i += 1) {
+    const key = String(lines[i].variant_id || 0);
+    if (seen.has(key)) throw osErr('E_OPENING_DUP_LINE', 400, `ردیف ${i + 1}: واریانت تکراری در همین سند`);
+    seen.add(key);
+  }
+
+  return db.transaction(() => {
+    for (const l of lines) {
+      const hit = db.prepare(`
+        SELECT d.id, d.doc_no
+        FROM opening_stock_lines s
+        JOIN opening_stock_docs d ON d.id=s.doc_id
+        WHERE d.status='draft' AND s.product_id=? AND s.warehouse_id=?
+          AND COALESCE(s.variant_id,0)=COALESCE(?,0)
+        ORDER BY d.id LIMIT 1
+      `).get(productId, warehouseId, l.variant_id);
+      if (hit) {
+        throw osErr('E_OPENING_DRAFT_EXISTS', 409,
+          `برای این کالا/انبار/واریانت پیش‌نویس ${hit.doc_no} وجود دارد`,
+          { doc_id: hit.id, doc_no: hit.doc_no, product_id: productId, warehouse_id: warehouseId, variant_id: l.variant_id });
+      }
+    }
+    return createDraft(db, {
+      note: (String(b.note || '').trim() || 'موجودی اول دوره از کارت کالا').slice(0, 300),
+      lines,
+    }, user);
+  })();
+}
+
+function normalizeBulkIds(ids) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(ids) ? ids : []) {
+    const id = Math.trunc(Number(raw));
+    if (!(id > 0) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  if (!out.length) throw osErr('E_OPENING_BULK_EMPTY', 400, 'حداقل یک سند برای عملیات گروهی انتخاب کنید');
+  if (out.length > 200) throw osErr('E_OPENING_BULK_TOO_MANY', 400, 'حداکثر ۲۰۰ سند در هر عملیات گروهی مجاز است');
+  return out;
+}
+
+function bulkResult(results) {
+  const okCount = results.filter((r) => r.ok).length;
+  return { total: results.length, ok_count: okCount, fail_count: results.length - okCount, results };
+}
+
+/** هر سند عمداً در تراکنش مستقل postDoc ثبت می‌شود تا شکست یک سند بقیه را برنگرداند. */
+function bulkPost(db, ids, user) {
+  const results = normalizeBulkIds(ids).map((id) => {
+    const before = db.prepare('SELECT doc_no FROM opening_stock_docs WHERE id=?').get(id);
+    try {
+      const doc = postDoc(db, id, user);
+      return { id, doc_no: doc.doc_no, ok: true, status: doc.status, je_id: doc.je_id || null };
+    } catch (e) {
+      return {
+        id,
+        doc_no: before ? before.doc_no : null,
+        ok: false,
+        code: (e && e.code) || 'E_MAKER_CHECKER',
+        error: (e && e.message) || String(e),
+      };
+    }
+  });
+  return bulkResult(results);
+}
+
+/** ابطال گروهی فقط پیش‌نویس‌ها را می‌بندد؛ سند ثبت‌شده باید از مسیر تکی R13 ابطال شود. */
+function bulkVoid(db, ids, user, { reason } = {}) {
+  const why = String(reason || '').trim();
+  if (why.length < 3) throw osErr('E_OPENING_REASON_REQUIRED', 400, 'علت ابطال الزامی است (حداقل ۳ نویسه)');
+  const results = normalizeBulkIds(ids).map((id) => {
+    const before = db.prepare('SELECT doc_no, status FROM opening_stock_docs WHERE id=?').get(id);
+    try {
+      if (before && before.status !== 'draft') {
+        throw osErr('E_OPENING_BULK_DRAFT_ONLY', 409, 'ابطال گروهی فقط برای پیش‌نویس؛ سند ثبت‌شده را تکی ابطال کنید');
+      }
+      const doc = voidDoc(db, id, user, { reason: why });
+      return { id, doc_no: doc.doc_no, ok: true, status: doc.status, je_id: doc.je_id || null };
+    } catch (e) {
+      return {
+        id,
+        doc_no: before ? before.doc_no : null,
+        ok: false,
+        code: (e && e.code) || 'E_OPENING_VOID_FAILED',
+        error: (e && e.message) || String(e),
+      };
+    }
+  });
+  return bulkResult(results);
+}
+
+/**
  * Post: ledger + لایهٔ واریانت + یک JE تراز، همه در یک تراکنش.
  */
 function postDoc(db, id, user) {
@@ -494,6 +609,9 @@ module.exports = {
   getDoc,
   listDocs,
   createDraft,
+  createProductWarehouseDraft,
+  bulkPost,
+  bulkVoid,
   postDoc,
   voidDoc,
   createSingleLineDraftForNewProduct,
