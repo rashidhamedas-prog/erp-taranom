@@ -220,7 +220,7 @@ function costSheet(db, { orderId }) {
         residueProductId: order.product_id,
       });
       const byPid = new Map(split.rows.map((r) => [r.product_id, r]));
-      const useAlloc = split.fabric_source === 'shared_cut_alloc';
+      const useAlloc = split.fabric_source !== 'qty';
       products = plan.map((p) => {
         const qty = Number(p.qty_planned) || 0;
         const s = byPid.get(Number(p.product_id)) || { fabric_rial: 0, exclusive_rial: 0, shared_rial: 0, amount_rial: 0 };
@@ -230,7 +230,7 @@ function costSheet(db, { orderId }) {
           product_name: p.product_name,
           qty_planned: qty,
           cost_share_percent: total > 0 ? Math.round((cost * 10000) / total) / 100 : (Number(p.cost_share_percent) || 0),
-          cost_share_source: useAlloc ? 'shared_cut_alloc' : 'bom_percent',
+          cost_share_source: useAlloc ? split.fabric_source : 'bom_percent',
           allocated_fabric_rial: useAlloc ? s.fabric_rial : null,
           exclusive_rial: s.exclusive_rial,
           shared_rial: s.shared_rial,
