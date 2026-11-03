@@ -22,8 +22,8 @@ function seed() {
   const run = (name, avg, type, mfg, stock, std) => {
     const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
       .run(name, 0, stock).lastInsertRowid;
-    db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-      .run(avg, type, mfg, std != null ? std : avg, id);
+    db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?')
+      .run(avg, type, mfg, std != null ? std : avg, `P2V-${id}`, id);
     return id;
   };
   return {

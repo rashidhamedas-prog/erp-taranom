@@ -415,11 +415,26 @@ function getUserPermissions(db, userId, role) {
   return perms;
 }
 
+/**
+ * Actions that an accounting-shell section must NOT grant on its legacy parent resource.
+ * docs/Production/permissions.md: BOM approve (= activate) is admin/production_manager only;
+ * the acc-production-boms menu grant must not widen it (segregation of duties).
+ */
+const LEGACY_NON_INHERITABLE = {
+  production_bom: ['approve', 'delete'],
+};
+
+function legacyInherits(resource, action) {
+  const deny = LEGACY_NON_INHERITABLE[resource];
+  return !(deny && deny.includes(action));
+}
+
 function hasPermission(db, user, resource, action) {
   if (!user) return false;
   if (user.role === 'admin') return true;
   const perms = getUserPermissions(db, user.id, user.role);
   if (perms[resource] && perms[resource][action]) return true;
+  if (!legacyInherits(resource, action)) return false;
   const aliases = LEGACY_PARENTS[resource];
   if (!aliases) return false;
   for (const section of aliases) {
@@ -534,6 +549,7 @@ function applyLegacyGrants(perms) {
     if (!out[parent]) continue;
     const next = { ...out[parent] };
     for (const action of ACTIONS) {
+      if (!legacyInherits(parent, action)) continue;
       if (sections.some((section) => out[section] && out[section][action])) next[action] = true;
     }
     out[parent] = next;

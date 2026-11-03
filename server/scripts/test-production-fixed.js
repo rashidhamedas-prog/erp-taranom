@@ -49,21 +49,20 @@ if (whRaw) db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('prod
 if (whFg) db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_fg_id',?)").run(String(whFg));
 if (whScrap) db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_scrap_id',?)").run(String(whScrap));
 
-// Sync warehouse_stock with product stock
+// Stock enters only via inventory documents (P1 Kardex SSOT) — opening movements, not raw writes
+const { postInventoryMovement } = require('../lib/inventory/ledger');
 for (const id of [P.p101, P.p201, P.p202, P.p203, P.p204, P.p205, P.p206, P.p299]) {
-  const p = db.prepare('SELECT stock FROM products WHERE id=?').get(id);
-  if (whRaw) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(id, whRaw, p.stock);
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(p.stock, id, whRaw);
-  }
-  if (whFg && id === P.p101) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(id, whFg, p.stock);
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(p.stock, id, whFg);
-  }
+  const p = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(id);
+  const qty = Number(p.stock) || 0;
+  db.prepare('UPDATE products SET stock=0 WHERE id=?').run(id);
+  if (qty <= 0) continue;
+  const warehouseId = id === P.p101 ? whFg : whRaw;
+  if (!warehouseId) continue;
+  postInventoryMovement(db, {
+    eventType: 'opening', productId: id, warehouseId, qtyIn: qty,
+    unitCostRial: Number(p.average_cost_rial) || 0,
+    sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+  });
 }
 
 function makeLines() {
@@ -286,8 +285,15 @@ throws('T2-13 ضایعات بیش از شروع', () => {
 
 // T2-14 negative stock
 throws('T2-14 موجودی منفی', () => {
-  db.prepare('UPDATE products SET stock=1 WHERE id=?').run(P.p202);
-  if (whRaw) db.prepare('UPDATE warehouse_stock SET qty=1 WHERE product_id=? AND warehouse_id=?').run(P.p202, whRaw);
+  const { warehouseQty } = require('../lib/inventory/ledger');
+  const drain = warehouseQty(db, P.p202, whRaw) - 1;
+  const unit = Number(db.prepare('SELECT average_cost_rial FROM products WHERE id=?').get(P.p202).average_cost_rial) || 0;
+  if (drain > 0) {
+    postInventoryMovement(db, {
+      eventType: 'adjustment', productId: P.p202, warehouseId: whRaw, qtyOut: drain,
+      unitCostRial: unit, sourceType: 'test_fixture', note: 'T2-14 drain', updateAvg: false,
+    });
+  }
   const po3 = engine.createOrder(db, {
     product_id: P.p101, qty_planned: 300, date: DATE, cost_center_id: cc30,
     warehouse_raw_id: whRaw, warehouse_fg_id: whFg,
@@ -300,8 +306,12 @@ throws('T2-14 موجودی منفی', () => {
       userId: adminId,
     });
   } finally {
-    db.prepare('UPDATE products SET stock=2000 WHERE id=?').run(P.p202);
-    if (whRaw) db.prepare('UPDATE warehouse_stock SET qty=2000 WHERE product_id=? AND warehouse_id=?').run(P.p202, whRaw);
+    if (drain > 0) {
+      postInventoryMovement(db, {
+        eventType: 'adjustment', productId: P.p202, warehouseId: whRaw, qtyIn: drain,
+        unitCostRial: unit, sourceType: 'test_fixture', note: 'T2-14 refill', updateAvg: false,
+      });
+    }
   }
 }, 'E_NEGATIVE_STOCK');
 

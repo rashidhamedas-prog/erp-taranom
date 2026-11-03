@@ -244,10 +244,18 @@ router.post('/:id/lines/bulk', auth, requirePermission('production_bom', 'edit')
   });
 });
 
-router.post('/:id/activate', auth, requirePermission('production_bom', 'approve'), (req, res) => {
-  if (req.user.role === 'accounting') {
-    return res.status(403).json({ error: 'حسابدار نمی‌تواند فرمول را فعال کند', code: 'E_FORBIDDEN' });
-  }
+// docs/Production/permissions.md: activate/deactivate = admin or production_manager only,
+// even if a per-user grant gives production_bom.approve to another role.
+const BOM_APPROVER_ROLES = new Set(['admin', 'production_manager']);
+function requireBomApproverRole(req, res, next) {
+  if (BOM_APPROVER_ROLES.has(req.user && req.user.role)) return next();
+  return res.status(403).json({
+    error: 'فعال/غیرفعال‌سازی فرمول فقط برای مدیر سیستم یا مدیر تولید مجاز است',
+    code: 'E_FORBIDDEN',
+  });
+}
+
+router.post('/:id/activate', auth, requirePermission('production_bom', 'approve'), requireBomApproverRole, (req, res) => {
   handle(res, () => {
     const db = getDB();
     const bomId = Number(req.params.id);
@@ -263,7 +271,7 @@ router.post('/:id/activate', auth, requirePermission('production_bom', 'approve'
   });
 });
 
-router.post('/:id/deactivate', auth, requirePermission('production_bom', 'approve'), (req, res) => {
+router.post('/:id/deactivate', auth, requirePermission('production_bom', 'approve'), requireBomApproverRole, (req, res) => {
   handle(res, () => bom.deactivateBom(getDB(), Number(req.params.id), req.user.id));
 });
 

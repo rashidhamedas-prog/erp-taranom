@@ -20,8 +20,8 @@ const PERIOD = '1405/04';
 function seedProduct(name, avg, type, mfg, stock = 10000) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
     .run(name, 0, stock).lastInsertRowid;
-  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-    .run(avg, type, mfg, avg, id);
+  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?')
+    .run(avg, type, mfg, avg, `P3F-${id}`, id);
   return id;
 }
 
@@ -87,7 +87,6 @@ const draft = bom.createBom(db, {
   yield_percent: 100,
   base_qty: 1,
   has_routing: 1,
-  has_coproducts: 1,
   lines: [
     { component_product_id: p201, qty_per_base: 1.60, scrap_percent: 4, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
     { component_product_id: p202, qty_per_base: 0.35, scrap_percent: 3, line_type: 'material', stage_cost_center_id: cc['CC-10'] },

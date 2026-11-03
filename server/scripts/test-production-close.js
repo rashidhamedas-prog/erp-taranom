@@ -75,13 +75,13 @@ function seedAllocationBases() {
   const whFg = db.prepare("SELECT id FROM warehouses WHERE code='WH-FG'").get()?.id;
 
   const p101 = db.prepare(`
-    INSERT INTO products (user_id, name, price, stock, item_type, is_manufactured, average_cost_rial)
-    VALUES (1, 'مانتو کتان ترمه — سبز', 0, 344, 'finished', 1, 2233802)
+    INSERT INTO products (user_id, name, code, price, stock, item_type, is_manufactured, average_cost_rial)
+    VALUES (1, 'مانتو کتان ترمه — سبز', 'TC-101', 0, 344, 'finished', 1, 2233802)
   `).run().lastInsertRowid;
 
   const p102 = db.prepare(`
-    INSERT INTO products (user_id, name, price, stock, item_type, is_manufactured, average_cost_rial)
-    VALUES (1, 'مانتو دیگر', 0, 100, 'finished', 1, 1500000)
+    INSERT INTO products (user_id, name, code, price, stock, item_type, is_manufactured, average_cost_rial)
+    VALUES (1, 'مانتو دیگر', 'TC-102', 0, 100, 'finished', 1, 1500000)
   `).run().lastInsertRowid;
 
   if (whFg) {
