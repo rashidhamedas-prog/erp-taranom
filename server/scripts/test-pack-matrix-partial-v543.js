@@ -68,7 +68,8 @@ db.exec(`
     id INTEGER PRIMARY KEY, code TEXT, name TEXT, price REAL DEFAULT 0, price_rial INTEGER DEFAULT 0,
     cost REAL DEFAULT 0, stock REAL DEFAULT 0, pack_size INTEGER DEFAULT 1, unit TEXT DEFAULT 'عدد',
     has_variants INTEGER DEFAULT 0, is_style INTEGER DEFAULT 0, barcode TEXT,
-    default_variant_id INTEGER, colors INTEGER DEFAULT 1, warehouse_id INTEGER
+    default_variant_id INTEGER, colors INTEGER DEFAULT 1, warehouse_id INTEGER,
+    average_cost_rial INTEGER DEFAULT 0 -- SSOT: ledger posting reads the moving-average cost
   );
   CREATE TABLE warehouses (
     id INTEGER PRIMARY KEY, name TEXT, code TEXT, allow_negative INTEGER DEFAULT 0
@@ -78,6 +79,7 @@ db.exec(`
     PRIMARY KEY (product_id, warehouse_id)
   );
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE stock_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL, user_id INTEGER NOT NULL, change INTEGER NOT NULL, note TEXT, created_at INTEGER DEFAULT (strftime('%s','now')));
   CREATE TABLE customers (
     id INTEGER PRIMARY KEY, biz TEXT, owner TEXT, city TEXT, phone TEXT
   );
@@ -97,6 +99,8 @@ const { up, down, status, countNegativeQty } = require('../lib/inventory/pack-ma
 try {
   initProductVariantsSchema(db);
   ensureInventorySchema(db);
+  try { require('../lib/inventory/schema').initInventorySchema(db); } catch (e) { console.log('initInventorySchema:', e.message); } // SSOT: ledger table
+  try { db.exec('ALTER TABLE inventory_ledger ADD COLUMN variant_id INTEGER'); } catch (_) {} // db.js adds this on the real schema
 
   const mig = up(db);
   ok(mig.ok, 'migration up', mig);

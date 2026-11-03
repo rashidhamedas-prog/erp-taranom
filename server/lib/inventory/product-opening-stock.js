@@ -976,6 +976,7 @@ function applyOpeningChange(db, body, user, { audit } = {}) {
 
     let newLedgerId = null;
     let newJeId = null;
+    let transferRevalue = null;
     if (ctx.newRow) {
       const date = fy.date || require('../../jalali').todayJalali();
       require('./period-lock').assertPeriodOpen(db, date, 'موجودی اول دوره');
@@ -1015,23 +1016,25 @@ function applyOpeningChange(db, body, user, { audit } = {}) {
         ],
       });
       db.prepare('UPDATE inventory_ledger SET je_id=? WHERE id=?').run(newJeId, newLedgerId);
+      transferRevalue = require('./transfer-in-revalue').revalueTransfersAfterBackdatedInbound(db, {
+        productId: p.productId,
+        warehouseId: p.warehouseId,
+        date,
+        user,
+        reason: 'افتتاحیهٔ معوق — اصلاح ارزش انتقال صفر',
+      });
     }
 
-    // stock caches follow the net kardex delta (all kardex rows above are ledger-only)
+    // SSOT: qty lives on the ledger rows above (postInventoryMovement rebuilds the caches,
+    // including skipStock rows). Do not apply a second delta — that would double-count.
     const qtyDelta = plan.qty_delta;
-    if (Math.abs(qtyDelta) > EPS) {
-      // negative stock was already validated against kardex in the plan; caches may lag kardex
-      L.applyStockDelta(db, { productId: p.productId, warehouseId: p.warehouseId, qtyDelta, allowNegative: true });
-      try {
-        db.prepare('INSERT INTO stock_logs (product_id, user_id, change, note) VALUES (?,?,?,?)').run(p.productId, uid || 0, qtyDelta, note);
-      } catch (_) { /* legacy stock_logs optional */ }
-      if (p.variantId) {
-        require('./movement').postVariantLayer(db, {
-          productId: p.productId, variantId: p.variantId, warehouseId: p.warehouseId, qtyDelta,
-          docType: SOURCE_TYPE, docId: pos.id, docLine, userId: uid, note,
-        });
-      }
+    if (p.variantId && Math.abs(qtyDelta) > EPS) {
+      require('./movement').postVariantLayer(db, {
+        productId: p.productId, variantId: p.variantId, warehouseId: p.warehouseId, qtyDelta,
+        docType: SOURCE_TYPE, docId: pos.id, docLine, userId: uid, note,
+      });
     }
+    require('./stock-cache').rebuildStockCache(db, p.productId);
 
     // product_opening_stock row
     const kept = !ctx.newRow && ctx.keep && !ctx.voidRows.some((r) => r.id === ctx.keep.id) ? ctx.keep : null;
@@ -1077,6 +1080,7 @@ function applyOpeningChange(db, body, user, { audit } = {}) {
       residual_qty: plan.residual_qty,
       kardex: { before: plan.kardex_before, after: kAfter },
       warehouse_stock: plan.warehouse_stock,
+      transfer_revalue: transferRevalue,
       warnings: plan.warnings,
     };
     if (typeof audit === 'function') {

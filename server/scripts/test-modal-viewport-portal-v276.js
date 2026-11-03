@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Regression: modal fullscreen overlay must stay on the viewport.
  * Root bug (v275): `.overlay.open.modal-fs { …; inset:auto }` reset top/left/right/bottom

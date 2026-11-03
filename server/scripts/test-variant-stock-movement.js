@@ -4,13 +4,8 @@
  * Run: node server/scripts/test-variant-stock-movement.js
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const Database = require('better-sqlite3');
-
-const testDb = path.join(__dirname, '_variant-stock-movement-test.db');
-for (const suffix of ['', '-wal', '-shm']) {
-  try { fs.unlinkSync(testDb + suffix); } catch (_) {}
-}
 
 let pass = 0;
 let fail = 0;
@@ -21,78 +16,57 @@ function ok(cond, label, extra) {
 
 console.log('\n══ Variant stock movement ══\n');
 
-const db = new Database(testDb);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-db.exec(`
-  CREATE TABLE products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT, stock REAL DEFAULT 0, warehouse_id INTEGER, pack_size INTEGER DEFAULT 1
-  );
-  CREATE TABLE warehouses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, allow_negative INTEGER DEFAULT 0
-  );
-  CREATE TABLE warehouse_stock (
-    product_id INTEGER NOT NULL, warehouse_id INTEGER NOT NULL, qty REAL DEFAULT 0,
-    PRIMARY KEY (product_id, warehouse_id)
-  );
-  CREATE TABLE stock_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER, user_id INTEGER, change REAL, note TEXT
-  );
-  CREATE TABLE product_colors (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, active INTEGER DEFAULT 1
-  );
-  CREATE TABLE product_sizes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, active INTEGER DEFAULT 1
-  );
-  CREATE TABLE product_variants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    color_id INTEGER, size_id INTEGER,
-    sku TEXT, stock REAL DEFAULT 0,
-    active INTEGER DEFAULT 1, is_default INTEGER DEFAULT 0
-  );
-`);
+// Stock single source: the REAL schema (initDB) is booted and stock is created by ledger documents
+// (variant-stamped receipts). products.stock / product_variants.stock / warehouse_stock /
+// variant_warehouse_stock are derived caches and are only READ here.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'var-stock-mv-'));
+process.env.DB_PATH = path.join(tmp, 'test.db');
+process.env.SYNC_ROLE = 'central';
+process.env.ERP_TEST_ISOLATION = '1';
+process.env.SMS_DISABLED = '1';
+process.env.JWT_SECRET = 'test-var-stock-mv-secret-32chars!!!!!!!!';
+process.env.AUTH_SESSION_DB_PATH = path.join(tmp, 'sessions.db');
+process.env.NODE_ENV = 'test';
+const { getDB, initDB } = require('../db');
+initDB();
+const db = getDB();
 
 const {
-  ensureInventorySchema, postStockMovement, reverseStockDocument, expandLivePack,
+  postStockMovement, reverseStockDocument, expandLivePack,
 } = require('../lib/inventory/movement');
+const { seedStock } = require('./lib/stock-fixture');
 
-ensureInventorySchema(db);
+const adminId = Number(db.prepare("INSERT INTO users (name, username, password, role, active, must_change_password) VALUES ('مدیر','vsm_admin','x','admin',1,0)").run().lastInsertRowid);
+const whId = Number(db.prepare("INSERT INTO warehouses (name, code, active, allow_negative, warehouse_type, inventory_system) VALUES ('FG','VSM-FG',1,1,'finished_goods','perpetual')").run().lastInsertRowid);
+const mkProduct = (name, code, packSize = 1) => Number(db.prepare(
+  'INSERT INTO products (user_id, name, code, unit, stock, warehouse_id, pack_size, price, cost, average_cost_rial) VALUES (?,?,?,?,0,?,?,1000,1000,1000)'
+).run(adminId, name, code, 'عدد', whId, packSize).lastInsertRowid);
+const matrixId = mkProduct('Matrix Tee', 'VSM-MX', 4);
 
-const whId = db.prepare('INSERT INTO warehouses (name) VALUES (?)').run('FG').lastInsertRowid;
-const matrixId = db.prepare(
-  'INSERT INTO products (name, stock, warehouse_id, pack_size) VALUES (?,?,?,?)'
-).run('Matrix Tee', 40, whId, 4).lastInsertRowid;
-db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)')
-  .run(matrixId, whId, 40);
-
-const c1 = db.prepare('INSERT INTO product_colors (name) VALUES (?)').run('مشکی').lastInsertRowid;
-const c2 = db.prepare('INSERT INTO product_colors (name) VALUES (?)').run('سفید').lastInsertRowid;
-const s1 = db.prepare('INSERT INTO product_sizes (name) VALUES (?)').run('M').lastInsertRowid;
-const s2 = db.prepare('INSERT INTO product_sizes (name) VALUES (?)').run('L').lastInsertRowid;
+const c1 = Number(db.prepare("INSERT INTO product_colors (name, code, active) VALUES ('مشکی','VSMB',1)").run().lastInsertRowid);
+const c2 = Number(db.prepare("INSERT INTO product_colors (name, code, active) VALUES ('سفید','VSMW',1)").run().lastInsertRowid);
+const s1 = Number(db.prepare("INSERT INTO product_sizes (name, code, active) VALUES ('M','VSMM',1)").run().lastInsertRowid);
+const s2 = Number(db.prepare("INSERT INTO product_sizes (name, code, active) VALUES ('L','VSML',1)").run().lastInsertRowid);
 
 const variants = [];
 for (const colorId of [c1, c2]) {
   for (const sizeId of [s1, s2]) {
-    const id = db.prepare(`
+    const id = Number(db.prepare(`
       INSERT INTO product_variants (product_id, color_id, size_id, sku, stock, active, is_default)
-      VALUES (?,?,?,?,?,1,0)
-    `).run(matrixId, colorId, sizeId, `SKU-${colorId}-${sizeId}`, 10).lastInsertRowid;
+      VALUES (?,?,?,?,0,1,0)
+    `).run(matrixId, colorId, sizeId, `SKU-${colorId}-${sizeId}`).lastInsertRowid);
     variants.push(id);
+    seedStock(db, { productId: matrixId, variantId: id, warehouseId: whId, qty: 10, note: 'opening' });
   }
 }
 ok(variants.length === 4, 'ماتریس ۲×۲ ساخته شد');
 
-// Opening seed (single WH) should copy variant stock into variant_warehouse_stock
-ensureInventorySchema(db);
+// Opening documents (variant-stamped ledger receipts) → derived variant_warehouse_stock
 const seeded = db.prepare(
   'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
 ).get(variants[0], whId);
 ok(seeded && Number(seeded.qty) === 10, 'seed opening → variant_warehouse_stock=10', seeded);
-
+ok(Number(db.prepare('SELECT stock FROM products WHERE id=?').get(matrixId).stock) === 40, 'products.stock derived = Σ variants = 40');
 const soldVariant = variants[0];
 
 db.transaction(() => {
@@ -196,11 +170,8 @@ try {
 ok(threw && threw.code === 'E_VARIANT_REQUIRED', 'ماتریس بدون variant_id → E_VARIANT_REQUIRED',
   threw && threw.code);
 
-const plainId = db.prepare(
-  'INSERT INTO products (name, stock, warehouse_id) VALUES (?,?,?)'
-).run('Plain Tee', 5, whId).lastInsertRowid;
-db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)')
-  .run(plainId, whId, 5);
+const plainId = mkProduct('Plain Tee', 'VSM-PL');
+seedStock(db, { productId: plainId, warehouseId: whId, qty: 5, note: 'opening' });
 
 db.transaction(() => {
   postStockMovement(db, {
@@ -242,10 +213,6 @@ const live2 = expandLivePack(db, matrixId, whId);
 ok(live2.lines.length === 2 && live2.pack_size_auto === 2,
   'پس از صفر شدن یک SKU، رنگ ناقص از پک خارج → ۲ خط', live2);
 
-db.close();
-try { fs.unlinkSync(testDb); } catch (_) {}
-try { fs.unlinkSync(testDb + '-wal'); } catch (_) {}
-try { fs.unlinkSync(testDb + '-shm'); } catch (_) {}
 
 console.log(`\n══ ${pass} passed, ${fail} failed ══\n`);
 process.exit(fail ? 1 : 0);

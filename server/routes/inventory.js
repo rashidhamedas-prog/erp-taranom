@@ -85,7 +85,7 @@ router.get('/ledger', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
   const { product_id, warehouse_id, event_type, limit } = req.query;
   // Qualify l.status — products.status (v546+) makes bare status ambiguous on the JOIN.
-  const where = ["l.status='posted'"];
+  const where = ["l.status='posted' AND l.reversed_of IS NULL AND COALESCE(l.event_type,'') <> 'reversal' AND COALESCE(l.event_type,'') NOT GLOB '*_reversal'"];
   const params = [];
   if (product_id) { where.push('l.product_id=?'); params.push(+product_id); }
   if (warehouse_id) { where.push('l.warehouse_id=?'); params.push(+warehouse_id); }

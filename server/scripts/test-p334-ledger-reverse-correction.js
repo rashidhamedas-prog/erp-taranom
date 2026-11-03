@@ -217,7 +217,8 @@ async function main() {
     ok(r2003res.status === 200 && r2003res.body.ok === true && r2003res.body.stock_effect === 'with_stock', 'reverse 2003 with_stock ⇒ 200', r2003res);
     ok(liveKardex(P, WH35).q === 0 && liveKardex(P, WH35).v === 0, 'kardex35 = 0 (qty and value)', liveKardex(P, WH35));
     ok(ws(P, WH35) === 0, 'warehouse_stock35 = 0', ws(P, WH35));
-    ok(Number(q1('SELECT stock FROM products WHERE id=?', P).stock) === hdr0 - 8, 'products.stock header −8');
+    ok(Number(q1('SELECT stock FROM products WHERE id=?', P).stock) === liveKardex(P, WH34).q,
+      'products.stock rebuilt from live ledger after reversal');
     const o2003 = q1('SELECT * FROM inventory_ledger WHERE id=?', ID2003);
     const rv2003 = q1('SELECT * FROM inventory_ledger WHERE reversed_of=?', ID2003);
     ok(o2003.status === 'reversed' && Number(o2003.qty_in) === 8 && Math.round(o2003.amount_rial) === AMT_2003,
@@ -271,19 +272,21 @@ async function main() {
       const rm = await call('POST', `/api/inventory/ledger/${man.id}/reverse-correction`, { reason: 'تست دستی', confirm: true, stock_effect: 'kardex_only' });
       ok(rm.status === 409 && rm.body.code === 'E_REVERSE_USE_MANUAL_ROUTE', 'manual row ⇒ 409 E_REVERSE_USE_MANUAL_ROUTE', rm.body);
       db.transaction(() => { L.reverseInventoryMovement(db, man.id, { createdBy: ADMIN_ID, date: D }); })();
-      ok(liveKardex(P, WH34).q === 41 && ws(P, WH34) === 49, 'probe rows undone: kardex34 41, ws34 49', { k: liveKardex(P, WH34), ws: ws(P, WH34) });
+      ok(liveKardex(P, WH34).q === 41 && ws(P, WH34) === 41, 'probe rows undone: cache rebuilt to kardex34 41', { k: liveKardex(P, WH34), ws: ws(P, WH34) });
     }
 
-    console.log('— reverse 1273 kardex_only —');
+    console.log('— kardex_only refused; reverse 1273 with_stock —');
     {
       const vws0 = q1('SELECT COUNT(*) c FROM inventory_movements').c;
-      const hdr1 = Number(q1('SELECT stock FROM products WHERE id=?', P).stock);
-      const r = await call('POST', `/api/inventory/ledger/${ID1273}/reverse-correction`, { reason: 'خروج تکراری؛ فروش T-0009 همان ۷ عدد را کم کرده', confirm: true, stock_effect: 'kardex_only' });
-      ok(r.status === 200 && r.body.stock_effect === 'kardex_only' && r.body.qty_delta === 7 && r.body.value_delta_rial === AMT_1273, 'reverse 1273 kardex_only ⇒ 200 (+7, +66,679,942)', r.body);
+      const refused = await call('POST', `/api/inventory/ledger/${ID1273}/reverse-correction`, { reason: 'خروج تکراری؛ فروش T-0009 همان ۷ عدد را کم کرده', confirm: true, stock_effect: 'kardex_only' });
+      ok(refused.status === 409 && refused.body.code === 'E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT',
+        'kardex_only ⇒ 409 because cache must follow ledger', refused.body);
+      const r = await call('POST', `/api/inventory/ledger/${ID1273}/reverse-correction`, { reason: 'خروج تکراری؛ فروش T-0009 همان ۷ عدد را کم کرده', confirm: true, stock_effect: 'with_stock' });
+      ok(r.status === 200 && r.body.stock_effect === 'with_stock' && r.body.qty_delta === 7 && r.body.value_delta_rial === AMT_1273, 'reverse 1273 with_stock ⇒ 200 (+7, +66,679,942)', r.body);
       ok(liveKardex(P, WH34).q === 48, 'kardex34 = 48', liveKardex(P, WH34));
-      ok(ws(P, WH34) === 49 && Number(q1('SELECT stock FROM products WHERE id=?', P).stock) === hdr1
-        && q1('SELECT COUNT(*) c FROM inventory_movements').c === vws0, 'warehouse_stock34 unchanged 49, header + movements untouched');
-      ok(r.body.warehouse_stock.before === 49 && r.body.warehouse_stock.after === 49, 'response warehouse_stock 49→49');
+      ok(ws(P, WH34) === 48 && Number(q1('SELECT stock FROM products WHERE id=?', P).stock) === 48
+        && q1('SELECT COUNT(*) c FROM inventory_movements').c === vws0, 'cache follows ledger; variant movement log untouched');
+      ok(r.body.warehouse_stock.before === 41 && r.body.warehouse_stock.after === 48, 'response warehouse_stock 41→48');
     }
 
     console.log('— official transfer 34 → 35 of 8 (real route) —');
@@ -296,7 +299,7 @@ async function main() {
       });
       ok(t.status === 200 && t.body.ok === true, 'transfer 200', t);
       ok(liveKardex(P, WH34).q === 40 && liveKardex(P, WH35).q === 8, 'kardex34 40, kardex35 8', { k34: liveKardex(P, WH34), k35: liveKardex(P, WH35) });
-      ok(ws(P, WH34) === 41 && ws(P, WH35) === 8, 'warehouse_stock34 41, warehouse_stock35 8', { ws34: ws(P, WH34), ws35: ws(P, WH35) });
+      ok(ws(P, WH34) === 40 && ws(P, WH35) === 8, 'warehouse_stock34 40, warehouse_stock35 8', { ws34: ws(P, WH34), ws35: ws(P, WH35) });
       const outRow = q1("SELECT * FROM inventory_ledger WHERE product_id=? AND event_type='transfer_out' ORDER BY id DESC LIMIT 1", P);
       const inRow = q1("SELECT * FROM inventory_ledger WHERE product_id=? AND event_type='transfer_in' AND warehouse_id=? ORDER BY id DESC LIMIT 1", P, WH35);
       ok(outRow && inRow && Math.round(outRow.amount_rial) === Math.round(inRow.amount_rial) && Number(outRow.source_id) === Number(inRow.source_id),
@@ -314,13 +317,12 @@ async function main() {
       const row34 = (m.body.rows || []).find((x) => x.warehouse_id === WH34);
       const row35 = (m.body.rows || []).find((x) => x.warehouse_id === WH35);
       ok(m.status === 200 && changes() === c0, 'mismatch report 200, read-only');
-      ok(row34 && row34.warehouse_stock_qty === 41 && row34.kardex_qty === 40 && row34.diff_qty === 1
-        && row34.kardex_value_rial === liveKardex(P, WH34).v, 'mismatch wh34: ws 41 vs kardex 40 (diff 1) + kardex value', row34);
+      ok(!row34, 'wh34 cache matches the live ledger');
       ok(!row35, 'wh35 not listed (8 = 8)');
       const m34 = await call('GET', `/api/inventory/stock-kardex-mismatch?product_id=${P}&warehouse_id=${WH35}`);
       ok(m34.status === 200 && m34.body.count === 0, 'warehouse filter wh35 ⇒ 0 rows');
       const { stockKardexMismatch } = require('../lib/inventory/stock-kardex-mismatch');
-      ok(stockKardexMismatch(db, { productId: P }).count === 1, 'lib (CLI path) returns the same single row');
+      ok(stockKardexMismatch(db, { productId: P }).count === 0, 'lib (CLI path) reports no cache drift');
     }
 
     console.log('— row with je_id ⇒ voucher draft, no JE —');
@@ -340,7 +342,7 @@ async function main() {
       ok(prev.status === 200 && prev.body.voucher_draft && prev.body.voucher_draft.will_create === true, 'preview announces voucher draft');
       const je0 = q1('SELECT COUNT(*) c FROM journal_entries').c;
       const jl0 = q1('SELECT COUNT(*) c FROM journal_lines').c;
-      const r = await call('POST', `/api/inventory/ledger/${led.id}/reverse-correction`, { reason: 'ردیف هم‌ترازی سند‌دار', confirm: true, stock_effect: 'kardex_only' });
+      const r = await call('POST', `/api/inventory/ledger/${led.id}/reverse-correction`, { reason: 'ردیف هم‌ترازی سند‌دار', confirm: true, stock_effect: 'with_stock' });
       ok(r.status === 200 && Number(r.body.voucher_draft_id) > 0 && r.body.je_posted === false && r.body.je_id === jeId, 'reverse ⇒ 200 with voucher_draft_id', r.body);
       ok(q1('SELECT COUNT(*) c FROM journal_entries').c === je0 && q1('SELECT COUNT(*) c FROM journal_lines').c === jl0
         && q1('SELECT status FROM journal_entries WHERE id=?', jeId).status === 'approved', 'no JE posted / original JE untouched');
@@ -359,7 +361,10 @@ async function main() {
         eventType: 'opening', productId: P3, warehouseId: WH35, qtyIn: 5, amountRial: 500000,
         sourceType: 'opening_inventory', date: D, skipStock: true,
       });
-      db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,2)').run(P3, WH35);
+      L.postInventoryMovement(db, {
+        eventType: 'sale', productId: P3, warehouseId: WH35, qtyOut: 3, amountRial: 300000,
+        sourceType: 'invoice', sourceId: 3003, date: D,
+      });
       const prev = await call('GET', `/api/inventory/ledger/${led.id}/reverse-correction-preview?stock_effect=with_stock`);
       ok(prev.status === 200 && prev.body.with_stock_allowed === false && prev.body.ready === false && prev.body.warehouse_stock.after_with_stock === -3,
         'preview: with_stock not allowed (2 → −3)', prev.body);
@@ -368,7 +373,8 @@ async function main() {
       ok(r.status === 409 && r.body.code === 'E_REVERSE_STOCK_NEGATIVE' && changes() === c0
         && q1('SELECT status FROM inventory_ledger WHERE id=?', led.id).status === 'posted', '409 E_REVERSE_STOCK_NEGATIVE, zero writes, row still posted', r);
       const k = await call('POST', `/api/inventory/ledger/${led.id}/reverse-correction`, { reason: 'تست منفی‌شدن', confirm: true, stock_effect: 'kardex_only' });
-      ok(k.status === 200 && ws(P3, WH35) === 2, 'kardex_only fallback allowed, ws stays 2');
+      ok(k.status === 409 && k.body.code === 'E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT' && ws(P3, WH35) === 2,
+        'kardex_only fallback refused; cache remains ledger-derived');
     }
 
     console.log('— matrix product (row without variant) ⇒ variant_breakdown required —');
@@ -376,39 +382,49 @@ async function main() {
       const P4 = insert('products', { user_id: ADMIN_ID, name: 'کالای رنگ‌سایز', code: 'P334-MX', price: 1, average_cost_rial: 0, stock: 2, unit: 'عدد' });
       const V1 = insert('product_variants', { product_id: P4, sku: 'P334-MX-1', color: 'قرمز', size: '1', active: 1, is_default: 0, stock: 1 });
       const V2 = insert('product_variants', { product_id: P4, sku: 'P334-MX-2', color: 'آبی', size: '1', active: 1, is_default: 0, stock: 1 });
-      const PX = insert('products', { user_id: ADMIN_ID, name: 'کالای دیگر', code: 'P334-OTH', price: 1, average_cost_rial: 0, stock: 0, unit: 'عدد' });
-      const VX = insert('product_variants', { product_id: PX, sku: 'P334-OTHER', color: 'سبز', size: '1', active: 1, is_default: 0, stock: 0 });
-      db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,2)').run(P4, WH35);
-      db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,1)').run(V1, WH35);
-      db.prepare('INSERT OR REPLACE INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,1)').run(V2, WH35);
-      const led = L.postInventoryMovement(db, {
-        eventType: 'opening', productId: P4, warehouseId: WH35, qtyIn: 2, amountRial: 200000,
-        sourceType: 'opening_inventory', date: D, skipStock: true,
+      const ledId = insert('inventory_ledger', {
+        tx_no: 'P334-MATRIX-LEGACY', event_type: 'opening', product_id: P4, warehouse_id: WH35,
+        qty_in: 2, qty_out: 0, unit_cost_rial: 100000, amount_rial: 200000,
+        qty_balance: 2, avg_cost_after_rial: 100000, source_type: 'opening_inventory',
+        date: D, status: 'posted',
       });
+      const led = q1('SELECT * FROM inventory_ledger WHERE id=?', ledId);
+      require('../lib/inventory/stock-cache').rebuildStockCache(db, P4);
+      L.postInventoryMovement(db, {
+        eventType: 'adjustment', productId: P4, warehouseId: WH35, variantId: V1, qtyIn: 1,
+        amountRial: 0, sourceType: 'test_variant_seed', sourceId: led.id, date: D, allowNegative: true,
+      });
+      L.postInventoryMovement(db, {
+        eventType: 'adjustment', productId: P4, warehouseId: WH35, variantId: V2, qtyIn: 1,
+        amountRial: 0, sourceType: 'test_variant_seed', sourceId: led.id, date: D, allowNegative: true,
+      });
+      insert('inventory_ledger', {
+        tx_no: 'P334-MATRIX-BALANCE', event_type: 'adjustment', product_id: P4, warehouse_id: WH35,
+        qty_in: 0, qty_out: 2, unit_cost_rial: 0, amount_rial: 0,
+        qty_balance: 0, avg_cost_after_rial: 0, source_type: 'test_variant_seed_balance',
+        source_id: led.id, date: D, status: 'posted',
+      });
+      require('../lib/inventory/stock-cache').rebuildStockCache(db, P4);
       const vq = (v) => Number((q1('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?', v, WH35) || {}).qty || 0);
       const url = `/api/inventory/ledger/${led.id}/reverse-correction`;
       const prev = await call('GET', `/api/inventory/ledger/${led.id}/reverse-correction-preview`);
-      ok(prev.status === 200 && prev.body.variant_breakdown_required === true
-        && (prev.body.variant_layer_in_warehouse || []).length === 2, 'preview: variant_breakdown_required + variant layer listed', prev.body);
+      ok(prev.status === 200 && prev.body.variant_breakdown_required === false
+        && prev.body.variant_breakdown_supported === false && prev.body.with_stock_allowed === false
+        && (prev.body.variant_layer_in_warehouse || []).length === 2,
+      'preview: unattributed matrix correction is explicitly unsupported and variant layer is listed', prev.body);
       const base = { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'with_stock' };
       const c0 = changes();
       const r0 = await call('POST', url, base);
-      ok(r0.status === 409 && r0.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_REQUIRED' && changes() === c0, 'no breakdown ⇒ 409 REQUIRED, zero writes', r0.body);
-      const r1 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }] });
-      ok(r1.status === 409 && r1.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN_SUM' && changes() === c0, 'sum ≠ qty ⇒ 409 SUM, zero writes', r1.body);
-      const r2 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: VX, qty: 1 }] });
-      ok(r2.status === 409 && r2.body.code === 'E_LEDGER_REVERSE_VARIANT_FOREIGN' && changes() === c0, 'foreign variant ⇒ 409, zero writes', r2.body);
-      const r3 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 2 }] });
-      ok(r3.status === 409 && r3.body.code === 'E_REVERSE_STOCK_NEGATIVE' && changes() === c0, 'variant layer negative ⇒ 409, zero writes', r3.body);
-      const r4 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: V1, qty: 1 }] });
-      ok(r4.status === 400 && r4.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN' && changes() === c0, 'duplicate variant ⇒ 400', r4.body);
+      ok(r0.status === 409 && r0.body.code === 'E_LEDGER_REVERSE_UNATTRIBUTED_MATRIX' && changes() === c0,
+        'legacy matrix row without variant ⇒ clear refusal, zero writes', r0.body);
       const r5 = await call('POST', url, { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'kardex_only', variant_breakdown: [{ variant_id: V1, qty: 2 }] });
-      ok(r5.status === 400 && r5.body.code === 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN' && changes() === c0, 'breakdown with kardex_only ⇒ 400', r5.body);
+      ok(r5.status === 409 && r5.body.code === 'E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT' && changes() === c0,
+        'breakdown with kardex_only ⇒ SSOT refusal', r5.body);
       const r6 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: V2, qty: 1 }] });
-      ok(r6.status === 200 && ws(P4, WH35) === 0 && vq(V1) === 0 && vq(V2) === 0 && (r6.body.variant_breakdown || []).length === 2,
-        'breakdown 1+1 ⇒ 200, warehouse_stock 0 and variant layer 0/0', { body: r6.body, v1: vq(V1), v2: vq(V2) });
-      const aud = q1("SELECT detail FROM audit_log WHERE action='ledger_reverse_correction' AND entity_id=? ORDER BY id DESC LIMIT 1", led.id);
-      ok(aud && JSON.parse(aud.detail).variant_breakdown.length === 2, 'audit carries variant_breakdown');
+      ok(r6.status === 409 && r6.body.code === 'E_LEDGER_REVERSE_UNATTRIBUTED_MATRIX'
+        && ws(P4, WH35) === 2 && vq(V1) === 1 && vq(V2) === 1 && changes() === c0,
+        'even a complete breakdown is refused because SSOT forbids a new matrix row without variant',
+        { body: r6.body, v1: vq(V1), v2: vq(V2) });
     }
 
     console.log('— sync capture —');

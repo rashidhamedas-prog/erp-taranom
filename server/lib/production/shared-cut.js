@@ -913,13 +913,11 @@ function reverseSharedCutEffects(db, batch, user, reason) {
       ? db.prepare("SELECT * FROM cutting_packs WHERE lay_id=? AND COALESCE(status,'posted')='posted'").all(batch.lay_id)
       : []);
   for (const pack of packs) {
-    // PACK WIP مشترک معمولاً بدون ledger/JE است — فقط وضعیت. با ledger، معکوس موجودی بدون تراکنش تو در تو.
-    if (pack.ledger_id) {
-      reverseInventoryMovement(db, pack.ledger_id, {
-        createdBy: user && user.id,
-        note: reason || 'ابطال PACK برش مشترک',
-      });
-    }
+    // PACK WIP مشترک معمولاً بدون ledger/JE است — فقط وضعیت. با ledger، معکوس همهٔ ردیف‌های رنگ×سایز بدون تراکنش تو در تو.
+    require('./cutting').reversePackInbound(db, pack, {
+      createdBy: user && user.id,
+      note: reason || 'ابطال PACK برش مشترک',
+    });
     if (pack.journal_id) {
       const { reverseJournalEntry } = require('../void-journal');
       reverseJournalEntry(db, pack.journal_id, {

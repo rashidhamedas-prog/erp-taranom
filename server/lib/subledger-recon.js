@@ -45,6 +45,7 @@ const CHECKS = [
   ['payroll', 'تطبیق حقوق، بیمه و مالیات حقوق با دفتر کل'],
   ['vat', 'تطبیق مالیات بر ارزش افزوده فاکتورها با دفتر کل'],
   ['wip', 'تطبیق کالای در جریان ساخت سفارش‌های باز با دفتر کل'],
+  ['stock_cache_vs_ledger', 'تطبیق کش موجودی با کاردکس (دفتر موجودی)'],
 ];
 const CHECK_NAMES = new Map(CHECKS);
 
@@ -1859,6 +1860,48 @@ function checkWip(ctx) {
   });
 }
 
+function checkStockCacheVsLedger(ctx) {
+  const { db } = ctx;
+  const { stockCacheVsLedger } = require('./inventory/stock-cache');
+  const rep = stockCacheVsLedger(db, { limit: 2000 });
+  const mismatchRows = (rep.rows || []).map((r) => ({ ...r, status: 'warn' }));
+  const unattributedRows = (rep.unattributed || []).map((u) => ({
+    level: 'unattributed',
+    product_id: u.product_id,
+    product_code: u.product_code,
+    warehouse_id: u.warehouse_id,
+    qty: u.qty,
+    status: 'warn',
+  }));
+  const rows = [...mismatchRows, ...unattributedRows];
+  const status = rep.mismatch_count === 0 ? 'ok' : 'warn';
+  const subStatus = rep.mismatch_count === 0 && rep.unattributed_count > 0 ? 'unattributed_variants' : null;
+  const parts = [];
+  if (rep.mismatch_count === 0) {
+    parts.push('کش موجودی (products.stock / warehouse_stock / product_variants / variant_warehouse_stock) کاملاً منطبق با کاردکس زنده است');
+  } else {
+    parts.push(`${rep.mismatch_count} ردیف مغایرت در ${rep.mismatched_products} کالا بین کش موجودی و کاردکس زنده`);
+  }
+  if (rep.unattributed_count > 0) {
+    parts.push(`هشدار: ${rep.unattributed_count} ردیف کالای ماتریسی با موجودی زنده بدون variant_id (unattributed)`);
+  }
+  const out = result('stock_cache_vs_ledger', {
+    status,
+    sub_status: subStatus,
+    gl_rial: null,
+    sub_rial: null,
+    diff_rial: 0,
+    rows,
+    fixable: false,
+    note: parts.join(' — '),
+  });
+  out.mismatch_count = rep.mismatch_count;
+  out.mismatched_products = rep.mismatched_products;
+  out.unattributed_count = rep.unattributed_count;
+  out.unattributed = (rep.unattributed || []).slice(0, SAMPLE_SIZE);
+  return out;
+}
+
 const RUNNERS = {
   inventory_vs_gl: checkInventoryVsGl,
   movements_without_je: checkMovementsWithoutJe,
@@ -1875,6 +1918,7 @@ const RUNNERS = {
   payroll: checkPayroll,
   vat: checkVat,
   wip: checkWip,
+  stock_cache_vs_ledger: checkStockCacheVsLedger,
 };
 
 function runOne(ctx, code) {
@@ -2478,5 +2522,6 @@ module.exports = {
   checkPayroll,
   checkVat,
   checkWip,
+  checkStockCacheVsLedger,
   ctxFor,
 };

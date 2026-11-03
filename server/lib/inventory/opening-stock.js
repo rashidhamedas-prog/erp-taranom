@@ -411,6 +411,7 @@ function postDoc(db, id, user) {
   const { postToLedger } = require('../ledger');
   const { rialToLedger } = require('../money');
   const { assertPeriodOpen } = require('./period-lock');
+  const transferRevaluePending = [];
 
   db.transaction(() => {
     const doc = db.prepare('SELECT * FROM opening_stock_docs WHERE id=?').get(id);
@@ -517,13 +518,35 @@ function postDoc(db, id, user) {
         userId: user ? user.id : null,
       });
     }
+    const seenRv = new Set();
+    const TI = require('./transfer-in-revalue');
+    for (const b of byWh) {
+      const pid = b.l && b.l.product_id;
+      const wid = b.warehouseId;
+      if (!pid || !wid) continue;
+      const key = `${pid}:${wid}`;
+      if (seenRv.has(key)) continue;
+      seenRv.add(key);
+      const rv = TI.revalueTransfersAfterBackdatedInbound(db, {
+        productId: pid,
+        warehouseId: wid,
+        date,
+        user,
+        reason: 'افتتاحیهٔ معوق — اصلاح ارزش انتقال صفر',
+      });
+      if (rv && rv.pending && rv.note) {
+        transferRevaluePending.push({ product_id: pid, warehouse_id: wid, note: rv.note, posted: rv.posted || 0 });
+      }
+    }
     db.prepare(`
       UPDATE opening_stock_docs
       SET status='posted', posted_by=?, posted_at=strftime('%s','now'), je_id=?
       WHERE id=? AND status='draft'
     `).run(user ? user.id : null, jeId, doc.id);
   })();
-  return getDoc(db, id);
+  const posted = getDoc(db, id);
+  if (transferRevaluePending.length) posted.transfer_revalue_pending = transferRevaluePending;
+  return posted;
 }
 
 /**

@@ -101,10 +101,6 @@ function createQuickProduct(db, user, body) {
       db.prepare('UPDATE products SET retail_price=?, retail_price_rial=? WHERE id=?')
         .run(retail, retail, productId);
     }
-    if (defaultWarehouse) {
-      db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,0)')
-        .run(productId, defaultWarehouse);
-    }
     try { assignProductTafsili(db, productId, name); } catch (_) { /* optional */ }
     return productId;
   })();
@@ -124,7 +120,8 @@ function updateProductFromExcel(db, user, productId, body) {
     ? resolveCategory(db, { category: src.category || prod.category, category_id: src.category_id || prod.category_id })
     : { catName: prod.category || '', catId: prod.category_id };
   // Stock is never written from Excel — only via «موجودی اول دوره» / warehouse documents.
-  const stockVal = parseQty(prod.stock);
+  // The figure compared against is the ledger-derived on-hand (single source of truth).
+  const stockVal = require('./inventory/stock-cache').derivedQty(db, { productId });
   if (src.stock != null && src.stock !== '' && Math.abs(parseQty(src.stock) - stockVal) > 1e-9) {
     throw stockViaOpeningErr(`«${nameVal}»`);
   }
@@ -132,14 +129,13 @@ function updateProductFromExcel(db, user, productId, body) {
     ? (parseInt(src.warehouse_id, 10) || null)
     : prod.warehouse_id;
 
-  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock=?,stock_alert=?,unit=?,note=?,
+  db.prepare(`UPDATE products SET category=?,category_id=?,code=?,name=?,price=?,cost=?,stock_alert=?,unit=?,note=?,
     colors=?,pack_size=?,warehouse_id=?,barcode=?,full_name=?,product_type=?,product_index=?,tax_id=?,
     consumer_price=?,location=?,opening_price=?,sms_code=? WHERE id=?`)
     .run(
       catName, catId, codeVal, nameVal,
       src.price != null ? (parseFloat(src.price) || 0) : (Number(prod.price) || 0),
       src.cost != null ? (parseFloat(src.cost) || 0) : (Number(prod.cost) || 0),
-      stockVal,
       src.stock_alert != null ? (parseInt(src.stock_alert, 10) || 5) : (parseInt(prod.stock_alert, 10) || 5),
       src.unit != null ? (src.unit || 'عدد') : (prod.unit || 'عدد'),
       src.note != null ? (src.note || '') : (prod.note || ''),

@@ -769,7 +769,7 @@ function postPartyOpeningBalance(db, {
  * Dr inventory / Cr opening_balance
  */
 function postProductOpeningInventory(db, {
-  productId, qty, unitCostRial, date, userId, description, srcSystem, skipLedger,
+  productId, qty, unitCostRial, date, userId, description, srcSystem, skipLedger, variantId,
 }) {
   const q = Math.max(0, Number(qty) || 0);
   const unit = Math.max(0, Math.round(Number(unitCostRial) || 0));
@@ -818,21 +818,34 @@ function postProductOpeningInventory(db, {
   // skipStock alone still wrote qty_in and inflated cardex until reconcile.
   if (product.warehouse_id && !skipLedger) {
     const { postInventoryMovement } = require('./inventory/ledger');
-    postInventoryMovement(db, {
-      eventType: 'opening',
-      productId,
-      warehouseId: product.warehouse_id,
-      qty: q,
-      unitCostRial: unit,
-      sourceType: 'opening_inventory',
-      sourceId: productId,
-      jeId: entryId,
-      date: openingDate,
-      note: description || `موجودی اول دوره — ${product.name || productId}`,
-      createdBy: userId,
-      updateAvg: false,
-      skipStock: true,
-    });
+    const vid = variantId != null && Number(variantId) > 0 ? Math.trunc(Number(variantId)) : null;
+    const writeOpening = () => {
+      postInventoryMovement(db, {
+        eventType: 'opening',
+        productId,
+        warehouseId: product.warehouse_id,
+        variantId: vid,
+        qty: q,
+        unitCostRial: unit,
+        sourceType: 'opening_inventory',
+        sourceId: productId,
+        jeId: entryId,
+        date: openingDate,
+        note: description || `موجودی اول دوره — ${product.name || productId}`,
+        createdBy: userId,
+        updateAvg: false,
+        skipStock: true,
+      });
+      require('./inventory/transfer-in-revalue').revalueTransfersAfterBackdatedInbound(db, {
+        productId,
+        warehouseId: product.warehouse_id,
+        date: openingDate,
+        user: userId ? { id: userId } : null,
+        reason: 'افتتاحیهٔ معوق — اصلاح ارزش انتقال صفر',
+      });
+    };
+    if (db.inTransaction) writeOpening();
+    else db.transaction(writeOpening)();
   }
   const { catalogCostFromAvgRial } = require('./inventory/product-unit-cost');
   db.prepare(`
@@ -1110,26 +1123,16 @@ function retireSpuriousKardexAlign(db, { apply = false, productId = null } = {})
     const net = _ledgerNet(db, productId, warehouseId);
     if (entry) entry.ledger_net_after = net;
     try {
-      const ws = db.prepare(
+      const before = db.prepare(
         'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
       ).get(productId, warehouseId);
-      if (ws) {
-        if (Math.abs((Number(ws.qty) || 0) - net) > 1e-9) {
-          db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-            .run(net, productId, warehouseId);
-          syncedWh += 1;
-        }
-      } else if (Math.abs(net) > 1e-9) {
-        db.prepare(
-          'INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)'
-        ).run(productId, warehouseId, net);
-        syncedWh += 1;
-      }
-      const header = db.prepare(`
-        SELECT COALESCE(SUM(qty),0) q FROM warehouse_stock WHERE product_id=?
-      `).get(productId);
-      db.prepare('UPDATE products SET stock=? WHERE id=?')
-        .run(Number(header?.q) || 0, productId);
+      const beforeQty = before ? Number(before.qty) || 0 : null;
+      require('./inventory/stock-cache').rebuildStockCache(db, productId);
+      const after = db.prepare(
+        'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+      ).get(productId, warehouseId);
+      const afterQty = after ? Number(after.qty) || 0 : 0;
+      if (beforeQty == null ? Math.abs(afterQty) > 1e-9 : Math.abs(beforeQty - afterQty) > 1e-9) syncedWh += 1;
     } catch (e) {
       if (entry) entry.ws_sync_error = e.message || String(e);
     }

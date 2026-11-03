@@ -6,13 +6,8 @@ const { swAtLeast } = require('./lib/sw-at-least');
  * Run: node server/scripts/test-variant-wh-scope-v238.js
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const Database = require('better-sqlite3');
-
-const testDb = path.join(__dirname, '_variant-wh-scope-v238-test.db');
-for (const suffix of ['', '-wal', '-shm']) {
-  try { fs.unlinkSync(testDb + suffix); } catch (_) {}
-}
 
 let pass = 0;
 let fail = 0;
@@ -23,92 +18,63 @@ function ok(cond, label, extra) {
 
 console.log('\n══ Variant warehouse scope v238 ══\n');
 
-const db = new Database(testDb);
-db.pragma('journal_mode = WAL');
-db.exec(`
-  CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-  CREATE TABLE products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT, stock REAL DEFAULT 0, warehouse_id INTEGER, pack_size INTEGER DEFAULT 1, colors INTEGER DEFAULT 1
-  );
-  CREATE TABLE warehouses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, allow_negative INTEGER DEFAULT 0
-  );
-  CREATE TABLE warehouse_stock (
-    product_id INTEGER NOT NULL, warehouse_id INTEGER NOT NULL, qty REAL DEFAULT 0,
-    PRIMARY KEY (product_id, warehouse_id)
-  );
-  CREATE TABLE stock_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER, user_id INTEGER, change REAL, note TEXT
-  );
-  CREATE TABLE product_colors (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, active INTEGER DEFAULT 1
-  );
-  CREATE TABLE product_sizes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, active INTEGER DEFAULT 1
-  );
-  CREATE TABLE product_variants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    color_id INTEGER, size_id INTEGER,
-    sku TEXT, barcode TEXT, stock REAL DEFAULT 0,
-    active INTEGER DEFAULT 1, is_default INTEGER DEFAULT 0, status TEXT DEFAULT 'active'
-  );
-`);
+// Stock single source: REAL schema (initDB) + stock only through ledger documents (variant-stamped rows).
+// The old fixture hand-wrote variant_warehouse_stock (incl. a forged "global copy" double count); the caches are
+// now derived, so the heal's job is "rebuild from the ledger" and we corrupt the caches deliberately to prove it.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vwh-scope-v238-'));
+process.env.DB_PATH = path.join(tmp, 'test.db');
+process.env.SYNC_ROLE = 'central';
+process.env.ERP_TEST_ISOLATION = '1';
+process.env.SMS_DISABLED = '1';
+process.env.JWT_SECRET = 'test-vwh-scope-v238-secret-32chars!!!!!!';
+process.env.AUTH_SESSION_DB_PATH = path.join(tmp, 'sessions.db');
+process.env.NODE_ENV = 'test';
+const { getDB, initDB } = require('../db');
+initDB();
+const db = getDB();
 
 const {
-  ensureInventorySchema, postStockMovement, expandLivePack, variantWarehouseQty,
-  reconcileVariantWarehouseProjections,
+  expandLivePack, variantWarehouseQty, reconcileVariantWarehouseProjections,
 } = require('../lib/inventory/movement');
+const { postInventoryMovement } = require('../lib/inventory/ledger');
+const { seedStock } = require('./lib/stock-fixture');
+const vws = (vid, wh) => Number((db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, wh) || {}).qty || 0);
 
-ensureInventorySchema(db);
-
-const whA = db.prepare('INSERT INTO warehouses (name) VALUES (?)').run('محصول').lastInsertRowid;
-const whB = db.prepare('INSERT INTO warehouses (name) VALUES (?)').run('کیمیا').lastInsertRowid;
-const pid = db.prepare(
-  'INSERT INTO products (name, stock, warehouse_id, pack_size) VALUES (?,?,?,?)'
-).run('آفاق تست', 0, whA, 1).lastInsertRowid;
-const c1 = db.prepare('INSERT INTO product_colors (name) VALUES (?)').run('مشکی').lastInsertRowid;
-const s1 = db.prepare('INSERT INTO product_sizes (name) VALUES (?)').run('فری').lastInsertRowid;
-const vid = db.prepare(`
+const adminId = Number(db.prepare("INSERT INTO users (name, username, password, role, active, must_change_password) VALUES ('مدیر','vws_admin','x','admin',1,0)").run().lastInsertRowid);
+const whA = Number(db.prepare("INSERT INTO warehouses (name, code, active, allow_negative, warehouse_type, inventory_system) VALUES ('محصول','VWS-A',1,0,'finished_goods','perpetual')").run().lastInsertRowid);
+const whB = Number(db.prepare("INSERT INTO warehouses (name, code, active, allow_negative, warehouse_type, inventory_system) VALUES ('کیمیا','VWS-B',1,0,'finished_goods','perpetual')").run().lastInsertRowid);
+const pid = Number(db.prepare(
+  "INSERT INTO products (user_id, name, code, unit, stock, warehouse_id, pack_size, price, cost, average_cost_rial) VALUES (?,?,?,?,?,?,?,1000,1000,1000)"
+).run(adminId, 'آفاق تست', 'VWS-P', 'عدد', 0, whA, 1).lastInsertRowid);
+const c1 = Number(db.prepare("INSERT INTO product_colors (name, code, active) VALUES ('مشکی','VWSB',1)").run().lastInsertRowid);
+const s1 = Number(db.prepare("INSERT INTO product_sizes (name, code, active) VALUES ('فری','VWSF',1)").run().lastInsertRowid);
+const vid = Number(db.prepare(`
   INSERT INTO product_variants (product_id, color_id, size_id, sku, stock, active, is_default)
-  VALUES (?,?,?,?,?,1,0)
-`).run(pid, c1, s1, 'SKU-AF', 5).lastInsertRowid;
+  VALUES (?,?,?,?,0,1,0)
+`).run(pid, c1, s1, 'SKU-AF').lastInsertRowid);
 
-// Opening seed only for single-WH products — give product one WH row then re-seed
-db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(pid, whA, 5);
-ensureInventorySchema(db);
-ok(
-  Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whA)?.qty) === 5,
-  'seed opening → VWS@A=5'
-);
+// Opening document: 5 in محصول
+seedStock(db, { productId: pid, variantId: vid, warehouseId: whA, qty: 5, note: 'opening' });
+ok(vws(vid, whA) === 5, 'seed opening → VWS@A=5');
 
-// Simulate corrupt double-count (old seed-with-global bug): B has full global copy
+// Simulate corrupt double-count (old seed-with-global bug): B has a full global copy in the CACHE only
 db.prepare(`
   INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)
   ON CONFLICT(variant_id, warehouse_id) DO UPDATE SET qty=excluded.qty
 `).run(vid, whB, 5);
 db.prepare("DELETE FROM settings WHERE key='vws_wh_reconcile_v1'").run();
 const heal = reconcileVariantWarehouseProjections(db);
-ok(heal && heal.scaled >= 1, 'reconcile scales double-count', heal);
-const afterA = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whA)?.qty || 0);
-const afterB = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whB)?.qty || 0);
-ok(Math.abs(afterA + afterB - 5) < 0.01, 'after heal VWS sum = global 5', `A=${afterA} B=${afterB}`);
+ok(heal && heal.rebuilt >= 1, 'reconcile rebuilds the caches from the ledger', JSON.stringify(heal));
+const afterA = vws(vid, whA);
+const afterB = vws(vid, whB);
+ok(afterA === 5 && afterB === 0 && Math.abs(afterA + afterB - 5) < 0.01, 'after heal VWS sum = ledger 5 (double count gone)', `A=${afterA} B=${afterB}`);
 
-// Reset clean state: all 5 in کیمیا, 0 in محصول
-db.prepare('UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?').run(0, vid, whA);
-db.prepare('UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?').run(5, vid, whB);
-db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(5, vid);
-db.prepare(`
-  INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-  ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-`).run(pid, whA, 0);
-db.prepare(`
-  INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-  ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-`).run(pid, whB, 5);
-db.prepare('UPDATE products SET stock=? WHERE id=?').run(5, pid);
+// Move all 5 to کیمیا by documents (transfer A→B, whole qty): 0 in محصول, 5 in کیمیا
+const xfer = (qty, from, to, docId) => {
+  postInventoryMovement(db, { eventType: 'transfer_out', productId: pid, variantId: vid, warehouseId: from, qtyOut: qty, sourceType: 'wh_transfer', sourceId: docId, date: '1405/01/02', updateAvg: false, allowZeroCost: true });
+  postInventoryMovement(db, { eventType: 'transfer_in', productId: pid, variantId: vid, warehouseId: to, qtyIn: qty, unitCostRial: 1000, sourceType: 'wh_transfer', sourceId: docId, date: '1405/01/02', updateAvg: false, allowZeroCost: true });
+};
+xfer(5, whA, whB, 9000);
 
 ok(variantWarehouseQty(db, vid, whA) === 0, 'ATP@محصول = 0 (no global fallback)');
 ok(variantWarehouseQty(db, vid, whB) === 5, 'ATP@کیمیا = 5');
@@ -119,43 +85,25 @@ ok(liveA.lines.length === 0, 'live-pack@محصول empty', liveA.lines.length);
 const liveB = expandLivePack(db, pid, whB);
 ok(liveB.lines.length === 1 && liveB.lines[0].sku_stock === 5, 'live-pack@کیمیا has color');
 
-// Transfer-in must NOT seed destination with global stock
-db.transaction(() => {
-  postStockMovement(db, {
-    productId: pid, variantId: vid, warehouseId: whB, qtyDelta: -2,
-    docType: 'wh_transfer_out', docId: 9001, docLine: 0, allowNegative: false,
-    applyHeaderStock: true,
-  });
-  postStockMovement(db, {
-    productId: pid, variantId: vid, warehouseId: whA, qtyDelta: 2,
-    docType: 'wh_transfer_in', docId: 9001, docLine: 1, allowNegative: false,
-    applyHeaderStock: true,
-  });
-})();
-const vwsA2 = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whA)?.qty || 0);
-const vwsB2 = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whB)?.qty || 0);
-const g2 = Number(db.prepare('SELECT stock FROM product_variants WHERE id=?').get(vid)?.stock || 0);
+// Transfer-in must NOT seed destination with global stock: B→A of 2 documents only
+xfer(2, whB, whA, 9001);
+const vwsA2 = vws(vid, whA);
+const vwsB2 = vws(vid, whB);
+const g2 = Number(db.prepare('SELECT stock FROM product_variants WHERE id=?').get(vid).stock || 0);
 ok(vwsA2 === 2 && vwsB2 === 3, 'transfer A←B: A=2 B=3', `A=${vwsA2} B=${vwsB2}`);
 ok(g2 === 5 && Math.abs(vwsA2 + vwsB2 - g2) < 0.01, 'no double-count after transfer', `g=${g2}`);
 
-// stock-matrix scoped write: set VWS@B absolute without wiping A
-db.prepare(`
-  INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)
-  ON CONFLICT(variant_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-`).run(vid, whB, 10);
-const sumAll = db.prepare(
-  'SELECT COALESCE(SUM(qty),0) AS s FROM variant_warehouse_stock WHERE variant_id=?'
-).get(vid).s;
-db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(sumAll, vid);
-const vwsA3 = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whA)?.qty || 0);
-const vwsB3 = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vid, whB)?.qty || 0);
+// stock-matrix scoped write: set VWS@B to 10 (an adjustment document of +7 in B) without wiping A
+postInventoryMovement(db, { eventType: 'adjustment', productId: pid, variantId: vid, warehouseId: whB, qty: 7, sourceType: 'variant_stock_adjust', sourceId: null, date: '1405/01/03', updateAvg: false, allowNegative: true, allowZeroCost: true });
+const vwsA3 = vws(vid, whA);
+const vwsB3 = vws(vid, whB);
 ok(vwsB3 === 10 && vwsA3 === 2, 'stock-matrix@کیمیا=10 keeps محصول=2', `A=${vwsA3} B=${vwsB3}`);
 ok(Number(db.prepare('SELECT stock FROM product_variants WHERE id=?').get(vid).stock) === 12,
   'variant.stock = sum VWS = 12');
-
 const svc = fs.readFileSync(path.join(__dirname, '../lib/product-variants/service.js'), 'utf8');
-ok(svc.includes('warehouse_id') && svc.includes('variant_warehouse_stock') && svc.includes('SUM(qty)'),
-  'applyStockMatrix writes per-warehouse VWS');
+// SSOT: the matrix no longer writes variant_warehouse_stock; quantities are per-warehouse adjustment documents.
+ok(svc.includes('function postStockMatrix') && svc.includes('MA.postAdjust(') && /warehouse_id/.test(svc.slice(svc.indexOf('function postStockMatrix'))),
+  'postStockMatrix posts per-warehouse adjustment documents (no direct VWS write)');
 
 // Frontend contract
 const appJs = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
@@ -169,10 +117,6 @@ ok(appJs.includes('پک زندهٔ') || appJs.includes('همان انبار مب
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 ok(swAtLeast(sw, 238), 'SW v238');
 
-db.close();
-for (const suffix of ['', '-wal', '-shm']) {
-  try { fs.unlinkSync(testDb + suffix); } catch (_) {}
-}
 
 console.log(`\n══ ${pass} passed, ${fail} failed ══\n`);
 process.exit(fail ? 1 : 0);

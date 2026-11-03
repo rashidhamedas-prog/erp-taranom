@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Regression: image-only PUT must not wipe stock/pack_size/price/code/note.
- * Also verifies restore-from-warehouse helper.
+ * Also verifies that repair rebuilds stock from inventory_ledger, never from stale caches/backups.
  */
 const assert = require('assert');
 const fs = require('fs');
@@ -154,11 +154,12 @@ server.listen(0, async () => {
     emptyBak.close();
     const summary = restoreProductFieldsAfterImageWipe(db, { backupsDir: bakDir });
     row = db.prepare('SELECT stock, pack_size, price, code, note FROM products WHERE id=?').get(pid);
-    assert.equal(Number(row.stock), 48, 'stock restored from warehouse');
+    assert.equal(Number(row.stock), 0, 'stock stays ledger-derived; stale warehouse/backup value is not restored');
     assert.equal(Number(row.pack_size), 12, 'pack restored from backup');
     assert.equal(Number(row.price), 150000, 'price restored from backup');
     assert.equal(row.code, 'T-WIPE-1');
     assert.equal(row.note, 'یادداشت');
+    assert.equal(summary.stockFromBackup, 0, 'backup stock is never treated as source of truth');
     assert.ok(summary.stockFromWarehouse >= 1 || summary.packRestored >= 1);
     assert.ok((summary.priceRestored || 0) >= 1 && (summary.codeRestored || 0) >= 1, 'price+code from backup despite empty sibling db');
 

@@ -20,40 +20,28 @@ ok(appJs.includes('stock_global'), 'موجودی سراسری رنگ از موج
 ok(serviceSrc.includes('function retireZeroStockColors'), 'صفر شدن رنگ در سرور از کالا جدا می‌شود');
 ok(appJs.includes('از تیک‌ها و جدول همین کالا حذف می‌شود'), 'راهنما حذف ردیف رنگ صفر را می‌گوید');
 
-function loadBetterSqlite3() {
-  const candidates = [
-    path.join(__dirname, '..', 'node_modules', 'better-sqlite3'),
-  ];
-  for (const c of candidates) {
-    try { return require(c); } catch (_) {}
-  }
-  return require('better-sqlite3');
-}
-
-const Database = loadBetterSqlite3();
-const db = new Database(':memory:');
-db.exec(`
-  CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-  CREATE TABLE products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT, name TEXT, barcode TEXT, price REAL DEFAULT 0, price_rial INTEGER DEFAULT 0,
-    cost REAL DEFAULT 0, stock REAL DEFAULT 0, colors INTEGER DEFAULT 1,
-    pack_size INTEGER DEFAULT 1, unit TEXT DEFAULT 'عدد', warehouse_id INTEGER,
-    is_style INTEGER DEFAULT 0, has_variants INTEGER DEFAULT 0, default_variant_id INTEGER
-  );
-  CREATE TABLE warehouse_stock (
-    product_id INTEGER NOT NULL, warehouse_id INTEGER NOT NULL, qty REAL DEFAULT 0,
-    PRIMARY KEY (product_id, warehouse_id)
-  );
-`);
-const { initProductVariantsSchema } = require('../lib/product-variants');
+// Stock single source: boot the REAL schema (it owns inventory_ledger + derived caches); matrix quantities are
+// ledger 'adjustment' documents (test-helpers/matrix-seed), never hand-written cache rows.
+const os = require('os');
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'zc316-'));
+process.env.DB_PATH = path.join(tmp, 'test.db');
+process.env.SYNC_ROLE = 'central';
+process.env.ERP_TEST_ISOLATION = '1';
+process.env.SMS_DISABLED = '1';
+process.env.JWT_SECRET = 'test-zc316-secret-32chars!!!!!!!!!!!!!';
+process.env.AUTH_SESSION_DB_PATH = path.join(tmp, 'sessions.db');
+process.env.NODE_ENV = 'test';
+const { getDB, initDB } = require('../db');
+initDB();
+const db = getDB();
+const adminId = Number(db.prepare("INSERT INTO users (name, username, password, role, active, must_change_password) VALUES ('مدیر','zc_admin','x','admin',1,0)").run().lastInsertRowid);
+const mkWh = (code) => Number(db.prepare("INSERT INTO warehouses (name, code, active, allow_negative, warehouse_type, inventory_system) VALUES (?,?,1,1,'finished_goods','perpetual')").run(code, code).lastInsertRowid);
+const wh1 = mkWh('ZC-1');
+const wh2 = mkWh('ZC-2');
 const { generateMatrix, adjustVariantStock } = require('../lib/product-variants/service');
-// P1: applyStockMatrix is structure-only in production; fixtures seed cache layers directly.
 const applyStockMatrix = (...a) => require('./test-helpers/matrix-seed').seedMatrixQty(...a);
-initProductVariantsSchema(db);
-
 const productId = db.prepare(
-  "INSERT INTO products (code,name,price,stock,pack_size,unit) VALUES ('K-ZERO','مانتو',1000,0,1,'عدد')"
+  `INSERT INTO products (user_id,code,name,price,stock,pack_size,unit,warehouse_id,average_cost_rial,cost) VALUES (${adminId},'K-ZERO','مانتو',1000,0,1,'عدد',${wh1},1000,1000)`
 ).run().lastInsertRowid;
 generateMatrix(db, {
   product_id: productId,
@@ -72,7 +60,7 @@ applyStockMatrix(db, productId, [
   { color_id: pink.id, size_id: s2.id, qty: 8 },
   { color_id: black.id, size_id: s1.id, qty: 5 },
   { color_id: black.id, size_id: s2.id, qty: 0 },
-], { warehouse_id: 1 });
+], { warehouse_id: wh1 });
 
 const blackActivePartial = db.prepare(`
   SELECT COUNT(*) c FROM product_variants
@@ -83,7 +71,7 @@ ok(blackActivePartial === 2, 'صفر شدن یک سایز رنگ را حذف ن�
 const blackS1 = db.prepare(
   'SELECT id FROM product_variants WHERE product_id=? AND color_id=? AND size_id=? AND active=1'
 ).get(productId, black.id, s1.id);
-adjustVariantStock(db, blackS1.id, 0, 'set');
+adjustVariantStock(db, blackS1.id, 0, 'set', { warehouseId: wh1, userId: adminId });
 
 const blackLeft = db.prepare(`
   SELECT COUNT(*) c FROM product_variants
@@ -112,7 +100,7 @@ const back = applyStockMatrix(db, productId, [
   { color_id: pink.id, size_id: s2.id, qty: 8 },
   { color_id: black.id, size_id: s1.id, qty: 4 },
   { color_id: black.id, size_id: s2.id, qty: 0 },
-], { warehouse_id: 1 });
+], { warehouse_id: wh1 });
 const blackBack = db.prepare(`
   SELECT COUNT(*) c FROM product_variants
   WHERE product_id=? AND color_id=? AND active=1 AND COALESCE(is_default,0)=0

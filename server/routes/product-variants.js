@@ -252,10 +252,20 @@ router.get('/style/:productId', auth, (req, res) => {
       try {
         qtyStmt = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?');
       } catch (_) { qtyStmt = null; }
+      let derived = null;
+      try {
+        const { deriveProductStock } = require('../lib/inventory/stock-cache');
+        derived = deriveProductStock(db, productId);
+      } catch (_) { derived = null; }
       variants = variants.map((v) => {
-        const stockGlobal = Number(v.stock) || 0;
+        const vid = Number(v.id);
+        const stockGlobal = derived && derived.variants.has(vid)
+          ? derived.variants.get(vid)
+          : (Number(v.stock) || 0);
         let stock = 0;
-        if (qtyStmt) {
+        if (derived && derived.variantWarehouses.has(`${vid}:${warehouseId}`)) {
+          stock = derived.variantWarehouses.get(`${vid}:${warehouseId}`);
+        } else if (qtyStmt) {
           const row = qtyStmt.get(v.id, warehouseId);
           stock = row ? Number(row.qty) || 0 : 0;
         }

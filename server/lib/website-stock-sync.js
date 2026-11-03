@@ -662,29 +662,55 @@ function buildMatrixPayload(db, productId, channel, warehouseIdOrIds) {
   }
 
   let rows;
+  const hasLedgerVar = (() => {
+    try {
+      return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get()
+        && db.prepare('PRAGMA table_info(inventory_ledger)').all().some((c) => c.name === 'variant_id');
+    } catch (_) { return false; }
+  })();
+  const { LEDGER_LIVE_SQL } = (() => {
+    try { return require('./inventory/layer-reconcile'); } catch (_) { return { LEDGER_LIVE_SQL: '1=1' }; }
+  })();
   if (warehouseIds.length === 1) {
+    const ledJoin = hasLedgerVar ? `
+      LEFT JOIN (
+        SELECT variant_id, SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
+        FROM inventory_ledger
+        WHERE product_id = ? AND warehouse_id = ? AND (${LEDGER_LIVE_SQL}) AND variant_id IS NOT NULL
+        GROUP BY variant_id
+      ) led ON led.variant_id = v.id` : '';
+    const qtyExpr = hasLedgerVar ? 'COALESCE(vws.qty, led.qty, 0)' : 'COALESCE(vws.qty, 0)';
     rows = db.prepare(`
       SELECT v.id AS variant_id, v.sku, v.barcode,
              COALESCE(c.name, '') AS color_name,
              COALESCE(s.name, '') AS size_name,
-             COALESCE(vws.qty, 0) AS qty
+             ${qtyExpr} AS qty
       FROM product_variants v
       LEFT JOIN product_colors c ON c.id = v.color_id
       LEFT JOIN product_sizes s ON s.id = v.size_id
       LEFT JOIN variant_warehouse_stock vws
         ON vws.variant_id = v.id AND vws.warehouse_id = ?
+      ${ledJoin}
       WHERE v.product_id = ?
         AND COALESCE(v.active, 1) = 1
         AND COALESCE(v.is_default, 0) = 0
       ORDER BY c.sort_order, s.sort_order, v.id
-    `).all(warehouseIds[0], productId);
+    `).all(...(hasLedgerVar ? [warehouseIds[0], productId, warehouseIds[0], productId] : [warehouseIds[0], productId]));
   } else {
     const placeholders = warehouseIds.map(() => '?').join(',');
+    const ledJoin = hasLedgerVar ? `
+      LEFT JOIN (
+        SELECT variant_id, SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
+        FROM inventory_ledger
+        WHERE product_id = ? AND warehouse_id IN (${placeholders}) AND (${LEDGER_LIVE_SQL}) AND variant_id IS NOT NULL
+        GROUP BY variant_id
+      ) led ON led.variant_id = v.id` : '';
+    const qtyExpr = hasLedgerVar ? 'COALESCE(vws.qty, led.qty, 0)' : 'COALESCE(vws.qty, 0)';
     rows = db.prepare(`
       SELECT v.id AS variant_id, v.sku, v.barcode,
              COALESCE(c.name, '') AS color_name,
              COALESCE(s.name, '') AS size_name,
-             COALESCE(vws.qty, 0) AS qty
+             ${qtyExpr} AS qty
       FROM product_variants v
       LEFT JOIN product_colors c ON c.id = v.color_id
       LEFT JOIN product_sizes s ON s.id = v.size_id
@@ -694,11 +720,12 @@ function buildMatrixPayload(db, productId, channel, warehouseIdOrIds) {
         WHERE warehouse_id IN (${placeholders})
         GROUP BY variant_id
       ) vws ON vws.variant_id = v.id
+      ${ledJoin}
       WHERE v.product_id = ?
         AND COALESCE(v.active, 1) = 1
         AND COALESCE(v.is_default, 0) = 0
       ORDER BY c.sort_order, s.sort_order, v.id
-    `).all(...warehouseIds, productId);
+    `).all(...(hasLedgerVar ? [...warehouseIds, productId, ...warehouseIds, productId] : [...warehouseIds, productId]));
   }
 
   if (!rows.length) {

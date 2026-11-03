@@ -81,9 +81,10 @@ function parseInputs(db, body = {}) {
   return { product, productId, warehouseId, variantId, mode: rawMode, qty, reasonCode, date, unitCost };
 }
 
+/** Ledger-derived on-hand (Σ live kardex rows) of the adjusted SKU / warehouse. */
 function currentQty(db, { productId, warehouseId, variantId }) {
   if (variantId) return round3(require('./movement').variantWarehouseQty(db, variantId, warehouseId));
-  return round3(require('./ledger').warehouseQty(db, productId, warehouseId));
+  return round3(require('./ledger').stockOf(db, { productId, warehouseId: warehouseId || null }));
 }
 
 /** Live rate an outbound row would take now; also the default surplus rate. */
@@ -217,7 +218,8 @@ function postAdjust(db, body, user, opts = {}) {
     if (plan.integer && Math.abs(delta - Math.round(delta)) > 1e-9) {
       throw adjErr('E_QTY_NOT_INTEGER', 400, 'موجودی کالای قطعه‌ای باید عدد صحیح باشد');
     }
-    if (opts.requireReason && plan.matrix && !plan.variant_id) {
+    // SSOT: every ledger row of a matrix product names its SKU (the ledger refuses otherwise).
+    if (plan.matrix && !plan.variant_id) {
       throw adjErr('E_VARIANT_REQUIRED', 400, 'برای کالای رنگ×سایز، رنگ/سایز را انتخاب کنید');
     }
     if (plan.cost_overridden && !plan.can_override_cost) {

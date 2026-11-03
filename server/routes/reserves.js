@@ -185,6 +185,20 @@ router.get('/stale-products', auth, adminOrAccounting, (req, res) => {
   const hasInventoryLedger = !!db.prepare(`
     SELECT name FROM sqlite_master WHERE type='table' AND name='inventory_ledger'
   `).get();
+  const { LEDGER_LIVE_SQL } = require('../lib/inventory/layer-reconcile');
+  const { WAREHOUSE_ONLY_EVENTS } = require('../lib/inventory/stock-cache');
+  const woList = WAREHOUSE_ONLY_EVENTS.map((e) => `'${e}'`).join(',');
+  const ledMap = new Map();
+  if (hasInventoryLedger) {
+    for (const r of db.prepare(`
+      SELECT product_id, COALESCE(SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)),0) AS q
+      FROM inventory_ledger
+      WHERE (${LEDGER_LIVE_SQL}) AND COALESCE(event_type,'') NOT IN (${woList})
+      GROUP BY product_id
+    `).all()) {
+      ledMap.set(Number(r.product_id), Math.round((Number(r.q) || 0) * 1000) / 1000);
+    }
+  }
 
   const rows = db.prepare(`
     SELECT p.id, p.code, p.name, p.stock,
@@ -201,10 +215,10 @@ router.get('/stale-products', auth, adminOrAccounting, (req, res) => {
         0
       ) last_ledger_at` : ', 0 AS last_ledger_at'}
     FROM products p
-    WHERE COALESCE(p.stock, 0) > 0
   `).all().map(p => {
+    const stock = ledMap.has(Number(p.id)) ? ledMap.get(Number(p.id)) : (Number(p.stock) || 0);
     const lastAt = Math.max(p.last_stock_log_at || 0, p.last_move_at || 0, p.last_ledger_at || 0);
-    return { ...p, last_movement_at: lastAt, stale: lastAt < cutoff };
+    return { ...p, stock, last_movement_at: lastAt, stale: stock > 0 && lastAt < cutoff };
   }).filter(p => p.stale);
 
   res.json({ months, cutoff_epoch: cutoff, count: rows.length, rows });

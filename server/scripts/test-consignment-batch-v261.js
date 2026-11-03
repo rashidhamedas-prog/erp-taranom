@@ -90,20 +90,23 @@ function ok(cond, label, extra) {
 
   const p1 = db.prepare(`
     INSERT INTO products (name, code, stock, cost, price, warehouse_id, user_id)
-    VALUES ('کالای امانی A','CS-A',100,10000,20000,?,?)
+    VALUES ('کالای امانی A','CS-A',0,10000,20000,?,?)
   `).run(wh.id, admin.id).lastInsertRowid;
   const p2 = db.prepare(`
     INSERT INTO products (name, code, stock, cost, price, warehouse_id, user_id)
-    VALUES ('کالای امانی B','CS-B',80,8000,18000,?,?)
+    VALUES ('کالای امانی B','CS-B',0,8000,18000,?,?)
   `).run(wh.id, admin.id).lastInsertRowid;
-  db.prepare(`
-    INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-    ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-  `).run(p1, wh.id, 100);
-  db.prepare(`
-    INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)
-    ON CONFLICT(product_id, warehouse_id) DO UPDATE SET qty=excluded.qty
-  `).run(p2, wh.id, 80);
+  const { postInventoryMovement } = require('../lib/inventory/ledger');
+  postInventoryMovement(db, {
+    eventType: 'opening', productId: p1, warehouseId: wh.id, qtyIn: 100,
+    unitCostRial: 10000, sourceType: 'opening_stock_doc', sourceId: p1,
+    date: '1405/01/01', createdBy: admin.id,
+  });
+  postInventoryMovement(db, {
+    eventType: 'opening', productId: p2, warehouseId: wh.id, qtyIn: 80,
+    unitCostRial: 8000, sourceType: 'opening_stock_doc', sourceId: p2,
+    date: '1405/01/01', createdBy: admin.id,
+  });
 
   console.log('\n— batch create (out) atomic —');
   const qty1Before = warehouseQty(db, p1, wh.id);

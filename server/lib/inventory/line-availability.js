@@ -157,6 +157,11 @@ function lineAvailabilityWith(ctx, { productId, variantId = null, warehouseIds =
   const own = loadOwnDoc(ctx);
   const productRow = db.prepare('SELECT warehouse_id, stock FROM products WHERE id=?').get(pid);
   const wsHas = db.prepare('SELECT 1 FROM warehouse_stock WHERE product_id=? AND warehouse_id=?');
+  let derived = null;
+  try {
+    const { deriveProductStock } = require('./stock-cache');
+    derived = deriveProductStock(db, pid);
+  } catch (_) { derived = null; }
 
   return activeWarehouses(ctx, warehouseIds).map((w) => {
     const whId = Number(w.id);
@@ -172,7 +177,9 @@ function lineAvailabilityWith(ctx, { productId, variantId = null, warehouseIds =
     const available = round3(onHand - reserved + ownDocQty);
 
     const k = kardex ? (kardex.get(whId) || null) : null;
-    const kardexQty = kardex ? round3(k ? k.ledger_qty : 0) : null;
+    const kardexQty = kardex
+      ? round3(k ? k.ledger_qty : 0)
+      : (derived ? round3(derived.warehouses.get(whId) || 0) : null);
     const driftProduct = kardexQty != null && Math.abs(productWhQty - kardexQty) > EPS;
     const mvQty = isVariant ? movementsQty(ctx, vid, whId) : null;
     const driftVariant = isVariant && mvQty != null && Math.abs(onHand - mvQty) > EPS;

@@ -324,9 +324,30 @@ router.post('/', auth, adminOrAccounting, (req, res) => {
       });
     } else {
       const { postStockMovement } = require('../lib/inventory/movement');
+      const { postInventoryMovement } = require('../lib/inventory/ledger');
       let lineIdx = 0;
       for (const r of built.rows) {
         const rowWh = r.warehouse_id || whId;
+        // Stock single-source: the receipt is a ledger row (periodic path: no avg update, no JE here);
+        // inventory_movements below is only the audit/idempotency log.
+        if (r.product_id) {
+          const pr = priced[lineIdx] || r;
+          postInventoryMovement(db, {
+            eventType: 'purchase',
+            productId: r.product_id,
+            warehouseId: rowWh || null,
+            qtyIn: Number(r.qty) || 0,
+            variantId: r.variant_id ? Number(r.variant_id) : undefined,
+            unitCostRial: Math.round(Number(pr.price_rial) || 0) || undefined,
+            amountRial: pr.amount_rial != null ? Math.round(Number(pr.amount_rial) || 0) : undefined,
+            sourceType: 'purchase',
+            sourceId: invId,
+            date: entryDate,
+            note: `افزودن موجودی از فاکتور خرید ${num}`,
+            createdBy: req.user.id,
+            updateAvg: false,
+          });
+        }
         postStockMovement(db, {
           productId: r.product_id,
           variantId: r.variant_id || null,
@@ -538,56 +559,23 @@ router.delete('/:id', auth, adminOrAccounting, (req, res) => {
 
   const voidTx = db.transaction(() => {
     if (row.stock_added) {
-      if (perpetualDocsEnabled(db)) {
-        const reversed = reverseStockBySource(db, 'purchase', row.id, {
-          createdBy: req.user.id, date: todayJalali(), note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
-        });
+      // Stock single-source: the receipt is ledger rows (perpetual and periodic paths alike), so the
+      // void is a ledger reversal. inventory_movements (purchase_sku / purchase) are the log-only layer.
+      // Legacy docs that never had ledger rows have no ledger qty to take back.
+      reverseStockBySource(db, 'purchase', row.id, {
+        createdBy: req.user.id, date: todayJalali(), note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
+      });
+      const { reverseStockDocument } = require('../lib/inventory/movement');
+      for (const docType of ['purchase_sku', 'purchase']) {
         try {
-          require('../lib/inventory/movement').reverseStockDocument(db, {
-            docType: 'purchase_sku',
+          reverseStockDocument(db, {
+            docType,
             docId: row.id,
             userId: req.user.id,
-            note: `بازگشت رنگ×سایز از حذف فاکتور خرید ${row.num}`,
+            note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
             applyHeaderStock: false,
           });
-        } catch (_) { /* no sku layer on older docs */ }
-        if (!reversed.length) {
-          const invRows = JSON.parse(row.rows || '[]');
-          for (const r of invRows) {
-            const rowWh = r.warehouse_id || row.warehouse_id;
-            db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-            db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `بازگشت موجودی از حذف فاکتور خرید ${row.num}`);
-            if (rowWh) {
-              db.prepare('UPDATE warehouse_stock SET qty=qty-? WHERE product_id=? AND warehouse_id=?').run(r.qty, r.product_id, rowWh);
-            }
-          }
-        }
-      } else {
-        const { reverseStockDocument, postStockMovement } = require('../lib/inventory/movement');
-        const reversed = reverseStockDocument(db, {
-          docType: 'purchase', docId: row.id, userId: req.user.id,
-          note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
-        });
-        if (!reversed.length) {
-          const invRows = JSON.parse(row.rows || '[]');
-          let lineIdx = 0;
-          for (const r of invRows) {
-            const rowWh = r.warehouse_id || row.warehouse_id;
-            postStockMovement(db, {
-              productId: r.product_id,
-              variantId: r.variant_id || null,
-              warehouseId: rowWh || null,
-              qtyDelta: -(Number(r.qty) || 0),
-              docType: 'purchase_void',
-              docId: row.id,
-              docLine: lineIdx,
-              userId: req.user.id,
-              note: `بازگشت موجودی از حذف فاکتور خرید ${row.num}`,
-              allowNegative: true,
-            });
-            lineIdx += 1;
-          }
-        }
+        } catch (_) { /* no sku / movement layer on older docs */ }
       }
     }
     const purchaseLed = db.prepare(
@@ -900,6 +888,7 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
           productId: r.product_id,
           warehouseId: whId,
           qtyOut: Number(r.qty) || 0,
+          variantId: r.variant_id ? Number(r.variant_id) : undefined,
           unitCostRial: unitCost || Math.round(Number(r.unit_cost_rial) || Number(r.price) || 0),
           sourceType: 'purchase_return',
           sourceId: retId,
@@ -925,9 +914,27 @@ router.post('/returns', auth, adminOrAccounting, (req, res) => {
         }
       }
     } else {
+      // Periodic / non-perpetual: still a ledger row (stock is derived from the ledger); no avg update.
       for (const r of built.rows) {
-        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, -r.qty, `برگشت از خرید #${retId}`);
+        if (!r.product_id) continue;
+        const whId = r.warehouse_id || parent?.warehouse_id || null;
+        postInventoryMovement(db, {
+          eventType: 'purchase_return',
+          productId: r.product_id,
+          warehouseId: whId,
+          qtyOut: Number(r.qty) || 0,
+          variantId: r.variant_id ? Number(r.variant_id) : undefined,
+          unitCostRial: Math.round(Number(r.unit_cost_rial) || Number(r.price) || 0) || undefined,
+          sourceType: 'purchase_return',
+          sourceId: retId,
+          date: date || todayJalali(),
+          note: `برگشت از خرید #${retId}`,
+          createdBy: req.user.id,
+          updateAvg: false,
+          allowNegative: true,
+          allowZeroCost: true,
+          batchId: r.batch_id || null,
+        });
       }
     }
 
@@ -1067,33 +1074,20 @@ router.delete('/returns/:id', auth, adminOrAccounting, (req, res) => {
         costItems = [{ warehouseId: parentInv?.warehouse_id || null, amountRial: Math.round(Number(row.amount) || 0) }];
       }
     }
-    if (perpetualDocsEnabled(db)) {
-      const reversed = reverseStockBySource(db, 'purchase_return', row.id, {
-        createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از خرید #${row.id}`,
+    // Stock single-source: the return's qty is ledger rows (perpetual and periodic paths alike) →
+    // void = ledger reversal; legacy returns without ledger rows have no ledger qty to restore.
+    reverseStockBySource(db, 'purchase_return', row.id, {
+      createdBy: req.user.id, date: todayJalali(), note: `ابطال برگشت از خرید #${row.id}`,
+    });
+    try {
+      require('../lib/inventory/movement').reverseStockDocument(db, {
+        docType: 'purchase_return_sku',
+        docId: row.id,
+        userId: req.user.id,
+        note: `ابطال رنگ×سایز برگشت از خرید #${row.id}`,
+        applyHeaderStock: false,
       });
-      try {
-        require('../lib/inventory/movement').reverseStockDocument(db, {
-          docType: 'purchase_return_sku',
-          docId: row.id,
-          userId: req.user.id,
-          note: `ابطال رنگ×سایز برگشت از خرید #${row.id}`,
-          applyHeaderStock: false,
-        });
-      } catch (_) { /* older returns have no sku layer */ }
-      if (!reversed.length) {
-        const invRows = JSON.parse(row.rows || '[]');
-        for (const r of invRows) {
-          db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-          db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
-        }
-      }
-    } else {
-      const invRows = JSON.parse(row.rows || '[]');
-      for (const r of invRows) {
-        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(r.qty, r.product_id);
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)').run(r.product_id, req.user.id, r.qty, `ابطال برگشت از خرید #${row.id}`);
-      }
-    }
+    } catch (_) { /* older returns have no sku layer */ }
     const { returnMoneyParts } = require('../lib/returns-discount');
     const parts = returnMoneyParts(row);
     const {

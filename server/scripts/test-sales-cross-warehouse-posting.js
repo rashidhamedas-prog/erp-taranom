@@ -132,8 +132,10 @@ async function main() {
     db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?').run(40000, prodA);
     db.prepare('UPDATE products SET average_cost_rial=? WHERE id=?').run(30000, prodB);
   } catch (_) {}
-  db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)').run(prodA, whA, 10);
-  db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)').run(prodB, whB, 10);
+  // Stock single source: stock enters as ledger receipt documents (warehouse_stock is a derived cache).
+  const { seedStock, setStock } = require('./lib/stock-fixture');
+  seedStock(db, { productId: prodA, warehouseId: whA, qty: 10, unitCostRial: 40000 });
+  seedStock(db, { productId: prodB, warehouseId: whB, qty: 10, unitCostRial: 30000 });
 
   const tok = {};
   for (const [k, uid] of [['admin', adminId], ['acct', acctId]]) {
@@ -207,7 +209,7 @@ async function main() {
   }
 
   // Without inventory_negative.approve → 403 (user present, warehouse forbids negative)
-  db.prepare('UPDATE warehouse_stock SET qty=0 WHERE product_id=? AND warehouse_id=?').run(prodA, whA);
+  setStock(db, { productId: prodA, warehouseId: whA, target: 0 });
   const acctUser = db.prepare('SELECT * FROM users WHERE id=?').get(acctId);
   ok(!hasPermission(db, acctUser, 'inventory_negative', 'approve'), 'acct lacks inventory_negative.approve');
   const neg403 = await api('POST', '/api/invoices', {
@@ -243,7 +245,7 @@ async function main() {
   // Explicit allow_negative on warehouse → 200 without override grant (409 not raised)
   db.prepare('DELETE FROM user_permissions WHERE user_id=? AND resource=?').run(acctId, 'inventory_negative');
   db.prepare('UPDATE warehouses SET allow_negative=1 WHERE id=?').run(whA);
-  db.prepare('UPDATE warehouse_stock SET qty=0 WHERE product_id=? AND warehouse_id=?').run(prodA, whA);
+  setStock(db, { productId: prodA, warehouseId: whA, target: 0 });
   const negWh = await api('POST', '/api/invoices', {
     cust_id: custId, type: 'normal', date: today, warehouse_id: whA, pay_type: 'credit', vat_exempt: 1,
     client_request_id: key('neg3'),
@@ -264,7 +266,7 @@ async function main() {
     ok(saleUsesPerpetualValuation(db, [{ product_id: prodA, warehouse_id: whPeriodic, qty: 1 }], whPeriodic) === false,
       'saleUsesPerpetualValuation: all periodic → false');
 
-    db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)').run(prodB, whB, 5);
+    setStock(db, { productId: prodB, warehouseId: whB, target: 5 });
     const mixed = await api('POST', '/api/invoices', {
       cust_id: custId, type: 'normal', date: today, warehouse_id: whPeriodic, pay_type: 'credit', vat_exempt: 1,
       client_request_id: key('hdr-periodic'),

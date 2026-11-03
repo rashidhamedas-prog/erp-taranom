@@ -78,12 +78,27 @@ function stockKardexMismatch(db, { productId = null, warehouseId = null } = {}) 
     });
   }
   rows.sort((a, b) => (a.product_id - b.product_id) || (a.warehouse_id - b.warehouse_id));
+  let cache_vs_ledger = null;
+  try {
+    const { stockCacheVsLedger } = require('./stock-cache');
+    cache_vs_ledger = stockCacheVsLedger(db, { productId: pid });
+  } catch (_) { cache_vs_ledger = null; }
   return {
     filter: { product_id: pid, warehouse_id: wid },
     definition: 'diff_qty = warehouse_stock.qty − Σ kardex زنده (posted، غیرمعکوس، غیر برگشتی)',
     count: rows.length,
     total_abs_diff_qty: round3(rows.reduce((a, r) => a + Math.abs(r.diff_qty), 0)),
     rows,
+    ...(cache_vs_ledger ? {
+      cache_vs_ledger: {
+        ok: cache_vs_ledger.ok,
+        mismatch_count: cache_vs_ledger.mismatch_count,
+        mismatched_products: cache_vs_ledger.mismatched_products,
+        rows: cache_vs_ledger.rows,
+        unattributed_count: cache_vs_ledger.unattributed_count,
+        unattributed: cache_vs_ledger.unattributed,
+      },
+    } : {}),
   };
 }
 

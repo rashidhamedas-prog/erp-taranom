@@ -35,7 +35,16 @@ stubModule(ledgerPath, {
   },
   ensureWhRow() {},
 });
-stubModule(apparelPath, { resolveApparelLines: () => [] });
+stubModule(apparelPath, {
+  resolveApparelLines: () => [],
+  // Non-matrix stub: one ledger row, same as the real helper for a product without variants.
+  postLedgerByVariant: (db, opts) => {
+    const r = require(ledgerPath).postInventoryMovement(db, opts);
+    return { ...r, ids: [r.id] };
+  },
+  ledgerGroupIds: (db, id) => [id],
+  reverseLedgerGroup: () => [],
+});
 
 const PRODUCT = { id: 7, stock: 100, name: 'نخ تست', average_cost_rial: 1000, cost: 100 };
 const sqlRuns = [];

@@ -284,101 +284,45 @@ function productsWithNullWarehouse(db) {
 
 function rebuildQuantities(ctx, onlyProductIds) {
   const db = ctx.db;
-  const allow = (pid) => !onlyProductIds || onlyProductIds.has(pid);
   const pending = new Set(productsWithNullWarehouse(db));
   for (const pid of pending) {
-    if (allow(pid)) ctx.pendingPhaseC.push(pid);
+    if (!onlyProductIds || onlyProductIds.has(pid)) ctx.pendingPhaseC.push(pid);
   }
-
-  const ledgerPairs = new Map();
-  for (const r of db.prepare(`
-    SELECT product_id, warehouse_id,
-           SUM(COALESCE(qty_in,0)-COALESCE(qty_out,0)) qty
-    FROM inventory_ledger
-    WHERE ${LEDGER_LIVE_SQL} AND warehouse_id IS NOT NULL
-    GROUP BY product_id, warehouse_id
-  `).all()) {
-    if (!allow(r.product_id)) continue;
-    ledgerPairs.set(`${r.product_id}:${r.warehouse_id}`, { product_id: r.product_id, warehouse_id: r.warehouse_id, qty: n(r.qty) });
+  const ids = onlyProductIds
+    ? [...onlyProductIds]
+    : db.prepare('SELECT id FROM products ORDER BY id').all().map((r) => Number(r.id));
+  const { stockCacheVsLedger, rebuildAllStockCaches, deriveProductStock } = require('./stock-cache');
+  const before = stockCacheVsLedger(db, { limit: Number.MAX_SAFE_INTEGER });
+  rebuildAllStockCaches(db, { productIds: ids });
+  const idSet = new Set(ids.map(Number));
+  for (const r of before.rows.filter((x) => idSet.has(Number(x.product_id)))) {
+    logChange(ctx, {
+      rule: 'cache_from_ledger',
+      tbl: r.level === 'product' ? 'products'
+        : (r.level === 'variant' ? 'product_variants'
+          : (r.level === 'variant_warehouse' ? 'variant_warehouse_stock' : 'warehouse_stock')),
+      row_key: r.variant_id
+        ? `${r.variant_id}${r.warehouse_id ? ':' + r.warehouse_id : ''}`
+        : `${r.product_id}${r.warehouse_id ? ':' + r.warehouse_id : ''}`,
+      col: r.level === 'product' || r.level === 'variant' ? 'stock' : 'qty',
+      old_value: r.cache_qty,
+      new_value: r.ledger_qty,
+      reason: 'کش موجودی از جمع کاردکس زنده بازسازی شد',
+    });
   }
-
-  const ambiguousPairs = new Set();
-  const ambiguousProducts = new Set();
-  if (tableExists(db, 'warehouse_stock')) {
-    for (const r of db.prepare('SELECT product_id, warehouse_id, qty FROM warehouse_stock').all()) {
-      if (!allow(r.product_id)) continue;
-      const k = `${r.product_id}:${r.warehouse_id}`;
-      if (!ledgerPairs.has(k) && Math.abs(n(r.qty)) > QTY_EPS) {
-        ambiguousPairs.add(k);
-        ambiguousProducts.add(r.product_id);
-        ctx.ambiguous.push({
-          rule: 'ws_without_kardex', product_id: r.product_id, warehouse_id: r.warehouse_id,
-          row_key: k, detail: `ws=${r.qty} بدون ردیف کاردکس؛ صفر نشد`,
+  for (const pid of ids) {
+    const d = deriveProductStock(db, pid);
+    for (const [warehouseId, qty] of d.warehouses) {
+      if (qty < -QTY_EPS) {
+        ctx.negativeAfter.push({
+          product_id: pid,
+          warehouse_id: warehouseId,
+          qty,
+          detail: 'کاردکس زنده منفی است؛ کش بدون تغییر معنایی همان مقدار را منعکس کرد',
         });
       }
     }
   }
-
-  for (const pair of ledgerPairs.values()) {
-    const k = `${pair.product_id}:${pair.warehouse_id}`;
-    if (ambiguousPairs.has(k)) continue;
-    if (!nearInt(pair.qty)) {
-      ambiguousPairs.add(k);
-      ambiguousProducts.add(pair.product_id);
-      ctx.ambiguous.push({
-        rule: 'non_integer_ledger_qty', product_id: pair.product_id, warehouse_id: pair.warehouse_id,
-        row_key: k, detail: `جمع کاردکس ${pair.qty} عدد صحیح نیست`,
-      });
-      continue;
-    }
-    const wrote = setWs(ctx, pair.product_id, pair.warehouse_id, Math.round(pair.qty));
-    if (wrote === 'blocked') {
-      ambiguousPairs.add(k);
-      ambiguousProducts.add(pair.product_id);
-      ctx.ambiguous.push({
-        rule: 'ws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k,
-        detail: `کاردکس ${Math.round(pair.qty)} منفی است و تریگر انبار اجازهٔ ثبت منفی نمی‌دهد؛ دست نخورد`,
-      });
-    }
-    if (pair.qty < -QTY_EPS) {
-      ctx.negativeAfter.push({
-        product_id: pair.product_id, warehouse_id: pair.warehouse_id, qty: Math.round(pair.qty),
-        detail: wrote === 'blocked'
-          ? 'کاردکس منفی است؛ تریگر انبار اجازهٔ نوشتن منفی نداد و لایه دست نخورد'
-          : 'کاردکس منفی است؛ مقدار منفی ماند',
-      });
-    }
-  }
-
-  applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow);
-  listDefaultVariantOnMatrix(ctx, allow);
-  applyVariantStock(ctx, ambiguousPairs, allow);
-  applyHeaderStock(ctx, pending, ambiguousProducts, allow);
-}
-
-function allowsNegative(db, warehouseId) {
-  try {
-    const w = db.prepare('SELECT COALESCE(allow_negative,0) AS n FROM warehouses WHERE id=?').get(warehouseId);
-    if (w && Number(w.n) === 1) return true;
-    const s = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
-    return !!(s && String(s.value) === '1');
-  } catch (_) { return false; }
-}
-
-function setWs(ctx, productId, warehouseId, qty) {
-  const db = ctx.db;
-  if (qty < 0 && !allowsNegative(db, warehouseId)) return 'blocked';
-  const row = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(productId, warehouseId);
-  const old = row ? n(row.qty) : null;
-  if (old != null && near(old, qty)) return;
-  if (old == null && Math.abs(qty) <= QTY_EPS) return;
-  if (row) db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?').run(qty, productId, warehouseId);
-  else db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(productId, warehouseId, qty);
-  logChange(ctx, {
-    rule: 'ws_from_ledger', tbl: 'warehouse_stock', row_key: `${productId}:${warehouseId}`, col: 'qty',
-    old_value: old, new_value: qty,     reason: 'موجودی انبار = جمع کاردکس زنده',
-  });
-  return 'updated';
 }
 
 function variantMeta(db, productId) {
@@ -399,40 +343,6 @@ function variantMeta(db, productId) {
     else if (rows.length === 1) defaultId = rows[0].id;
   }
   return { matrix: matrixN > 0, defaultId, defaultIds: defaults.map((d) => d.id) };
-}
-
-function vwsQtyMap(db, productId, warehouseId) {
-  if (!tableExists(db, 'variant_warehouse_stock') || !tableExists(db, 'product_variants')) return new Map();
-  const rows = db.prepare(`
-    SELECT v.variant_id, v.qty
-    FROM variant_warehouse_stock v
-    JOIN product_variants pv ON pv.id=v.variant_id
-    WHERE pv.product_id=? AND v.warehouse_id=?
-  `).all(productId, warehouseId);
-  return new Map(rows.map((r) => [r.variant_id, n(r.qty)]));
-}
-
-function setVws(ctx, variantId, warehouseId, qty, rule, reason) {
-  const db = ctx.db;
-  if (qty < 0 && !allowsNegative(db, warehouseId)) return 'blocked';
-  const row = db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(variantId, warehouseId);
-  const old = row ? n(row.qty) : null;
-  if (old != null && near(old, qty)) return;
-  if (old == null && Math.abs(qty) <= QTY_EPS) return;
-  if (!nearInt(qty)) {
-    ctx.ambiguous.push({
-      rule: 'non_integer_vws', row_key: `${variantId}:${warehouseId}`, detail: `هدف ${qty}`,
-    });
-    return;
-  }
-  const q = Math.round(qty);
-  if (row) db.prepare('UPDATE variant_warehouse_stock SET qty=? WHERE variant_id=? AND warehouse_id=?').run(q, variantId, warehouseId);
-  else db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(variantId, warehouseId, q);
-  logChange(ctx, {
-    rule, tbl: 'variant_warehouse_stock', row_key: `${variantId}:${warehouseId}`, col: 'qty',
-    old_value: old, new_value: q, reason,
-  });
-  return 'updated';
 }
 
 function ledgerVariantSplit(db, productId, warehouseId) {
@@ -470,94 +380,6 @@ function movementSplit(db, productId, warehouseId) {
   return { byVariant, sum };
 }
 
-function applyTargets(ctx, warehouseId, byVariant, current, rule, reason) {
-  if (!allowsNegative(ctx.db, warehouseId)) {
-    for (const qty of byVariant.values()) {
-      if (qty < -QTY_EPS) return 'blocked';
-    }
-  }
-  const seen = new Set();
-  for (const [vid, qty] of byVariant) {
-    seen.add(vid);
-    setVws(ctx, vid, warehouseId, qty, rule, reason);
-  }
-  for (const [vid, qty] of current) {
-    if (!seen.has(vid) && Math.abs(qty) > QTY_EPS) setVws(ctx, vid, warehouseId, 0, rule, reason);
-  }
-  return 'updated';
-}
-
-function applyVws(ctx, ledgerPairs, ambiguousPairs, ambiguousProducts, allow) {
-  const db = ctx.db;
-  if (!tableExists(db, 'variant_warehouse_stock')) return;
-  for (const pair of ledgerPairs.values()) {
-    if (!allow(pair.product_id)) continue;
-    const k = `${pair.product_id}:${pair.warehouse_id}`;
-    if (ambiguousPairs.has(k)) continue;
-    const meta = variantMeta(db, pair.product_id);
-    const current = vwsQtyMap(db, pair.product_id, pair.warehouse_id);
-    const split = ledgerVariantSplit(db, pair.product_id, pair.warehouse_id);
-    if (split.complete) {
-      const applied = applyTargets(ctx, pair.warehouse_id, split.byVariant, current, 'vws_from_ledger_variant', 'تفکیک واریانت از کاردکس کامل است');
-      if (applied === 'blocked') {
-        ambiguousPairs.add(k);
-        ambiguousProducts.add(pair.product_id);
-        ctx.ambiguous.push({ rule: 'vws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'واریانت منفی و تریگر انبار مانع ثبت است' });
-      }
-      continue;
-    }
-    if (!meta.matrix) {
-      if (!meta.defaultId) {
-        if (current.size) {
-          ambiguousPairs.add(k);
-          ambiguousProducts.add(pair.product_id);
-          ctx.ambiguous.push({ rule: 'vws_no_default_variant', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'کالای غیرماتریسی واریانت پیش‌فرض یکتا ندارد' });
-        }
-        continue;
-      }
-      const others = [...current.entries()].filter(([vid, qty]) => vid !== meta.defaultId && Math.abs(qty) > QTY_EPS);
-      if (others.length) {
-        ambiguousPairs.add(k);
-        ambiguousProducts.add(pair.product_id);
-        ctx.ambiguous.push({ rule: 'vws_extra_variant', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'واریانت غیرپیش‌فرض موجودی دارد' });
-        continue;
-      }
-      const applied = setVws(ctx, meta.defaultId, pair.warehouse_id, pair.qty, 'vws_default_variant', 'کالای غیرماتریسی: واریانت پیش‌فرض = کاردکس');
-      if (applied === 'blocked') {
-        ambiguousPairs.add(k);
-        ambiguousProducts.add(pair.product_id);
-        ctx.ambiguous.push({ rule: 'vws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'واریانت پیش‌فرض منفی و تریگر انبار مانع ثبت است' });
-      }
-      continue;
-    }
-    let curSum = 0;
-    for (const q of current.values()) curSum += q;
-    if (near(curSum, pair.qty)) continue;
-    const mov = movementSplit(db, pair.product_id, pair.warehouse_id);
-    if (mov && near(mov.sum, pair.qty)) {
-      const applied = applyTargets(ctx, pair.warehouse_id, mov.byVariant, current, 'vws_from_movements', 'جمع حرکات واریانت با کاردکس برابر است');
-      if (applied === 'blocked') {
-        ambiguousPairs.add(k);
-        ambiguousProducts.add(pair.product_id);
-        ctx.ambiguous.push({ rule: 'vws_negative_blocked', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k, detail: 'حرکت واریانت منفی و تریگر انبار مانع ثبت است' });
-      }
-      continue;
-    }
-    ambiguousPairs.add(k);
-    ambiguousProducts.add(pair.product_id);
-    ctx.ambiguous.push({
-      rule: 'vws_ambiguous', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k,
-      detail: `ws کاردکس=${pair.qty} جمع vws=${curSum}؛ تفکیک قطعی نیست`,
-    });
-    if (meta.defaultIds && meta.defaultIds.length) {
-      ctx.ambiguous.push({
-        rule: 'default_variant_with_stock', product_id: pair.product_id, warehouse_id: pair.warehouse_id, row_key: k,
-        detail: 'انتقال موجودی واریانت پیش‌فرض روی کالای ماتریسی حدس زده نشد',
-      });
-    }
-  }
-}
-
 function listDefaultVariantOnMatrix(ctx, allow) {
   const db = ctx.db;
   if (!tableExists(db, 'product_variants')) return;
@@ -582,53 +404,6 @@ function listDefaultVariantOnMatrix(ctx, allow) {
     ctx.ambiguous.push({
       rule: 'default_variant_with_stock', product_id: r.product_id, row_key: r.id,
       detail: `واریانت پیش‌فرض stock=${r.stock} vws=${r.vws}؛ انتقال به ماتریس حدس زده نشد`,
-    });
-  }
-}
-
-function applyVariantStock(ctx, ambiguousPairs, allow) {
-  const db = ctx.db;
-  if (!tableExists(db, 'product_variants') || !tableExists(db, 'variant_warehouse_stock')) return;
-  const ambProducts = new Set();
-  for (const k of ambiguousPairs) ambProducts.add(Number(k.split(':')[0]));
-  const rows = db.prepare(`
-    SELECT pv.id, pv.product_id, COALESCE(pv.stock,0) stock,
-           (SELECT COALESCE(SUM(v.qty),0) FROM variant_warehouse_stock v WHERE v.variant_id=pv.id) vws
-    FROM product_variants pv
-  `).all();
-  for (const r of rows) {
-    if (!allow(r.product_id)) continue;
-    if (ambProducts.has(r.product_id)) continue;
-    if (!nearInt(r.vws)) continue;
-    const q = Math.round(n(r.vws));
-    if (near(r.stock, q)) continue;
-    db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(q, r.id);
-    logChange(ctx, {
-      rule: 'pv_from_vws', tbl: 'product_variants', row_key: r.id, col: 'stock',
-      old_value: r.stock, new_value: q, reason: 'موجودی واریانت = جمع انبارهای همان واریانت',
-    });
-  }
-}
-
-function applyHeaderStock(ctx, pending, ambiguousProducts, allow) {
-  const db = ctx.db;
-  if (!colSet(db, 'products').has('stock') || !tableExists(db, 'warehouse_stock')) return;
-  const sums = new Map();
-  for (const r of db.prepare('SELECT product_id, SUM(qty) qty FROM warehouse_stock GROUP BY product_id').all()) {
-    sums.set(r.product_id, n(r.qty));
-  }
-  for (const p of db.prepare('SELECT id, stock FROM products').all()) {
-    if (!allow(p.id)) continue;
-    if (pending.has(p.id) || ambiguousProducts.has(p.id)) continue;
-    if (!sums.has(p.id)) continue;
-    const qRaw = sums.get(p.id);
-    if (!nearInt(qRaw)) continue;
-    const q = Math.round(qRaw);
-    if (near(p.stock, q)) continue;
-    db.prepare('UPDATE products SET stock=? WHERE id=?').run(q, p.id);
-    logChange(ctx, {
-      rule: 'header_from_ws', tbl: 'products', row_key: p.id, col: 'stock',
-      old_value: p.stock, new_value: q, reason: 'سرستون کالا = جمع موجودی انبارها',
     });
   }
 }

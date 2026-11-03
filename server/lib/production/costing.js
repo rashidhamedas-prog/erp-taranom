@@ -9,6 +9,17 @@ const {
   warehouseQty,
   ensureWhRow,
 } = require('../inventory/ledger');
+const {
+  postLedgerByVariant,
+  ledgerGroupIds,
+  reverseLedgerGroup,
+} = require('../inventory/apparel-lines');
+
+/** Colour×size lines of a stock change ([] for a non-matrix product); throws E_VARIANT_REQUIRED when a matrix product has none. */
+function ledgerLines(db, { productId, qty, variantId, variantLines, sizeBreakdown, color }) {
+  const { resolveApparelLines } = require('../inventory/apparel-lines');
+  return resolveApparelLines(db, { productId, qty, variantId, variantLines, sizeBreakdown, color });
+}
 
 function setting(db, key, fallback = '') {
   const r = db.prepare('SELECT value FROM settings WHERE key=?').get(key);
@@ -62,7 +73,7 @@ function issueFromStock(db, {
   }
 
   const unit = avgUnitRial(db, productId);
-  const led = postInventoryMovement(db, {
+  const led = postLedgerByVariant(db, {
     eventType: 'production_issue',
     productId,
     warehouseId: warehouseId || null,
@@ -76,7 +87,7 @@ function issueFromStock(db, {
     createdBy: userId || null,
     updateAvg: false,
     allowNegative: allowNegative(db),
-  });
+  }, apparelLines);
 
   return {
     ok: true,
@@ -84,6 +95,7 @@ function issueFromStock(db, {
     remaining: avail - q,
     variantLines: apparelLines,
     ledger_id: led.id,
+    ledger_ids: led.ids,
     unit_cost_rial: led.unit_cost_rial,
     amount_rial: led.amount_rial,
   };
@@ -91,9 +103,11 @@ function issueFromStock(db, {
 
 /**
  * Receive finished goods / scrap and update moving average via inventory ledger.
+ * Matrix FG: one receipt row per colour×size (variantLines = the receipt's resolved fgLines).
  */
 function updateMovingAverage(db, {
   productId, warehouseId, qtyIn, amountRial, userId, note, sourceType, sourceId, date,
+  variantId, variantLines, sizeBreakdown, color,
 }) {
   const qty = Number(qtyIn) || 0;
   const amt = Math.round(Number(amountRial) || 0);
@@ -106,8 +120,9 @@ function updateMovingAverage(db, {
     return { prev_qty: prevQty, prev_avg: prevAvg, new_qty: prevQty, new_avg: prevAvg };
   }
 
+  const lines = ledgerLines(db, { productId, qty, variantId, variantLines, sizeBreakdown, color });
   const unit = Math.round(amt / qty);
-  const led = postInventoryMovement(db, {
+  const led = postLedgerByVariant(db, {
     eventType: 'production_receipt',
     productId,
     warehouseId: warehouseId || null,
@@ -120,7 +135,7 @@ function updateMovingAverage(db, {
     note: note || 'رسید تولید',
     createdBy: userId || null,
     updateAvg: true,
-  });
+  }, lines);
 
   const after = db.prepare('SELECT stock, average_cost_rial FROM products WHERE id=?').get(productId);
   return {
@@ -129,6 +144,8 @@ function updateMovingAverage(db, {
     new_qty: Number(after?.stock) || 0,
     new_avg: Math.round(Number(after?.average_cost_rial) || 0),
     ledger_id: led.id,
+    ledger_ids: led.ids,
+    variantLines: lines,
   };
 }
 
@@ -149,7 +166,7 @@ function receiveScrap(db, {
   const prod = db.prepare('SELECT id FROM products WHERE id=?').get(productId);
   if (!prod) throw err('E_NOT_FOUND', 404, { productId });
 
-  postInventoryMovement(db, {
+  postLedgerByVariant(db, {
     eventType: 'scrap',
     productId,
     warehouseId: warehouseId || null,
@@ -162,7 +179,7 @@ function receiveScrap(db, {
     note: `ضایعات قابل فروش — سفارش ${orderId || ''}`,
     createdBy: userId || null,
     updateAvg: true,
-  });
+  }, apparelLines);
 
   if (orderId && apparelLines.length) {
     postApparelLines(db, {
@@ -180,19 +197,41 @@ function receiveScrap(db, {
  * Find the posted FG production_receipt ledger row for an order/receipt.
  * Finalize stamps source_id=orderId + note «تولید PO-…».
  */
+/**
+ * Candidates newest first; a matrix posting is several rows (one per colour×size), so the qty
+ * test is on the whole posting group. Returns the first candidate whose group carries q
+ * (any qty when q ≤ 0), or null.
+ */
+function pickLedgerGroup(db, rows, q, col, accept = () => true) {
+  const visited = new Set();
+  for (const row of rows) {
+    if (visited.has(Number(row.id)) || !accept(row)) continue;
+    const ids = ledgerGroupIds(db, row.id);
+    ids.forEach((id) => visited.add(id));
+    if (!(q > 0)) return row;
+    const sum = ids.reduce((acc, id) => {
+      const r = db.prepare(`SELECT ${col} AS q FROM inventory_ledger WHERE id=?`).get(id);
+      return acc + (Number(r && r.q) || 0);
+    }, 0);
+    if (Math.abs(sum - q) < 1e-4) return row;
+  }
+  return null;
+}
+
 function findProductionReceiptLedger(db, {
   productId, orderId, orderNo, warehouseId, qty,
 }) {
   if (!productId) return null;
+  const q = Number(qty) || 0;
   if (orderId != null) {
     const byOrder = db.prepare(`
       SELECT * FROM inventory_ledger
       WHERE product_id=? AND status='posted' AND event_type='production_receipt'
         AND COALESCE(source_type,'') IN ('production_receipt','')
         AND source_id=?
-      ORDER BY id DESC LIMIT 1
-    `).get(productId, orderId);
-    if (byOrder) return byOrder;
+      ORDER BY id DESC
+    `).all(productId, orderId);
+    if (byOrder.length) return pickLedgerGroup(db, byOrder, q, 'qty_in') || byOrder[0];
   }
   if (orderNo) {
     const byNote = db.prepare(`
@@ -203,14 +242,14 @@ function findProductionReceiptLedger(db, {
     `).get(productId, `%${orderNo}%`);
     if (byNote) return byNote;
   }
-  const q = Number(qty) || 0;
   if (q > 0 && warehouseId) {
-    return db.prepare(`
+    const recent = db.prepare(`
       SELECT * FROM inventory_ledger
       WHERE product_id=? AND warehouse_id=? AND status='posted'
-        AND event_type='production_receipt' AND ABS(qty_in - ?) < 0.0001
-      ORDER BY id DESC LIMIT 1
-    `).get(productId, warehouseId, q) || null;
+        AND event_type='production_receipt' AND qty_in > 0 AND qty_in <= ? + 0.0001
+      ORDER BY id DESC LIMIT 200
+    `).all(productId, warehouseId, q);
+    return pickLedgerGroup(db, recent, q, 'qty_in');
   }
   return null;
 }
@@ -229,7 +268,7 @@ function reverseReceiptStock(db, {
 }) {
   const q = Number(qty) || 0;
   if (q <= 0) return;
-  const { reverseInventoryMovement, softRetireLedgerRow } = require('../inventory/ledger');
+  const { softRetireLedgerRow } = require('../inventory/ledger');
   const voidNote = note || (orderNo ? `ابطال رسید ${orderNo}` : 'ابطال رسید تولید');
 
   // sourceId from reverseOrder used to be production_receipts.id; finalize uses orderId.
@@ -245,17 +284,19 @@ function reverseReceiptStock(db, {
 
   let led;
   if (orig) {
-    led = reverseInventoryMovement(db, orig.id, {
+    // Every colour×size row of the receipt is reversed (a non-matrix receipt is one row).
+    const revs = reverseLedgerGroup(db, orig.id, {
       createdBy: userId || null,
       date: date || '',
       note: voidNote,
     });
     // Stock already undone by the reversal movement. Soft-retire the reverse
     // row too so kardex economic stream drops the pair once (not twice).
-    if (led && led.id) {
-      softRetireLedgerRow(db, led.id, { note: voidNote });
-      led = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(led.id) || led;
+    for (const rev of revs) {
+      if (rev && rev.id) softRetireLedgerRow(db, rev.id, { note: voidNote });
     }
+    led = revs[0];
+    if (led && led.id) led = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(led.id) || led;
   } else {
     const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
     led = postInventoryMovement(db, {
@@ -296,14 +337,12 @@ function findProductionIssueLedger(db, {
         AND source_id=?
       ORDER BY id DESC
     `).all(productId, orderId);
-    for (const row of candidates) {
-      const note = String(row.note || '');
-      if (stageSeq != null && !note.includes(`مرحله ${stageSeq}`)) continue;
-      if (q > 0 && Math.abs((Number(row.qty_out) || 0) - q) > 1e-4) continue;
-      if (warehouseId && row.warehouse_id && Number(row.warehouse_id) !== Number(warehouseId)) continue;
-      return row;
-    }
-    if (candidates.length === 1) return candidates[0];
+    const hit = pickLedgerGroup(db, candidates, q, 'qty_out', (row) => {
+      if (stageSeq != null && !String(row.note || '').includes(`مرحله ${stageSeq}`)) return false;
+      return !(warehouseId && row.warehouse_id && Number(row.warehouse_id) !== Number(warehouseId));
+    });
+    if (hit) return hit;
+    if (candidates.length && ledgerGroupIds(db, candidates[0].id).length === candidates.length) return candidates[0];
   }
   if (orderNo) {
     const like = stageSeq != null
@@ -327,11 +366,11 @@ function findProductionIssueLedger(db, {
  */
 function reverseIssueStock(db, {
   productId, warehouseId, qty, unitCostRial, userId, note, date,
-  orderId, orderNo, stageSeq, sourceId,
+  orderId, orderNo, stageSeq, sourceId, variantId, variantLines,
 }) {
   const q = Number(qty) || 0;
   if (q <= 0) return null;
-  const { reverseInventoryMovement, softRetireLedgerRow } = require('../inventory/ledger');
+  const { softRetireLedgerRow } = require('../inventory/ledger');
   const voidNote = note || (orderNo
     ? `ابطال مرحله${stageSeq != null ? ` ${stageSeq}` : ''} — ${orderNo}`
     : 'ابطال حواله تولید');
@@ -344,13 +383,15 @@ function reverseIssueStock(db, {
     stageSeq,
   });
   if (orig) {
-    const led = reverseInventoryMovement(db, orig.id, {
+    const revs = reverseLedgerGroup(db, orig.id, {
       createdBy: userId || null,
       date: date || '',
       note: voidNote,
     });
-    if (led && led.id) softRetireLedgerRow(db, led.id, { note: voidNote });
-    return led;
+    for (const rev of revs) {
+      if (rev && rev.id) softRetireLedgerRow(db, rev.id, { note: voidNote });
+    }
+    return revs[0] || null;
   }
   restoreStock(db, {
     productId,
@@ -362,15 +403,21 @@ function reverseIssueStock(db, {
     sourceType: 'production_material_return',
     sourceId: sourceId || null,
     date,
+    variantId,
+    variantLines,
   });
   return null;
 }
 
-function restoreStock(db, { productId, warehouseId, qty, userId, note, sourceType, sourceId, date, unitCostRial }) {
+function restoreStock(db, {
+  productId, warehouseId, qty, userId, note, sourceType, sourceId, date, unitCostRial,
+  variantId, variantLines, sizeBreakdown, color,
+}) {
   const q = Number(qty) || 0;
   if (q <= 0) return;
+  const lines = ledgerLines(db, { productId, qty: q, variantId, variantLines, sizeBreakdown, color });
   const unit = unitCostRial != null ? Math.round(Number(unitCostRial) || 0) : avgUnitRial(db, productId);
-  postInventoryMovement(db, {
+  postLedgerByVariant(db, {
     eventType: 'production_return',
     productId,
     warehouseId: warehouseId || null,
@@ -383,10 +430,12 @@ function restoreStock(db, { productId, warehouseId, qty, userId, note, sourceTyp
     note: note || 'برگشت موجودی تولید',
     createdBy: userId || null,
     updateAvg: true,
-  });
+  }, lines);
 }
 
-function recalcAvgOnReturn(db, { productId, warehouseId, qty, unitCostRial, userId, note }) {
+function recalcAvgOnReturn(db, {
+  productId, warehouseId, qty, unitCostRial, userId, note, variantId, variantLines,
+}) {
   const q = Number(qty) || 0;
   const unit = Math.round(Number(unitCostRial) || 0);
   if (q <= 0) return;
@@ -397,6 +446,8 @@ function recalcAvgOnReturn(db, { productId, warehouseId, qty, unitCostRial, user
     userId,
     note: note || 'برگشت مواد به انبار',
     unitCostRial: unit,
+    variantId,
+    variantLines,
   });
 }
 

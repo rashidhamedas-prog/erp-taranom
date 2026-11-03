@@ -306,12 +306,8 @@ function assertWarehouseLines(db, rows, headerWarehouseId, {
       throw err;
     }
     const allowNeg = allowNegative ? allowNegative(db, effWh) : false;
-    const ws = db.prepare(
-      'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
-    ).get(r.product_id, effWh);
-    // Legacy seed semantics: no warehouse_stock row → the product's own stock
-    // counts as its home-warehouse quantity, zero elsewhere.
-    const baseQty = ws ? Number(ws.qty) : (prod.warehouse_id === effWh ? Number(prod.stock) || 0 : 0);
+    // Stock single-source: on-hand = Σ live inventory_ledger of (product, warehouse).
+    const baseQty = require('./inventory/stock-cache').derivedQty(db, { productId: r.product_id, warehouseId: effWh });
     const avail = baseQty - reservedQty(db, r.product_id, effWh);
     const qty = Number(r.qty) || 0;
     if (requirePositive && !allowNeg && !allowNegativeProduct && avail < qty) {
@@ -392,21 +388,11 @@ function postSaleStockMovements(db, {
         }
       }
     }
-    // Legacy seed: products that predate warehouse_stock get their home-warehouse
-    // row initialized from products.stock. Never seed 0 over a fabric roll WH.
-    if (whId && prod && !isFabric) {
-      const seedQty = prod.warehouse_id === whId ? (Number(prod.stock) || 0) : 0;
-      db.prepare(
-        'INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO NOTHING'
-      ).run(r.product_id, whId, seedQty);
-    }
+    // Stock single-source: no warehouse_stock seed rows — the cache is rebuilt from the ledger.
+    const { derivedQty } = require('./inventory/stock-cache');
     let skipStock = false;
     if (isFabric) {
-      const ws = whId
-        ? db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?')
-          .get(r.product_id, whId)
-        : null;
-      skipStock = !ws || (Number(ws.qty) + 1e-9 < need);
+      skipStock = !whId || (derivedQty(db, { productId: r.product_id, warehouseId: whId }) + 1e-9 < need);
     }
     // Phase 2: gate on *warehouse* qty (not products.stock header). Header may diverge
     // across warehouses — if this WH has enough, allow header to go "negative".
@@ -415,13 +401,8 @@ function postSaleStockMovements(db, {
     if (!isFabric) {
       let avail = 0;
       try {
-        if (whId) {
-          const ws = db.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(r.product_id, whId);
-          avail = Number(ws && ws.qty) || 0;
-        } else {
-          const pr = db.prepare('SELECT stock FROM products WHERE id=?').get(r.product_id);
-          avail = Number(pr && pr.stock) || 0;
-        }
+        // Ledger-derived qty (warehouse level, or product header when no warehouse).
+        avail = derivedQty(db, { productId: r.product_id, warehouseId: whId || null });
       } catch (_) { avail = 0; }
       if (need - avail <= 1e-9) {
         saleAllowNeg = true; // WH covered; product header may lag
@@ -456,6 +437,7 @@ function postSaleStockMovements(db, {
       productId: r.product_id,
       warehouseId: whId,
       qtyOut: need,
+      variantId: r.variant_id ? Number(r.variant_id) : undefined,
       sourceType,
       sourceId,
       batchId: batchId || null,
@@ -552,6 +534,7 @@ function postPurchaseStockMovements(db, {
       productId: r.product_id,
       warehouseId: whId,
       qtyIn: qty,
+      variantId: r.variant_id ? Number(r.variant_id) : undefined,
       unitCostRial: unit,
       amountRial: amountOverride != null ? amountOverride : undefined,
       sourceType,
@@ -667,6 +650,7 @@ function postSaleReturnStockMovements(db, {
       productId: r.product_id,
       warehouseId: whId,
       qtyIn: qty,
+      variantId: r.variant_id ? Number(r.variant_id) : undefined,
       unitCostRial: entryUnit || undefined,
       amountRial: docUnit != null ? Math.round(entryUnit * qty) : undefined,
       sourceType,

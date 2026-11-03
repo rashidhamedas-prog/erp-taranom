@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * RETURNS P2-UX — static gates for professional returns UI (color×size + COGS preview).
  * Run: node server/scripts/test-returns-p2-ux-v340.js

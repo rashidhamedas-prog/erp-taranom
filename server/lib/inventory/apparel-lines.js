@@ -1,8 +1,9 @@
 'use strict';
 /**
  * Color×size quantities that ride along a header stock change.
- * Header products.stock / warehouse_stock stay with the caller.
- * This module only posts the variant layer (applyHeaderStock false).
+ * The quantity is the caller's inventory_ledger row; under SSOT a matrix ledger row must carry
+ * variant_id itself (one row per SKU) — this module only records the audit layer
+ * (inventory_movements, applyHeaderStock false) and never moves a stock figure.
  */
 const { round3 } = require('../round3');
 const { colorsMatch } = require('./fabric-rolls');
@@ -178,6 +179,146 @@ function reverseApparelDoc(db, opts) {
   });
 }
 
+function normalizeLedgerLines(lines) {
+  const byVariant = new Map();
+  for (const l of lines || []) {
+    const vid = parseInt(l && (l.variantId != null ? l.variantId : l.variant_id), 10) || 0;
+    const q = round3(l && l.qty);
+    if (!(q > 0)) continue;
+    byVariant.set(vid, round3((byVariant.get(vid) || 0) + q));
+  }
+  return [...byVariant].map(([variantId, qty]) => ({ variantId: variantId || null, qty }));
+}
+
+/**
+ * SSOT: post one stock change as inventory_ledger rows — one row per colour×size SKU for a
+ * product with active matrix variants, the single row (no variant) otherwise.
+ * Every row repeats event / source / date / note. Qty and an explicit amountRial are split by
+ * line qty with the rounding remainder on the last row, so Σ amount equals the single-row
+ * amount (JE amounts unchanged). Without amountRial each row is priced by the ledger as before.
+ * Returns the first row's result plus totals: { id, ids, rows, qty_in, qty_out, amount_rial, … }.
+ */
+function postLedgerByVariant(db, opts, lines) {
+  const { postInventoryMovement } = require('./ledger');
+  const productId = parseInt(opts.productId, 10);
+  if (opts.valueOnly || !productId || !hasActiveMatrixVariants(db, productId)) {
+    return groupResult([postInventoryMovement(db, opts)]);
+  }
+  let qtyIn = Number(opts.qtyIn) || 0;
+  let qtyOut = Number(opts.qtyOut) || 0;
+  if (!qtyIn && !qtyOut && opts.qty != null) {
+    const q = Number(opts.qty) || 0;
+    if (q >= 0) qtyIn = q; else qtyOut = -q;
+  }
+  const total = round3(qtyIn || qtyOut);
+  let list = normalizeLedgerLines(lines);
+  if (!list.length && opts.variantId) list = [{ variantId: parseInt(opts.variantId, 10), qty: total }];
+  if (!list.length || list.some((l) => !l.variantId)) {
+    const p = db.prepare('SELECT name FROM products WHERE id=?').get(productId);
+    fail(
+      'E_VARIANT_REQUIRED',
+      400,
+      `کالای «${(p && p.name) || productId}» رنگ×سایز دارد — تفکیک رنگ و سایز این گردش موجودی مشخص نیست`
+    );
+  }
+  const sum = round3(list.reduce((acc, l) => acc + l.qty, 0));
+  if (Math.abs(sum - total) > 0.001) {
+    fail('E_VARIANT_QTY', 400, `جمع رنگ و سایز (${sum}) با تعداد سند (${total}) یکی نیست`);
+  }
+  if (list.length === 1) {
+    return groupResult([postInventoryMovement(db, { ...opts, variantId: list[0].variantId })]);
+  }
+  const amountTotal = opts.amountRial != null ? Math.round(Number(opts.amountRial) || 0) : null;
+  const rows = [];
+  let qtyLeft = total;
+  let amtLeft = amountTotal;
+  list.forEach((l, i) => {
+    const last = i === list.length - 1;
+    const qi = last ? round3(qtyLeft) : l.qty;
+    let ai;
+    if (amountTotal != null) {
+      ai = last ? amtLeft : Math.round(amountTotal * qi / total);
+      amtLeft -= ai;
+    }
+    qtyLeft = round3(qtyLeft - qi);
+    rows.push(postInventoryMovement(db, {
+      ...opts,
+      qty: undefined,
+      qtyIn: qtyIn ? qi : 0,
+      qtyOut: qtyOut ? qi : 0,
+      amountRial: ai,
+      variantId: l.variantId,
+    }));
+  });
+  return groupResult(rows);
+}
+
+function groupResult(rows) {
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+  const sum = (k) => rows.reduce((acc, r) => acc + (Number(r && r[k]) || 0), 0);
+  const qty = round3(sum('qty_in') || sum('qty_out'));
+  const amount = Math.round(sum('amount_rial'));
+  return {
+    ...first,
+    ids: rows.map((r) => r.id),
+    rows,
+    qty_in: round3(sum('qty_in')),
+    qty_out: round3(sum('qty_out')),
+    qty_balance: last.qty_balance,
+    amount_rial: amount,
+    ledger_amount_rial: Math.round(sum('ledger_amount_rial')),
+    value_parked_rial: Math.round(sum('value_parked_rial')),
+    unit_cost_rial: rows.length > 1 && qty > 0 ? Math.round(amount / qty) : first.unit_cost_rial,
+    avg_cost_after_rial: last.avg_cost_after_rial,
+  };
+}
+
+/**
+ * Ids of the rows one postLedgerByVariant call wrote, found from any one of them: adjacent rows
+ * of the same product with the same event / source / warehouse / date / note and distinct
+ * variants (a repeated SKU starts another posting). A row without variant is its own group.
+ */
+function ledgerGroupIds(db, anchorId) {
+  const anchor = db.prepare('SELECT * FROM inventory_ledger WHERE id=?').get(anchorId);
+  if (!anchor) return [];
+  if (!(Number(anchor.variant_id) > 0)) return [Number(anchor.id)];
+  const same = (r) => r
+    && String(r.event_type || '') === String(anchor.event_type || '')
+    && String(r.source_type || '') === String(anchor.source_type || '')
+    && String(r.source_id == null ? '' : r.source_id) === String(anchor.source_id == null ? '' : anchor.source_id)
+    && String(r.warehouse_id == null ? '' : r.warehouse_id) === String(anchor.warehouse_id == null ? '' : anchor.warehouse_id)
+    && String(r.date || '') === String(anchor.date || '')
+    && String(r.note || '') === String(anchor.note || '')
+    && ((Number(r.qty_in) || 0) > 0) === ((Number(anchor.qty_in) || 0) > 0)
+    && r.reversed_of == null
+    && Number(r.variant_id) > 0;
+  const seen = new Set([Number(anchor.variant_id)]);
+  const ids = [Number(anchor.id)];
+  const walk = (sql) => {
+    for (const r of db.prepare(sql).all(anchor.product_id, anchor.id)) {
+      if (!same(r) || seen.has(Number(r.variant_id))) break;
+      seen.add(Number(r.variant_id));
+      ids.push(Number(r.id));
+    }
+  };
+  walk('SELECT * FROM inventory_ledger WHERE product_id=? AND id<? ORDER BY id DESC LIMIT 500');
+  walk('SELECT * FROM inventory_ledger WHERE product_id=? AND id>? ORDER BY id ASC LIMIT 500');
+  return ids.sort((a, b) => a - b);
+}
+
+/** Reverse every still-live row of the group around anchorId (newest first). */
+function reverseLedgerGroup(db, anchorId, opts = {}) {
+  const { reverseInventoryMovement } = require('./ledger');
+  const out = [];
+  for (const id of ledgerGroupIds(db, anchorId).reverse()) {
+    const r = db.prepare('SELECT status, reversed_of FROM inventory_ledger WHERE id=?').get(id);
+    if (!r || r.status !== 'posted' || r.reversed_of != null) continue;
+    out.push(reverseInventoryMovement(db, id, opts));
+  }
+  return out;
+}
+
 function serializeVariantLinesJson(lines) {
   if (!lines || !lines.length) return '';
   return JSON.stringify(lines.map(l => ({
@@ -201,4 +342,7 @@ module.exports = {
   reverseApparelDoc,
   serializeVariantLinesJson,
   saveDocVariantLines,
+  postLedgerByVariant,
+  ledgerGroupIds,
+  reverseLedgerGroup,
 };

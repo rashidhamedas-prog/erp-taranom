@@ -63,25 +63,7 @@ function liveBatchMeters(db, batchId) {
  * A reversed row still counts while its posted opposite row exists (net 0);
  * soft-retired rows (reversed, no posted opposite) count for nothing.
  */
-function ledgerWarehouseBalance(db, productId, warehouseId) {
-  const row = db.prepare(`
-    SELECT COALESCE(SUM(COALESCE(l.qty_in,0) - COALESCE(l.qty_out,0)),0) AS q
-    FROM inventory_ledger l
-    WHERE l.product_id=? AND l.warehouse_id=?
-      AND (COALESCE(l.status,'posted')='posted'
-        OR EXISTS (SELECT 1 FROM inventory_ledger r
-                   WHERE r.reversed_of=l.id AND COALESCE(r.status,'posted')='posted'))
-  `).get(productId, warehouseId);
-  return Number(row && row.q) || 0;
-}
-
-/**
- * Fabric warehouse_stock is a denormalized cache of Σ live batch meters plus
- * stock not on any roll (opening balance before roll tracking).
- * Untagged production issues can drain the product bucket while rolls still
- * hold meters — the cache never drops below Σ rolls, and never below the
- * ledger either, so untracked stock is not silently erased.
- */
+/** Rebuild the product cache from the live inventory ledger. Roll totals are diagnostic only. */
 function syncFabricProductWarehouse(db, productId, warehouseId) {
   const pid = Number(productId);
   const wid = Number(warehouseId);
@@ -97,20 +79,15 @@ function syncFabricProductWarehouse(db, productId, warehouseId) {
     const live = liveBatchMeters(db, b.id);
     if (live != null && Number.isFinite(live)) rolls += Math.max(0, live);
   }
-  const ledger = ledgerWarehouseBalance(db, pid, wid);
-  const expected = Math.round(Math.max(rolls, ledger) * 1e6) / 1e6;
-  const { warehouseQty, ensureWhRow } = require('./ledger');
-  ensureWhRow(db, pid, wid);
-  const current = warehouseQty(db, pid, wid);
+  const { derivedQty, rebuildStockCache } = require('./stock-cache');
+  const ledger = derivedQty(db, { productId: pid, warehouseId: wid });
+  const expected = ledger;
+  const currentRow = db.prepare(
+    'SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?'
+  ).get(pid, wid);
+  const current = Number(currentRow && currentRow.qty) || 0;
   const delta = expected - current;
-  if (Math.abs(delta) < 1e-6) return { expected, current, delta: 0, rolls, ledger };
-  db.prepare(
-    'UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?'
-  ).run(expected, pid, wid);
-  const total = db.prepare(
-    'SELECT COALESCE(SUM(qty),0) AS s FROM warehouse_stock WHERE product_id=?'
-  ).get(pid);
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(Number(total.s) || 0, pid);
+  rebuildStockCache(db, pid);
   return { expected, current, delta, rolls, ledger };
 }
 

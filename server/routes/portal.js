@@ -196,7 +196,25 @@ function assertDeptUnlocked(db, param, deptId) {
   return { dept, log };
 }
 
-function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, note, date, paramId = null, paramLabel = '' }) {
+/**
+ * Portal moves carry no colour×size line. A product with active matrix variants needs a variant on
+ * every ledger row (stock single-source), so it must go through the warehouse / pack documents.
+ */
+function assertPortalNotMatrix(db, productId, name, variantId = null) {
+  if (Number(variantId) > 0) return;
+  let matrix = false;
+  try { matrix = require('../lib/inventory/movement').hasActiveMatrixVariants(db, productId); } catch (_) { matrix = false; }
+  if (matrix) {
+    throw Object.assign(new Error(
+      `کالای «${name || productId}» رنگ×سایز دارد؛ انتقال/تبدیل پورتال برای آن مجاز نیست — از سند انبار با انتخاب رنگ و سایز استفاده کنید`
+    ), { status: 422, code: 'E_VARIANT_REQUIRED' });
+  }
+}
+
+function transferBetweenWarehouses(db, {
+  productId, fromWh, toWh, qty, userId, note, date, paramId = null, paramLabel = '', variantId = null,
+}) {
+  const vid = Number(variantId) > 0 ? Number(variantId) : null;
   const q = parseQty(qty);
   if (!q || q <= 0) throw new Error('تعداد انتقال معتبر نیست');
   const product = db.prepare('SELECT * FROM products WHERE id=?').get(productId);
@@ -204,6 +222,7 @@ function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, n
   const fromWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(fromWh);
   const toWarehouse = db.prepare('SELECT * FROM warehouses WHERE id=?').get(toWh);
   if (!fromWarehouse || !toWarehouse) throw new Error('انبار مبدأ یا مقصد یافت نشد');
+  assertPortalNotMatrix(db, productId, product.name, vid);
   const available = warehouseQty(db, productId, fromWh);
   if (available < q) {
     const e = new Error(stockErrPersian({ available, needed: q }, fromWarehouse.name));
@@ -223,6 +242,7 @@ function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, n
     note: note || `خروج انتقال به ${toWarehouse.name}`,
     createdBy: userId,
     updateAvg: false,
+    variantId: vid,
   });
   // v525 closed inventory month, different destination pool: enter at the destination pool rate
   // and park the source-rate difference — one approval doc per portal parameter (like warehouse-docs).
@@ -251,6 +271,7 @@ function transferBetweenWarehouses(db, { productId, fromWh, toWh, qty, userId, n
     note: note || `ورود انتقال از ${fromWarehouse.name}`,
     createdBy: userId,
     updateAvg: false,
+    variantId: vid,
   });
   if (transferPark) {
     const group = paramId != null ? {
@@ -913,7 +934,9 @@ router.post('/parameters/:id/dept/:deptId/approve-payment', auth, requirePermiss
 });
 
 router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('portal', 'edit'), (req, res) => {
-  const { product_id, product_name, quantity, from_product_id } = req.body;
+  const { product_id, product_name, quantity, from_product_id, variant_id, from_variant_id } = req.body;
+  const outVid = Number(variant_id) > 0 ? Number(variant_id) : null;
+  const inVid = Number(from_variant_id) > 0 ? Number(from_variant_id) : null;
   const qty = parseQty(quantity);
   if (!qty || qty <= 0) return res.status(400).json({ error: 'تعداد معتبر الزامی است' });
   let outPid = product_id ? parseInt(product_id, 10) : null;
@@ -972,6 +995,8 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
     const inProd = db.prepare('SELECT * FROM products WHERE id=?').get(inPid);
     if (!inProd) throw Object.assign(new Error('کالای ورودی یافت نشد'), { status: 404 });
     const whId = dept.warehouse_id;
+    assertPortalNotMatrix(db, inPid, inProd.name, inVid);
+    if (!createdPending) assertPortalNotMatrix(db, outPid, outProd.name, outVid);
     const avail = warehouseQty(db, inPid, whId);
     if (avail < qty) {
       const wh = db.prepare('SELECT name FROM warehouses WHERE id=?').get(whId);
@@ -991,6 +1016,7 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
       date: d,
       note: `تبدیل پورتال — خروج ${inProd.name}`,
       createdBy: req.user.id,
+      variantId: inVid,
     });
     const ledReceipt = postInventoryMovement(db, {
       eventType: 'production_receipt',
@@ -1004,6 +1030,7 @@ router.post('/parameters/:id/dept/:deptId/convert', auth, requirePermission('por
       date: d,
       note: `تبدیل پورتال — ورود ${outProd.name}`,
       createdBy: req.user.id,
+      variantId: createdPending ? null : outVid,
     });
     let runId = null;
     if (hasTable(db, 'production_runs')) {
@@ -1153,7 +1180,7 @@ router.post('/parameters/:id/dept/:deptId/complete', auth, requirePermission('po
 });
 
 router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'approve'), (req, res) => {
-  const { quantity, destination_warehouse_id, extra_costs } = req.body;
+  const { quantity, destination_warehouse_id, extra_costs, variant_id } = req.body;
   const qty = parseQty(quantity);
   const destWh = parseInt(destination_warehouse_id, 10);
   if (!qty || qty <= 0 || !destWh) {
@@ -1215,6 +1242,7 @@ router.post('/parameters/:id/final-output', auth, requirePermission('portal', 'a
         date: d,
         paramId: param.id,
         paramLabel: param.num || '',
+        variantId: variant_id,
       });
       if (hasTable(db, 'op_parameter_extra_costs')) {
         const insCost = db.prepare(`

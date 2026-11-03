@@ -109,14 +109,23 @@ function jeBalanced(jeId) {
   const personIn = db.prepare("INSERT INTO persons (name, phone) VALUES ('تأمین‌کننده امانی','09123334455')").run().lastInsertRowid;
   const pidOut = db.prepare(`
     INSERT INTO products (user_id, name, code, stock, warehouse_id, average_cost_rial, cost)
-    VALUES (?,'مانتو ارسالی','CON-OUT',20,?,100000,10000)
+    VALUES (?,'مانتو ارسالی','CON-OUT',0,?,100000,10000)
   `).run(admin.id, wh.id).lastInsertRowid;
-  db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,20)').run(pidOut, wh.id);
   const pidIn = db.prepare(`
     INSERT INTO products (user_id, name, code, stock, warehouse_id, average_cost_rial, cost)
-    VALUES (?,'شال دریافتی','CON-IN',10,?,80000,8000)
+    VALUES (?,'شال دریافتی','CON-IN',0,?,80000,8000)
   `).run(admin.id, wh.id).lastInsertRowid;
-  db.prepare('INSERT OR REPLACE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,10)').run(pidIn, wh.id);
+  const { postInventoryMovement } = require('../lib/inventory/ledger');
+  postInventoryMovement(db, {
+    eventType: 'opening', productId: pidOut, warehouseId: wh.id, qtyIn: 20,
+    unitCostRial: 100000, sourceType: 'opening_stock_doc', sourceId: pidOut,
+    date: '1405/01/01', createdBy: admin.id,
+  });
+  postInventoryMovement(db, {
+    eventType: 'opening', productId: pidIn, warehouseId: wh.id, qtyIn: 10,
+    unitCostRial: 80000, sourceType: 'opening_stock_doc', sourceId: pidIn,
+    date: '1405/01/01', createdBy: admin.id,
+  });
 
   console.log('\n— CON-01 create —');
   const missing = await api('POST', '/api/consignments', {

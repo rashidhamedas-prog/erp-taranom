@@ -171,8 +171,10 @@ const ambCsv = fs.readFileSync(path.join(outDir, 'b-ambiguous.csv'), 'utf8');
 ok(ambCsv.includes('dup_opening_nonidentical'), 'non-identical opening listed');
 ok(live.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pDrift, wh).qty === 2, 'ws rebuilt from kardex (3 in − 1 out)');
 ok(live.prepare('SELECT stock FROM products WHERE id=?').get(pDrift).stock === 2, 'header rebuilt from ws');
-ok(live.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pNeg, whNeg).qty === 4, 'negative kardex on a no-negative warehouse is left untouched');
-ok(ambCsv.includes('ws_negative_blocked'), 'blocked negative is listed, not forced');
+ok(live.prepare('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?').get(pNeg, whNeg).qty === -2,
+  'negative live ledger is mirrored into the cache by the authorized cache writer');
+const negCsv = fs.readFileSync(path.join(outDir, 'b-negative-after.csv'), 'utf8');
+ok(negCsv.includes(String(pNeg)), 'negative ledger balance is reported for operator review');
 ok(live.prepare('SELECT warehouse_id FROM inventory_ledger WHERE id=?').get(retLed).warehouse_id == null, 'phase B does not fill null warehouse');
 const idsAfter = new Set(live.prepare('SELECT id FROM inventory_ledger').all().map((r) => r.id));
 ok([...ledgerIds].every((id) => idsAfter.has(id)), 'no ledger id deleted');

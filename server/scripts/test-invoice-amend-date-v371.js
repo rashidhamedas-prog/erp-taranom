@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v371 — Invoice amend reverse/repost books use invoice date, not today.
  * Run: node server/scripts/test-invoice-amend-date-v371.js
@@ -31,7 +31,9 @@ ok(voidSrc.includes('opts.date') || voidSrc.includes('options.date'), 'void-sett
 ok(posSrc.includes('date: when') && posSrc.includes('String(date || todayJalali())'), 'voidReceiptInTx uses caller date');
 ok(amendSrc.includes('reverseInvoiceTimePaymentsInTx(db, invoiceTime, row.id, userId, date)'),
   'amend passes invoice date into reverse');
-ok(amendSrc.includes('updateMovementQty(db, mvs[0], newQty, date)'), 'stock qty update keeps invoice date');
+// Ledger is append-only for qty: the amend reverses the old row and posts a fresh one carrying the invoice date.
+ok(amendSrc.includes('const ctx = { userId, date }') && amendSrc.includes('updateMovementQty(db, mvs,')
+  && /const when = ctx\.date != null/.test(amendSrc), 'stock qty update (reverse + repost) keeps invoice date');
 ok(appSrc.includes('تاریخ فاکتور') && appSrc.includes('v371'), 'Help mentions invoice-date amend');
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-invoice-amend-date-v371-secret!!';

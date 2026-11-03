@@ -7,7 +7,7 @@ const { todayJalali } = require('../jalali');
    LEGACY PRODUCTION RUNS (production_runs) — F07 gate
    This module predates the advanced production module (production_orders +
    inventory_ledger + PRD-xx journal entries). It writes products.stock /
-   warehouse_stock / stock_logs directly: no journal entry, no WIP, no
+   warehouse_stock directly (now: ledger rows only): no journal entry, no WIP, no
    production-period lock. Once the advanced module is installed it must not
    create new data, otherwise stock exists that the ledger never saw.
    New writes are therefore refused with 409 E_LEGACY_PRODUCTION_DISABLED
@@ -277,14 +277,30 @@ router.post('/', auth, adminOrAccounting, legacyWriteGate, (req, res) => {
             doStock ? 1 : 0, doCost ? 1 : 0, product.cost, whId, req.user.id);
       const id = result.lastInsertRowid;
       if (doStock) {
-        db.prepare('UPDATE products SET stock=stock+? WHERE id=?').run(qty, product_id);
+        // Stock single-source: the receipt is ledger rows (one per colour×size line, or one for a plain
+        // product) — products.stock / warehouse_stock are derived from them, never written here.
+        const { postInventoryMovement } = require('../lib/inventory/ledger');
+        const unitRial = Math.round(unitCost) || undefined;
+        const recvLines = apparelLines.length ? apparelLines : [{ variantId: null, qty }];
+        for (const ln of recvLines) {
+          postInventoryMovement(db, {
+            eventType: 'production_receipt',
+            productId: product_id,
+            warehouseId: whId || null,
+            qtyIn: Number(ln.qty) || 0,
+            variantId: ln.variantId || undefined,
+            unitCostRial: unitRial,
+            sourceType: 'production_run',
+            sourceId: id,
+            date: runDate,
+            note: `تولید داخلی (اجرای تولید #${id})`,
+            createdBy: req.user.id,
+            updateAvg: false,
+          });
+        }
         if (whId) {
-          db.prepare('INSERT INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?) ON CONFLICT(product_id,warehouse_id) DO UPDATE SET qty=qty+?')
-            .run(product_id, whId, qty, qty);
           db.prepare('UPDATE products SET warehouse_id=? WHERE id=?').run(whId, product_id);
         }
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-          .run(product_id, req.user.id, qty, `تولید داخلی (اجرای تولید #${id})`);
         require('../lib/inventory/apparel-lines').postApparelLines(db, {
           productId: product_id, warehouseId: whId, lines: apparelLines,
           docType: 'production_run', docId: id, userId: req.user.id,
@@ -323,13 +339,11 @@ router.delete('/:id', auth, adminOrAccounting, legacyWriteGate, (req, res) => {
           docType: 'production_run', docId: row.id, userId: req.user.id,
           note: `ابطال اجرای تولید #${row.id}`,
         });
-        db.prepare('UPDATE products SET stock=stock-? WHERE id=?').run(row.qty_produced, row.product_id);
-        if (row.warehouse_id) {
-          db.prepare('UPDATE warehouse_stock SET qty=MAX(0,qty-?) WHERE product_id=? AND warehouse_id=?')
-            .run(row.qty_produced, row.product_id, row.warehouse_id);
-        }
-        db.prepare('INSERT INTO stock_logs (product_id,user_id,change,note) VALUES (?,?,?,?)')
-          .run(row.product_id, req.user.id, -row.qty_produced, `ابطال اجرای تولید #${row.id}`);
+        // Stock single-source: void = reversal of the run's ledger rows (caches re-derive).
+        // Legacy runs from before this change have no ledger rows → nothing to take back.
+        require('../lib/sales-document').reverseStockBySource(db, 'production_run', row.id, {
+          createdBy: req.user.id, date: todayJalali(), note: `ابطال اجرای تولید #${row.id}`,
+        });
       }
       if (row.cost_updated && row.previous_cost != null) {
         db.prepare('UPDATE products SET cost=? WHERE id=?').run(row.previous_cost, row.product_id);

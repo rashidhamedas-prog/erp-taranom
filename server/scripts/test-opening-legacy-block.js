@@ -164,7 +164,8 @@ async function main() {
       ok(Number(q1('SELECT qty FROM warehouse_stock WHERE product_id=? AND warehouse_id=?', pid, wh).qty) === 3, 'excel update: WS untouched');
       ok(ledgerCount() === ledBefore, 'excel update: no ledger rows');
       ok(count("SELECT COUNT(*) AS c FROM journal_entries WHERE ref_type='opening_inventory' AND ref_id=?", pid) === 0, 'excel update: no opening JE');
-      updateProductFromExcel(db, admin, pid, { name: 'اکسل آپدیت ۲', stock: 3, cost: 5000 });
+      // Stock compared against the ledger-derived on-hand (no ledger rows here → 0), not the legacy cache.
+      updateProductFromExcel(db, admin, pid, { name: 'اکسل آپدیت ۲', stock: 0, cost: 5000 });
       ok(q1('SELECT name FROM products WHERE id=?', pid).name === 'اکسل آپدیت ۲', 'excel update with same stock still updates fields');
       updateProductFromExcel(db, admin, pid, { name: 'اکسل آپدیت ۳' });
       ok(q1('SELECT name FROM products WHERE id=?', pid).name === 'اکسل آپدیت ۳', 'excel update without stock column updates fields');

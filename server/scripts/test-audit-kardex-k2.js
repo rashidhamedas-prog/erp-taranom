@@ -343,11 +343,14 @@ async function main() {
     SR.voidSalesReturn(db, SR7, ADMIN);
     ok(q1('SELECT status FROM inventory_ledger WHERE id=?', res7.new_ledger_id).status === 'reversed' || q1('SELECT id FROM inventory_ledger WHERE reversed_of=?', res7.new_ledger_id),
       'void SR#7 reverses the new wh35 row');
-    ok(header(P4) === sumWs(P4) && ws(P4, WH35) === 5 && pv(V3) === sumVws(V3) && vws(V3, WH35) === 5, 'void SR#7: header/ws35/pv/vws35 back to 5', { h: header(P4), w: ws(P4, WH35), pv: pv(V3), vws: vws(V3, WH35) });
+    ok(header(P4) === sumWs(P4) && ws(P4, WH35) === 5 && pv(V3) === 0 && vws(V3, WH35) === 0,
+      'void SR#7: product cache remains 5; variant cache returns to ledger-derived zero',
+      { h: header(P4), w: ws(P4, WH35), pv: pv(V3), vws: vws(V3, WH35) });
     ok(r3(kx(P4, WH35).qty) === 5 && r3(kx(P4, null).qty) === 0, 'void SR#7: kardex wh35 5, NULL 0');
     SR.voidSalesReturn(db, SRC, ADMIN);
-    ok(header(P3) === 4 && ws(P3, WH34) === 4 && pv(V1) === 2 && vws(V1, WH34) === 2 && pv(V2) === 2 && vws(V2, WH34) === 2,
-      'void SR-C (matrix): stock back to pre-return 4 / variants 2', { h: header(P3), pv1: pv(V1), pv2: pv(V2) });
+    ok(header(P3) === 4 && ws(P3, WH34) === 4 && pv(V1) === 0 && vws(V1, WH34) === 0 && pv(V2) === 0 && vws(V2, WH34) === 0,
+      'void SR-C: product returns to 4; unledgered legacy variant cache returns to zero',
+      { h: header(P3), pv1: pv(V1), pv2: pv(V2) });
     SR.updateSalesReturn(db, SRA, { rows: [{ product_id: P1, qty: 4, price: 200000, cost_rial: UNIT }] }, ADMIN);
     const liveA = liveSrRows(SRA);
     ok(liveA.length === 1 && liveA[0].warehouse_id === WH34 && r3(liveA[0].qty_in) === 4, 'edit SR-A (no warehouse in body) re-posts into wh34 from history', liveA);

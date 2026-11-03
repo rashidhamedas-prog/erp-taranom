@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * Regression: sticky thead must not use topbar offset inside fold/clip cards.
  * Root cause of follow-ups "empty rows + جمع only" mess: overflow:hidden + sticky top:88px.

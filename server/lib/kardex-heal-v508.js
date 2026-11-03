@@ -138,10 +138,13 @@ function healKardexSingleLedger(db, { apply = false, force = false } = {}) {
   if (!apply) return { ...report, pairs, short };
 
   const { reverseInventoryMovement, postInventoryMovement } = require('./inventory/ledger');
+  const { rebuildAllStockCaches } = require('./inventory/stock-cache');
   const { warehouseUsesPerpetualValuation } = require('./sales-document');
   const uid = adminId(db);
   db.transaction(() => {
+    const touchedProducts = new Set();
     for (const { seed, rec } of pairs) {
+      touchedProducts.add(Number(seed.product_id));
       reverseInventoryMovement(db, rec.id, {
         createdBy: uid, date: rec.date, note: `ابطال جفت تعدیل خنثی (${rec.tx_no})`,
       });
@@ -151,6 +154,7 @@ function healKardexSingleLedger(db, { apply = false, force = false } = {}) {
     }
     const perInvWh = new Map();
     for (const s of short) {
+      touchedProducts.add(Number(s.product_id));
       const mv = postInventoryMovement(db, {
         eventType: 'sale',
         productId: s.product_id,
@@ -183,6 +187,7 @@ function healKardexSingleLedger(db, { apply = false, force = false } = {}) {
         report.cogs_rial += g.amount;
       }
     }
+    rebuildAllStockCaches(db, { productIds: [...touchedProducts] });
     db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)')
       .run(SETTING_KEY, JSON.stringify({ ok: 1, ...report, at: new Date().toISOString() }));
   })();
@@ -262,19 +267,19 @@ function healAgreedBooks(db, { apply = false, force = false } = {}) {
   };
   if (!apply) return { ...report, fixes };
   const { reverseInventoryMovement } = require('./inventory/ledger');
+  const { rebuildAllStockCaches } = require('./inventory/stock-cache');
   const uid = adminId(db);
   db.transaction(() => {
+    const productIds = new Set();
     for (const f of fixes) {
+      productIds.add(Number(f.product_id));
       for (const r of f.alignRows) {
         reverseInventoryMovement(db, r.id, {
           createdBy: uid, date: r.date, note: `ابطال تعدیل بی‌سند (${r.tx_no})`,
         });
       }
-      db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-        .run(f.target, f.product_id, f.warehouse_id);
-      db.prepare('UPDATE products SET stock = COALESCE(stock,0) + ? WHERE id=?')
-        .run(f.target - f.ws, f.product_id);
     }
+    rebuildAllStockCaches(db, { productIds: [...productIds] });
     db.prepare('INSERT OR REPLACE INTO settings (key,value) VALUES (?,?)')
       .run(AGREE_KEY, JSON.stringify({ ok: 1, ...report, at: new Date().toISOString() }));
   })();

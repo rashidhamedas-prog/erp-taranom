@@ -69,11 +69,15 @@ ok(
   'hydrateInvVarSum passes warehouse_id to /summaries'
 );
 
-const genCartFn = (appJs.match(/async function genCartAdd[\s\S]{0,700}/) || [''])[0];
+// Current code (post pack refactor): genCartAdd resolves the live pack for the header warehouse via
+// resolveServerAutoPack(pid, whId) → fetchProductLivePack(pid, warehouseId) (warehouse-scoped).
+const genCartFn = (appJs.match(/async function genCartAdd[\s\S]{0,1200}/) || [''])[0];
+const fetchPackFn = (appJs.match(/async function fetchProductLivePack[\s\S]{0,700}/) || [''])[0];
 ok(
-  /\/product-variants\/style\//.test(genCartFn)
-    && /\?warehouse_id=|warehouse_id=/.test(genCartFn),
-  'genCartAdd style?warehouse_id'
+  /headerPurchaseWarehouseId\s*\(/.test(genCartFn)
+    && /resolveServerAutoPack\(\s*pidN\s*,\s*whId/.test(genCartFn)
+    && /warehouse_id/.test(fetchPackFn),
+  'genCartAdd resolves the pack for the header warehouse (warehouse_id passed to live-pack fetch)'
 );
 
 const reloadFn = (appJs.match(/async function reloadInvProductsForWarehouse[\s\S]{0,800}/) || [''])[0];

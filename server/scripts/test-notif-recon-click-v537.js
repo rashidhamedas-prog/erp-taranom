@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * v537: nightly recon notification must open acc-subledger-recon from notifClick;
  * notification payload still uses kind=subledger_recon_nightly / entity_type=subledger_recon_run.

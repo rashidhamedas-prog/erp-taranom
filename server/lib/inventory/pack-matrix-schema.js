@@ -54,6 +54,7 @@ function ensureProductOverrideColumn(db) {
 
 function installVwsTriggers(db) {
   if (!tableExists(db, 'variant_warehouse_stock')) return;
+  require('./stock-cache').ensureStockCacheSchema(db);
   db.exec(`
     DROP TRIGGER IF EXISTS trg_vws_no_negative;
     DROP TRIGGER IF EXISTS trg_vws_no_negative_ins;
@@ -69,6 +70,9 @@ function installVwsTriggers(db) {
       AND NOT EXISTS (
         SELECT 1 FROM settings s
         WHERE s.key = 'inventory_allow_negative' AND s.value = '1'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM stock_cache_writer_flag f WHERE f.id=1 AND COALESCE(f.active,0)=1
       );
     END;
     CREATE TRIGGER trg_vws_no_negative_ins
@@ -83,6 +87,9 @@ function installVwsTriggers(db) {
       AND NOT EXISTS (
         SELECT 1 FROM settings s
         WHERE s.key = 'inventory_allow_negative' AND s.value = '1'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM stock_cache_writer_flag f WHERE f.id=1 AND COALESCE(f.active,0)=1
       );
     END;
   `);

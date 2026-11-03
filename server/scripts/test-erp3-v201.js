@@ -34,7 +34,8 @@ ok(appJs.includes('value="tax_exempt">معاف از مالیات'), 'h6 گزین
 ok(appJs.includes("api('PUT','/production/boms/'+id+'/operations/'+opId"), 'h7 ذخیره عملیات از API');
 ok(typeof /window\.adv\.updateOperation/.test(appJs) === 'boolean', 'h7 shim adv.updateOperation');
 ok(invoicesSrc.includes('persistInvoicePayPlan') && invoicesSrc.includes('paymentsFromStoredInvoice'), 'مسیر فاکتور اقساط را نگه می‌دارد');
-ok(invoicesSrc.includes('adjustVariantStock'), 'کسر موجودی واریانت در deductStock');
+// SSOT: deductStock posts a variant-stamped ledger 'sale' row (no adjustVariantStock cache write any more).
+ok(invoicesSrc.includes('postInventoryMovement') && /variantId/.test(invoicesSrc), 'کسر موجودی واریانت در deductStock (ledger row with variantId)');
 ok(payrollSrc.includes("'tax_exempt'"), 'payroll coerce tax_exempt');
 ok(schemaSrc.includes("'tax_exempt'") && schemaSrc.includes('expandTaxExemptionCheck'), 'CHECK مالیات شامل tax_exempt');
 ok(bomSrc.includes('function updateOperation') && bomRouteSrc.includes('updateOperation'), 'updateOperation در دامنه و مسیر');

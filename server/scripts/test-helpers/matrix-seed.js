@@ -21,6 +21,38 @@ function seedMatrixQty(db, productId, cells, opts = {}) {
     SELECT * FROM product_variants WHERE product_id=? AND color_id=? AND size_id=? AND active=1 LIMIT 1
   `);
   const updated = [];
+  // Stock single source: on a real schema (inventory_ledger present) every cell is a LEDGER document
+  // (signed 'adjustment' to the target) — the caches are derived. The direct cache seeding below is kept
+  // ONLY for the legacy minimal in-memory DBs that have no ledger table.
+  const hasLedger = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger'").get();
+  if (hasLedger) {
+    const { setStock } = require('../lib/stock-fixture');
+    for (const cell of list) {
+      const qty = Math.round(Number(cell.qty) || 0);
+      const row = find.get(productId, Number(cell.color_id), Number(cell.size_id));
+      if (!row || !warehouseId) continue;
+      setStock(db, { productId, variantId: row.id, warehouseId, target: qty, note: 'matrix seed' });
+      updated.push({ id: row.id, warehouse_qty: qty });
+    }
+    S.afterVariantStockWrite(db, productId);
+    const stockNow = Number((db.prepare('SELECT stock FROM products WHERE id=?').get(productId) || {}).stock) || 0;
+    const liveL = db.prepare(`
+      SELECT COUNT(*) AS c FROM (
+        SELECT color_id FROM product_variants
+        WHERE product_id=? AND COALESCE(is_default,0)=0 AND COALESCE(active,1)=1 AND color_id IS NOT NULL
+        GROUP BY color_id HAVING COALESCE(SUM(stock),0) > 0.0000001
+      )
+    `).get(productId).c;
+    db.prepare('UPDATE products SET colors=? WHERE id=?').run(Math.max(1, Number(liveL) || 0), productId);
+    return {
+      product_id: productId,
+      stock: stockNow,
+      warehouse_id: warehouseId || null,
+      updated,
+      pack: S.packSizeFor(db, productId),
+      variants: S.listVariants(db, productId, { include_default: false }),
+    };
+  }
   for (const cell of list) {
     const qty = Math.round(Number(cell.qty) || 0);
     const row = find.get(productId, Number(cell.color_id), Number(cell.size_id));

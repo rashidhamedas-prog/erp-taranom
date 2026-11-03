@@ -87,28 +87,26 @@ async function main() {
   const mv = (pid, vid, wh, q) => insert('inventory_movements', { product_id: pid, variant_id: vid, warehouse_id: wh, qty_delta: q, doc_type: 'test_fixture', doc_id: null, note: 'fixture' });
 
   // ── product 131 fixture ─────────────────────────────────────────────────────
-  const p131 = mk('بارونی مموری 110', 'LA-131', { stock: 25 });
+  const p131 = mk('بارونی مموری 110', 'LA-131');
   const olive = color('زیتونی');
   const s1 = size('سایز1');
   const s2 = size('سایز2');
   const s3 = size('سایز3');
-  const v412 = Number(insert('product_variants', { product_id: p131, color_id: null, size_id: null, sku: 'LA-131-DEF', stock: 32, active: 1, is_default: 1 }));
-  const v421 = Number(insert('product_variants', { product_id: p131, color_id: olive, size_id: s1, sku: 'LA-131-O1', stock: 2, active: 1, is_default: 0 }));
-  const v422 = Number(insert('product_variants', { product_id: p131, color_id: olive, size_id: s2, sku: 'LA-131-O2', stock: 4, active: 1, is_default: 0 }));
-  const v423 = Number(insert('product_variants', { product_id: p131, color_id: olive, size_id: s3, sku: 'LA-131-O3', stock: 19, active: 1, is_default: 0 }));
-  // product_variants.stock sum = 57 (header trap) ; vws sum = 11 / 14 = warehouse_stock
-  vwsSet.run(v421, wh34, 1); vwsSet.run(v421, wh35, 1);
-  vwsSet.run(v422, wh34, 3); vwsSet.run(v422, wh35, 1);
-  vwsSet.run(v423, wh34, 7); vwsSet.run(v423, wh35, 12);
-  wsSet.run(p131, wh34, 11); wsSet.run(p131, wh35, 14);
-  // kardex 27 / 14 : duplicate opening 13 + 16 in warehouse 34, out 2
-  led({ product_id: p131, warehouse_id: wh34, event_type: 'opening', qty_in: 13, amount_rial: 13000 });
-  led({ product_id: p131, warehouse_id: wh34, event_type: 'opening', qty_in: 16, amount_rial: 16000 });
-  led({ product_id: p131, warehouse_id: wh34, event_type: 'sale', qty_out: 2, amount_rial: 2000 });
-  led({ product_id: p131, warehouse_id: wh35, event_type: 'opening', qty_in: 14, amount_rial: 14000 });
-  // movements only in warehouse 34 (kimia has vws without any document)
+  // Stock single source: every figure is a LEDGER document (receipt rows stamped with variant_id).
+  // warehouse_stock / variant_warehouse_stock / *.stock are derived caches (rebuilt by postInventoryMovement).
+  // The old fixture also forged cache-vs-kardex DRIFT (header 57, ws 11/14 vs kardex 27/14); that state can no
+  // longer exist — the assertions below carry the SSOT expectation (one number in every layer).
+  const { seedStock } = require('./lib/stock-fixture');
+  const v412 = Number(insert('product_variants', { product_id: p131, color_id: null, size_id: null, sku: 'LA-131-DEF', stock: 0, active: 1, is_default: 1 }));
+  const v421 = Number(insert('product_variants', { product_id: p131, color_id: olive, size_id: s1, sku: 'LA-131-O1', stock: 0, active: 1, is_default: 0 }));
+  const v422 = Number(insert('product_variants', { product_id: p131, color_id: olive, size_id: s2, sku: 'LA-131-O2', stock: 0, active: 1, is_default: 0 }));
+  const v423 = Number(insert('product_variants', { product_id: p131, color_id: olive, size_id: s3, sku: 'LA-131-O3', stock: 0, active: 1, is_default: 0 }));
+  // 421: 1/1 · 422: 3/1 · 423: 7/12 → product 11 / 14
+  seedStock(db, { productId: p131, variantId: v421, warehouseId: wh34, qty: 1 }); seedStock(db, { productId: p131, variantId: v421, warehouseId: wh35, qty: 1 });
+  seedStock(db, { productId: p131, variantId: v422, warehouseId: wh34, qty: 3 }); seedStock(db, { productId: p131, variantId: v422, warehouseId: wh35, qty: 1 });
+  seedStock(db, { productId: p131, variantId: v423, warehouseId: wh34, qty: 7 }); seedStock(db, { productId: p131, variantId: v423, warehouseId: wh35, qty: 12 });
+  // movements only in warehouse 34 (kimia has stock without any inventory_movements document)
   mv(p131, v421, wh34, 1); mv(p131, v422, wh34, 3); mv(p131, v423, wh34, 7);
-
   const byWh = (arr, id) => arr.find((r) => r.warehouse_id === id);
 
   // ── 1) variant on_hand = that SKU's vws ──────────────────────────────────────
@@ -128,16 +126,16 @@ async function main() {
   console.log('\n— 2) product level on_hand + kardex drift —');
   const aP = lineAvailability(db, { productId: p131 });
   ok(byWh(aP, wh34).on_hand === 11 && byWh(aP, wh35).on_hand === 14 && byWh(aP, wh34).source === 'warehouse_stock', 'product on_hand = warehouse_stock 11 / 14', aP.map((r) => r.on_hand));
-  ok(byWh(aP, wh34).kardex_qty === 27 && byWh(aP, wh35).kardex_qty === 14, 'kardex 27 / 14', aP.map((r) => r.kardex_qty));
-  ok(byWh(aP, wh34).drift === true && byWh(aP, wh34).drift_product === true && byWh(aP, wh34).drift_qty === -16, 'warehouse 34: drift (11 vs 27, −16)', byWh(aP, wh34));
+  ok(byWh(aP, wh34).kardex_qty === 11 && byWh(aP, wh35).kardex_qty === 14, 'kardex 11 / 14 (SSOT: same documents → same number as ws)', aP.map((r) => r.kardex_qty));
+  ok(byWh(aP, wh34).drift === false && byWh(aP, wh34).drift_product === false && byWh(aP, wh34).drift_qty === 0, 'warehouse 34: no product drift (ws derived from the ledger: 11 = 11)', byWh(aP, wh34));
   ok(byWh(aP, wh35).drift === false && byWh(aP, wh35).layer_note === '', 'warehouse 35: aligned (14 vs 14) → no drift, empty note', byWh(aP, wh35));
-  ok(/ناهمخوان با کاردکس/.test(byWh(aP, wh34).layer_note), 'layer_note explains the mismatch', byWh(aP, wh34).layer_note);
+  ok(byWh(aP, wh34).layer_note === '', 'layer_note empty (nothing to explain under SSOT)', byWh(aP, wh34).layer_note);
   ok(aP.every((r) => r.movements_qty === null && r.reserved_scope === 'product_warehouse'), 'product rows: no movements_qty, reserved_scope product_warehouse');
 
   // ── 3) variant drift (vws vs movements) ─────────────────────────────────────
   console.log('\n— 3) variant drift vs inventory_movements —');
   ok(byWh(a421, wh34).movements_qty === 1 && byWh(a421, wh34).drift_variant === false, '421@34: vws 1 = movements 1', byWh(a421, wh34));
-  ok(byWh(a421, wh34).drift_product === true && byWh(a421, wh34).drift === true, '421@34: still flagged via product-level drift (11 vs 27)');
+  ok(byWh(a421, wh34).drift_product === false && byWh(a421, wh34).drift === false, '421@34: no product-level drift (ws = ledger = 11)');
   ok(byWh(a421, wh35).movements_qty === 0 && byWh(a421, wh35).drift_variant === true && byWh(a421, wh35).drift === true, '421@35: vws 1 but no movements → drift_variant', byWh(a421, wh35));
   ok(/بدون سند حرکت/.test(byWh(a421, wh35).layer_note), 'variant layer_note present');
   ok(byWh(a421, wh35).on_hand === 1 && byWh(a421, wh35).available === 1, 'drift never changes the number');
@@ -198,9 +196,10 @@ async function main() {
 
   // ── 7) legacy + warehouseIds filter ─────────────────────────────────────────
   console.log('\n— 7) legacy header fallback / warehouseIds —');
+  // deliberate stale header cache (products.stock=5, no ledger doc): SSOT says the ledger decides → 0.
   const pLeg = mk('کالای قدیمی بدون ردیف انبار', 'LA-LEG', { stock: 5, warehouse_id: wh34 });
   const aLeg = lineAvailability(db, { productId: pLeg });
-  ok(byWh(aLeg, wh34).on_hand === 5 && byWh(aLeg, wh34).legacy_header_fallback === true, 'missing ws row on the header warehouse → ledger.warehouseQty rule (5), flagged', byWh(aLeg, wh34));
+  ok(byWh(aLeg, wh34).on_hand === 0 && byWh(aLeg, wh34).legacy_header_fallback === false, 'SSOT: no ledger document → 0 (a bare header figure is no longer a fallback source)', byWh(aLeg, wh34));
   ok(byWh(aLeg, wh35).on_hand === 0 && byWh(aLeg, wh35).legacy_header_fallback === false, 'other warehouse → 0');
   const only35 = lineAvailability(db, { productId: p131, variantId: v422, warehouseIds: [wh35] });
   ok(only35.length === 1 && only35[0].warehouse_id === wh35, 'warehouseIds filter');
@@ -243,12 +242,12 @@ async function main() {
   const wP = sbwP.data && sbwP.data.warehouses;
   ok(sbwP.status === 200 && wP.length === db.prepare('SELECT COUNT(*) c FROM warehouses WHERE active=1').get().c, 'legacy GET stock-by-warehouse 200 (all active warehouses)', sbwP.status);
   ok(byWh(wP, wh34).qty === 11 && byWh(wP, wh35).qty === 14 && byWh(wP, wh34).source === 'warehouse_stock', 'legacy product qty = 11 / 14 (on_hand)', wP);
-  ok(byWh(wP, wh34).kardex_qty === 27 && byWh(wP, wh34).drift === true && byWh(wP, wh34).drift_qty === -16 && byWh(wP, wh34).declared_source === 'kardex' && byWh(wP, wh35).drift === false,
+  ok(byWh(wP, wh34).kardex_qty === 11 && byWh(wP, wh34).drift === false && byWh(wP, wh34).drift_qty === 0 && byWh(wP, wh34).declared_source === 'kardex' && byWh(wP, wh35).drift === false,
     'legacy product keeps kardex_qty / drift / drift_qty / declared_source', byWh(wP, wh34));
-  ok(byWh(wP, wh34).kardex_value_rial === 27000 && Math.round(byWh(wP, wh34).weighted_avg_unit_rial) === 1000, 'legacy kardex value + weighted avg preserved', byWh(wP, wh34));
+  ok(byWh(wP, wh34).kardex_value_rial === 11000 && Math.round(byWh(wP, wh34).weighted_avg_unit_rial) === 1000, 'legacy kardex value + weighted avg preserved', byWh(wP, wh34));
   ok(!('on_hand' in wP[0]) && !('available' in wP[0]), 'legacy shape unchanged (no new keys)');
   const sbwK = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${p131}&source=kardex`);
-  ok(byWh(sbwK.data.warehouses, wh34).qty === 27 && byWh(sbwK.data.warehouses, wh34).source === 'kardex', 'legacy source=kardex → qty 27');
+  ok(byWh(sbwK.data.warehouses, wh34).qty === 11 && byWh(sbwK.data.warehouses, wh34).source === 'kardex', 'legacy source=kardex → qty 11');
   const sbwV = await api('GET', `/api/inventory/stock-by-warehouse?product_id=${p131}&variant_id=${v421}`);
   ok(byWh(sbwV.data.warehouses, wh34).qty === 1 && byWh(sbwV.data.warehouses, wh35).qty === 1 && byWh(sbwV.data.warehouses, wh34).source === 'vws' && !('kardex_qty' in sbwV.data.warehouses[0]),
     'legacy variant qty = vws 1 / 1, no kardex keys', sbwV.data);

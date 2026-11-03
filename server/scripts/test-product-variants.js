@@ -6,24 +6,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-function loadBetterSqlite3() {
-  const candidates = [
-    path.join(__dirname, '..', 'node_modules', 'better-sqlite3'),
-    'D:/soft/Claud/porje/crm-taranom/erp-taranom1/server/node_modules/better-sqlite3',
-  ];
-  for (const c of candidates) {
-    try { return require(c); } catch (_) {}
-  }
-  return require('better-sqlite3');
-}
-const Database = loadBetterSqlite3();
-const {
-  initProductVariantsSchema,
-  generateMatrix,
-  adjustVariantStock,
-  listVariants,
-} = require('../lib/product-variants');
-
 let passed = 0;
 let failed = 0;
 function ok(name, cond) {
@@ -31,23 +13,30 @@ function ok(name, cond) {
   else { failed += 1; console.error(`  FAIL ${name}`); }
 }
 
-const dbPath = path.join(os.tmpdir(), `w1-app1-${Date.now()}.db`);
-const db = new Database(dbPath);
-db.exec(`
-  CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
-  CREATE TABLE products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT, name TEXT, barcode TEXT,
-    price REAL DEFAULT 0, price_rial INTEGER DEFAULT 0, cost REAL DEFAULT 0, stock REAL DEFAULT 0
-  );
-`);
+// Stock single source: boot the REAL schema (it owns inventory_ledger + the derived caches); variant stock
+// changes go through adjustVariantStock → an 'adjustment' ledger row stamped with the variant.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'w1-app1-'));
+process.env.DB_PATH = path.join(tmp, 'test.db');
+process.env.SYNC_ROLE = 'central';
+process.env.ERP_TEST_ISOLATION = '1';
+process.env.SMS_DISABLED = '1';
+process.env.JWT_SECRET = 'test-product-variants-secret-32chars!!!!!';
+process.env.AUTH_SESSION_DB_PATH = path.join(tmp, 'sessions.db');
+process.env.NODE_ENV = 'test';
+const { getDB, initDB } = require('../db');
+initDB();
+const db = getDB();
+const {
+  generateMatrix,
+  adjustVariantStock,
+} = require('../lib/product-variants');
 
-initProductVariantsSchema(db);
+const adminId = Number(db.prepare("INSERT INTO users (name, username, password, role, active, must_change_password) VALUES ('مدیر','pv_admin','x','admin',1,0)").run().lastInsertRowid);
+const whId = Number(db.prepare("INSERT INTO warehouses (name, code, active, allow_negative, warehouse_type, inventory_system) VALUES ('FG','PV-FG',1,1,'finished_goods','perpetual')").run().lastInsertRowid);
 const style = db.prepare(
-  "INSERT INTO products (code, name, price, stock) VALUES ('STY1','مدل تست',100000,0)"
-).run();
+  "INSERT INTO products (user_id, code, name, price, stock, unit, warehouse_id, average_cost_rial, cost) VALUES (?, 'STY1','مدل تست',100000,0,'عدد',?,1000,1000)"
+).run(adminId, whId);
 const productId = style.lastInsertRowid;
-
 const colors = [
   { code: 'C1', name: 'قرمز' },
   { code: 'C2', name: 'آبی' },
@@ -77,11 +66,7 @@ const b = matrixRows[1];
 const stockA0 = Number(a.stock) || 0;
 const stockB0 = Number(b.stock) || 0;
 
-if (typeof adjustVariantStock === 'function') {
-  adjustVariantStock(db, a.id, 5, 'delta');
-} else {
-  db.prepare('UPDATE product_variants SET stock=stock+? WHERE id=?').run(5, a.id);
-}
+adjustVariantStock(db, a.id, 5, 'delta', { warehouseId: whId, userId: adminId });
 const a1 = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(a.id);
 const b1 = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(b.id);
 ok('SKU A stock increased', Number(a1.stock) === stockA0 + 5);
@@ -97,7 +82,5 @@ try {
 }
 ok('matrix >500 rejected', matrixCap);
 
-db.close();
-try { fs.unlinkSync(dbPath); } catch (_) {}
 console.log(`\nResult: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

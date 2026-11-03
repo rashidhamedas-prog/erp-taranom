@@ -100,7 +100,7 @@ function ensureDefaultVariant(db, productId) {
     Number(product.price) || 0,
     priceRial,
     Number(product.cost) || 0,
-    Number(product.stock) || 0
+    0 // stock single-source: figure is derived from inventory_ledger (stock-cache), never seeded
   );
   def = db.prepare('SELECT * FROM product_variants WHERE id=?').get(r.lastInsertRowid);
   db.prepare('UPDATE products SET is_style=1, default_variant_id=? WHERE id=?')
@@ -148,7 +148,8 @@ function generateMatrix(db, opts) {
     : (product.price_rial != null ? Math.round(Number(product.price_rial) || 0) : Math.round(basePrice));
   const baseCost = opts.cost != null ? Number(opts.cost) : Number(product.cost) || 0;
   const baseWeight = opts.weight != null ? Number(opts.weight) : 0;
-  const initialStock = opts.stock != null ? Number(opts.stock) : 0;
+  // Stock single-source: new SKUs always start at 0; quantity only arrives through ledger documents.
+  const initialStock = 0;
 
   const findMatrix = db.prepare(`
     SELECT * FROM product_variants
@@ -318,7 +319,7 @@ function createVariant(db, body) {
     price,
     priceRial,
     Number(body.cost) || 0,
-    Number(body.stock) || 0,
+    0, // stock single-source: quantity only via ledger documents (opening / adjustment / receipt)
     Number(body.weight) || 0,
     body.status || 'active',
     body.is_default ? 1 : 0,
@@ -362,25 +363,58 @@ function updateVariant(db, id, body) {
   return getVariant(db, id);
 }
 
-/** Change stock on one SKU only — never touches siblings or products.stock unless requested. */
+/**
+ * Change stock on one SKU only — never touches siblings.
+ * Stock single-source: this NEVER writes product_variants.stock. The change is posted as an
+ * 'adjustment' ledger row stamped with the variant (stock-cache then re-derives every figure).
+ * Needs a warehouse: opts.warehouseId, else the product's own warehouse.
+ * For user-facing changes prefer lib/inventory/manual-adjust.postAdjust (adds reason + JE).
+ */
 function adjustVariantStock(db, id, deltaOrAbsolute, mode = 'set', opts = {}) {
   const { parseStockQty, requiresIntegerQty } = require('../inventory/qty-policy');
+  const { derivedQty } = require('../inventory/stock-cache');
   const row = db.prepare('SELECT * FROM product_variants WHERE id=?').get(id);
   if (!row) throw Object.assign(new Error('واریانت یافت نشد'), { status: 404 });
   const integer = requiresIntegerQty(db, row.product_id);
-  let next;
-  if (mode === 'delta') {
-    const delta = parseStockQty(deltaOrAbsolute || 0, { integer, strict: integer });
-    next = (Number(row.stock) || 0) + delta;
-  } else {
-    next = parseStockQty(deltaOrAbsolute, { integer, strict: integer });
+  let whRow = null;
+  if (opts.warehouseId) whRow = { warehouse_id: Number(opts.warehouseId) };
+  else {
+    try { whRow = db.prepare('SELECT warehouse_id FROM products WHERE id=?').get(row.product_id); } catch (_) { whRow = null; }
   }
-  if (integer) next = Math.round(next);
-  if (!Number.isFinite(next)) {
+  const warehouseId = Number(whRow && whRow.warehouse_id) || 0;
+  const current = derivedQty(db, { productId: row.product_id, variantId: id, warehouseId: warehouseId || null });
+  let delta;
+  if (mode === 'delta') {
+    delta = parseStockQty(deltaOrAbsolute || 0, { integer, strict: integer });
+  } else {
+    const target = parseStockQty(deltaOrAbsolute, { integer, strict: integer });
+    delta = target - current;
+  }
+  if (integer) delta = Math.round(delta);
+  if (!Number.isFinite(delta)) {
     throw Object.assign(new Error('موجودی نامعتبر است'), { status: 400 });
   }
-  rememberColorStockHistory(db, row, next);
-  db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(next, id);
+  rememberColorStockHistory(db, row, current + delta);
+  if (Math.abs(delta) > 1e-9) {
+    if (!warehouseId) {
+      throw Object.assign(new Error('برای تغییر موجودی واریانت انبار مشخص نیست'), { status: 422, code: 'E_STOCK_WAREHOUSE_REQUIRED' });
+    }
+    require('../inventory/ledger').postInventoryMovement(db, {
+      eventType: 'adjustment',
+      productId: row.product_id,
+      warehouseId,
+      variantId: id,
+      qty: delta,
+      sourceType: 'variant_stock_adjust',
+      sourceId: null,
+      date: opts.date || '',
+      note: opts.note || 'تعدیل موجودی واریانت',
+      createdBy: opts.userId || null,
+      updateAvg: false,
+      allowNegative: true,
+      allowZeroCost: true,
+    });
+  }
   afterVariantStockWrite(db, row.product_id, opts);
   return getVariant(db, id);
 }

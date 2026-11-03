@@ -1,5 +1,5 @@
-const { swAtLeast } = require('./lib/sw-at-least');
 #!/usr/bin/env node
+const { swAtLeast } = require('./lib/sw-at-least');
 /**
  * RETURNS P2-finance purchase mirror — linked purchase return reduces PI settled/open balance.
  * Run: node server/scripts/test-returns-p2-purchase-finance-v343.js

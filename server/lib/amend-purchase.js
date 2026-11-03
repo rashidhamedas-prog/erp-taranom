@@ -507,7 +507,8 @@ function throwConsumedShortages(shortages) {
  * Unchanged qty or increases never need stock.
  */
 function assertReductionsCovered(db, plans) {
-  const { warehouseQty, allowNegative } = require('./inventory/ledger');
+  const { allowNegative } = require('./inventory/ledger');
+  const { derivedQty } = require('./inventory/stock-cache');
   const shortages = [];
   const productDelta = new Map();
   for (const p of plans) {
@@ -516,9 +517,8 @@ function assertReductionsCovered(db, plans) {
   for (const p of plans) {
     if (p.dQ >= -QTY_EPS) continue;
     if (allowNegative(db, p.warehouseId)) continue;
-    const whAvail = warehouseQty(db, p.productId, p.warehouseId);
-    const prod = db.prepare('SELECT stock FROM products WHERE id=?').get(p.productId);
-    const prodAvail = Number(prod && prod.stock) || 0;
+    const whAvail = derivedQty(db, { productId: p.productId, warehouseId: p.warehouseId });
+    const prodAvail = derivedQty(db, { productId: p.productId });
     const whShort = whAvail + p.dQ < -QTY_EPS;
     const prodShort = prodAvail + (productDelta.get(p.productId) || 0) < -QTY_EPS;
     if (whShort || prodShort) {
@@ -543,9 +543,12 @@ function assertReductionsCovered(db, plans) {
  * Deltas use fresh doc_line numbers so void (reverseStockDocument) still reverses them.
  */
 function syncMovementDoc(db, {
-  docType, docId, desired, applyHeaderStock, userId, note,
+  docType, docId, desired, applyHeaderStock, userId, note, ledger = null,
 }) {
   const { postStockMovement } = require('./inventory/movement');
+  // ledger: { sourceType, sourceId, date } → each net delta is ALSO a ledger row (periodic path:
+  // stock figures derive from inventory_ledger; inventory_movements stays the audit log).
+  const L = ledger ? require('./inventory/ledger') : null;
   const current = db.prepare(`
     SELECT product_id, variant_id, warehouse_id, SUM(qty_delta) AS q
     FROM inventory_movements
@@ -570,6 +573,7 @@ function syncMovementDoc(db, {
       });
     }
     merged.get(k).want += Number(d.qty) || 0;
+    merged.get(k).value = (merged.get(k).value || 0) + (Number(d.value) || 0);
   }
   let nextLine = Number(db.prepare(`
     SELECT COALESCE(MAX(doc_line),-1)+1 AS n FROM inventory_movements
@@ -578,6 +582,25 @@ function syncMovementDoc(db, {
   for (const m of merged.values()) {
     const delta = m.want - m.cur;
     if (Math.abs(delta) <= QTY_EPS) continue;
+    if (L && m.productId) {
+      const unit = delta > 0 && m.want > QTY_EPS ? Math.round((m.value || 0) / m.want) : 0;
+      L.postInventoryMovement(db, {
+        eventType: 'purchase',
+        productId: m.productId,
+        warehouseId: m.warehouseId,
+        ...(delta > 0 ? { qtyIn: delta } : { qtyOut: -delta }),
+        variantId: m.variantId || undefined,
+        unitCostRial: unit || undefined,
+        sourceType: ledger.sourceType,
+        sourceId: ledger.sourceId,
+        date: ledger.date || '',
+        note,
+        createdBy: userId,
+        updateAvg: false,
+        allowNegative: true,
+        allowZeroCost: true,
+      });
+    }
     try {
       postStockMovement(db, {
         productId: m.productId,
@@ -617,6 +640,50 @@ function variantDesired(db, priced, whId) {
  * Unchanged lines post nothing; qty up → extra receipt; qty down → issue (only if still on hand);
  * price change → value-only revaluation. Fabric rolls are re-created only when untouched.
  */
+/**
+ * Split one product×warehouse net change into per-variant parts so every ledger row carries its
+ * variant_id. "Current" per variant comes from the purchase_sku log (else the ledger rows of this
+ * purchase); "wanted" from the amended lines. Variant-less remainder = plain product qty.
+ */
+function purchaseVariantParts(db, purchaseId, p) {
+  const wh = p.warehouseId || null;
+  const cur = new Map();
+  try {
+    for (const m of db.prepare(`
+      SELECT variant_id, SUM(qty_delta) AS q FROM inventory_movements
+      WHERE doc_id=? AND doc_type IN ('purchase_sku','purchase_sku_void') AND product_id=?
+        AND COALESCE(warehouse_id,0)=COALESCE(?,0) AND variant_id IS NOT NULL
+      GROUP BY variant_id
+    `).all(purchaseId, p.productId, wh)) {
+      cur.set(Number(m.variant_id), Number(m.q) || 0);
+    }
+  } catch (_) { /* no sku log */ }
+  if (!cur.size) {
+    for (const l of p.oldRows || []) {
+      const v = Number(l.variant_id) || 0;
+      if (!v) continue;
+      cur.set(v, (cur.get(v) || 0) + (Number(l.qty_in) || 0) - (Number(l.qty_out) || 0));
+    }
+  }
+  const want = new Map();
+  for (const r of p.newRows || []) {
+    const v = Number(r.variant_id) || 0;
+    if (!v) continue;
+    want.set(v, (want.get(v) || 0) + (Number(r.qty) || 0));
+  }
+  const vids = new Set([...cur.keys(), ...want.keys()]);
+  if (!vids.size) return Math.abs(p.dQ) > QTY_EPS ? [{ variantId: null, delta: p.dQ }] : [];
+  const parts = [];
+  let sum = 0;
+  for (const v of vids) {
+    const d = (want.get(v) || 0) - (cur.get(v) || 0);
+    if (Math.abs(d) > QTY_EPS) { parts.push({ variantId: v, delta: d }); sum += d; }
+  }
+  const rest = p.dQ - sum;
+  if (Math.abs(rest) > QTY_EPS) parts.push({ variantId: null, delta: rest });
+  return parts.sort((a, b) => b.delta - a.delta);
+}
+
 function replacePurchaseStockPerpetual(db, {
   row, priced, whId, userId, date, num, supplierId, gate = null,
 }) {
@@ -725,42 +792,46 @@ function replacePurchaseStockPerpetual(db, {
   const ordered = [...plans].sort((a, b) => b.dQ - a.dQ);
   for (const p of ordered) {
     let booked = p.oldValue;
-    if (p.dQ > QTY_EPS) {
-      const unit = p.newQty > 0 ? Math.round(p.newValue / p.newQty) : 0;
-      const mv = postInventoryMovement(db, {
-        eventType: 'purchase',
-        productId: p.productId,
-        warehouseId: p.warehouseId,
-        qtyIn: p.dQ,
-        unitCostRial: unit,
-        amountRial: Math.round(unit * p.dQ),
-        sourceType: 'purchase',
-        sourceId: row.id,
-        date,
-        note: `اصلاح فاکتور خرید ${num} — افزایش تعداد`,
-        createdBy: userId,
-        updateAvg: true,
-      });
-      booked += Math.round(Number(mv.amount_rial) || 0);
-      touch(p.productId).changed = true;
-    } else if (p.dQ < -QTY_EPS) {
-      const unit = p.oldQty > 0 ? Math.round(p.oldValue / p.oldQty) : 0;
-      const mv = postInventoryMovement(db, {
-        eventType: 'purchase',
-        productId: p.productId,
-        warehouseId: p.warehouseId,
-        qtyOut: -p.dQ,
-        unitCostRial: unit,
-        amountRial: Math.round(unit * -p.dQ),
-        sourceType: 'purchase',
-        sourceId: row.id,
-        date,
-        note: `اصلاح فاکتور خرید ${num} — کاهش تعداد`,
-        createdBy: userId,
-        updateAvg: false,
-      });
-      booked -= Math.round(Number(mv.amount_rial) || 0);
-      touch(p.productId).changed = true;
+    const inUnit = p.newQty > 0 ? Math.round(p.newValue / p.newQty) : 0;
+    const outUnit = p.oldQty > 0 ? Math.round(p.oldValue / p.oldQty) : 0;
+    for (const part of purchaseVariantParts(db, row.id, p)) {
+      if (part.delta > QTY_EPS) {
+        const mv = postInventoryMovement(db, {
+          eventType: 'purchase',
+          productId: p.productId,
+          warehouseId: p.warehouseId,
+          qtyIn: part.delta,
+          variantId: part.variantId || undefined,
+          unitCostRial: inUnit,
+          amountRial: Math.round(inUnit * part.delta),
+          sourceType: 'purchase',
+          sourceId: row.id,
+          date,
+          note: `اصلاح فاکتور خرید ${num} — افزایش تعداد`,
+          createdBy: userId,
+          updateAvg: true,
+        });
+        booked += Math.round(Number(mv.amount_rial) || 0);
+        touch(p.productId).changed = true;
+      } else if (part.delta < -QTY_EPS) {
+        const mv = postInventoryMovement(db, {
+          eventType: 'purchase',
+          productId: p.productId,
+          warehouseId: p.warehouseId,
+          qtyOut: -part.delta,
+          variantId: part.variantId || undefined,
+          unitCostRial: outUnit,
+          amountRial: Math.round(outUnit * -part.delta),
+          sourceType: 'purchase',
+          sourceId: row.id,
+          date,
+          note: `اصلاح فاکتور خرید ${num} — کاهش تعداد`,
+          createdBy: userId,
+          updateAvg: false,
+        });
+        booked -= Math.round(Number(mv.amount_rial) || 0);
+        touch(p.productId).changed = true;
+      }
     }
     const reval = Math.round(p.newValue - booked);
     if (reval !== 0 && gate && gate.gate({
@@ -879,6 +950,7 @@ function replacePurchaseStockLegacy(db, {
     variantId: r.variant_id ? Number(r.variant_id) : null,
     warehouseId: r.warehouse_id ? parseInt(r.warehouse_id, 10) : (whId || null),
     qty: Number(r.qty) || 0,
+    value: Math.round(Number(r.amount_rial) || 0),
   }));
   syncMovementDoc(db, {
     docType: 'purchase',
@@ -887,6 +959,7 @@ function replacePurchaseStockLegacy(db, {
     applyHeaderStock: true,
     userId,
     note: `اصلاح فاکتور خرید ${num}`,
+    ledger: { sourceType: 'purchase', sourceId: row.id, date },
   });
 
   for (const p of plans) {
