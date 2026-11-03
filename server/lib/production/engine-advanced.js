@@ -31,6 +31,7 @@ const {
   orderRequiresFabricCutting,
   cuttingQtyForOrder,
   cuttingQtyForOrderProduct,
+  cuttingFabricCoverage,
   isRollFabricProduct,
   rollFabricUnitLabel,
 } = require('./cutting');
@@ -89,6 +90,8 @@ function assertCuttingOutputHasLay(db, po, stage, qtyOut) {
     order_id: po.id,
     stage_id: stage.id,
     qty_out: num(qtyOut),
+    fabrics: cov.fabrics,
+    missing_fabrics: cov.missing_fabrics,
     message: cov.message,
   });
 }
@@ -129,12 +132,25 @@ function cuttingStageCoverage(db, po, stage) {
   const lay_qty = products.reduce((s, p) => s + p.lay_qty, 0);
   const short = products.filter((p) => p.lay_qty + 0.001 < p.need);
   const over = products.filter((p) => p.lay_qty > p.need + 0.001);
-  const covered = products.length > 0 && products.every((p) => p.need > 0 && Math.abs(p.lay_qty - p.need) <= 0.001);
-  const gapText = products.map((p) => `${p.name || 'محصول'}: ${p.lay_qty} از ${p.need}`).join('؛ ');
-  const message = covered
-    ? `برش با سفارش برابر است (${lay_qty}).`
-    : `برش هنوز با سفارش برابر نیست (${gapText}). تا برابر شدن، مرحلهٔ بعد باز نمی‌شود.`;
-  return { required: 1, covered, lay_qty, need, products, short, over, message };
+  const fab = cuttingFabricCoverage(db, po, products.map((p) => ({ product_id: p.product_id, need: p.need })));
+  const fabricsCovered = fab.missing.length === 0;
+  const covered = fabricsCovered && products.length > 0
+    && products.every((p) => p.need > 0 && Math.abs(p.lay_qty - p.need) <= 0.001);
+  let message;
+  if (covered) {
+    message = `برش با سفارش برابر است (${lay_qty}).`;
+  } else if (!fabricsCovered) {
+    const gaps = fab.missing.map((f) => `«${f.name}»: ${f.lay_qty} از ${f.need}`).join('؛ ');
+    message = `این فرمول ${fab.fabrics.length} پارچهٔ طاقه‌ای دارد و لایه‌چینی پارچهٔ ${gaps} هنوز با سفارش برابر نیست. `
+      + 'برای هر پارچه یک لایه‌چینی جدا با همان پارچه ثبت کنید؛ تا آن موقع مرحلهٔ برش بسته نمی‌شود.';
+  } else {
+    const gapText = products.map((p) => `${p.name || 'محصول'}: ${p.lay_qty} از ${p.need}`).join('؛ ');
+    message = `برش هنوز با سفارش برابر نیست (${gapText}). تا برابر شدن، مرحلهٔ بعد باز نمی‌شود.`;
+  }
+  return {
+    required: 1, covered, lay_qty, need, products, short, over,
+    fabrics: fab.fabrics, missing_fabrics: fab.missing, message,
+  };
 }
 
 function cuttingDownstreamUntouched(db, orderId, seq) {
@@ -2831,6 +2847,8 @@ function getStageIssueTemplate(db, orderId, stageId) {
       need: cov.need,
       covered: cov.covered ? 1 : 0,
       message: cov.message,
+      fabrics: cov.fabrics,
+      missing_fabrics: cov.missing_fabrics,
       order_id: po.id,
     };
   }

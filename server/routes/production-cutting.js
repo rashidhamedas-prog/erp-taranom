@@ -56,6 +56,19 @@ router.get('/lay-unit', auth, requirePermission('production', 'view'), (req, res
   } catch (e) { sendErr(res, e); }
 });
 
+// خطوط پارچهٔ طاقه‌ای فرمول برای انتخاب در فرم لایه‌چینی (+ وضعیت برش هر پارچه روی سفارش).
+router.get('/fabric-lines', auth, requirePermission('production', 'view'), (req, res) => {
+  try {
+    const { fabricLinesForLay } = require('../lib/production/cutting');
+    sendRow(req, res, fabricLinesForLay(getDB(), {
+      productId: Number(req.query.product_id) || null,
+      bomId: Number(req.query.bom_id) || null,
+      productionOrderId: Number(req.query.production_order_id) || null,
+      date: req.query.date,
+    }));
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/rolls', auth, requirePermission('production', 'view'), (req, res) => {
   try {
     // Cutting must only see fabric rolls — never attributed (attr) material lots.
