@@ -1805,35 +1805,14 @@ function finalizeAdvancedOrder(db, { orderId, body, userId }) {
     // طاقه‌دار: برش و PACK هر محصول باید با تعداد سفارش یکی باشد؛ وگرنه رسید FG ممنوع.
     require('./cutting').assertOrderCutQtyMatches(db, po);
 
-    // v423: تسهیم WIP بین محصولات اصلی مستقل (peer mains)
-    const peerLines = require('./bom').orderBomPeerLines(po);
-    let shareOuts = outs.filter(x => ['main', 'co'].includes(x.output_type));
-    if (peerLines) {
-      const sumQ = peerLines.reduce((s, p) => s + (Number(p.qty_planned) || 0), 0) || 1;
-      shareOuts = peerLines.map((p) => ({
-        output_type: 'main',
-        product_id: p.product_id,
-        qty_per_base: p.qty_planned,
-        cost_share_percent: ((Number(p.qty_planned) || 0) / sumQ) * 100,
-        _peer_qty: Number(p.qty_planned) || 0,
-      }));
-    }
-    if (!shareOuts.length) {
-      shareOuts = [{
-        output_type: 'main', product_id: po.product_id,
-        qty_per_base: 1, cost_share_percent: 100,
-      }];
-    }
+    const costSplit = require('./order-cost-split');
+    const { shareOuts, residueProductId: residuePid } = costSplit.orderMainShareOuts(db, po);
     const sumShare = shareOuts.reduce((s, o) => s + (Number(o.cost_share_percent) || 0), 0);
     if (shareOuts.length > 1 && Math.abs(sumShare - 100) > 0.01) {
       throw err('E_SHARE_NOT_100', 422, { sum: sumShare });
     }
 
-    const residuePid = shareOuts.some(o => Number(o.product_id) === Number(po.product_id))
-      ? Number(po.product_id)
-      : (shareOuts.some(o => Number(o.product_id) === Number(bom?.product_id))
-        ? Number(bom.product_id) : Number(shareOuts[0].product_id));
-    const split = require('./order-cost-split').splitOrderCost(db, po, {
+    const split = costSplit.splitOrderCost(db, po, {
       total: wipNet,
       products: shareOuts.map(o => ({ product_id: o.product_id, pct: o.cost_share_percent })),
       residueProductId: residuePid,

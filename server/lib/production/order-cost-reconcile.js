@@ -286,7 +286,13 @@ function applyReceiptToWipNet(db, orderId, userId) {
   }
   const gap = num(preview.expected_receipts_rial) - num(preview.receipts_rial);
   if (Math.abs(gap) <= 5) {
-    return Object.assign({ applied: false, mode: 'receipt', receipt_delta_rial: 0 }, preview);
+    return Object.assign({
+      applied: false,
+      mode: 'receipt',
+      receipt_delta_rial: 0,
+      allocation: 'amount_share',
+      receipt_targets: null,
+    }, preview);
   }
   if (!preview.aligned) {
     const fail = new Error('اول ستون‌های سفارش را با اسناد یکی کنید، بعد رسید را تطبیق دهید.');
@@ -315,14 +321,77 @@ function applyReceiptToWipNet(db, orderId, userId) {
     throw fail;
   }
 
-  let assigned = 0;
-  const shares = receipts.map((receipt, i) => {
-    const part = i === receipts.length - 1
-      ? gap - assigned
-      : Math.round(gap * (num(receipt.amount_rial) / totalAmt));
-    assigned += part;
-    return { receipt, share: part };
-  });
+  let targets = null;
+  let allocation = 'amount_share';
+  let shares = null;
+  const receiptProductIds = new Set(receipts.map((r) => Number(r.product_id)));
+  if (receiptProductIds.size >= 2) {
+    try {
+      const split = require('./order-cost-split');
+      if (typeof split.receiptTargetsByProduct === 'function') {
+        targets = split.receiptTargetsByProduct(db, po, num(preview.expected_receipts_rial));
+      }
+    } catch (_) {
+      targets = null;
+    }
+  }
+
+  if (targets && Array.isArray(targets.rows)) {
+    const targetByProduct = new Map();
+    for (const row of targets.rows) {
+      const pid = Number(row.product_id);
+      targetByProduct.set(pid, (targetByProduct.get(pid) || 0) + num(row.amount_rial));
+    }
+    const targetsCovered = targets.rows.every((row) => (
+      Math.abs(num(row.amount_rial)) <= 5 || receiptProductIds.has(Number(row.product_id))
+    ));
+    const receiptsCovered = [...receiptProductIds].every((pid) => targetByProduct.has(pid));
+    if (targetsCovered && receiptsCovered) {
+      allocation = 'product_target';
+      const receiptsByProduct = new Map();
+      for (const receipt of receipts) {
+        const pid = Number(receipt.product_id);
+        const rows = receiptsByProduct.get(pid) || [];
+        rows.push(receipt);
+        receiptsByProduct.set(pid, rows);
+      }
+      shares = [];
+      for (const [pid, productReceipts] of receiptsByProduct) {
+        const current = productReceipts.reduce((s, r) => s + num(r.amount_rial), 0);
+        const delta = num(targetByProduct.get(pid)) - current;
+        let productAssigned = 0;
+        for (let i = 0; i < productReceipts.length; i += 1) {
+          const receipt = productReceipts[i];
+          const part = i === productReceipts.length - 1
+            ? delta - productAssigned
+            : Math.round(delta * (num(receipt.amount_rial) / current));
+          productAssigned += part;
+          shares.push({ receipt, share: part });
+        }
+      }
+      // اختلاف ناشی از هدف کوچکِ بدون رسید، روی محصول باقیمانده می‌نشیند.
+      const residual = gap - shares.reduce((s, x) => s + num(x.share), 0);
+      if (residual) {
+        const residuePid = Number(targets.residueProductId);
+        let residueShare = null;
+        for (const item of shares) {
+          if (Number(item.receipt.product_id) === residuePid) residueShare = item;
+        }
+        (residueShare || shares[shares.length - 1]).share += residual;
+      }
+    }
+  }
+
+  if (!shares) {
+    let assigned = 0;
+    shares = receipts.map((receipt, i) => {
+      const part = i === receipts.length - 1
+        ? gap - assigned
+        : Math.round(gap * (num(receipt.amount_rial) / totalAmt));
+      assigned += part;
+      return { receipt, share: part };
+    });
+  }
   for (const { receipt, share } of shares) {
     const nextAmt = num(receipt.amount_rial) + share;
     if (nextAmt < 0) {
@@ -394,6 +463,8 @@ function applyReceiptToWipNet(db, orderId, userId) {
     receipts_touched: true,
     journal_touched: true,
     value_approval_id: routed.approval ? routed.approval.id : null,
+    allocation,
+    receipt_targets: targets ? targets.rows : null,
   });
 }
 

@@ -3,6 +3,7 @@
 /**
  * P2 — تسهیم بهای سفارش چندمحصولی بین محصولات اصلی (رسید نهایی + برگهٔ بها):
  *  ۱) پارچهٔ برش مشترک: Σ cutting_batch_allocations هر محصول (لایه/برش ابطال‌نشدهٔ همین سفارش).
+ *     لایهٔ کلاسیک سفارش چندفرمولی: اگر پارچه فقط در فرمول یک محصول باشد، کل بها به همان محصول.
  *  ۲) هزینهٔ مراحل اختصاصی (product_scope='exclusive') مستقیم به همان محصول.
  *  ۳) باقی‌ماندهٔ مجموع به نسبت سهم هر محصول (درصد تعداد / فرمول).
  * بدون ردیف تخصیص، پارچه داخل باقی‌مانده می‌ماند (رفتار قبلی).
@@ -53,6 +54,58 @@ function exclusiveStageCostByProduct(db, orderId) {
   return { material, other };
 }
 
+/**
+ * فقط سفارش چندفرمولی (peer): فرمول تک‌محصولیِ چندمحصولی اقلام اختصاصی را
+ * از explodeExclusiveByProduct می‌گیرد؛ اینجا [] تا دوبار شمرده نشود.
+ */
+function layFabricOwnerProducts(db, po, fabricProductId, productIds) {
+  const fid = Number(fabricProductId);
+  if (!fid) return [];
+  const peers = require('./bom').orderBomPeerLines(po);
+  if (!peers) return [];
+  const want = new Set((productIds || []).map(Number));
+  const owners = [];
+  try {
+    const st = db.prepare('SELECT 1 FROM bom_lines WHERE bom_id=? AND component_product_id=? LIMIT 1');
+    for (const p of peers) {
+      const pid = Number(p.product_id);
+      if (!want.has(pid) || owners.includes(pid)) continue;
+      if (st.get(p.bom_id, fid)) owners.push(pid);
+    }
+  } catch { return []; }
+  return owners;
+}
+
+/**
+ * بهای خالص لایه‌های کلاسیک (بدون batch) که پارچه‌شان فقط در فرمول یک محصول است.
+ * ضایعات غیرعادی لایهٔ کلاسیک با PRD-09 از WIP خارج شده، پس از مبلغ کم می‌شود.
+ */
+function layFabricByProduct(db, po, productIds) {
+  const map = new Map();
+  if (!po || !require('./bom').orderBomPeerLines(po)) return map;
+  let lays = [];
+  try {
+    lays = db.prepare(`
+      SELECT fabric_product_id,
+             SUM(MAX(0, COALESCE(amount_rial,0) - COALESCE(waste_amount_rial,0))) AS amt
+      FROM cutting_lays
+      WHERE production_order_id = ?
+        AND COALESCE(status,'posted') = 'posted'
+        AND COALESCE(batch_id,0) = 0
+        AND fabric_product_id IS NOT NULL
+      GROUP BY fabric_product_id
+    `).all(po.id);
+  } catch { return map; /* cutting tables may be missing */ }
+  for (const L of lays) {
+    const owners = layFabricOwnerProducts(db, po, L.fabric_product_id, productIds);
+    if (owners.length !== 1) continue;
+    const amt = rial(L.amt);
+    if (!amt) continue;
+    map.set(owners[0], (map.get(owners[0]) || 0) + amt);
+  }
+  return map;
+}
+
 /** اقلام exclusive فرمول (explode)، همان مبنای rollUp. */
 function explodeExclusiveByProduct(db, po) {
   const out = {};
@@ -99,15 +152,23 @@ function splitOrderCost(db, po, opts) {
   for (const [pid, amt] of fabricMap) if (pids.has(pid)) fabricSum += amt;
   const useAlloc = products.length > 1 && fabricSum > 0;
 
+  const layMap = products.length > 1 ? layFabricByProduct(db, po, [...pids]) : new Map();
+  let laySum = 0;
+  for (const [pid, amt] of layMap) if (pids.has(pid)) laySum += amt;
+  const useLay = laySum > 0;
+
   const stageEx = exclusiveStageCostByProduct(db, po.id);
   const explodeEx = opts.explodeExclusive || explodeExclusiveByProduct(db, po);
 
   const rows = products.map((p) => {
     const pid = p.product_id;
-    const fabric = useAlloc ? (fabricMap.get(pid) || 0) : 0;
+    const cut = useAlloc ? (fabricMap.get(pid) || 0) : 0;
+    const lay = useLay ? (layMap.get(pid) || 0) : 0;
     const exclMat = Math.max(stageEx.material.get(pid) || 0, rial(explodeEx[pid] || explodeEx[String(pid)]));
     const exclusive = products.length > 1 ? (stageEx.other.get(pid) || 0) + exclMat : 0;
-    return { product_id: pid, pct: p.pct, fabric_rial: fabric, exclusive_rial: exclusive };
+    return {
+      product_id: pid, pct: p.pct, fabric_rial: cut + lay, lay_fabric_rial: lay, exclusive_rial: exclusive,
+    };
   });
 
   const direct = rows.reduce((s, r) => s + r.fabric_rial + r.exclusive_rial, 0);
@@ -115,6 +176,7 @@ function splitOrderCost(db, po, opts) {
     const f = Math.max(0, total) / direct;
     for (const r of rows) {
       r.fabric_rial = Math.round(r.fabric_rial * f);
+      r.lay_fabric_rial = Math.min(r.fabric_rial, Math.round(r.lay_fabric_rial * f));
       r.exclusive_rial = Math.round(r.exclusive_rial * f);
     }
   }
@@ -130,16 +192,73 @@ function splitOrderCost(db, po, opts) {
     rem.shared_rial += total - assigned;
     rem.amount_rial += total - assigned;
   }
+  let fabricSource = 'qty';
+  if (useAlloc && useLay) fabricSource = 'shared_cut_alloc+lay_bom';
+  else if (useAlloc) fabricSource = 'shared_cut_alloc';
+  else if (useLay) fabricSource = 'lay_bom';
   return {
     rows,
     pool_rial: pool,
-    fabric_source: useAlloc ? 'shared_cut_alloc' : 'qty',
+    fabric_source: fabricSource,
     fabric_alloc_rial: useAlloc ? fabricSum : 0,
+    lay_fabric_rial: rows.reduce((s, r) => s + r.lay_fabric_rial, 0),
+  };
+}
+
+/** همان تعریف محصولات اصلی و سهم رسید نهایی (engine-advanced). */
+function orderMainShareOuts(db, po) {
+  const bom = db.prepare('SELECT * FROM bom_headers WHERE id=?').get(po.bom_id);
+  const outs = db.prepare('SELECT * FROM bom_outputs WHERE bom_id=?').all(po.bom_id);
+  // v423: تسهیم WIP بین محصولات اصلی مستقل (peer mains)
+  const peerLines = require('./bom').orderBomPeerLines(po);
+  let shareOuts = outs.filter(x => ['main', 'co'].includes(x.output_type));
+  if (peerLines) {
+    const sumQ = peerLines.reduce((s, p) => s + (Number(p.qty_planned) || 0), 0) || 1;
+    shareOuts = peerLines.map((p) => ({
+      output_type: 'main',
+      product_id: p.product_id,
+      qty_per_base: p.qty_planned,
+      cost_share_percent: ((Number(p.qty_planned) || 0) / sumQ) * 100,
+      _peer_qty: Number(p.qty_planned) || 0,
+    }));
+  }
+  if (!shareOuts.length) {
+    shareOuts = [{
+      output_type: 'main', product_id: po.product_id,
+      qty_per_base: 1, cost_share_percent: 100,
+    }];
+  }
+  const residueProductId = shareOuts.some(o => Number(o.product_id) === Number(po.product_id))
+    ? Number(po.product_id)
+    : (shareOuts.some(o => Number(o.product_id) === Number(bom?.product_id))
+      ? Number(bom.product_id) : Number(shareOuts[0].product_id));
+  return { shareOuts, residueProductId };
+}
+
+/** هدف رسید هر محصول اصلی؛ تک‌محصولی → null. */
+function receiptTargetsByProduct(db, po, total) {
+  const { shareOuts, residueProductId } = orderMainShareOuts(db, po);
+  if (shareOuts.length < 2) return null;
+  const split = splitOrderCost(db, po, {
+    total,
+    products: shareOuts.map(o => ({ product_id: o.product_id, pct: o.cost_share_percent })),
+    residueProductId,
+  });
+  return {
+    rows: split.rows,
+    pool_rial: split.pool_rial,
+    fabric_source: split.fabric_source,
+    lay_fabric_rial: split.lay_fabric_rial,
+    residueProductId,
   };
 }
 
 module.exports = {
   splitOrderCost,
+  layFabricOwnerProducts,
+  layFabricByProduct,
+  orderMainShareOuts,
+  receiptTargetsByProduct,
   sharedCutFabricByProduct,
   exclusiveStageCostByProduct,
   explodeExclusiveByProduct,
