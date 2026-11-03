@@ -198,6 +198,32 @@ router.post('/ledger/:id/reverse-correction', auth, reverseCorrectionGate, (req,
   } catch (e) { sendErr(res, e); }
 });
 
+// سند اصلاح تفکیک واریانت (VR): ردیف بدون واریانت کالای رنگ×سایز → ردیف‌های هر واریانت؛ ابطال R13.
+{
+  const VR = () => require('../lib/inventory/variant-reclass');
+  const { centralOnlyStrict } = require('../middleware/auth');
+  router.get('/variant-reclass', auth, reverseCorrectionGate, (req, res) => {
+    try { res.json(VR().listDocs(getDB(), { productId: req.query.product_id || null, limit: req.query.limit })); } catch (e) { sendErr(res, e); }
+  });
+  router.post('/variant-reclass/preview', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try { res.json(VR().previewReclass(getDB(), req.body || {})); } catch (e) { sendErr(res, e); }
+  });
+  router.post('/variant-reclass', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try {
+      const doc = VR().postReclass(getDB(), req.body || {}, req.user);
+      audit(req.user.id, 'create', 'variant_reclass_docs', doc.id, `${doc.doc_no} ردیف ${doc.source_ledger_id}`);
+      res.json(doc);
+    } catch (e) { sendErr(res, e); }
+  });
+  router.post('/variant-reclass/:id/void', auth, centralOnlyStrict, reverseCorrectionGate, (req, res) => {
+    try {
+      const doc = VR().voidReclass(getDB(), +req.params.id, req.body || {}, req.user);
+      audit(req.user.id, 'void', 'variant_reclass_docs', doc.id, `ابطال ${doc.doc_no}`);
+      res.json(doc);
+    } catch (e) { sendErr(res, e); }
+  });
+}
+
 // audit-kardex K2: assign a warehouse to NULL-warehouse sale_return rows (static batch paths before /ledger/:id/…).
 {
   const AW = () => require('../lib/inventory/ledger-assign-warehouse');
