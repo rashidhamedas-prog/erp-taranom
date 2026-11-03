@@ -24,7 +24,7 @@ db.prepare('INSERT INTO users (id, username, password, name, role) VALUES (2,?,?
   .run('sales1', 'x', 'ویزیتور', 'field_sales');
 
 function seedJournalEntry({ date, refType, refId, lines, userId = 1 }) {
-  postToLedger(db, {
+  return postToLedger(db, {
     sourceType: refType,
     sourceId: refId || 0,
     date,
@@ -80,20 +80,29 @@ function seedCloseScenario() {
 
   const wipOrderId = db.prepare("SELECT id FROM production_orders WHERE order_no='PO-TEST-WIP'").get()?.id;
 
-  seedJournalEntry({
+  const laborJe = seedJournalEntry({
     date: END_DATE, refType: 'production_labor', refId: wipOrderId,
     lines: [
       { code: acct(db, 'coa_wip').code, debitRial: 264_517_300 },
       { code: c5201, creditRial: 264_517_300 },
     ],
   });
-  seedJournalEntry({
+  db.prepare(`
+    INSERT INTO production_labor_entries (order_id, cost_center_id, amount_rial, date, period_label, je_id)
+    VALUES (?,?,?,?,?,?)
+  `).run(wipOrderId, cc30, 264_517_300, END_DATE, PERIOD, laborJe);
+  const ohJe = seedJournalEntry({
     date: END_DATE, refType: 'production_overhead', refId: wipOrderId,
     lines: [
       { code: acct(db, 'coa_wip').code, debitRial: 50_068_838 },
       { code: c5203, creditRial: 50_068_838 },
     ],
   });
+  db.prepare(`
+    INSERT INTO production_overhead_applications
+      (order_id, cost_center_id, driver, driver_qty, rate_rial, amount_rial, date, period_label, je_id)
+    VALUES (?,?,'direct_labor_hours',1,50068838,50068838,?,?,?)
+  `).run(wipOrderId, cc30, END_DATE, PERIOD, ohJe);
 
   db.prepare(`
     INSERT INTO production_orders (
