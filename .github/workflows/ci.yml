@@ -40,11 +40,20 @@ jobs:
         with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
         working-directory: server
-      - run: node scripts/test-sync-tls-url.js 2>&1 | tee sync-security.log
+      - run: |
+          set -o pipefail
+          node scripts/test-sync-tls-url.js 2>&1 | tee sync-security.log
+        shell: bash
         working-directory: server
-      - run: node scripts/test-sync.js 2>&1 | tee -a sync-security.log
+      - run: |
+          set -o pipefail
+          node scripts/test-sync.js 2>&1 | tee -a sync-security.log
+        shell: bash
         working-directory: server
-      - run: node scripts/test-sync-capture-repair.js 2>&1 | tee -a sync-security.log
+      - run: |
+          set -o pipefail
+          node scripts/test-sync-capture-repair.js 2>&1 | tee -a sync-security.log
+        shell: bash
         working-directory: server
       - uses: actions/upload-artifact@v4
         if: always()
@@ -60,7 +69,7 @@ jobs:
       - run: npm ci
         working-directory: server
       - run: |
-          set -e
+          set -eo pipefail
           node scripts/test-auth-session-security.js 2>&1 | tee web-api-security.log
           node scripts/test-auth-login-rate-persistence.js 2>&1 | tee -a web-api-security.log
           node scripts/test-company-switch-safety.js 2>&1 | tee -a web-api-security.log
@@ -69,6 +78,7 @@ jobs:
           node scripts/test-secret-settings-security.js 2>&1 | tee -a web-api-security.log
           node scripts/test-csp-browser.js 2>&1 | tee -a web-api-security.log
           node scripts/test-secure-html-response.js 2>&1 | tee -a web-api-security.log
+        shell: bash
         working-directory: server
       - uses: actions/upload-artifact@v4
         if: always()
@@ -84,7 +94,7 @@ jobs:
       - run: npm ci
         working-directory: server
       - run: |
-          set -e
+          set -eo pipefail
           node scripts/test-sms.js 2>&1 | tee core-dr.log
           node scripts/test-b2b.js 2>&1 | tee -a core-dr.log
           node scripts/test-portal.js 2>&1 | tee -a core-dr.log
@@ -96,6 +106,7 @@ jobs:
           node scripts/test-product-opening-stock.js 2>&1 | tee -a core-dr.log
           node scripts/test-opening-legacy-block.js 2>&1 | tee -a core-dr.log
           node scripts/test-p2-opening-stock.js 2>&1 | tee -a core-dr.log
+        shell: bash
         working-directory: server
       - uses: actions/upload-artifact@v4
         if: always()
@@ -110,7 +121,10 @@ jobs:
         with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
       - run: npm ci
         working-directory: server
-      - run: npm run test:production 2>&1 | tee production.log
+      - run: |
+          set -o pipefail
+          npm run test:production 2>&1 | tee production.log
+        shell: bash
         working-directory: server
       - uses: actions/upload-artifact@v4
         if: always()
@@ -148,7 +162,10 @@ jobs:
         working-directory: e2e
       - run: npx playwright install --with-deps chromium
         working-directory: e2e
-      - run: npx playwright test --config=playwright.config.js login.spec.js critical-paths.spec.js 2>&1 | tee playwright.log
+      - run: |
+          set -o pipefail
+          npx playwright test --config=playwright.config.js login.spec.js critical-paths.spec.js 2>&1 | tee playwright.log
+        shell: bash
         working-directory: e2e
         env:
           CI: '1'

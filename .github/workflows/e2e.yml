@@ -21,9 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '20', cache: npm, cache-dependency-path: server/package-lock.json }
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            e2e/package-lock.json
       - run: npm ci
         working-directory: server
+      - run: npm ci
+        working-directory: e2e
       - run: npx playwright install --with-deps chromium
         working-directory: e2e
       - run: npx playwright test --config playwright.config.js money-cycle.spec.js critical-paths.spec.js

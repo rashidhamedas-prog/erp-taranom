@@ -3,7 +3,7 @@
  * P8 — Period close tests (docs/Production/test-cases.md §3)
  * Golden numbers from accounting-scenarios.md A-45..A-48
  */
-const { ok, eq, throws, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, throws, freshDb, seedOpeningStock, summary } = require('./lib/test-harness');
 const close = require('../lib/production/close');
 const engine = require('../lib/production/engine');
 const bomLib = require('../lib/production/bom');
@@ -75,21 +75,19 @@ function seedAllocationBases() {
   const whFg = db.prepare("SELECT id FROM warehouses WHERE code='WH-FG'").get()?.id;
 
   const p101 = db.prepare(`
-    INSERT INTO products (user_id, name, price, stock, item_type, is_manufactured, average_cost_rial)
-    VALUES (1, 'مانتو کتان ترمه — سبز', 0, 344, 'finished', 1, 2233802)
+    INSERT INTO products (user_id, name, code, price, stock, item_type, is_manufactured, average_cost_rial)
+    VALUES (1, 'مانتو کتان ترمه — سبز', 'TC-101', 0, 344, 'finished', 1, 2233802)
   `).run().lastInsertRowid;
 
   const p102 = db.prepare(`
-    INSERT INTO products (user_id, name, price, stock, item_type, is_manufactured, average_cost_rial)
-    VALUES (1, 'مانتو دیگر', 0, 100, 'finished', 1, 1500000)
+    INSERT INTO products (user_id, name, code, price, stock, item_type, is_manufactured, average_cost_rial)
+    VALUES (1, 'مانتو دیگر', 'TC-102', 0, 100, 'finished', 1, 1500000)
   `).run().lastInsertRowid;
 
-  if (whFg) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)')
-      .run(p101, whFg, 344);
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)')
-      .run(p102, whFg, 100);
-  }
+  // Stock only via inventory documents (P1 Kardex SSOT)
+  db.prepare('UPDATE products SET stock=0 WHERE id IN (?,?)').run(p101, p102);
+  seedOpeningStock(db, p101, whFg, 344);
+  seedOpeningStock(db, p102, whFg, 100);
 
   // Open WIP order — OH absorbed in WIP bucket
   db.prepare(`

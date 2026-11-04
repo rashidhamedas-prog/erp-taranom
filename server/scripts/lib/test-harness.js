@@ -27,6 +27,11 @@ function eq(name, actual, expected, tol = 0) {
     `انتظار ${Number(expected).toLocaleString()} · دریافت ${Number(actual).toLocaleString()} · اختلاف ${diff}`);
 }
 
+/** Documented prod defect tracked elsewhere: printed, never counted as pass or fail. */
+function knownIssue(name, reason) {
+  console.log(`  ⚠️  KNOWN ISSUE ${name} — ${reason}`);
+}
+
 function throws(name, fn, code) {
   try {
     fn();
@@ -79,6 +84,34 @@ function freshDb() {
   };
 }
 
+/**
+ * Fixture stock via inventory documents only (P1 Kardex SSOT): products.stock / warehouse_stock
+ * are ledger caches, so raw UPDATEs no longer change available qty.
+ */
+function seedOpeningStock(db, productId, warehouseId, qty, unitCostRial) {
+  if (!warehouseId || !(Number(qty) > 0)) return;
+  const unit = unitCostRial != null ? Number(unitCostRial)
+    : Number(db.prepare('SELECT average_cost_rial FROM products WHERE id=?').get(productId)?.average_cost_rial) || 0;
+  require('../../lib/inventory/ledger').postInventoryMovement(db, {
+    eventType: 'opening', productId, warehouseId, qtyIn: Number(qty), unitCostRial: unit,
+    sourceType: 'test_fixture', note: 'fixture opening', updateAvg: false,
+  });
+}
+
+/** Adjust (product, warehouse) to `target` qty with an adjustment document; returns the delta posted. */
+function setStockTo(db, productId, warehouseId, target) {
+  const ledger = require('../../lib/inventory/ledger');
+  const delta = Number(target) - ledger.warehouseQty(db, productId, warehouseId);
+  if (Math.abs(delta) < 1e-9) return 0;
+  const unit = Number(db.prepare('SELECT average_cost_rial FROM products WHERE id=?').get(productId)?.average_cost_rial) || 0;
+  ledger.postInventoryMovement(db, {
+    eventType: 'adjustment', productId, warehouseId,
+    ...(delta > 0 ? { qtyIn: delta } : { qtyOut: -delta }),
+    unitCostRial: unit, sourceType: 'test_fixture', note: 'fixture adjust', updateAvg: false,
+  });
+  return delta;
+}
+
 function seedTaranom(db) {
   try {
     require('./seed-taranom').seedTaranom(db);
@@ -103,4 +136,4 @@ function resetCounters() {
   failures.length = 0;
 }
 
-module.exports = { ok, eq, throws, freshDb, seedTaranom, summary, resetCounters };
+module.exports = { ok, eq, throws, knownIssue, freshDb, seedOpeningStock, setStockTo, seedTaranom, summary, resetCounters };

@@ -1049,7 +1049,7 @@ function insertAutoSubcontractFee(db, {
     INSERT INTO production_subcontract
       (doc_no, order_id, stage_id, supplier_id, direction, product_id,
        qty, fee_unit_rial, fee_amount_rial, date, period_label, status, created_by)
-    VALUES (?,?,?,?,?,'in',?,?,?,?,?,'posted',?)
+    VALUES (?,?,?,?,'in',?,?,?,?,?,?,'posted',?)
   `).run(
     docNo, po.id, stage.id, sid, po.product_id,
     qtyIn, feeUnit, feeRial, date, period, userId

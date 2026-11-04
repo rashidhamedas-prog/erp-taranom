@@ -2,7 +2,7 @@
 /**
  * P8 — Variable advanced (ADR-011: no 5210/5211 JE)
  */
-const { ok, eq, throws, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, throws, freshDb, seedOpeningStock, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const advBom = require('../lib/production/bom-advanced');
 const engine = require('../lib/production/engine');
@@ -19,8 +19,8 @@ const PERIOD = '1405/04';
 function seedProduct(name, avg, type, mfg, stock = 10000) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
     .run(name, 0, stock).lastInsertRowid;
-  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-    .run(avg, type, mfg, avg, id);
+  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?')
+    .run(avg, type, mfg, avg, `P3V-${id}`, id);
   return id;
 }
 
@@ -46,14 +46,11 @@ db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_r
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_fg_id',?)").run(String(whFg));
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_scrap_id',?)").run(String(whScrap));
 
+// Stock only via inventory documents (P1 Kardex SSOT)
 for (const id of [p101, p201, p202, p203, p204, p205, p206, p299]) {
-  const p = db.prepare('SELECT stock FROM products WHERE id=?').get(id);
-  if (whRaw) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(id, whRaw, p.stock);
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(p.stock, id, whRaw);
-  }
+  const qty = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(id).stock) || 0;
+  db.prepare('UPDATE products SET stock=0 WHERE id=?').run(id);
+  seedOpeningStock(db, id, whRaw, qty);
 }
 
 const rates = [
@@ -82,7 +79,7 @@ try {
 
 const draft = bom.createBom(db, {
   product_id: p101, name: 'BOM var adv', yield_percent: 100, base_qty: 1,
-  has_routing: 1, has_coproducts: 1,
+  has_routing: 1,
   lines: [
     { component_product_id: p201, qty_per_base: 1.60, scrap_percent: 4, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
     { component_product_id: p202, qty_per_base: 0.35, scrap_percent: 3, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
@@ -132,14 +129,6 @@ const issues = {
   ],
 };
 
-for (const [seq, mats] of Object.entries(issues)) {
-  const st = stages.find(s => s.seq === Number(seq));
-  adv.issueStageMaterials(db, {
-    orderId: po.id, stageId: st.id,
-    body: { date: DATE, materials: mats }, userId: adminId,
-  });
-}
-
 const STAGES = [
   { seq: 10, qty_out: 307.72, waste_normal: 6.28 },
   { seq: 20, qty_out: 307.72, waste_normal: 0 },
@@ -149,9 +138,16 @@ const STAGES = [
   { seq: 60, qty_out: 300.073158, waste_normal: 0, qc_passed: 1 },
 ];
 
+// v409 stage-ordered gates: a stage's materials are issued only while it is in_progress
 for (const spec of STAGES) {
   stages = adv.stageList(db, po.id);
   const st = stages.find(s => s.seq === spec.seq);
+  if (issues[spec.seq]) {
+    adv.issueStageMaterials(db, {
+      orderId: po.id, stageId: st.id,
+      body: { date: DATE, materials: issues[spec.seq] }, userId: adminId,
+    });
+  }
   adv.postStageOutputVariable(db, {
     orderId: po.id, stageId: st.id,
     body: {

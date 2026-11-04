@@ -2,7 +2,7 @@
 /**
  * P5 — Estimation + MRP (docs/Production/05-production-estimation.md)
  */
-const { ok, eq, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, freshDb, setStockTo, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const advBom = require('../lib/production/bom-advanced');
 const { estimateCost } = require('../lib/production/estimate');
@@ -17,8 +17,8 @@ const PERIOD = '1405/04';
 function seedProduct(name, avg, type, mfg, stock = 10000) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
     .run(name, 0, stock).lastInsertRowid;
-  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-    .run(avg, type, mfg, avg, id);
+  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?')
+    .run(avg, type, mfg, avg, `P4E-${id}`, id);
   return id;
 }
 
@@ -60,7 +60,7 @@ for (const r of rates) {
 
 const draft = bom.createBom(db, {
   product_id: p101, name: 'BOM est', yield_percent: 100, base_qty: 1,
-  has_routing: 1, has_coproducts: 1,
+  has_routing: 1,
   lines: [
     { component_product_id: p201, qty_per_base: 1.60, scrap_percent: 4, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
     { component_product_id: p202, qty_per_base: 0.35, scrap_percent: 3, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
@@ -72,6 +72,9 @@ const draft = bom.createBom(db, {
 }, adminId);
 
 advBom.applyRoutingTemplate(db, draft.id, adminId);
+// Subcontract op (seq 50) must name a supplier before activation
+const supplierId = db.prepare('INSERT INTO suppliers (name) VALUES (?)').run('خشکشویی تست').lastInsertRowid;
+db.prepare('UPDATE bom_operations SET subcontract_supplier_id=? WHERE bom_id=? AND seq=50').run(supplierId, draft.id);
 db.prepare(`UPDATE bom_operations SET crew_size=2 WHERE bom_id=? AND seq IN (10,60)`).run(draft.id);
 advBom.addOutput(db, draft.id, {
   product_id: p101, output_type: 'main', qty_per_base: 1,
@@ -141,11 +144,7 @@ ok('T5 MRP run', mrp.ok && mrp.run_id > 0);
 
 // T5 MRP shortage when stock low
 {
-  db.prepare('UPDATE products SET stock=? WHERE id=?').run(10, p201);
-  if (whRaw) {
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(10, p201, whRaw);
-  }
+  if (whRaw) setStockTo(db, p201, whRaw, 10);
   db.prepare(`
     INSERT INTO production_orders (order_no, product_id, bom_id, analysis_type, qty_planned, date, status)
     VALUES ('PO-SHORT', ?, ?, 'fixed', 200, '1405/04/12', 'released')

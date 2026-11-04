@@ -1,4 +1,15 @@
-﻿### ۱۴۰۵/۰۸/۱۳ — apply: بازیابی تفکیک واریانت (فقط auto) روی تولید — STOP
+### ۱۴۰۵/۰۸/۱۳ — fix(ci+rbac): pipefail روی همهٔ jobهای tee، تفکیک وظایف فعال‌سازی BOM، کارمزد پیمانکاری خودکار، fixtureهای تولید (SW v628)
+- **Commit / شاخه:** `fix/ci-pipefail-bom` (این ورودی پس از merge روی main به‌روز می‌شود).
+- **Deploy:** ⏸ منتظر «GO deploy ci-fix» — بدون دیپلوی در این نوبت (کاربر صریحاً گفت فقط بعد از GO).
+- **CI (کاربر):** `set -o pipefail` + `shell: bash` روی jobهای `production`، `sync-security`، `web-api-security`، `core-and-dr`، `playwright-critical` تا `tee` شکست را پنهان نکند؛ `e2e.yml` حالا `npm ci` در `e2e/` هم می‌زند (`@playwright/test` قبلاً MODULE_NOT_FOUND بود). `dependency-audit` عمداً دست‌نخورده (PR جدا).
+- **RBAC (تفکیک وظایف — docs/Production/permissions.md §112-113):** `production_bom.approve` و `.delete` دیگر از alias منوی حسابداری `acc_production_boms` به ارث نمی‌روند (`LEGACY_NON_INHERITABLE` در `lib/rbac.js`، هم `hasPermission` هم `applyLegacyGrants`). حسابدار همچنان create/edit دارد. مسیرهای `POST /production/boms/:id/activate` و `deactivate` فقط نقش‌های `admin` و `production_manager` را می‌پذیرند (`requireBomApproverRole`).
+- **Phase 0 (فقط‌خواندنی روی prod):** در `crm.db` هیچ کاربر `role=accounting` نیست؛ هیچ approve/delete/deactivate فرمول توسط نقش غیر admin/production_manager در `audit_log` ثبت نشده؛ هیچ grant per-user روی `acc_production_boms.approve/delete` نیست؛ `company-2.db` جدول audit ندارد. بدون تغییر داده.
+- **باگ تولید — کارمزد خودکار پیمانکاری:** در `insertAutoSubcontractFee` ترتیب VALUES با ستون‌ها جابه‌جا بود (`direction` = product_id عددی، `product_id` = `'in'`) ⇒ سطر fee دیده نمی‌شد، `subcontract_cost_rial` سرفصل صفر می‌ماند و بعد از finalize، WIP به اندازهٔ کارمزد منفی می‌شد. اصلاح یک‌خطی VALUES؛ تست رگرسیون T7-31/T7-32. روی prod هیچ ردیف `production_subcontract` وجود ندارد (بدون تأثیر داده).
+- **تست‌ها / fixtureها (بدون تغییر منطق کسب‌وکار جز باگ بالا):** T1-02 ستون `bh.status` واجد شرایط شد؛ helpers `seedOpeningStock`/`setStockTo`/`knownIssue`؛ کد کالا روی seedهای fixed/variable/advanced/estimation/close؛ حذف `has_coproducts` از BOM اصلی (ADR-006)؛ T4-17/T4-25 حالا `E_BOM_SINGLE_PRODUCT` را assert می‌کنند؛ supplier روی op پیمانکاری؛ T4-02 upsert seq؛ فیلتر plant-wide در شمارش stages؛ issue مواد variable-adv فقط وقتی مرحله in_progress است؛ skip stage با E_PREV_STAGE_OPEN وقتی قبلی باز است. **KNOWN ISSUE (T2-19f):** reverse سفارش میانگین FG را ۱ ریال کم می‌گذارد (گرد کردن moving-avg در ledger؛ پیگیری R13 جدا).
+- **تست محلی (Node 20.18.1):** production suite ۲۰/۲۰ سبز؛ sms ۲۲/۲۲؛ test-sync همان baseline روی main (`A pulled central customer` …) — خارج از دامنهٔ این PR.
+- **SW:** `erp-taranom-v628`؛ `app.js?v=628`. راهنما: دو بند v628 در `renderAdminGuide` (فعال‌سازی BOM + کارمزد پیمانکاری).
+- **فایل‌ها:** `.github/workflows/{ci.yml,e2e.yml}`، `server/lib/{rbac.js,production/engine-advanced.js}`، `server/routes/production-boms.js`، `server/scripts/{lib/test-harness.js,test-production-*.js}`، `server/public/{app.js,index.html,sw.js}`، CHANGE-LOG.
+### ۱۴۰۵/۰۸/۱۳ — apply: بازیابی تفکیک واریانت (فقط auto) روی تولید — STOP
 - **Commit:** این ورودی + فلگ‌های apply اسکریپت (`--groups` / expect / unreachable backup-vs-current) روی شاخهٔ تسک؛ tip پس از merge.
 - **GO apply:** بکاپ تازه `crm.db`+wal+shm → `~/backups/crm.db.pre-variant-restore-2026-11-04T00-50-25-857Z`؛ dry-run زنده ۱۴۲=auto **۵۳** / already_ok **۴۴** / unreachable **۴۵**؛ سپس `--apply --i-have-go --groups=auto` → **۵۳** سند VR posted.
 - **گاردها:** TB قبل=بعد **۱۴۲٬۰۴۲٬۷۹۳٬۴۴۳** (balanced، `trial_unchanged`)؛ recon ۱۱ok/۳warn/۰error و `abs_diff_rial` یکسان (`recon_unchanged`)؛ verify بعد از apply: TB/recon همچنان منطبق.
@@ -1076,7 +1087,7 @@ onleaf_accounts_with_lines=5 (۲۳۱ سطر؛ کنترلی ۲ / غیرکنترل
 - **فایل‌ها:** lib/gl-metrics.js, routes/accounting.js, public/{app.js,index.html,sw.js}, scripts/test-audit-7a-dash-metrics.js, package.json، Help، CHANGE-LOG.
 - **Deploy:** ✅ 8eed1d7c — overlay ایران؛ health=200؛ SW erp-taranom-v548؛ test:audit-7a ۲۸/۰؛ sms ۲۲/۰.
 
-﻿### ۱۴۰۵/۰۸/۰۳ — v547: رفع toast «مبلغ پرداخت از مبلغ سند بیشتر است» روی فرم فاکتور (SW v547)
+### ۱۴۰۵/۰۸/۰۳ — v547: رفع toast «مبلغ پرداخت از مبلغ سند بیشتر است» روی فرم فاکتور (SW v547)
 - **RCA تأییدشده: #3 (اصلی)** — `buildRows` برای ردیف دارای `variant_id` قیمت صریح کلاینت را با `unitPriceRialForVariant` بازنویسی می‌کرد؛ `final` سرور < `payable` کلاینت در حالی که `pay_amount` = payable کلاینت ⇒ `resolveCashPaid` خطا می‌داد. **ثانویه #1** — `syncInvCashPayAmount` فقط برای `cash`/خالی خودکار همگام می‌کرد (نه `pos_card`/`bank_transfer`).
 - **سرور:** `lib/invoice-totals.js` جدید (`parseMoneyRial`, `computeInvoiceTotals` ریال صحیح)؛ `buildRows`: اگر `price>0` از کلاینت آمد حفظ می‌شود؛ پیام‌ها `مبلغ پرداخت (X) از مبلغ سند (Y) بیشتر است`. بدون تغییر اسکیما.
 - **کلاینت:** آینهٔ totals؛ `amountTouched`؛ تک‌پرداخت دست‌نخورده همگام با payable؛ دستی+مازاد → کلَمپ+هشدار زرد؛ چندمرحله‌ای بدون auto + ذخیره غیرفعال؛ highlight+scroll؛ تعریف `lineVatClassExempt`/`invoiceVatRatePct`.
@@ -7735,3 +7746,4 @@ curl -s http://127.0.0.1:3000/api/system/time
 - provision ┌⌐┘ä█î╪» fail-closed ╪┤╪»: remote file/PM2 hash ╪¿╪º DPAPI ┘à╪¡┘ä█î ╪¬╪╖╪¿█î┘é ╪»╪º╪»┘ç ┘à█îΓÇî╪┤┘ê╪»╪¢ missing/mismatch ╪º╪¼╪º╪▓┘ç overwrite ┘å╪»╪º╪▒╪» ┘ê rotation ╪║█î╪▒┘ü╪╣╪º┘ä ╪º╪│╪¬.
 - uploader ╪¿╪º█î┘å╪▒█î ╪¿╪º host pinning╪î resume digest-scoped╪î hash ┘╛█î╪┤ ╪º╪▓ promote╪î rollback ┘ê HTTP hash ╪╣┘à┘ä█î╪º╪¬█î ╪┤╪»╪¢ APK 2.0.33 ┘ê EXE 2.0.10 ┘à┘å╪¬╪┤╪▒ ╪┤╪»┘å╪».
 - ╪¬╪│╪¬ΓÇî┘ç╪º: artifact real PASS╪¢ offsite 25/25╪¢ policy 4/4╪¢ DR 14/14╪¢ uploader 3/3╪¢ embedded 224/224 ┘ç╪▒ ┘ç╪»┘ü╪î drift=0╪¢ `git diff --check` PASS.
+

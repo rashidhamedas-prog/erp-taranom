@@ -16,8 +16,8 @@ const PERIOD = '1405/04';
 function seedProduct(name, avg, type, mfg, stock = 10000) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
     .run(name, 0, stock).lastInsertRowid;
-  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-    .run(avg, type, mfg, avg, id);
+  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?')
+    .run(avg, type, mfg, avg, `P3B-${id}`, id);
   return id;
 }
 
@@ -78,7 +78,6 @@ const draft = bom.createBom(db, {
   yield_percent: 100,
   base_qty: 1,
   has_routing: 1,
-  has_coproducts: 1,
   lines: [
     { component_product_id: p201, qty_per_base: 1.60, scrap_percent: 4, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
     { component_product_id: p202, qty_per_base: 0.35, scrap_percent: 3, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
@@ -100,11 +99,24 @@ try {
 
 // ensure crew on cut/iron
 db.prepare(`UPDATE bom_operations SET crew_size=2 WHERE bom_id=? AND seq IN (10,60)`).run(draft.id);
+// Subcontract op (seq 50) must name a supplier before activation
+const supplierId = db.prepare('INSERT INTO suppliers (name) VALUES (?)').run('خشکشویی تست').lastInsertRowid;
+db.prepare('UPDATE bom_operations SET subcontract_supplier_id=? WHERE bom_id=? AND seq=50').run(supplierId, draft.id);
 
-// T4-02 duplicate seq
-throws('T4-02 seq تکراری', () => {
-  adv.addOperation(db, draft.id, { seq: 10, cost_center_id: cc['CC-10'], labor_method: 'piece', labor_rate_rial: 1 }, adminId);
-}, 'E_SEQ_DUPLICATE');
+// T4-02 duplicate seq — v206+: same seq upserts the existing row (no second row)
+try {
+  const pSeq = seedProduct('تست seq', 0, 'finished', 1, 0);
+  const dSeq = bom.createBom(db, {
+    product_id: pSeq, name: 'seq dup', yield_percent: 100, has_routing: 1,
+    lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material' }],
+  }, adminId);
+  adv.addOperation(db, dSeq.id, { seq: 10, cost_center_id: cc['CC-10'], labor_method: 'piece', labor_rate_rial: 1000 }, adminId);
+  adv.addOperation(db, dSeq.id, { seq: 10, cost_center_id: cc['CC-10'], labor_method: 'piece', labor_rate_rial: 2000 }, adminId);
+  const rows = db.prepare('SELECT labor_rate_rial FROM bom_operations WHERE bom_id=? AND seq=10').all(dSeq.id);
+  ok('T4-02 seq تکراری → به‌روزرسانی همان ردیف', rows.length === 1 && Number(rows[0].labor_rate_rial) === 2000);
+} catch (e) {
+  ok('T4-02 seq تکراری → به‌روزرسانی همان ردیف', false, e.message);
+}
 
 // outputs
 adv.addOutput(db, draft.id, {
@@ -171,34 +183,32 @@ try {
   const by = r.outputs.find(o => o.type === 'by');
   eq('T4-14 محصول فرعی NRV', by?.amount_rial, 3391200, 5);
 
-  ok('T4-13/15 roll-up stages', r.stages.length === 6);
+  // v474: plant-wide overhead rows (plant=1, seq=null) follow the route stages
+  const routeStages = r.stages.filter(s => !s.plant);
+  ok('T4-13/15 roll-up stages', routeStages.length === 6, `stages=${r.stages.map(s => s.seq).join(',')}`);
 } catch (e) {
   ok('T4 roll-up golden', false, e.stack || e.message);
   console.error(e);
 }
 
-// T4-16 share != 100
+// T4-16 share != 100 (ADR-006: یک محصول اصلی — سهم تنها خروجی main باید ۱۰۰ باشد)
 throws('T4-16 سهم ≠ ۱۰۰', () => {
   const d3 = bom.createBom(db, {
-    product_id: p101, name: 'share bad', yield_percent: 100, has_routing: 1, has_coproducts: 1,
+    product_id: p101, name: 'share bad', yield_percent: 100, has_routing: 1,
     lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
   }, adminId);
   adv.applyRoutingTemplate(db, d3.id, adminId);
   adv.addOutput(db, d3.id, { product_id: p101, output_type: 'main', cost_share_percent: 80, cost_method: 'share' });
-  adv.addOutput(db, d3.id, { product_id: p101, output_type: 'co', cost_share_percent: 10, cost_method: 'share', qty_per_base: 0.1 });
   adv.rollUpBom(db, { bomId: d3.id, qtyTarget: 10, period: PERIOD });
 }, 'E_SHARE_NOT_100');
 
-// T4-17 بدون main (has_coproducts=1 + فقط خروجی by)
-throws('T4-17 بدون main', () => {
-  const d3b = bom.createBom(db, {
-    product_id: p101, name: 'no main', yield_percent: 100, has_routing: 1, has_coproducts: 1,
+// T4-17 (ADR-006 / v472) — فرمول چندمحصولی (has_coproducts) دیگر ساخته نمی‌شود
+throws('T4-17 فرمول چندمحصولی رد می‌شود', () => {
+  bom.createBom(db, {
+    product_id: p101, name: 'multi', yield_percent: 100, has_routing: 1, has_coproducts: 1,
     lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
   }, adminId);
-  adv.applyRoutingTemplate(db, d3b.id, adminId);
-  adv.addOutput(db, d3b.id, { product_id: p299, output_type: 'by', qty_per_base: 0.1, cost_method: 'nrv', nrv_rial: 1000 });
-  adv.rollUpBom(db, { bomId: d3b.id, qtyTarget: 10, period: PERIOD });
-}, 'E_NO_MAIN_OUTPUT');
+}, 'E_BOM_SINGLE_PRODUCT');
 
 // T4-23 resequence
 try {
@@ -246,7 +256,7 @@ throws('T4-21 حلقه چندسطحی', () => {
 // extra — V4-13 E_NRV_ZERO (نه بخشی از شمارهٔ رسمی §18 — T4-24/۲۵ واقعی پایین‌تر است)
 throws('extra E_NRV_ZERO — محصول فرعی NRV صفر', () => {
   const d5 = bom.createBom(db, {
-    product_id: p101, name: 'nrv0', yield_percent: 100, has_routing: 1, has_coproducts: 1,
+    product_id: p101, name: 'nrv0', yield_percent: 100, has_routing: 1,
     lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
   }, adminId);
   adv.applyRoutingTemplate(db, d5.id, adminId);
@@ -326,26 +336,17 @@ try {
   ok('T4-24 Bootstrap نرخ', false, e.stack || e.message);
 }
 
-// ═══ T4-25 — تسهیم خودکار sales_value روی خروجی main+co ═══
-try {
-  const pCo = seedProduct('شال ست', 300000, 'finished', 0);
+// ═══ T4-25 (ADR-006 / v472) — محصول دوم (co) روی فرمول ممنوع؛ چندمحصولی فقط در سفارش/لایه‌چینی ═══
+throws('T4-25 خروجی co با محصول دوم رد می‌شود', () => {
+  const pCo = seedProduct('شال ست', 300000, 'finished', 1, 0);
   const d7 = bom.createBom(db, {
-    product_id: p101, name: 'coproduct autoShare', yield_percent: 100, has_routing: 1, has_coproducts: 1,
+    product_id: p101, name: 'coproduct', yield_percent: 100, has_routing: 1,
     lines: [{ component_product_id: p201, qty_per_base: 1, scrap_percent: 0, line_type: 'material', stage_cost_center_id: cc['CC-10'] }],
   }, adminId);
   adv.applyRoutingTemplate(db, d7.id, adminId);
-  adv.addOutput(db, d7.id, { product_id: p101, output_type: 'main', qty_per_base: 1, cost_method: 'share', cost_share_percent: 50 });
+  adv.addOutput(db, d7.id, { product_id: p101, output_type: 'main', qty_per_base: 1, cost_method: 'share', cost_share_percent: 100 });
   adv.addOutput(db, d7.id, { product_id: pCo, output_type: 'co', qty_per_base: 0.2, cost_method: 'share', cost_share_percent: 50 });
-  db.prepare('UPDATE products SET price=? WHERE id=?').run(320000, p101);
-  db.prepare('UPDATE products SET price=? WHERE id=?').run(150000, pCo);
-
-  const res = adv.autoShare(db, d7.id, 'sales_value');
-  const sum = res.rows.reduce((s, row) => s + row.cost_share_percent, 0);
-  eq('T4-25 autoShare sales_value مجموع سهم=۱۰۰', sum, 100, 0.01);
-  ok('T4-25 autoShare دو ردیف با سهم مثبت', res.rows.length === 2 && res.rows.every(row => row.cost_share_percent > 0));
-} catch (e) {
-  ok('T4-25 autoShare sales_value', false, e.stack || e.message);
-}
+}, 'E_BOM_SINGLE_PRODUCT');
 
 // ═══ Smoke — کمک‌تابع‌های جدید (yieldAnalysis, costTree, sensitivity, breakeven, compareScenarios) ═══
 try {

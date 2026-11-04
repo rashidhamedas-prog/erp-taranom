@@ -2,7 +2,7 @@
 /**
  * P7 — Fixed advanced execution (docs/Production/07-fixed-analysis-advanced.md)
  */
-const { ok, eq, freshDb, summary } = require('./lib/test-harness');
+const { ok, eq, freshDb, seedOpeningStock, summary } = require('./lib/test-harness');
 const bom = require('../lib/production/bom');
 const advBom = require('../lib/production/bom-advanced');
 const engine = require('../lib/production/engine');
@@ -20,8 +20,8 @@ const PERIOD = '1405/04';
 function seedProduct(name, avg, type, mfg, stock = 10000) {
   const id = db.prepare('INSERT INTO products (user_id,name,price,stock) VALUES (1,?,?,?)')
     .run(name, 0, stock).lastInsertRowid;
-  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=? WHERE id=?')
-    .run(avg, type, mfg, avg, id);
+  db.prepare('UPDATE products SET average_cost_rial=?, item_type=?, is_manufactured=?, std_cost_rial=?, code=? WHERE id=?')
+    .run(avg, type, mfg, avg, `P3F-${id}`, id);
   return id;
 }
 
@@ -47,14 +47,11 @@ db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_r
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_fg_id',?)").run(String(whFg));
 db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('production_wh_scrap_id',?)").run(String(whScrap));
 
+// Stock only via inventory documents (P1 Kardex SSOT)
 for (const id of [p101, p201, p202, p203, p204, p205, p206, p299]) {
-  const p = db.prepare('SELECT stock FROM products WHERE id=?').get(id);
-  if (whRaw) {
-    db.prepare('INSERT OR IGNORE INTO warehouse_stock (product_id,warehouse_id,qty) VALUES (?,?,?)')
-      .run(id, whRaw, p.stock);
-    db.prepare('UPDATE warehouse_stock SET qty=? WHERE product_id=? AND warehouse_id=?')
-      .run(p.stock, id, whRaw);
-  }
+  const qty = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(id).stock) || 0;
+  db.prepare('UPDATE products SET stock=0 WHERE id=?').run(id);
+  seedOpeningStock(db, id, whRaw, qty);
 }
 
 const rates = [
@@ -87,7 +84,6 @@ const draft = bom.createBom(db, {
   yield_percent: 100,
   base_qty: 1,
   has_routing: 1,
-  has_coproducts: 1,
   lines: [
     { component_product_id: p201, qty_per_base: 1.60, scrap_percent: 4, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
     { component_product_id: p202, qty_per_base: 0.35, scrap_percent: 3, line_type: 'material', stage_cost_center_id: cc['CC-10'] },
@@ -183,6 +179,15 @@ const fin = adv.finalizeAdvancedOrder(db, {
 eq('T7-28 receipt amount', fin.amount_rial, 694933300, 50);
 eq('T7-29 unit_cost', fin.unit_cost_rial, 2315880, 50);
 eq('T7-30 WIP residual', fin.wip_residual_rial, 0, 5);
+{
+  const sc = db.prepare(`SELECT direction, product_id, fee_amount_rial FROM production_subcontract WHERE order_id=?`).all(po.id);
+  ok('T7-31 auto subcontract fee row direction=in, product_id=FG',
+    sc.length === 1 && sc[0].direction === 'in' && Number(sc[0].product_id) === Number(p101) && Number(sc[0].fee_amount_rial) > 0,
+    JSON.stringify(sc));
+  eq('T7-32 header subcontract_cost_rial = fee',
+    db.prepare('SELECT subcontract_cost_rial FROM production_orders WHERE id=?').get(po.id).subcontract_cost_rial,
+    sc[0] ? sc[0].fee_amount_rial : -1, 0);
+}
 
 // T7 skip / block / unblock + releaseAdvancedOrder smoke
 {
@@ -196,9 +201,10 @@ eq('T7-30 WIP residual', fin.wip_residual_rial, 0, 5);
 
   let st2 = adv.stageList(db, po2.id);
   const s20 = st2.find(s => s.seq === 20);
-  adv.skipStage(db, po2.id, s20.id, adminId, 'تست رد مرحله');
-  ok('T7 skip stage 20', db.prepare('SELECT status FROM production_order_stages WHERE id=?')
-    .get(s20.id).status === 'skipped');
+  // v409 stage-ordered gates: a stage can't be skipped while the previous one is still open
+  let skipCode = '';
+  try { adv.skipStage(db, po2.id, s20.id, adminId, 'تست رد مرحله'); } catch (e) { skipCode = e.code || e.message; }
+  ok('T7 skip stage 20 blocked while stage 10 open', skipCode === 'E_PREV_STAGE_OPEN', skipCode);
 
   const s10 = st2.find(s => s.seq === 10);
   adv.blockStage(db, po2.id, s10.id, adminId, 'توقف موقت');
