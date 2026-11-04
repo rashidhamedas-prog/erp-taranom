@@ -122,14 +122,47 @@ function deriveProductStock(db, productId) {
 }
 
 /**
+ * True when this matrix product still has live ledger qty with no variant_id.
+ * In that case attributed-only rebuild would understate/zero the colour×size layer
+ * (incident 2026-11-03: openings without variant_id → rebuildAllStockCaches wiped VWS).
+ */
+function hasUnattributedQty(d) {
+  for (const q of d.unattributed.values()) {
+    if (Math.abs(Number(q) || 0) > EPS) return true;
+  }
+  return false;
+}
+
+/**
+ * Variant-layer write policy when unattributed live qty remains:
+ *   - always write non-zero attributed figures from the ledger
+ *   - NEVER zero (or invent 0 over) an existing non-zero cache cell
+ * Product / warehouse_stock still follow the full ledger (including unattributed).
+ */
+function variantWant(fromLedger, current, preserveZeros) {
+  const want = round3(fromLedger);
+  if (!preserveZeros) return want;
+  if (Math.abs(want) > EPS) return want;
+  return round3(current);
+}
+
+/**
  * The only writer of products.stock / product_variants.stock / warehouse_stock /
  * variant_warehouse_stock. Idempotent; safe inside or outside a transaction.
- * Existing cache rows with no live ledger rows are set to 0 (never deleted).
+ * Existing cache rows with no live ledger rows are set to 0 (never deleted) —
+ * except the colour×size layer while the product still has unattributed live qty
+ * (those zeros would destroy the only remaining split until a VR reclass runs).
+ *
+ * @param {{ forceVariantLedger?: boolean }} [opts]
+ *   forceVariantLedger: official VR post/void paths — always mirror attributed ledger
+ *   on the colour×size layer (R13 void must return caches to 0 / attributed figures).
  */
-function rebuildStockCache(db, productId) {
+function rebuildStockCache(db, productId, opts = {}) {
   const pid = Number(productId) || 0;
   if (!pid) return null;
+  const forceVariantLedger = !!(opts && opts.forceVariantLedger);
   const d = deriveProductStock(db, pid);
+  let preservedVariantCells = 0;
   const run = () => withCacheWriter(db, () => {
     db.prepare('UPDATE products SET stock=? WHERE id=?').run(d.header, pid);
 
@@ -150,10 +183,14 @@ function rebuildStockCache(db, productId) {
     const variants = tableExists(db, 'product_variants')
       ? db.prepare('SELECT id, stock FROM product_variants WHERE product_id=?').all(pid)
       : [];
+    const preserveZeros = !forceVariantLedger && variants.length > 1 && hasUnattributedQty(d);
     const vUpd = db.prepare('UPDATE product_variants SET stock=? WHERE id=?');
     for (const v of variants) {
-      const want = d.variants.get(Number(v.id)) || 0;
-      if (round3(v.stock) !== want) vUpd.run(want, v.id);
+      const fromLedger = d.variants.get(Number(v.id)) || 0;
+      const cur = Number(v.stock) || 0;
+      const want = variantWant(fromLedger, cur, preserveZeros);
+      if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(cur) > EPS) preservedVariantCells += 1;
+      if (round3(cur) !== want) vUpd.run(want, v.id);
     }
 
     if (variants.length && tableExists(db, 'variant_warehouse_stock')) {
@@ -166,13 +203,17 @@ function rebuildStockCache(db, productId) {
       for (const r of cur) {
         const k = `${Number(r.variant_id)}:${Number(r.warehouse_id)}`;
         seen.add(k);
-        const want = d.variantWarehouses.get(k) || 0;
-        if (round3(r.qty) !== want) upd.run(want, r.variant_id, r.warehouse_id);
+        const fromLedger = d.variantWarehouses.get(k) || 0;
+        const curQ = Number(r.qty) || 0;
+        const want = variantWant(fromLedger, curQ, preserveZeros);
+        if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(curQ) > EPS) preservedVariantCells += 1;
+        if (round3(curQ) !== want) upd.run(want, r.variant_id, r.warehouse_id);
       }
       const ins = db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)');
       const known = new Set(ids);
       for (const [k, q] of d.variantWarehouses) {
         if (seen.has(k)) continue;
+        if (Math.abs(Number(q) || 0) < EPS) continue;
         const [vid, wh] = k.split(':').map(Number);
         if (known.has(vid)) ins.run(vid, wh, q);
       }
@@ -180,7 +221,11 @@ function rebuildStockCache(db, productId) {
   });
   if (db.inTransaction) run();
   else db.transaction(run)();
-  return summarize(d);
+  const summary = summarize(d);
+  summary.variant_cache_preserved = preservedVariantCells > 0;
+  summary.preserved_variant_cells = preservedVariantCells;
+  summary.force_variant_ledger = forceVariantLedger;
+  return summary;
 }
 
 function summarize(d) {
@@ -296,6 +341,7 @@ module.exports = {
   ensureStockCacheSchema,
   withCacheWriter,
   deriveProductStock,
+  hasUnattributedQty,
   rebuildStockCache,
   rebuildAllStockCaches,
   derivedQty,

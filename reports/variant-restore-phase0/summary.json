@@ -1,0 +1,48 @@
+{
+  "mode": "DRY-RUN",
+  "backup_source": "/home/taranom/backups/crm.db.pre-stock-rebuild-2026-11-03T16-27-32-687Z",
+  "live_db": "/home/taranom/backups/variant-restore-phase0/crm.db.copy",
+  "post_range": {
+    "from": 2468,
+    "to": 2553,
+    "backup_max_id": 2467
+  },
+  "groups": 142,
+  "auto_ready": 53,
+  "already_ok": 44,
+  "unreachable": 45,
+  "preexisting_drift_or_negative": 9,
+  "trial_before": {
+    "balanced": true,
+    "unbalanced": 0,
+    "debit": 142042793443,
+    "credit": 142042793443
+  },
+  "trial_after": {
+    "balanced": true,
+    "unbalanced": 0,
+    "debit": 142042793443,
+    "credit": 142042793443
+  },
+  "trial_unchanged": true,
+  "recon_before": {
+    "ok": 11,
+    "warn": 3,
+    "error": 0,
+    "info": 2,
+    "rounding": 0,
+    "score": 30,
+    "abs_diff_rial": 1046831461
+  },
+  "recon_after": {
+    "ok": 11,
+    "warn": 3,
+    "error": 0,
+    "info": 2,
+    "rounding": 0,
+    "score": 30,
+    "abs_diff_rial": 1046831461
+  },
+  "apply_backup": null,
+  "apply_posted": 0
+}
