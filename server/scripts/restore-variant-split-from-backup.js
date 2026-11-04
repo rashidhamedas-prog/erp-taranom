@@ -42,8 +42,9 @@ const REASON = 'بازگردانی تفکیک رنگ×سایز از پشتیبا
 function parseArgs(argv) {
   const out = {
     apply: false, go: false, db: null, backup: null, out: null, backupDir: null,
-    planAuto: null, planManual: null,
+    planAuto: null, planManual: null, groups: 'auto',
     postFrom: DEFAULT_POST_FROM, postTo: DEFAULT_POST_TO, postAfterBackup: false,
+    expectGroups: null, expectAuto: null, expectAlready: null, expectUnreachable: null,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -57,9 +58,14 @@ function parseArgs(argv) {
     else if (a === '--backup-dir') out.backupDir = argv[++i];
     else if (a === '--plan-auto') out.planAuto = argv[++i];
     else if (a === '--plan-manual') out.planManual = argv[++i];
+    else if (a === '--groups') out.groups = String(argv[++i] || '').trim().toLowerCase();
     else if (a === '--post-from') out.postFrom = Number(argv[++i]);
     else if (a === '--post-to') out.postTo = Number(argv[++i]);
     else if (a === '--post-after-backup') out.postAfterBackup = true;
+    else if (a === '--expect-groups') out.expectGroups = Number(argv[++i]);
+    else if (a === '--expect-auto') out.expectAuto = Number(argv[++i]);
+    else if (a === '--expect-already') out.expectAlready = Number(argv[++i]);
+    else if (a === '--expect-unreachable') out.expectUnreachable = Number(argv[++i]);
     else if (a === '-h' || a === '--help') out.help = true;
     else throw new Error('پرچم ناشناخته: ' + a);
   }
@@ -322,6 +328,7 @@ function buildGroupReport(live, targetsMeta, autoPlans, manualPlans) {
     g.unattributed_total = round3(g.unattributed.reduce((s, r) => s + r.net, 0));
     g.need_total = round3(g.variants.reduce((s, v) => s + v.need, 0));
     g.target_total = round3(g.variants.reduce((s, v) => s + v.target, 0));
+    g.backup_qty_total = round3(g.variants.reduce((s, v) => s + v.backup, 0));
     g.before_vws_total = round3(g.variants.reduce((s, v) => s + v.before_vws, 0));
     g.before_attr_total = round3(g.variants.reduce((s, v) => s + v.before_attr, 0));
   }
@@ -435,10 +442,16 @@ async function main() {
     console.log(`Usage: node scripts/restore-variant-split-from-backup.js --db <copy> --backup <bak> --out <dir> [options]
   --plan-auto PATH   (default: scripts/data/variant-restore/restore-plan-auto.csv)
   --plan-manual PATH
+  --groups auto      (only supported value; apply touches auto only)
   --post-from/--post-to  (default ${DEFAULT_POST_FROM}-${DEFAULT_POST_TO})
   --post-after-backup    (ignore range; use id > MAX(backup))
-  --apply --i-have-go    (writes; requires fresh --backup-dir)`);
+  --expect-groups/--expect-auto/--expect-already/--expect-unreachable  (dry-run gate → exit 3)
+  --apply --i-have-go --groups=auto   (writes; requires fresh --backup-dir)`);
     process.exit(args.help ? 0 : 2);
+  }
+  if (args.groups !== 'auto') {
+    console.error('فقط --groups=auto پشتیبانی می‌شود (manual/unreachable هرگز حدس زده نمی‌شوند)');
+    process.exit(2);
   }
   if (args.apply && !args.go) {
     console.error('اعمال فقط با --apply و --i-have-go');
@@ -512,6 +525,30 @@ async function main() {
   // Recompute lists after preview failures
   const autoReady = groups.filter((g) => g.classification === 'auto' && g.preview_ok);
   const unreachableFinal = groups.filter((g) => g.classification === 'unreachable');
+  const alreadyFinal = groups.filter((g) => g.classification === 'already_ok');
+
+  const expectFail = [];
+  if (args.expectGroups != null && groups.length !== args.expectGroups) {
+    expectFail.push(`groups ${groups.length}!=${args.expectGroups}`);
+  }
+  if (args.expectAuto != null && autoReady.length !== args.expectAuto) {
+    expectFail.push(`auto ${autoReady.length}!=${args.expectAuto}`);
+  }
+  if (args.expectAlready != null && alreadyFinal.length !== args.expectAlready) {
+    expectFail.push(`already_ok ${alreadyFinal.length}!=${args.expectAlready}`);
+  }
+  if (args.expectUnreachable != null && unreachableFinal.length !== args.expectUnreachable) {
+    expectFail.push(`unreachable ${unreachableFinal.length}!=${args.expectUnreachable}`);
+  }
+  if (expectFail.length) {
+    console.error('EXPECT_MISMATCH ' + expectFail.join('; '));
+    fs.writeFileSync(path.join(args.out, 'expect-mismatch.json'), JSON.stringify({
+      expectFail, groups: groups.length, auto_ready: autoReady.length,
+      already_ok: alreadyFinal.length, unreachable: unreachableFinal.length,
+    }, null, 2), 'utf8');
+    live.close(); backup.close();
+    process.exit(3);
+  }
 
   let trialAfter = trialBefore;
   let reconAfter = reconBefore;
@@ -606,32 +643,61 @@ async function main() {
   }), reportRows);
 
   writeCsv(path.join(args.out, 'unreachable.csv'),
-    ['product_id', 'warehouse_id', 'reason', 'need_total', 'unattributed_total', 'target_total', 'before_attr_total'],
+    ['product_id', 'warehouse_id', 'reason', 'backup_qty', 'current_vws_qty', 'current_attr_qty',
+      'need_total', 'unattributed_total', 'target_total'],
     unreachableFinal.map((g) => ({
       product_id: g.product_id,
       warehouse_id: g.warehouse_id,
       reason: g.unreachable_reason,
+      backup_qty: g.backup_qty_total,
+      current_vws_qty: g.before_vws_total,
+      current_attr_qty: g.before_attr_total,
       need_total: g.need_total,
       unattributed_total: g.unattributed_total,
       target_total: g.target_total,
-      before_attr_total: g.before_attr_total,
     })));
+
+  // Per-variant unreachable detail: backup vs current VWS/attr
+  const unreachableVariantRows = [];
+  for (const g of unreachableFinal) {
+    for (const v of g.variants) {
+      unreachableVariantRows.push({
+        product_id: g.product_id,
+        warehouse_id: g.warehouse_id,
+        variant_id: v.variant_id,
+        reason: g.unreachable_reason,
+        backup_qty: v.backup,
+        current_vws_qty: v.before_vws,
+        current_attr_qty: v.before_attr,
+        target_qty: v.target,
+        need_qty: v.need,
+      });
+    }
+  }
+  writeCsv(path.join(args.out, 'unreachable-variants.csv'),
+    ['product_id', 'warehouse_id', 'variant_id', 'reason', 'backup_qty', 'current_vws_qty',
+      'current_attr_qty', 'target_qty', 'need_qty'],
+    unreachableVariantRows);
 
   const summary = {
     mode: APPLY ? 'APPLY' : 'DRY-RUN',
+    groups_filter: args.groups,
     backup_source: args.backup,
     live_db: args.db,
     post_range: { from: targetsMeta.postFrom, to: targetsMeta.postTo, backup_max_id: targetsMeta.backupMax },
     groups: groups.length,
     auto_ready: autoReady.length,
-    already_ok: already.length,
+    already_ok: alreadyFinal.length,
     unreachable: unreachableFinal.length,
     preexisting_drift_or_negative: preexistingDrift.length,
     trial_before: trialBefore,
     trial_after: trialAfter,
-    trial_unchanged: trialBefore.debit === trialAfter.debit && trialBefore.credit === trialAfter.credit,
+    trial_unchanged: trialBefore.debit === trialAfter.debit && trialBefore.credit === trialAfter.credit
+      && trialBefore.balanced === trialAfter.balanced,
     recon_before: reconBefore,
     recon_after: reconAfter,
+    recon_unchanged: !reconWorse(reconBefore, reconAfter)
+      && reconBefore.ok === reconAfter.ok && reconBefore.warn === reconAfter.warn,
     apply_backup: backupPath,
     apply_posted: applyResults.length,
   };
