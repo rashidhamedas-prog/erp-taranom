@@ -336,6 +336,9 @@ async function api(method, path, data, isFormData, silent){
           : 'موجودی بدون بها مجاز نیست — بهای تمام‌شده یا قیمت اول دوره را وارد کنید',
         E_UNIT_COST:'بهای واحد باید بزرگ‌تر از صفر باشد',
         E_STOCK_VIA_OPENING:'موجودی از فرم کالا ثبت نمی‌شود — پس از ذخیره، در جدول «موجودی اول دوره» وارد کنید',
+        E_VARIANT_LAYER_MISMATCH: j.message || (pname
+          ? ('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) در «'+pname+'» — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ تا اصلاح تفکیک واریانت (سند VR) قابل فروش نیست')
+          : 'ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ تا اصلاح تفکیک واریانت (سند VR) قابل فروش نیست'),
         E_OPENING_REASON_REQUIRED:'دلیل اصلاح الزامی است (حداقل ۵ نویسه)',
         E_OPENING_CONFIRM_REQUIRED:'تیک «تأیید می‌کنم» لازم است',
         E_OPENING_EXISTS:'برای این کالا/انبار/واریانت موجودی اول دوره از قبل ثبت شده است',
@@ -740,6 +743,11 @@ function invLineStockStore(results, requested){
         available:Number(w.available)||0,
         drift:!!w.drift,
         note:String(w.layer_note||''),
+        drift_variant:!!w.drift_variant,
+        info:String(w.variant_info_note||''),
+        mismatch:!!w.variant_layer_mismatch,
+        block_note:String(w.block_note||''),
+        stocked_sku_count:w.stocked_sku_count!=null?Number(w.stocked_sku_count):null,
       };
     });
     window._invLineStock[key]=map;
@@ -789,10 +797,18 @@ function invLineStockEntry(row, headerWh, stockCache) {
       available: Number(e.available) || 0,
       drift: !!e.drift,
       note: String(e.note || ''),
+      drift_variant: !!e.drift_variant,
+      info: String(e.info || ''),
+      mismatch: !!e.mismatch,
+      block_note: String(e.block_note || ''),
+      stocked_sku_count: e.stocked_sku_count != null ? Number(e.stocked_sku_count) : null,
     };
   }
   const n = Number(e) || 0;
-  return { on_hand: n, reserved: 0, own: 0, available: n, drift: false, note: '' };
+  return {
+    on_hand: n, reserved: 0, own: 0, available: n, drift: false, note: '',
+    drift_variant: false, info: '', mismatch: false, block_note: '', stocked_sku_count: null,
+  };
 }
 /* /XWH-SHARED */
 /* XWH-SHARED:invLineAvail */
@@ -825,6 +841,8 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
   let shortN = 0;
   let unknownN = 0;
   let drift = false;
+  let mismatch = false;
+  let mismatchNote = '';
   const skus = order.map(function (key) {
     const g = by[key];
     const e = wh
@@ -835,6 +853,10 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
     if (!known) unknownN += 1;
     if (short) shortN += 1;
     if (known && e.drift) drift = true;
+    if (known && e.mismatch) {
+      mismatch = true;
+      if (!mismatchNote) mismatchNote = e.block_note;
+    }
     return {
       key: g.key,
       variant_id: g.variant_id,
@@ -847,6 +869,10 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
       own: known ? e.own : 0,
       drift: known ? e.drift : false,
       note: known ? e.note : '',
+      drift_variant: known ? e.drift_variant : false,
+      info: known ? e.info : '',
+      mismatch: known ? e.mismatch : false,
+      block_note: known ? e.block_note : '',
       short: short,
     };
   });
@@ -856,7 +882,9 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
     shortN: shortN,
     unknownN: unknownN,
     drift: drift,
-    ok: skus.length > 0 && shortN === 0 && unknownN === 0,
+    mismatch: mismatch,
+    mismatchNote: mismatchNote,
+    ok: skus.length > 0 && shortN === 0 && unknownN === 0 && !mismatch,
   };
 }
 /* /XWH-SHARED */
@@ -883,6 +911,9 @@ function invCardAvail(productId, whId, stockCache, fallbackWhQty, heldQty, cartQ
     from_cache: !!e,
     drift: !!(e && e.drift),
     note: e ? e.note : '',
+    info: e ? e.info : '',
+    mismatch: !!(e && e.mismatch),
+    block_note: e ? e.block_note : '',
   };
 }
 /* /XWH-SHARED */
@@ -961,6 +992,22 @@ function collectInvoiceStockWarnings(cart, opts) {
     const g = byProd[pk];
     const sample = { product_id: g.product_id, warehouse_id: g.warehouse_id, variant_id: null };
     const pe = invLineStockEntry(sample, headerWh, stockCache);
+    if (pe && pe.mismatch) {
+      const mWhName = warehouseName(g.warehouse_id) || ('انبار ' + g.warehouse_id);
+      const mBase = g.name || (findProduct(g.product_id) && findProduct(g.product_id).name) || 'کالا';
+      issues.push({
+        kind: 'variant_layer_mismatch',
+        blocking: true,
+        product_id: g.product_id,
+        warehouse_id: g.warehouse_id,
+        name: mBase + ' (' + mWhName + ')',
+        wh_name: mWhName,
+        need: g.qty,
+        avail: pe.available,
+        after: pe.available - g.qty,
+        note: pe.block_note,
+      });
+    }
     let avail;
     if (pe) {
       avail = pe.available;
@@ -1051,6 +1098,18 @@ function invDriftBadgeHtml(note){
   const t=String(note||'').trim()||'موجودی این انبار با کاردکس/حرکت‌های ثبت‌شده هم‌خوان نیست؛ عدد قطعی نیست.';
   return '<span class="inv-drift-badge" title="'+esc(t)+'">'+INV_DRIFT_TEXT+'</span>';
 }
+const INV_MISMATCH_TEXT='ناهمخوانی لایهٔ رنگ/سایز';
+const INV_MISMATCH_DEFAULT_NOTE='ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف قابل فروش نیست تا اصلاح تفکیک واریانت (سند VR)';
+function invMismatchBadgeHtml(note){
+  const t=String(note||'').trim()||INV_MISMATCH_DEFAULT_NOTE;
+  return '<span class="inv-line-wh-stock--mismatch" title="'+esc(t)+'">⛔ '+INV_MISMATCH_TEXT+'</span>';
+}
+/** variant drift فقط اطلاعاتی است: ℹ کم‌رنگ با title — نه بج ⚠، نه low، نه تغییر عدد. */
+function invVariantInfoHtml(info){
+  const t=String(info||'').trim();
+  if(!t) return '';
+  return '<span class="inv-variant-info muted" title="'+esc(t)+'">ℹ</span>';
+}
 /** قلم‌های سبد که کش تازه (TTL) ندارند: هر SKU + سطح کالا (برای هشدار/کارت پیکر). */
 function invLineStockItemsFor(rows){
   const items=[];
@@ -1083,19 +1142,27 @@ async function ensureInvLineStockForCart(cart){
     window._invLineStockErrAt=0;
   }catch(_){ window._invLineStockErrAt=Date.now(); /* keep prior cache */ }
 }
+function invStockMismatchIssues(issues){
+  return (issues||[]).filter(function(i){ return i && i.kind==='variant_layer_mismatch'; });
+}
 function renderInvoiceStockWarn(){
   const box=el('invStockWarn'); if(!box) return;
-  const issues=invoiceStockWarningsNow(invCart);
-  if(!issues.length){ box.innerHTML=''; box.hidden=true; return; }
+  const all=invoiceStockWarningsNow(invCart);
+  if(!all.length){ box.innerHTML=''; box.hidden=true; return; }
+  const blocks=invStockMismatchIssues(all);
+  const issues=all.filter(function(i){ return i.kind!=='variant_layer_mismatch'; });
   const firm=el('inv-type')?.value!=='proforma';
   const title=firm
     ? 'پس از ثبت این فاکتور موجودی این کالاها منفی می‌شود. ذخیره مسدود نیست — فقط هشدار است.'
     : 'اگر این پیش‌فاکتور به فاکتور قطعی تبدیل شود، موجودی این کالاها منفی می‌شود. ذخیره مسدود نیست.';
   box.hidden=false;
-  box.innerHTML=`<div class="inv-stock-warn" role="status">
+  box.innerHTML=(blocks.length?`<div class="inv-stock-warn inv-stock-warn--block" role="alert">
+    <div class="inv-stock-warn-title">⛔ ${esc(INV_MISMATCH_TEXT)} (variant layer mismatch) — ذخیره مسدود است تا تفکیک رنگ/سایز با سند اصلاح واریانت (VR) درست شود.</div>
+    <ul>${blocks.map(i=>'<li><b>'+esc(i.name)+'</b> — '+esc(i.note||INV_MISMATCH_DEFAULT_NOTE)+'</li>').join('')}</ul>
+  </div>`:'')+(issues.length?`<div class="inv-stock-warn" role="status">
     <div class="inv-stock-warn-title">⚠️ ${esc(title)}</div>
     <ul>${issues.map(i=>'<li><b>'+esc(i.name)+'</b> — نیاز '+fmtQty(i.need)+'، موجود '+fmt(i.avail)+'، پس از فاکتور <b>'+fmt(i.after)+'</b></li>').join('')}</ul>
-  </div>`;
+  </div>`:'');
 }
 function invoiceHeldQty(kind, id, whId){
   const b=window._invStockBaseline;
@@ -1129,7 +1196,16 @@ function captureInvoiceStockBaseline(inv){
   window._invStockBaseline={prod, sku};
 }
 function invoiceNegativeStockWarn(cart){
-  const issues=invoiceStockWarningsNow(cart);
+  const all=invoiceStockWarningsNow(cart);
+  const blocks=invStockMismatchIssues(all);
+  if(blocks.length){
+    // allow_negative انبار این را دور نمی‌زند — سرور هم E_VARIANT_LAYER_MISMATCH می‌دهد.
+    const b=blocks[0];
+    try{ showToast((b.note||INV_MISMATCH_DEFAULT_NOTE)+(b.name?(' — '+b.name):'')+(blocks.length>1?(' (+'+fmt(blocks.length-1)+' ردیف دیگر)'):''),'error'); }catch(_){}
+    try{ renderInvoiceStockWarn(); }catch(_){}
+    return false;
+  }
+  const issues=all;
   if(issues.length){
     try{ showToast('هشدار: پس از ثبت، موجودی برخی کالاها منفی می‌شود — فاکتور ثبت می‌شود','info'); }catch(_){}
   }
@@ -5989,9 +6065,10 @@ function renderInvPicker(){
       ?cardInfo.base
       :(p.wh_qty!=null?Number(p.wh_qty):(Number(p.stock)||0));
     const avail=whId?cardInfo.available:(onHand-reserved);
-    const cardDrift=whId && cardInfo.drift
-      ? invDriftBadgeHtml(cardInfo.note)
-      : '';
+    const cardDrift=!whId ? ''
+      : (cardInfo.mismatch
+        ? invMismatchBadgeHtml(cardInfo.block_note)
+        : ((cardInfo.drift ? invDriftBadgeHtml(cardInfo.note) : '')+invVariantInfoHtml(cardInfo.info)));
     // v567: سربرگ صفر ولی انبار دیگر دارد → بج «در انبار دیگر: n» (فقط کلید سطح کالا از cache)
     const otherWhQty=(whId && onHand<=0)?invOtherWhQtyForProduct(p.id, whId):0;
     const otherWhBadge=otherWhQty>0
@@ -6364,8 +6441,29 @@ function openPartialPackMatrix(p, pack, dest, warehouseId){
   });
   return true;
 }
+/**
+ * ناهمخوانی لایهٔ رنگ/سایز: کالای ماتریسی، هیچ SKU موجودی در این انبار ندارد ولی موجودی کالا×انبار > ۰.
+ * برمی‌گرداند موجودی کالا×انبار (> ۰) یا ۰. allow_negative این را دور نمی‌زند.
+ */
+function invPackMismatchWhQty(p, pack, whId){
+  if(!pack || !pack.has_matrix || !pack.from_server) return 0;
+  if(pack.stocked_sku_count==null || Number(pack.stocked_sku_count)!==0) return 0;
+  const e=whId?invLineStockEntry({ product_id:p&&p.id, variant_id:null, warehouse_id:whId }, whId, window._invLineStock||{}):null;
+  let whQty=null;
+  if(e) whQty=e.on_hand;
+  else if(p && p.wh_qty!=null){
+    const hdr=typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null;
+    if(!hdr || !whId || Number(hdr)===Number(whId)) whQty=Number(p.wh_qty);
+  }
+  return (Number(whQty)>0)?Number(whQty):0;
+}
 function applyAutoLivePack(p, pack, dest, warehouseId){
   const whId=warehouseId!=null?warehouseId:(typeof headerInvoiceWarehouseId==='function'?headerInvoiceWarehouseId():null);
+  const mismatchQty=invPackMismatchWhQty(p, pack, whId);
+  if(mismatchQty>0){
+    showToast('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(mismatchQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — تا اصلاح تفکیک واریانت قابل فروش نیست','error');
+    return false;
+  }
   const live=livePackRowsForSale(pack, whId);
   if(!live.length){
     const stocked=Number(pack&&pack.stocked_qty)||0;
@@ -6373,12 +6471,12 @@ function applyAutoLivePack(p, pack, dest, warehouseId){
     if((stocked>0||matrixHasStock) && !clientAllowsNegativeStock(whId)){
       return openPartialPackMatrix(p, pack, dest||'invoice', whId);
     }
-    let msg='هیچ رنگ/سایز موجودی برای این کالا نیست';
     const whQty=p&&p.wh_qty!=null?Number(p.wh_qty):null;
     if(whQty!=null&&whQty>0){
-      msg+=' — موجودی کالا با موجودی رنگ/سایز همخوان نیست؛ انبارگردانی لازم است';
+      showToast('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(whQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — تا اصلاح تفکیک واریانت قابل فروش نیست','error');
+      return false;
     }
-    showToast(msg,'error');
+    showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
     return false;
   }
   const lines=live.map(function(v){ return variantLineFromSku(v, 1); });
@@ -6877,9 +6975,11 @@ function invXwhPopHtml(indices, curWh, needQty){
       const sub=(s.known && s.reserved>0)?('<small class="inv-xwh-pop-sub">موجود '+fmtQtyFa(s.on_hand)+' · رزرو '+fmtQtyFa(s.reserved)+'</small>'):'';
       qtyHtml='<span class="inv-xwh-pop-qty'+(low?' inv-xwh-pop-qty--low':'')+'">'+(s.known?fmtQtyFa(s.available):'…')+sub+'</span>';
     }
-    const driftHtml=(info && info.drift)
-      ? invDriftBadgeHtml(info.skus.filter(function(s){ return s.drift && s.note; }).map(function(s){ return s.note; })[0]||'')
-      : '';
+    const driftHtml=(info && info.mismatch)
+      ? invMismatchBadgeHtml(info.mismatchNote)
+      : ((info && info.drift)
+        ? invDriftBadgeHtml(info.skus.filter(function(s){ return s.drift && s.note; }).map(function(s){ return s.note; })[0]||'')
+        : '');
     return '<button type="button" class="inv-xwh-pop-item'+(isCur?' is-cur':'')+(canPick?'':' is-locked')+'" data-csp-click="'+bind+'">'
       +'<span class="inv-xwh-pop-name">'+esc(w.name)+(isHdr?' <small>(سربرگ)</small>':'')+driftHtml+'</span>'
       +qtyHtml
@@ -6988,9 +7088,16 @@ function renderCart(){
       const lineStockTip=(lineStockInfo && lineStockInfo.skus.length>1)
         ? lineStockInfo.skus.map(function(s){ return (s.label||'SKU')+': '+(s.known?fmtQtyFa(s.available):'…')+' / نیاز '+fmtQtyFa(s.need); }).join(' | ')
         : '';
+      const lineProdEntry=(lineStockInfo && lineWhEff)?invLineStockEntry({ product_id:r.product_id, variant_id:null, warehouse_id:lineWhEff }, lineWhEff, window._invLineStock||{}):null;
+      const lineMismatch=!!((lineStockInfo && lineStockInfo.mismatch) || (lineProdEntry && lineProdEntry.mismatch));
+      const lineMismatchNote=(lineStockInfo && lineStockInfo.mismatchNote) || (lineProdEntry && lineProdEntry.block_note) || '';
+      const lineVariantInfo=(lineStockInfo && (lineStockInfo.skus.filter(function(s){ return s.info; })[0]||{}).info) || '';
       const lineWhStockHtml=(!isIncome && lineStockSt)
-        ? ('<div class="inv-line-wh-stock'+(lineStockSt.low?' inv-line-wh-stock--low':'')+'"'+(lineStockTip?(' title="'+esc(lineStockTip)+'"'):'')+'>موجودی این انبار: '+lineStockTxt
-          +((lineStockInfo&&lineStockInfo.drift)?(' '+invDriftBadgeHtml((lineStockInfo.skus.filter(function(s){return s.drift&&s.note;})[0]||{}).note)):'')
+        ? ('<div class="inv-line-wh-stock'+((lineStockSt.low||lineMismatch)?' inv-line-wh-stock--low':'')+'"'+(lineStockTip?(' title="'+esc(lineStockTip)+'"'):'')+'>موجودی این انبار: '+lineStockTxt
+          +(lineMismatch
+            ? (' '+invMismatchBadgeHtml(lineMismatchNote))
+            : (((lineStockInfo&&lineStockInfo.drift)?(' '+invDriftBadgeHtml((lineStockInfo.skus.filter(function(s){return s.drift&&s.note;})[0]||{}).note)):'')
+              +(lineVariantInfo?(' '+invVariantInfoHtml(lineVariantInfo)):'')))
           +'</div>')
         : '';
       const qtyCell=(isPack
@@ -7946,7 +8053,15 @@ async function saveInvoice(id){
     const whNames=(saved?.used_warehouses||[]).map(w=>w.name).filter(Boolean);
     if(id) showToast(data.type==='proforma'?'پیش‌فاکتور به‌روز شد':'فاکتور و سند ثبت‌شده به‌روز شد');
     else showToast(whNames.length?('فاکتور ذخیره شد — کسر از انبار: '+whNames.join('، ')):'فاکتور ذخیره شد');
-  }catch(e){}
+  }catch(e){
+    if(e && e.code==='E_VARIANT_LAYER_MISMATCH'){
+      invLineStockClear();
+      ensureInvLineStockForCart(invCart).then(function(){
+        try{ renderCart(); }catch(_){}
+        try{ renderInvoiceStockWarn(); }catch(_){}
+      });
+    }
+  }
 }
 function convertProformaChooser(id){
   openModal(`
@@ -21213,7 +21328,7 @@ async function openWhSkuMatrixModal(opts){
       const results=await invFetchLineAvailability(reqItems, 0);
       results.forEach(function(res){
         const w=(res.warehouses||[]).find(function(x){ return Number(x.warehouse_id)===whId; });
-        if(w) availByVid[Number(res.variant_id)]={qty:outB?(Number(w.available)||0):(Number(w.on_hand)||0), drift:!!w.drift, note:String(w.layer_note||'')};
+        if(w) availByVid[Number(res.variant_id)]={qty:outB?(Number(w.available)||0):(Number(w.on_hand)||0), drift:!!w.drift, note:String(w.layer_note||''), info:String(w.variant_info_note||'')};
       });
     }
   }catch(_){ /* API در دسترس نبود → همان عدد pack */ }
@@ -21237,7 +21352,7 @@ async function openWhSkuMatrixModal(opts){
       const warn=outBound && stock<=0 && canNeg;
       const tip=disabled?'ناموجود':(warn?'موجودی منفی می‌شود':'');
       return `<td class="wh-sku-cell${disabled?' is-disabled':''}${warn?' is-neg-warn':''}">
-        <div class="wh-sku-stock mono"${av&&av.drift?` title="${esc(av.note||'ناهمخوان با کاردکس')}"`:''}>${fmtQtyFa(stock)}${av&&av.drift?' <span class="inv-drift-mark">⚠</span>':''}</div>
+        <div class="wh-sku-stock mono"${av&&av.drift?` title="${esc(av.note||'ناهمخوان با کاردکس')}"`:''}>${fmtQtyFa(stock)}${av&&av.drift?' <span class="inv-drift-mark">⚠</span>':''}${av&&!av.drift&&av.info?(' '+invVariantInfoHtml(av.info)):''}</div>
         ${disabled
           ?'<div class="muted wh-sku-na">ناموجود</div>'
           :`<input type="text" inputmode="decimal" autocomplete="off" class="wh-sku-qty" data-vid="${vid}" data-stock="${stock}"
@@ -25653,6 +25768,8 @@ function closeStockAdjust(){
 function stockShortageOffer(j, ctx){
   try{
     if(!j || !Array.isArray(j.shortages) || !j.shortages.length) return false;
+    // تعدیل موجودی ناهمخوانی لایهٔ رنگ/سایز را حل نمی‌کند — راه درست سند اصلاح واریانت (VR) است.
+    if(j.code==='E_VARIANT_LAYER_MISMATCH') return false;
     if(String(ctx&&ctx.path||'').startsWith('/inventory/adjust')) return false;
     _sadj={ shortages:j.shortages.slice(0,30), message:ctx&&ctx.message||j.error||'', ctx:ctx||{}, done:{}, retried:false,
       can:canStockAdjust(),
@@ -43150,7 +43267,9 @@ function renderAdminGuide(){
         <li><b>پاپ‌اور 📦:</b> برای ردیف «پک» هر SKU جدا (رنگ / سایز: موجودی) نشان داده می‌شود، نه جمع SKUها؛ اگر رزرو باشد «موجود X · رزرو Y» هم دیده می‌شود.</li>
         <li><b>برچسب ردیف:</b> تک‌SKU عدد را نشان می‌دهد؛ پک «کافی» یا «کمبود در n SKU» (هر SKU با تعداد همان SKU مقایسه می‌شود).</li>
         <li><b>کارت پیکر:</b> موجودی سطح کالا؛ رزرو سبد فقط یک‌بار کسر می‌شود (افزایش نسبت به تعداد قبلی فاکتور). «در انبار دیگر» فقط از موجودی سطح کالا می‌آید.</li>
-        <li><b>⚠ ناهمخوان با کاردکس:</b> وقتی موجودی عملیاتی انبار با کاردکس یا حرکت‌های رنگ/سایز نمی‌خواند، کنار عدد نشان داده می‌شود (عدد عوض نمی‌شود؛ فقط قطعی نیست). اصلاح داده با «اصلاح دادهٔ انبار» انجام می‌شود، نه با این صفحه.</li>
+        <li><b>⚠ ناهمخوان با کاردکس:</b> فقط وقتی موجودی کالا×انبار با کاردکس نمی‌خواند کنار عدد نشان داده می‌شود (عدد عوض نمی‌شود؛ فقط قطعی نیست). اصلاح داده با «اصلاح دادهٔ انبار» انجام می‌شود، نه با این صفحه.</li>
+        <li><b>ℹ رنگ/سایز بدون سند حرکت کامل (v629):</b> اختلاف موجودی رنگ/سایز با جمع حرکت‌هایش دیگر بج ⚠ نیست؛ فقط یک ℹ کم‌رنگ با توضیح در tooltip است. فروش را مسدود نمی‌کند و عدد یا وضعیت کمبود را تغییر نمی‌دهد.</li>
+        <li><b>⛔ ناهمخوانی لایهٔ رنگ/سایز (v629):</b> اگر کالای رنگ‌سایزدار در یک انبار موجودی کالا داشته باشد ولی <b>هیچ</b> رنگ/سایزی موجودی نداشته باشد، ردیف <b>مسدود</b> است (حتی در انبار با اجازهٔ موجودی منفی): افزودن پک انجام نمی‌شود، برچسب قرمز «ناهمخوانی لایهٔ رنگ/سایز» کنار ردیف می‌آید، ذخیرهٔ فاکتور متوقف می‌شود و سرور هم <span dir="ltr">409 E_VARIANT_LAYER_MISMATCH</span> می‌دهد. «تعدیل موجودی» این را حل نمی‌کند؛ باید تفکیک رنگ/سایز با <b>سند اصلاح واریانت (VR)</b> درست شود.</li>
         <li><b>تازگی:</b> کش اعداد ۶۰ ثانیه اعتبار دارد و با باز کردن فاکتور، ذخیره و تبدیل پیش‌فاکتور خالی می‌شود.</li>
       </ul>`),
     helpSec('📦','فروش از انبار دیگر — دسترسی و popover (v567)',`
@@ -44311,7 +44430,8 @@ function renderSalesGuide(){
     helpSec('🏭','حواله چندانباری و موجودی منفی (v569→v572)',`
       <p>حواله انبار فاکتور چندانباری، اقلام هر انبار را جدا چاپ می‌کند. اگر سربرگ ادواری باشد ولی ردیف از انبار دائمی باشد، بهای تمام‌شده همان ردیف ثبت می‌شود. فروش با کمبود بدون اجازهٔ منفی انبار فقط با تأیید دسترسی «موجودی منفی» ممکن است.</p>`),
     helpSec('🏭','موجودی ردیف فاکتور بر اساس انبار همان ردیف',`
-      <p>هشدار کمبود و برچسب «موجودی این انبار» برای هر ردیف فاکتور/پیش‌فاکتور از <b>انبار همان ردیف</b> خوانده می‌شود، نه فقط انبار سربرگ. با عوض کردن انبار ردیف، موجودی و هشدار فوراً به‌روز می‌شود. در فهرست کالا فقط رزرو ردیف‌هایی که انبارشان با سربرگ یکی است از موجودی کم می‌شود تا عدد منفی ساختگی دیده نشود.</p>`),
+      <p>هشدار کمبود و برچسب «موجودی این انبار» برای هر ردیف فاکتور/پیش‌فاکتور از <b>انبار همان ردیف</b> خوانده می‌شود، نه فقط انبار سربرگ. با عوض کردن انبار ردیف، موجودی و هشدار فوراً به‌روز می‌شود. در فهرست کالا فقط رزرو ردیف‌هایی که انبارشان با سربرگ یکی است از موجودی کم می‌شود تا عدد منفی ساختگی دیده نشود.</p>
+      <p><b>نشان‌ها (v629):</b> «⚠ ناهمخوان با کاردکس» مثل قبل فقط هشدار است. «ℹ» کنار عدد یعنی رنگ/سایز سند حرکت کامل ندارد — فقط اطلاعاتی است و فروش را نمی‌بندد. برچسب قرمز <b>«ناهمخوانی لایهٔ رنگ/سایز»</b> یعنی کالا در این انبار موجودی دارد ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف تا اصلاح تفکیک واریانت (سند VR توسط انبار/حسابداری) قابل فروش و ذخیره نیست — به انباردار اطلاع دهید.</p>`),
     helpSec('⚖️','موجودی کافی نیست',`
       <p>اگر هنگام ثبت فاکتور پیام «موجودی کافی نیست» آمد، پنجره‌ای با جدول کالا، انبار، موجود، نیاز و کسری باز می‌شود. اگر دسترسی «عملیات انبار — ایجاد» دارید (مدیر و حسابدار به‌طور پیش‌فرض)، دکمهٔ «⚖️ تعدیل موجودی» کنار هر ردیف فرم تعدیل را با همان کسری باز می‌کند (دلیل الزامی)؛ وقتی همهٔ ردیف‌ها تعدیل شد، همان فاکتور خودکار یک بار دوباره فرستاده می‌شود. اگر پیام «برای تعدیل موجودی دسترسی لازم است» را دیدید، تعداد را کم کنید یا از انباردار/حسابدار دارای دسترسی بخواهید موجودی را شمارش و تعدیل کند.</p>`),
     helpSec('📏','واحد روی فاکتور',`

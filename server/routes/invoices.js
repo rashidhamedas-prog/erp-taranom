@@ -48,7 +48,8 @@ const {
 /** v525: ATP rows stay in atp_shortages (legacy clients); every stock error also gets uniform `shortages`. */
 function shortagePayload(db, e, payload) {
   const code = String((e && e.code) || '');
-  if (Array.isArray(e && e.shortages) && /^E_(ATP|BACKORDER)_/.test(code)) payload.atp_shortages = e.shortages;
+  if (Array.isArray(e && e.shortages) && /^E_(ATP|BACKORDER|VARIANT_LAYER)_/.test(code)) payload.atp_shortages = e.shortages;
+  if (Array.isArray(e && e.mismatches) && e.mismatches.length) payload.variant_layer_mismatches = e.mismatches;
   try {
     const list = shortageErr.fromError(db, e);
     if (list.length) payload.shortages = list;

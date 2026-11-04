@@ -7,14 +7,18 @@
  *   ۲) معکوس ردیف اصلی (reverseInventoryMovement)
  * هر دو با skipStock: میانگین، لایهٔ بها و پارک دورهٔ بسته دست نمی‌خورد؛ سطل ارزش‌گذاری خالص صفر.
  * سند حسابداری جدید ندارد (حساب موجودی و مبلغ ثابت است) و موجودی فقط از کاردکس بازسازی می‌شود.
+ *   ۳) برای هر سطر یک ردیف inventory_movements (لایهٔ ممیزی واریانت×انبار، doc_type=variant_reclass،
+ *      doc_id=سند، doc_line=ردیف کاردکس تفکیکی) تا Σ حرکت‌ها با vws یکی باشد؛ عدد موجودی نمی‌نویسد.
  *
- * ابطال (R13): ردیف‌های تفکیکی معکوس، معکوسِ ردیف اصلی خودش معکوس و ردیف اصلی دوباره زنده می‌شود.
- * حذف فیزیکی نداریم.
+ * ابطال (R13): ردیف‌های تفکیکی معکوس، معکوسِ ردیف اصلی خودش معکوس و ردیف اصلی دوباره زنده می‌شود؛
+ * هر حرکت سطر با variant_reclass_void قرینه می‌شود. حذف فیزیکی نداریم.
  */
 const { round3 } = require('../round3');
 
 const DOC_PREFIX = 'VR';
 const SEQ_KEY = 'variant_reclass';
+const MOV_DOC_TYPE = 'variant_reclass';
+const MOV_VOID_DOC_TYPE = 'variant_reclass_void';
 const REASON_MIN = 5;
 const QTY_EPS = 0.001;
 
@@ -59,6 +63,31 @@ function ensureVariantReclassSchema(db) {
   if (tableExists(db, 'number_sequences')) {
     db.prepare('INSERT OR IGNORE INTO number_sequences (key, current_value) VALUES (?, 0)').run(SEQ_KEY);
   }
+}
+
+function findMovement(db, { docType, docId, docLine, warehouseId, variantId }) {
+  return db.prepare(`
+    SELECT * FROM inventory_movements
+    WHERE doc_type=? AND doc_id=? AND COALESCE(doc_line,-1)=COALESCE(?,-1)
+      AND COALESCE(warehouse_id,0)=COALESCE(?,0) AND COALESCE(variant_id,0)=COALESCE(?,0)
+    LIMIT 1
+  `).get(docType, docId, docLine, warehouseId, variantId) || null;
+}
+
+/**
+ * Audit row only (same columns as movement.postVariantLayer). Deliberately NOT postVariantLayer:
+ * that path also rebuilds caches and refuses inactive variants; here the ledger rows already carry
+ * the qty and the caller rebuilds once with forceVariantLedger. Idempotent on the doc key.
+ */
+function writeMovement(db, m) {
+  const hit = findMovement(db, m);
+  if (hit) return Number(hit.id);
+  return Number(db.prepare(`
+    INSERT INTO inventory_movements
+      (product_id, variant_id, warehouse_id, qty_delta, doc_type, doc_id, doc_line, user_id, note)
+    VALUES (?,?,?,?,?,?,?,?,?)
+  `).run(m.productId, m.variantId, m.warehouseId, round3(m.qtyDelta), m.docType, m.docId, m.docLine,
+    m.userId, m.note || '').lastInsertRowid);
 }
 
 function isLive(row) {
@@ -217,8 +246,27 @@ function postReclass(db, body, user) {
       VALUES (?,?,?,?,?,?,?,?,?, 'posted', ?)
     `).run(docNo, body.date || todayJalali(), row.product_id, row.warehouse_id, row.id, Number(rev.id),
       JSON.stringify(linesJson), plan.basis, reason, uid);
+    const docId = Number(info.lastInsertRowid);
+    if (tableExists(db, 'inventory_movements')) {
+      const sign = isIn ? 1 : -1;
+      for (const l of linesJson) {
+        if (!l.ledger_id) continue;
+        l.movement_id = writeMovement(db, {
+          productId: row.product_id,
+          variantId: l.variant_id,
+          warehouseId: row.warehouse_id,
+          qtyDelta: sign * l.qty,
+          docType: MOV_DOC_TYPE,
+          docId,
+          docLine: l.ledger_id,
+          userId: uid,
+          note,
+        });
+      }
+      db.prepare('UPDATE variant_reclass_docs SET lines_json=? WHERE id=?').run(JSON.stringify(linesJson), docId);
+    }
     require('./stock-cache').rebuildStockCache(db, row.product_id, { forceVariantLedger: true });
-    return getDoc(db, Number(info.lastInsertRowid));
+    return getDoc(db, docId);
   };
   return db.inTransaction ? run() : db.transaction(run)();
 }
@@ -286,11 +334,33 @@ function voidReclass(db, docId, body, user) {
     }).id));
     db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(rv.id);
     db.prepare("UPDATE inventory_ledger SET status='posted' WHERE id=? AND status='reversed'").run(src.id);
+    // Counter only the movements this doc actually wrote (docs posted before the movement layer have none).
+    let linesOut = lines;
+    if (tableExists(db, 'inventory_movements')) {
+      linesOut = lines.map((l) => {
+        const key = { docId: doc.id, docLine: l.ledger_id, warehouseId: doc.warehouse_id, variantId: l.variant_id };
+        const m = (l.movement_id && db.prepare('SELECT * FROM inventory_movements WHERE id=? AND doc_type=?').get(l.movement_id, MOV_DOC_TYPE))
+          || findMovement(db, { ...key, docType: MOV_DOC_TYPE });
+        if (!m) return l;
+        const voidId = writeMovement(db, {
+          ...key,
+          productId: m.product_id,
+          variantId: m.variant_id,
+          warehouseId: m.warehouse_id,
+          qtyDelta: -(Number(m.qty_delta) || 0),
+          docType: MOV_VOID_DOC_TYPE,
+          docLine: m.doc_line,
+          userId: uid,
+          note,
+        });
+        return { ...l, movement_id: Number(m.id), void_movement_id: voidId };
+      });
+    }
     db.prepare(`
       UPDATE variant_reclass_docs
-      SET status='void', voided_by=?, voided_at=strftime('%s','now'), void_reason=?, void_ledger_ids=?
+      SET status='void', voided_by=?, voided_at=strftime('%s','now'), void_reason=?, void_ledger_ids=?, lines_json=?
       WHERE id=? AND status='posted'
-    `).run(uid, reason, made.join(','), doc.id);
+    `).run(uid, reason, made.join(','), JSON.stringify(linesOut), doc.id);
     require('./stock-cache').rebuildStockCache(db, doc.product_id, { forceVariantLedger: true });
     return getDoc(db, doc.id);
   };
@@ -323,6 +393,8 @@ function listDocs(db, { productId = null, limit = 100 } = {}) {
 module.exports = {
   DOC_PREFIX,
   SEQ_KEY,
+  MOV_DOC_TYPE,
+  MOV_VOID_DOC_TYPE,
   ensureVariantReclassSchema,
   planReclass,
   previewReclass,

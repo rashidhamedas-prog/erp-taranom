@@ -223,6 +223,12 @@ async function main() {
     ok(cz.status === 403, 'cashier → 403', cz.status);
     ok(changes() === n0, 'refused calls write nothing');
 
+    const LA = require('../lib/inventory/line-availability');
+    const round = (x) => Math.round(Number(x) * 1000) / 1000;
+    const mvSum = (v) => round(q1('SELECT COALESCE(SUM(qty_delta),0) q FROM inventory_movements WHERE variant_id=? AND warehouse_id=?', v, WH).q);
+    const driftV = (v) => LA.lineAvailability(db, { productId: P, variantId: v, warehouseIds: [WH] })[0];
+    const mv0 = V.map(mvSum);
+
     console.log('— post —');
     const t0 = trial();
     const bv0 = bucketValue(P);
@@ -241,6 +247,15 @@ async function main() {
     ok(d1.header === hdr0 && (d1.unattributed.get(WH) || 0) === -3, 'header unchanged; remaining unattributed = legacy sales only', [...d1.unattributed]);
     ok(V.every((v, i) => d1.variantWarehouses.get(`${v}:${WH}`) === SPLIT[i]), 'variant×warehouse = split');
     ok(SC.stockCacheVsLedger(db, { productId: P }).mismatch_count === 0, 'cache = ledger after post');
+    const movRows = qa("SELECT * FROM inventory_movements WHERE doc_type='variant_reclass' AND doc_id=? ORDER BY id", doc.id);
+    ok(movRows.length === 5 && doc.lines.every((l) => movRows.some((m) => m.id === l.movement_id && m.doc_line === l.ledger_id
+      && m.variant_id === l.variant_id && m.warehouse_id === WH && m.qty_delta === l.qty && m.user_id === ADMIN_ID)),
+    'post: one movement per line (+qty, doc_line = split ledger id, movement_id in lines_json)', { movRows, lines: doc.lines });
+    ok(V.every((v, i) => mvSum(v) === round(mv0[i] + SPLIT[i])), 'post: Σ movements per variant×warehouse += split', V.map(mvSum));
+    ok(V.every((v) => { const a = driftV(v); return a.drift_variant === false && a.movements_qty === a.on_hand; }),
+      'post: lineAvailability drift_variant false (vws = Σ movements)', V.map((v) => driftV(v)));
+    const vwsRows = qa(`SELECT variant_id, qty FROM variant_warehouse_stock WHERE warehouse_id=? AND variant_id IN (${V.join(',')}) ORDER BY variant_id`, WH);
+    ok(vwsRows.map((r) => r.qty).join('/') === SPLIT.join('/'), 'post: vws = split exactly (no double-apply from movements)', vwsRows);
     const again = await call('POST', '/api/inventory/variant-reclass', { ...body, ledger_id: SRC });
     ok(again.status === 409 && again.body.code === 'E_VR_NOT_LIVE', 'second post on the same source → 409', again);
     const list = await call('GET', '/api/inventory/variant-reclass?product_id=' + P);
@@ -257,6 +272,11 @@ async function main() {
     ok(q1('SELECT status FROM inventory_ledger WHERE id=?', SRC).status === 'posted', 'void: source row live again');
     ok(JSON.stringify(trial()) === JSON.stringify(t0) && bucketValue(P) === bv0, 'void: trial balance and valuation unchanged');
     ok(SC.stockCacheVsLedger(db, { productId: P }).mismatch_count === 0, 'cache = ledger after void');
+    const voidMov = qa("SELECT * FROM inventory_movements WHERE doc_type='variant_reclass_void' AND doc_id=?", doc.id);
+    ok(voidMov.length === 5 && vz.body.lines.every((l) => voidMov.some((m) => m.id === l.void_movement_id && m.qty_delta === -l.qty)),
+      'void: one counter movement per line (−qty, void_movement_id in lines_json)', { voidMov, lines: vz.body.lines });
+    ok(V.every((v, i) => mvSum(v) === mv0[i]), 'void: Σ movements back to pre-reclass', V.map(mvSum));
+    ok(V.every((v) => driftV(v).drift_variant === false), 'void: drift_variant false');
     const vz2 = await call('POST', `/api/inventory/variant-reclass/${doc.id}/void`, { reason: 'ابطال دوباره', confirm: true });
     ok(vz2.status === 409 && vz2.body.code === 'E_VR_ALREADY_VOID', 'second void → 409');
 
@@ -268,6 +288,46 @@ async function main() {
     n0 = changes();
     const vz3 = await call('POST', `/api/inventory/variant-reclass/${re.body.id}/void`, { reason: 'ابطال پس از فروش', confirm: true });
     ok(vz3.status === 409 && vz3.body.code === 'E_VR_VARIANT_CONSUMED' && changes() === n0, 'void after sale → 409, zero writes', vz3);
+
+    console.log('— outbound reclass: movements −qty —');
+    const mvO = mvSum(V[3]);
+    const outb = await call('POST', '/api/inventory/variant-reclass', { ledger_id: S3, lines: [{ variant_id: V[3], qty: 1 }], reason: 'تفکیک فروش T-9002', confirm: true });
+    ok(outb.status === 200 && outb.body.lines[0].movement_id > 0, 'outbound post 200 with movement_id', outb);
+    ok(mvSum(V[3]) === round(mvO - 1) && q1('SELECT qty_delta q FROM inventory_movements WHERE id=?', outb.body.lines[0].movement_id).q === -1,
+      'outbound: movement qty_delta −1', mvSum(V[3]));
+    ok(driftV(V[3]).drift_variant === false, 'outbound: drift_variant false', driftV(V[3]));
+    const outv = await call('POST', `/api/inventory/variant-reclass/${outb.body.id}/void`, { reason: 'ابطال فروش تفکیکی', confirm: true });
+    ok(outv.status === 200 && mvSum(V[3]) === mvO && driftV(V[3]).drift_variant === false, 'outbound void: Σ movements restored', outv);
+
+    console.log('— legacy doc (posted before the movement layer) —');
+    const leg = await call('POST', '/api/inventory/variant-reclass', { ledger_id: S1, lines: [{ variant_id: V[4], qty: 2 }], reason: 'سند قدیمی بدون حرکت', confirm: true });
+    ok(leg.status === 200, 'legacy fixture post 200', leg);
+    db.prepare("DELETE FROM inventory_movements WHERE doc_type='variant_reclass' AND doc_id=?").run(leg.body.id);
+    db.prepare('UPDATE variant_reclass_docs SET lines_json=? WHERE id=?')
+      .run(JSON.stringify(leg.body.lines.map(({ movement_id, ...l }) => l)), leg.body.id);
+    const mvL = mvSum(V[4]);
+    const legv = await call('POST', `/api/inventory/variant-reclass/${leg.body.id}/void`, { reason: 'ابطال سند قدیمی', confirm: true });
+    ok(legv.status === 200 && mvSum(V[4]) === mvL
+      && !q1("SELECT 1 x FROM inventory_movements WHERE doc_type='variant_reclass_void' AND doc_id=?", leg.body.id),
+    'legacy void: no counter movement when the post wrote none', legv);
+
+    console.log('— diag script (read-only) —');
+    {
+      const repost = await call('POST', '/api/inventory/variant-reclass', { ledger_id: S1, lines: [{ variant_id: V[4], qty: 2 }], reason: 'سند قدیمی دوم', confirm: true });
+      db.prepare("DELETE FROM inventory_movements WHERE doc_type='variant_reclass' AND doc_id=?").run(repost.body.id);
+      const diagDb = path.join(dir, 'diag.db');
+      await db.backup(diagDb);
+      const shaD = () => crypto.createHash('sha256').update(fs.readFileSync(diagDb)).digest('hex');
+      const hD = shaD();
+      const dg = spawnSync(process.execPath, [path.join(__dirname, '_diag-vr-missing-movements.js'), '--json'],
+        { env: { ...process.env, DB_PATH: diagDb }, encoding: 'utf8' });
+      let rep = null;
+      try { rep = JSON.parse(dg.stdout); } catch (_) { rep = null; }
+      ok(dg.status === 0 && rep && rep.missing_lines === 1 && rep.products.length === 1 && rep.products[0].product_id === P
+        && rep.products[0].missing_lines === 1 && rep.lines[0].doc_id === repost.body.id && rep.lines[0].qty_delta === -2,
+      'diag: lists the posted line without movement (per-product count)', { status: dg.status, rep, err: (dg.stderr || '').slice(0, 400) });
+      ok(shaD() === hD, 'diag: DB byte-identical (read-only)');
+    }
 
     console.log('— sync registry —');
     const { SYNCABLE_TABLES, FK_COLUMNS } = require('../sync/tables');

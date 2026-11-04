@@ -1,0 +1,1030 @@
+{
+  "generated_at": "2026-11-04T09:46:44.411Z",
+  "db": "/home/taranom/crm-taranom/server/crm.db",
+  "lib": "/tmp/phase0/new/server/lib/inventory",
+  "lib_has_variant_layer_mismatch": true,
+  "invoice_number_col": "num",
+  "totals": {
+    "invoices": 14,
+    "lines": 35,
+    "lines_skipped": 0,
+    "lines_no_wh": 0,
+    "drift": 0,
+    "drift_product": 0,
+    "drift_variant": 30,
+    "variant_layer_mismatch": 20,
+    "low": 11,
+    "variant_lines": 35,
+    "product_lines": 0
+  },
+  "per_invoice": [
+    {
+      "id": 53,
+      "num": "T-0053",
+      "type": "proforma",
+      "status": "posted",
+      "stock_deducted": 0,
+      "lines": 4,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 4,
+      "variant_layer_mismatch": 4,
+      "low": 4,
+      "variant_lines": 4,
+      "error": null
+    },
+    {
+      "id": 52,
+      "num": "T-0052",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 0,
+      "variant_layer_mismatch": 1,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 51,
+      "num": "T-0051",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 11,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 11,
+      "variant_layer_mismatch": 11,
+      "low": 0,
+      "variant_lines": 11,
+      "error": null
+    },
+    {
+      "id": 49,
+      "num": "T-0049",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 0,
+      "variant_layer_mismatch": 0,
+      "low": 0,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 48,
+      "num": "T-0048",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 1,
+      "variant_layer_mismatch": 0,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 47,
+      "num": "T-0047",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 1,
+      "variant_layer_mismatch": 0,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 46,
+      "num": "T-0046",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 1,
+      "variant_layer_mismatch": 1,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 45,
+      "num": "T-0045",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 1,
+      "variant_layer_mismatch": 0,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 44,
+      "num": "T-0044",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 1,
+      "variant_layer_mismatch": 0,
+      "low": 0,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 43,
+      "num": "T-0043",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 0,
+      "variant_layer_mismatch": 0,
+      "low": 0,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 42,
+      "num": "T-0042",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 8,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 8,
+      "variant_layer_mismatch": 0,
+      "low": 0,
+      "variant_lines": 8,
+      "error": null
+    },
+    {
+      "id": 41,
+      "num": "T-0041",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 0,
+      "variant_layer_mismatch": 1,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 40,
+      "num": "T-0040",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 1,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 0,
+      "variant_layer_mismatch": 0,
+      "low": 1,
+      "variant_lines": 1,
+      "error": null
+    },
+    {
+      "id": 39,
+      "num": "T-0039",
+      "type": "normal",
+      "status": "posted",
+      "stock_deducted": 1,
+      "lines": 2,
+      "skipped": 0,
+      "no_wh": 0,
+      "drift": 0,
+      "drift_product": 0,
+      "drift_variant": 2,
+      "variant_layer_mismatch": 2,
+      "low": 0,
+      "variant_lines": 2,
+      "error": null
+    }
+  ],
+  "badged_lines": [
+    {
+      "invoice_id": 53,
+      "product_id": 332,
+      "variant_id": 252,
+      "warehouse_id": 34,
+      "qty": 2,
+      "available": -6,
+      "on_hand": -6,
+      "own_doc_qty": 0,
+      "kardex_qty": 101,
+      "product_wh_qty": 101,
+      "movements_qty": 108,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 53,
+      "product_id": 332,
+      "variant_id": 253,
+      "warehouse_id": 34,
+      "qty": 2,
+      "available": -5,
+      "on_hand": -5,
+      "own_doc_qty": 0,
+      "kardex_qty": 101,
+      "product_wh_qty": 101,
+      "movements_qty": 77,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 53,
+      "product_id": 332,
+      "variant_id": 254,
+      "warehouse_id": 34,
+      "qty": 2,
+      "available": -6,
+      "on_hand": -6,
+      "own_doc_qty": 0,
+      "kardex_qty": 101,
+      "product_wh_qty": 101,
+      "movements_qty": 40,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 53,
+      "product_id": 332,
+      "variant_id": 255,
+      "warehouse_id": 34,
+      "qty": 2,
+      "available": -6,
+      "on_hand": -6,
+      "own_doc_qty": 0,
+      "kardex_qty": 101,
+      "product_wh_qty": 101,
+      "movements_qty": 40,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 52,
+      "product_id": 126,
+      "variant_id": 725,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 0,
+      "on_hand": -1,
+      "own_doc_qty": 1,
+      "kardex_qty": 7,
+      "product_wh_qty": 7,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": false,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 118,
+      "variant_id": 399,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 118,
+      "variant_id": 400,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 118,
+      "variant_id": 624,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 118,
+      "variant_id": 638,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 118,
+      "variant_id": 639,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 131,
+      "variant_id": 413,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 8,
+      "product_wh_qty": 8,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 131,
+      "variant_id": 414,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 8,
+      "product_wh_qty": 8,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 131,
+      "variant_id": 425,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 8,
+      "product_wh_qty": 8,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 131,
+      "variant_id": 426,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 8,
+      "product_wh_qty": 8,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 131,
+      "variant_id": 658,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 8,
+      "product_wh_qty": 8,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 51,
+      "product_id": 131,
+      "variant_id": 659,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 8,
+      "product_wh_qty": 8,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 48,
+      "product_id": 131,
+      "variant_id": 415,
+      "warehouse_id": 34,
+      "qty": 1,
+      "available": 0,
+      "on_hand": -1,
+      "own_doc_qty": 1,
+      "kardex_qty": 12,
+      "product_wh_qty": 12,
+      "movements_qty": 0,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": false,
+      "low": true
+    },
+    {
+      "invoice_id": 47,
+      "product_id": 125,
+      "variant_id": 410,
+      "warehouse_id": 34,
+      "qty": 1,
+      "available": 0,
+      "on_hand": -1,
+      "own_doc_qty": 1,
+      "kardex_qty": 25,
+      "product_wh_qty": 25,
+      "movements_qty": 1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": false,
+      "low": true
+    },
+    {
+      "invoice_id": 46,
+      "product_id": 101,
+      "variant_id": 36,
+      "warehouse_id": 34,
+      "qty": 1,
+      "available": -1,
+      "on_hand": -2,
+      "own_doc_qty": 1,
+      "kardex_qty": 70,
+      "product_wh_qty": 70,
+      "movements_qty": 6,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 45,
+      "product_id": 109,
+      "variant_id": 74,
+      "warehouse_id": 34,
+      "qty": 1,
+      "available": 0,
+      "on_hand": -1,
+      "own_doc_qty": 1,
+      "kardex_qty": 29,
+      "product_wh_qty": 29,
+      "movements_qty": 8,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": false,
+      "low": true
+    },
+    {
+      "invoice_id": 41,
+      "product_id": 138,
+      "variant_id": 719,
+      "warehouse_id": 34,
+      "qty": 1,
+      "available": 0,
+      "on_hand": -1,
+      "own_doc_qty": 1,
+      "kardex_qty": 4,
+      "product_wh_qty": 4,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": false,
+      "variant_layer_mismatch": true,
+      "low": true
+    },
+    {
+      "invoice_id": 40,
+      "product_id": 138,
+      "variant_id": 723,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 0,
+      "on_hand": -1,
+      "own_doc_qty": 1,
+      "kardex_qty": 6,
+      "product_wh_qty": 6,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": false,
+      "variant_layer_mismatch": false,
+      "low": true
+    },
+    {
+      "invoice_id": 39,
+      "product_id": 118,
+      "variant_id": 386,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    },
+    {
+      "invoice_id": 39,
+      "product_id": 118,
+      "variant_id": 392,
+      "warehouse_id": 35,
+      "qty": 1,
+      "available": 1,
+      "on_hand": 0,
+      "own_doc_qty": 1,
+      "kardex_qty": 61,
+      "product_wh_qty": 61,
+      "movements_qty": -1,
+      "drift_product": false,
+      "drift_variant": true,
+      "variant_layer_mismatch": true,
+      "low": false
+    }
+  ],
+  "errors": [],
+  "write_attempts": [],
+  "inv2_opening_variant_null_on_matrix": {
+    "count": 42,
+    "products": 30,
+    "qty_in_sum": 1059,
+    "count_strict_live_def": 42,
+    "matrix_def": "pv.active=1 AND COALESCE(pv.is_default,0)=0",
+    "live_event_types": [
+      {
+        "event_type": "opening",
+        "n": 643
+      },
+      {
+        "event_type": "transfer_in",
+        "n": 213
+      },
+      {
+        "event_type": "transfer_out",
+        "n": 203
+      },
+      {
+        "event_type": "transfer_in_revalue",
+        "n": 175
+      },
+      {
+        "event_type": "sale",
+        "n": 140
+      },
+      {
+        "event_type": "sale_return",
+        "n": 55
+      },
+      {
+        "event_type": "cutting_pack",
+        "n": 42
+      },
+      {
+        "event_type": "transfer_out_revalue",
+        "n": 39
+      },
+      {
+        "event_type": "adjustment",
+        "n": 39
+      },
+      {
+        "event_type": "production_issue",
+        "n": 28
+      },
+      {
+        "event_type": "receipt",
+        "n": 22
+      },
+      {
+        "event_type": "production_receipt",
+        "n": 20
+      },
+      {
+        "event_type": "purchase",
+        "n": 9
+      },
+      {
+        "event_type": "production_return",
+        "n": 6
+      }
+    ]
+  },
+  "drift_products": [
+    {
+      "product_id": 105,
+      "pairs": 36,
+      "drifting_pairs": 5,
+      "vws_total": 113,
+      "mv_total": 112,
+      "drifting": [
+        {
+          "variant_id": 55,
+          "warehouse_id": 34,
+          "vws": 16,
+          "mv": 15,
+          "diff": 1
+        },
+        {
+          "variant_id": 59,
+          "warehouse_id": 34,
+          "vws": 0,
+          "mv": 2,
+          "diff": -2
+        },
+        {
+          "variant_id": 60,
+          "warehouse_id": 34,
+          "vws": 0,
+          "mv": 2,
+          "diff": -2
+        },
+        {
+          "variant_id": 61,
+          "warehouse_id": 34,
+          "vws": 2,
+          "mv": 0,
+          "diff": 2
+        },
+        {
+          "variant_id": 62,
+          "warehouse_id": 34,
+          "vws": 2,
+          "mv": 0,
+          "diff": 2
+        }
+      ]
+    },
+    {
+      "product_id": 107,
+      "pairs": 10,
+      "drifting_pairs": 6,
+      "vws_total": 82,
+      "mv_total": 81,
+      "drifting": [
+        {
+          "variant_id": 2,
+          "warehouse_id": 34,
+          "vws": 17,
+          "mv": 3,
+          "diff": 14
+        },
+        {
+          "variant_id": 3,
+          "warehouse_id": 34,
+          "vws": 19,
+          "mv": 2,
+          "diff": 17
+        },
+        {
+          "variant_id": 4,
+          "warehouse_id": 34,
+          "vws": 16,
+          "mv": 2,
+          "diff": 14
+        },
+        {
+          "variant_id": 5,
+          "warehouse_id": 34,
+          "vws": 16,
+          "mv": 1,
+          "diff": 15
+        },
+        {
+          "variant_id": 6,
+          "warehouse_id": 34,
+          "vws": 0,
+          "mv": 73,
+          "diff": -73
+        },
+        {
+          "variant_id": 7,
+          "warehouse_id": 34,
+          "vws": 14,
+          "mv": 0,
+          "diff": 14
+        }
+      ]
+    },
+    {
+      "product_id": 114,
+      "pairs": 2,
+      "drifting_pairs": 1,
+      "vws_total": 68,
+      "mv_total": 57,
+      "drifting": [
+        {
+          "variant_id": 18,
+          "warehouse_id": 34,
+          "vws": 57,
+          "mv": 46,
+          "diff": 11
+        }
+      ]
+    },
+    {
+      "product_id": 119,
+      "pairs": 16,
+      "drifting_pairs": 7,
+      "vws_total": 75,
+      "mv_total": 61,
+      "drifting": [
+        {
+          "variant_id": 9,
+          "warehouse_id": 34,
+          "vws": 7,
+          "mv": 5,
+          "diff": 2
+        },
+        {
+          "variant_id": 11,
+          "warehouse_id": 34,
+          "vws": 5,
+          "mv": 3,
+          "diff": 2
+        },
+        {
+          "variant_id": 12,
+          "warehouse_id": 34,
+          "vws": 8,
+          "mv": 6,
+          "diff": 2
+        },
+        {
+          "variant_id": 13,
+          "warehouse_id": 34,
+          "vws": 7,
+          "mv": 5,
+          "diff": 2
+        },
+        {
+          "variant_id": 14,
+          "warehouse_id": 34,
+          "vws": 10,
+          "mv": 8,
+          "diff": 2
+        },
+        {
+          "variant_id": 15,
+          "warehouse_id": 34,
+          "vws": 8,
+          "mv": 6,
+          "diff": 2
+        },
+        {
+          "variant_id": 16,
+          "warehouse_id": 34,
+          "vws": 8,
+          "mv": 6,
+          "diff": 2
+        }
+      ]
+    },
+    {
+      "product_id": 128,
+      "pairs": 9,
+      "drifting_pairs": 3,
+      "vws_total": 20,
+      "mv_total": 23,
+      "drifting": [
+        {
+          "variant_id": 86,
+          "warehouse_id": 34,
+          "vws": 6,
+          "mv": 7,
+          "diff": -1
+        },
+        {
+          "variant_id": 88,
+          "warehouse_id": 34,
+          "vws": 0,
+          "mv": 1,
+          "diff": -1
+        },
+        {
+          "variant_id": 89,
+          "warehouse_id": 34,
+          "vws": 5,
+          "mv": 6,
+          "diff": -1
+        }
+      ]
+    },
+    {
+      "product_id": 140,
+      "pairs": 12,
+      "drifting_pairs": 4,
+      "vws_total": -8,
+      "mv_total": 1,
+      "drifting": [
+        {
+          "variant_id": 494,
+          "warehouse_id": 34,
+          "vws": -3,
+          "mv": 0,
+          "diff": -3
+        },
+        {
+          "variant_id": 496,
+          "warehouse_id": 34,
+          "vws": -1,
+          "mv": 1,
+          "diff": -2
+        },
+        {
+          "variant_id": 496,
+          "warehouse_id": 35,
+          "vws": 1,
+          "mv": 0,
+          "diff": 1
+        },
+        {
+          "variant_id": 498,
+          "warehouse_id": 34,
+          "vws": -5,
+          "mv": 0,
+          "diff": -5
+        }
+      ]
+    },
+    {
+      "product_id": 173,
+      "pairs": 10,
+      "drifting_pairs": 2,
+      "vws_total": 20,
+      "mv_total": 20,
+      "drifting": [
+        {
+          "variant_id": 31,
+          "warehouse_id": 34,
+          "vws": 2,
+          "mv": 1,
+          "diff": 1
+        },
+        {
+          "variant_id": 32,
+          "warehouse_id": 34,
+          "vws": 1,
+          "mv": 2,
+          "diff": -1
+        }
+      ]
+    },
+    {
+      "product_id": 180,
+      "pairs": 1,
+      "drifting_pairs": 1,
+      "vws_total": 2,
+      "mv_total": 0,
+      "drifting": [
+        {
+          "variant_id": 727,
+          "warehouse_id": 34,
+          "vws": 2,
+          "mv": 0,
+          "diff": 2
+        }
+      ]
+    },
+    {
+      "product_id": 341,
+      "pairs": 1,
+      "drifting_pairs": 1,
+      "vws_total": 1,
+      "mv_total": 0,
+      "drifting": [
+        {
+          "variant_id": 734,
+          "warehouse_id": 34,
+          "vws": 1,
+          "mv": 0,
+          "diff": 1
+        }
+      ]
+    }
+  ]
+}

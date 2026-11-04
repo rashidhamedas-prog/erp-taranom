@@ -136,9 +136,15 @@ async function main() {
   console.log('\n— 3) variant drift vs inventory_movements —');
   ok(byWh(a421, wh34).movements_qty === 1 && byWh(a421, wh34).drift_variant === false, '421@34: vws 1 = movements 1', byWh(a421, wh34));
   ok(byWh(a421, wh34).drift_product === false && byWh(a421, wh34).drift === false, '421@34: no product-level drift (ws = ledger = 11)');
-  ok(byWh(a421, wh35).movements_qty === 0 && byWh(a421, wh35).drift_variant === true && byWh(a421, wh35).drift === true, '421@35: vws 1 but no movements → drift_variant', byWh(a421, wh35));
-  ok(/بدون سند حرکت/.test(byWh(a421, wh35).layer_note), 'variant layer_note present');
-  ok(byWh(a421, wh35).on_hand === 1 && byWh(a421, wh35).available === 1, 'drift never changes the number');
+  ok(byWh(a421, wh35).movements_qty === 0 && byWh(a421, wh35).drift_variant === true, '421@35: vws 1 but no movements → drift_variant', byWh(a421, wh35));
+  ok(byWh(a421, wh35).drift === false && byWh(a421, wh35).drift_product === false, '421@35: drift_variant is informational → drift stays false', byWh(a421, wh35));
+  ok(/بدون سند حرکت/.test(byWh(a421, wh35).variant_info_note) && /^ℹ/.test(byWh(a421, wh35).variant_info_note) && !/⚠/.test(byWh(a421, wh35).variant_info_note),
+    'variant text moved to variant_info_note (ℹ, no ⚠)', byWh(a421, wh35).variant_info_note);
+  ok(!/بدون سند حرکت/.test(byWh(a421, wh35).layer_note) && byWh(a421, wh35).layer_note === '', 'layer_note no longer carries the variant drift text', byWh(a421, wh35).layer_note);
+  ok(byWh(a421, wh34).variant_info_note === '', '421@34 (consistent) → empty variant_info_note');
+  ok(byWh(a421, wh35).on_hand === 1 && byWh(a421, wh35).available === 1 && byWh(a421, wh35).reserved === 0, 'drift never changes the number');
+  ok(a421.every((r) => r.variant_layer_mismatch === false && r.block_reason === null && r.block_note === ''), 'p131 has stocked SKUs → no variant-layer mismatch');
+  ok(byWh(a421, wh34).stocked_sku_count === 3 && byWh(aP, wh35).stocked_sku_count === 3, 'stocked_sku_count = 3 SKUs with vws > 0', a421.map((r) => r.stocked_sku_count));
 
   // ── 4) own_doc_qty add-back ─────────────────────────────────────────────────
   console.log('\n— 4) own_doc_qty (edit mode) —');
@@ -206,6 +212,26 @@ async function main() {
   ok(lineAvailability(db, { productId: 0 }).length === 0 && lineAvailability(db, {}).length === 0, 'invalid product → []');
   const bt = lineAvailabilityBatch(db, [{ product_id: p131, variant_id: v421 }, { product_id: p131 }, { product_id: 'x' }, { product_id: p131, variant_id: v422 }]);
   ok(bt.length === 3 && bt[0].variant_id === v421 && bt[1].variant_id === null, 'batch skips invalid items, keeps order', bt.map((b) => [b.product_id, b.variant_id]));
+
+  // ── 7b) variant-layer mismatch ──────────────────────────────────────────────
+  console.log('\n— 7b) variant-layer mismatch —');
+  const pMis = mk('مانتو بدون تفکیک رنگ', 'LA-MIS');
+  seedStock(db, { productId: pMis, warehouseId: wh34, qty: 5 }); // product-level receipt before the matrix existed
+  const vMis1 = Number(insert('product_variants', { product_id: pMis, color_id: olive, size_id: s1, sku: 'LA-MIS-1', stock: 0, active: 1, is_default: 0 }));
+  insert('product_variants', { product_id: pMis, color_id: olive, size_id: s2, sku: 'LA-MIS-2', stock: 0, active: 1, is_default: 0 });
+  vwsSet.run(vMis1, wh34, 0);
+  const mV = lineAvailability(db, { productId: pMis, variantId: vMis1 });
+  ok(byWh(mV, wh34).variant_layer_mismatch === true && byWh(mV, wh34).stocked_sku_count === 0 && byWh(mV, wh34).block_reason === 'variant_layer_mismatch',
+    'vws all 0 + warehouse_stock 5 → variant_layer_mismatch', byWh(mV, wh34));
+  ok(/ناهمخوانی لایهٔ رنگ\/سایز/.test(byWh(mV, wh34).block_note) && /variant layer mismatch/.test(byWh(mV, wh34).block_note), 'block_note Persian + English tag', byWh(mV, wh34).block_note);
+  ok(byWh(mV, wh34).on_hand === 0 && byWh(mV, wh34).available === 0, 'variant numbers unchanged (0)');
+  ok(byWh(mV, wh35).variant_layer_mismatch === false && byWh(mV, wh35).block_reason === null, 'other warehouse (ws 0) → no mismatch');
+  const mP = lineAvailability(db, { productId: pMis });
+  ok(byWh(mP, wh34).variant_layer_mismatch === true && byWh(mP, wh34).on_hand === 5 && byWh(mP, wh34).available === 5,
+    'product row of matrix product also flagged; on_hand/available stay 5', byWh(mP, wh34));
+  ok(byWh(mP, wh34).drift === false && byWh(mP, wh34).layer_note === '', 'mismatch is not drift (layer_note untouched)', byWh(mP, wh34));
+  const plainP = lineAvailability(db, { productId: pLeg });
+  ok(plainP.every((r) => r.variant_layer_mismatch === false && r.stocked_sku_count === null), 'non-matrix product → no flag, stocked_sku_count null');
 
   // ── 8) HTTP ─────────────────────────────────────────────────────────────────
   console.log('\n— 8) HTTP + RBAC —');
