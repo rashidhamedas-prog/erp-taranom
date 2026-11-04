@@ -28,11 +28,21 @@
  *
  * Consistency (read-only, never changes the number):
  *   kardex_qty (product×warehouse, Σ live ledger), movements_qty (Σ inventory_movements.qty_delta
- *   of that variant×warehouse), drift_product (warehouse_stock vs kardex), drift_variant
- *   (vws vs movements), drift (either), layer_note (Persian, '' when consistent).
+ *   of that variant×warehouse), drift_product (warehouse_stock vs kardex), drift (== drift_product),
+ *   layer_note (Persian, '' when consistent).
+ *   drift_variant (vws vs movements) is INFORMATIONAL only: it never sets `drift` and its text goes
+ *   to `variant_info_note` (ℹ, not ⚠) — legacy vws rows often predate inventory_movements.
+ *
+ * Variant-layer mismatch (variant-layer.variantLayerMismatch, same rule the ATP gate blocks on):
+ *   matrix product, no colour/size with vws > 0 at that warehouse, yet warehouse_stock > 0.
+ *   Flagged as variant_layer_mismatch / stocked_sku_count / block_reason / block_note on BOTH variant
+ *   and product rows of the product. Numbers (on_hand / available / reserved) are untouched.
  */
 const { warehouseQty } = require('./ledger');
 const { variantWarehouseQty } = require('./movement');
+const { variantLayerMismatch } = require('./variant-layer');
+
+const MISMATCH_REASON = 'variant_layer_mismatch';
 
 const EPS = 1e-6;
 const round3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
@@ -57,6 +67,7 @@ function makeCtx(db, opts = {}) {
     db,
     warehouses: null,
     kardexByProduct: new Map(),
+    layerByProductWh: new Map(),
     ownDoc: undefined,
     excludeInvoiceId: toPosInt(opts.excludeInvoiceId),
     hasReservations: tableExists(db, 'inventory_reservations'),
@@ -139,6 +150,16 @@ function reservedFor(ctx, productId, whId) {
   } catch (_) { return 0; }
 }
 
+function layerFor(ctx, productId, whId) {
+  const key = `${productId}@${whId}`;
+  if (!ctx.layerByProductWh.has(key)) {
+    let r;
+    try { r = variantLayerMismatch(ctx.db, productId, whId); } catch (_) { r = null; }
+    ctx.layerByProductWh.set(key, r || { mismatch: false, stocked_sku_count: null, product_wh_qty: null });
+  }
+  return ctx.layerByProductWh.get(key);
+}
+
 function movementsQty(ctx, variantId, whId) {
   if (!ctx.hasMovements) return null;
   const row = ctx.db.prepare(
@@ -186,8 +207,13 @@ function lineAvailabilityWith(ctx, { productId, variantId = null, warehouseIds =
 
     const notes = [];
     if (driftProduct) notes.push(`⚠ ناهمخوان با کاردکس (موجودی انبار ${productWhQty}، کاردکس ${kardexQty})`);
-    if (driftVariant) notes.push(`⚠ موجودی رنگ/سایز بدون سند حرکت کامل (موجودی ${onHand}، جمع حرکت‌ها ${mvQty})`);
     if (legacyFallback) notes.push('موجودی از سربرگ کالا خوانده شد (ردیف انبار ثبت نشده)');
+    const variantInfoNote = driftVariant
+      ? `ℹ موجودی رنگ/سایز بدون سند حرکت کامل (موجودی ${onHand}، جمع حرکت‌ها ${mvQty})`
+      : '';
+
+    const layer = layerFor(ctx, pid, whId);
+    const mismatch = !!layer.mismatch;
 
     return {
       warehouse_id: whId,
@@ -207,9 +233,16 @@ function lineAvailabilityWith(ctx, { productId, variantId = null, warehouseIds =
       drift_qty: kardexQty != null ? round3(productWhQty - kardexQty) : null,
       drift_product: driftProduct,
       drift_variant: driftVariant,
-      drift: driftProduct || driftVariant,
+      drift: driftProduct,
       legacy_header_fallback: legacyFallback,
       layer_note: notes.join(' | '),
+      variant_info_note: variantInfoNote,
+      variant_layer_mismatch: mismatch,
+      stocked_sku_count: layer.stocked_sku_count,
+      block_reason: mismatch ? MISMATCH_REASON : null,
+      block_note: mismatch
+        ? `ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا ${productWhQty} هست ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف قابل فروش نیست تا اصلاح تفکیک واریانت`
+        : '',
     };
   });
 }

@@ -29,6 +29,9 @@
  * reduced on_hand.
  *
  * Policy (decideSaleFulfillment):
+ *   - variant-layer mismatch (variant-layer.variantLayerMismatch: matrix product, no colour/size with
+ *     vws > 0 in that warehouse, warehouse_stock > 0) ⇒ 409 E_VARIANT_LAYER_MISMATCH. Not a shortage:
+ *     allow_negative / forceAllowNegative / backorder / provisional never bypass it.
  *   - default              : any shortage ⇒ 409 E_ATP_INSUFFICIENT (Persian message), nothing written.
  *   - warehouse allow_negative=1 or settings.inventory_allow_negative='1' ⇒ that warehouse is exempt
  *     (explicit admin configuration, same switch warehouse issue/transfer documents honour).
@@ -49,6 +52,7 @@
 const { round3 } = require('../round3');
 const { warehouseQty } = require('./ledger');
 const { reservedQty } = require('./reservation');
+const { variantLayerMismatch } = require('./variant-layer');
 const { FULFILLMENT_STATES, hasColumn, tableExists } = require('./atp-schema');
 
 const BACKORDER_ROLES = new Set(['admin', 'accounting']);
@@ -226,7 +230,22 @@ function describe(db, productId, variantId, warehouseId) {
   return { name, variantLabel, warehouseName };
 }
 
+const VARIANT_LAYER_MISMATCH = 'variant_layer_mismatch';
+
+function isMismatchEntry(s) {
+  return !!(s && s.reason === VARIANT_LAYER_MISMATCH);
+}
+
+function mismatchMessage(s) {
+  const who = `«${s.name}${s.variant_label ? ' — ' + s.variant_label : ''}»`;
+  const where = s.warehouse_name ? ` در انبار «${s.warehouse_name}»` : '';
+  return `ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) برای ${who}${where}: `
+    + `موجودی کالا ${s.product_wh_qty} ثبت شده ولی هیچ رنگ/سایزی موجودی ندارد — `
+    + 'این ردیف تا اصلاح تفکیک واریانت قابل فروش نیست';
+}
+
 function shortageMessage(s) {
+  if (isMismatchEntry(s)) return mismatchMessage(s);
   const who = `«${s.name}${s.variant_label ? ' — ' + s.variant_label : ''}»`;
   const where = s.warehouse_name ? ` در انبار «${s.warehouse_name}»` : '';
   return `موجودی قابل تعهد ${who}${where} کافی نیست — قابل تعهد: ${s.atp}، درخواست: ${s.requested}`
@@ -348,14 +367,60 @@ function evaluateAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
     checked.push(entry);
   }
 
-  // Variant shortages first (most specific), then product-level ones.
-  shortages.sort((a, b) => (a.variant_id ? 0 : 1) - (b.variant_id ? 0 : 1));
-  return { shortages, checked, productShort: [...productShort] };
+  // 3) variant-layer mismatch: a data-layer inconsistency, not a shortage — blocks even when the
+  //    warehouse / caller allows negative stock.
+  const mismatches = [];
+  const layerCache = new Map();
+  for (const s of skuReq.values()) {
+    const pk = productKeyOf(s.productId, s.warehouseId);
+    if (!layerCache.has(pk)) layerCache.set(pk, variantLayerMismatch(db, s.productId, s.warehouseId));
+    const layer = layerCache.get(pk);
+    if (!layer.mismatch) continue;
+    const d = describe(db, s.productId, s.variantId, s.warehouseId);
+    const entry = {
+      scope: 'variant_layer',
+      reason: VARIANT_LAYER_MISMATCH,
+      product_id: s.productId,
+      variant_id: s.variantId || null,
+      warehouse_id: s.warehouseId,
+      on_hand: layer.product_wh_qty,
+      reserved: 0,
+      committed: 0,
+      atp: 0,
+      requested: s.qty,
+      short_by: s.qty,
+      bypassed: false,
+      product_wh_qty: layer.product_wh_qty,
+      stocked_sku_count: layer.stocked_sku_count,
+      ...d,
+      variant_label: d.variantLabel,
+      warehouse_name: d.warehouseName,
+    };
+    mismatches.push(entry);
+    shortages.push(entry);
+    checked.push(entry);
+  }
+
+  // Mismatches first, then variant shortages (most specific), then product-level ones.
+  const rank = (x) => (isMismatchEntry(x) ? 0 : (x.variant_id ? 1 : 2));
+  shortages.sort((a, b) => rank(a) - rank(b));
+  return { shortages, checked, productShort: [...productShort], mismatches };
 }
 
-/** Throws 409 E_ATP_INSUFFICIENT on any shortage; returns the evaluation otherwise. */
+function variantLayerError(result) {
+  return atpErr('E_VARIANT_LAYER_MISMATCH', 409, mismatchMessage(result.mismatches[0]), {
+    shortages: result.shortages,
+    mismatches: result.mismatches,
+  });
+}
+
+/**
+ * Throws 409 E_VARIANT_LAYER_MISMATCH when the first blocking entry is a variant-layer mismatch,
+ * 409 E_ATP_INSUFFICIENT on any other shortage; returns the evaluation otherwise.
+ */
 function assertAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
   const result = evaluateAvailableToPromise(db, rows, headerWarehouseId, opts);
+  if (result.shortages.length && isMismatchEntry(result.shortages[0])) throw variantLayerError(result);
   if (result.shortages.length) {
     throw atpErr('E_ATP_INSUFFICIENT', 409, shortageMessage(result.shortages[0]), {
       shortages: result.shortages,
@@ -386,16 +451,19 @@ function isProvisionalRequest(req, isDeviceFn) {
 /**
  * Decide how a firm sale is fulfilled. Call INSIDE the sale transaction, BEFORE posting stock.
  * @returns {{ mode:'deduct'|'backorder'|'provisional', fulfillment_state:string, shortages:Array, checked:Array }}
- * @throws 409 E_ATP_INSUFFICIENT | 403 E_BACKORDER_FORBIDDEN
+ * @throws 409 E_VARIANT_LAYER_MISMATCH | 409 E_ATP_INSUFFICIENT | 403 E_BACKORDER_FORBIDDEN
+ *   A variant-layer mismatch is never turned into a backorder / provisional sale.
  */
 function decideSaleFulfillment(db, {
   rows, headerWarehouseId, custId = null, excludeInvoiceId = null,
   backorderRequested = false, role = '', provisional = false,
   forceAllowNegative = false,
 }) {
-  const { shortages, checked } = evaluateAvailableToPromise(db, rows, headerWarehouseId, {
+  const result = evaluateAvailableToPromise(db, rows, headerWarehouseId, {
     custId, excludeInvoiceId, forceAllowNegative,
   });
+  if (result.mismatches && result.mismatches.length) throw variantLayerError(result);
+  const { shortages, checked } = result;
   let mode = provisional ? 'provisional' : 'deduct';
   if (shortages.length) {
     if (backorderRequested && canAuthorizeBackorder(role)) {
@@ -426,5 +494,7 @@ module.exports = {
   canAuthorizeBackorder,
   isProvisionalRequest,
   shortageMessage,
+  mismatchMessage,
   stockedLines,
+  VARIANT_LAYER_MISMATCH,
 };

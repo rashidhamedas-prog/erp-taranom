@@ -2049,6 +2049,11 @@ body.erp-demo-mode{padding-top:32px}
 .inv-xwh-pop-sub{display:block;font-size:10px;font-weight:400;color:var(--muted, #64748b)}
 .inv-drift-badge{display:inline-block;margin-inline-start:4px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:700;line-height:1.6;background:var(--warnbox-bg);color:var(--orange);border:1px solid var(--orange);cursor:help;white-space:nowrap}
 .inv-drift-mark{color:var(--orange);cursor:help}
+/* ناهمخوانی لایهٔ رنگ/سایز: ردیف مسدود (قرمز)؛ variant drift فقط ℹ کم‌رنگ */
+.inv-line-wh-stock--mismatch{display:inline-block;margin-inline-start:4px;padding:0 6px;border-radius:999px;font-size:10px;font-weight:700;line-height:1.6;background:var(--card);color:var(--red);border:1px solid var(--red);cursor:help;white-space:nowrap}
+.inv-variant-info{margin-inline-start:4px;font-size:10px;cursor:help;opacity:.7}
+.inv-stock-warn--block{border-color:var(--red)}
+.inv-stock-warn--block .inv-stock-warn-title{color:var(--red)}
 .inv-xwh-pop-note{margin-top:4px;padding:5px 6px;border-top:1px dashed var(--border);color:var(--orange);font-size:11px;line-height:1.5}
 .inv-xwh-pop-empty{padding:6px}
 .inv-xwh-badge{display:inline-block;margin-top:3px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--warnbox-bg);color:var(--orange);border:1px solid var(--orange)}
