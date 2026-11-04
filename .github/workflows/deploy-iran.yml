@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Fast-forward Iran VPS
-        uses: appleboy/ssh-action@v1.2.2
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: 94.249.244.208
           username: taranom
