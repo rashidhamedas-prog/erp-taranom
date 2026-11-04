@@ -129,14 +129,6 @@ const issues = {
   ],
 };
 
-for (const [seq, mats] of Object.entries(issues)) {
-  const st = stages.find(s => s.seq === Number(seq));
-  adv.issueStageMaterials(db, {
-    orderId: po.id, stageId: st.id,
-    body: { date: DATE, materials: mats }, userId: adminId,
-  });
-}
-
 const STAGES = [
   { seq: 10, qty_out: 307.72, waste_normal: 6.28 },
   { seq: 20, qty_out: 307.72, waste_normal: 0 },
@@ -146,9 +138,16 @@ const STAGES = [
   { seq: 60, qty_out: 300.073158, waste_normal: 0, qc_passed: 1 },
 ];
 
+// v409 stage-ordered gates: a stage's materials are issued only while it is in_progress
 for (const spec of STAGES) {
   stages = adv.stageList(db, po.id);
   const st = stages.find(s => s.seq === spec.seq);
+  if (issues[spec.seq]) {
+    adv.issueStageMaterials(db, {
+      orderId: po.id, stageId: st.id,
+      body: { date: DATE, materials: issues[spec.seq] }, userId: adminId,
+    });
+  }
   adv.postStageOutputVariable(db, {
     orderId: po.id, stageId: st.id,
     body: {

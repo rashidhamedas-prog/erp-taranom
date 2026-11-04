@@ -179,6 +179,15 @@ const fin = adv.finalizeAdvancedOrder(db, {
 eq('T7-28 receipt amount', fin.amount_rial, 694933300, 50);
 eq('T7-29 unit_cost', fin.unit_cost_rial, 2315880, 50);
 eq('T7-30 WIP residual', fin.wip_residual_rial, 0, 5);
+{
+  const sc = db.prepare(`SELECT direction, product_id, fee_amount_rial FROM production_subcontract WHERE order_id=?`).all(po.id);
+  ok('T7-31 auto subcontract fee row direction=in, product_id=FG',
+    sc.length === 1 && sc[0].direction === 'in' && Number(sc[0].product_id) === Number(p101) && Number(sc[0].fee_amount_rial) > 0,
+    JSON.stringify(sc));
+  eq('T7-32 header subcontract_cost_rial = fee',
+    db.prepare('SELECT subcontract_cost_rial FROM production_orders WHERE id=?').get(po.id).subcontract_cost_rial,
+    sc[0] ? sc[0].fee_amount_rial : -1, 0);
+}
 
 // T7 skip / block / unblock + releaseAdvancedOrder smoke
 {
@@ -192,9 +201,10 @@ eq('T7-30 WIP residual', fin.wip_residual_rial, 0, 5);
 
   let st2 = adv.stageList(db, po2.id);
   const s20 = st2.find(s => s.seq === 20);
-  adv.skipStage(db, po2.id, s20.id, adminId, 'تست رد مرحله');
-  ok('T7 skip stage 20', db.prepare('SELECT status FROM production_order_stages WHERE id=?')
-    .get(s20.id).status === 'skipped');
+  // v409 stage-ordered gates: a stage can't be skipped while the previous one is still open
+  let skipCode = '';
+  try { adv.skipStage(db, po2.id, s20.id, adminId, 'تست رد مرحله'); } catch (e) { skipCode = e.code || e.message; }
+  ok('T7 skip stage 20 blocked while stage 10 open', skipCode === 'E_PREV_STAGE_OPEN', skipCode);
 
   const s10 = st2.find(s => s.seq === 10);
   adv.blockStage(db, po2.id, s10.id, adminId, 'توقف موقت');
