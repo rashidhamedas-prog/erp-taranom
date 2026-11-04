@@ -176,6 +176,48 @@ async function main() {
   ok(c5.status === 'ok' && c5.mismatch_count === 0 && c5.unattributed_count === 1
     && c5.unattributed[0].product_id === pMat && c5.unattributed[0].qty === 2,
   'matrix product with NULL variant_id live row: cache ok, unattributed reported as warning detail', c5);
+  ok(Number(db.prepare('SELECT stock FROM product_variants WHERE id=?').get(v1).stock) === 5
+    && Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(v1, wh1).qty) === 5,
+  'rebuild with extra unattributed row does not zero attributed variant caches');
+
+  // 4b) Opening-only unattributed (no attributed ledger) must NEVER wipe seeded colour×size caches
+  const pOpen = Number(db.prepare(`
+    INSERT INTO products (user_id, name, code, price, cost, average_cost_rial, stock, warehouse_id, unit, has_variants, is_style)
+    VALUES (?, 'ماتریس فقط افتتاحیه', 'SCR-M-OPEN', 1000, 500, 500, 0, ?, 'عدد', 1, 1)
+  `).run(ADMIN.id, wh1).lastInsertRowid);
+  const vO1 = Number(db.prepare(`
+    INSERT INTO product_variants (product_id, color_id, size_id, sku, stock, active, is_default)
+    VALUES (?, ?, ?, 'SCR-M-OPEN-38', 0, 1, 0)
+  `).run(pOpen, col1, sz1).lastInsertRowid);
+  const vO2 = Number(db.prepare(`
+    INSERT INTO product_variants (product_id, color_id, size_id, sku, stock, active, is_default)
+    VALUES (?, ?, ?, 'SCR-M-OPEN-40', 0, 1, 0)
+  `).run(pOpen, col1, sz2).lastInsertRowid);
+  db.prepare(`
+    INSERT INTO inventory_ledger (tx_no, event_type, product_id, warehouse_id, qty_in, qty_out, unit_cost_rial, amount_rial,
+      source_type, source_id, status, date, created_by, variant_id)
+    VALUES ('SCR-OPEN-1', 'opening', ?, ?, 7, 0, 500, 3500, 'opening_inventory', 1, 'posted', ?, ?, NULL)
+  `).run(pOpen, wh1, today, ADMIN.id);
+  withCacheWriter(db, () => {
+    db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vO1, wh1, 3);
+    db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vO2, wh1, 4);
+    db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(3, vO1);
+    db.prepare('UPDATE product_variants SET stock=? WHERE id=?').run(4, vO2);
+    db.prepare('INSERT INTO warehouse_stock (product_id, warehouse_id, qty) VALUES (?,?,?)').run(pOpen, wh1, 7);
+    db.prepare('UPDATE products SET stock=? WHERE id=?').run(7, pOpen);
+  });
+  const sumOpen = rebuildStockCache(db, pOpen);
+  const vO1After = Number(db.prepare('SELECT stock FROM product_variants WHERE id=?').get(vO1).stock);
+  const vO2After = Number(db.prepare('SELECT stock FROM product_variants WHERE id=?').get(vO2).stock);
+  const vwsO1 = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vO1, wh1).qty);
+  const vwsO2 = Number(db.prepare('SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?').get(vO2, wh1).qty);
+  const hdrO = Number(db.prepare('SELECT stock FROM products WHERE id=?').get(pOpen).stock);
+  ok(sumOpen.variant_cache_preserved === true && sumOpen.preserved_variant_cells >= 2,
+    'rebuild reports preserved variant cells when only unattributed opening exists', sumOpen);
+  ok(vO1After === 3 && vO2After === 4 && vwsO1 === 3 && vwsO2 === 4,
+    'rebuild must NOT zero colour×size caches when openings lack variant_id',
+    { vO1After, vO2After, vwsO1, vwsO2 });
+  ok(hdrO === 7, 'header stock still rebuilt from full ledger including unattributed', hdrO);
 
   // 5) HTTP route exposes stock_cache_vs_ledger
   const express = require('express');

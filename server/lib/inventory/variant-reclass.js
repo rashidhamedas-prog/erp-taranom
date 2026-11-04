@@ -217,7 +217,7 @@ function postReclass(db, body, user) {
       VALUES (?,?,?,?,?,?,?,?,?, 'posted', ?)
     `).run(docNo, body.date || todayJalali(), row.product_id, row.warehouse_id, row.id, Number(rev.id),
       JSON.stringify(linesJson), plan.basis, reason, uid);
-    require('./stock-cache').rebuildStockCache(db, row.product_id);
+    require('./stock-cache').rebuildStockCache(db, row.product_id, { forceVariantLedger: true });
     return getDoc(db, Number(info.lastInsertRowid));
   };
   return db.inTransaction ? run() : db.transaction(run)();
@@ -291,7 +291,7 @@ function voidReclass(db, docId, body, user) {
       SET status='void', voided_by=?, voided_at=strftime('%s','now'), void_reason=?, void_ledger_ids=?
       WHERE id=? AND status='posted'
     `).run(uid, reason, made.join(','), doc.id);
-    require('./stock-cache').rebuildStockCache(db, doc.product_id);
+    require('./stock-cache').rebuildStockCache(db, doc.product_id, { forceVariantLedger: true });
     return getDoc(db, doc.id);
   };
   return db.inTransaction ? run() : db.transaction(run)();
