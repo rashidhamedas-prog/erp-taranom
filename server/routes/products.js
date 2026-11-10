@@ -1,5 +1,4 @@
 const router = require('express').Router();
-const { releaseTafsili } = require('../lib/coa-map');
 const { assignProductTafsili } = require('../lib/product-tafsili');
 const { parseQty } = require('../lib/round3');
 const { parseStockQty, requiresIntegerQty } = require('../lib/inventory/qty-policy');
@@ -1061,79 +1060,79 @@ router.patch('/:id/stock', auth, adminOnly, centralOnly, (req, res) => {
   });
 });
 
-// Delete (admin only) — cascade stock children; block if used in documents
-router.delete('/:id', auth, adminOrAccounting, (req, res) => {
+// Soft-deactivate when hard delete is blocked by real activity
+router.post('/:id/deactivate', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  const { deactivateProduct } = require('../lib/product-delete');
+  try {
+    const out = deactivateProduct(db, req.params.id);
+    audit(req.user.id, 'update', 'product', out.id, 'غیرفعال‌سازی کالا (به‌جای حذف)');
+    res.json(out);
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message || 'غیرفعال‌سازی ناموفق', code: e.code });
+  }
+});
+
+// Delete (admin/accounting) — structure-only cascade; real activity → 409 + deactivate offer
+router.delete('/:id', auth, adminOrAccounting, async (req, res) => {
   const db = getDB();
   const prod = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
-  if (!prod) return res.status(404).json({ error: 'یافت نشد' });
+  if (!prod) return res.status(404).json({ error: 'یافت نشد', code: 'E_NOT_FOUND' });
   const pid = parseInt(req.params.id, 10);
+  const {
+    findProductRealActivity,
+    cascadeDeleteUnusedProduct,
+    resolveWebsiteWarning,
+  } = require('../lib/product-delete');
 
-  const usedInInvoice = db.prepare(`
-    SELECT id, num FROM invoices WHERE COALESCE(deleted_at,0)=0 AND rows LIKE ?
-    LIMIT 1
-  `).get(`%"product_id":${pid}%`) || db.prepare(`
-    SELECT id, num FROM invoices WHERE COALESCE(deleted_at,0)=0 AND rows LIKE ?
-    LIMIT 1
-  `).get(`%"product_id": ${pid}%`);
-  if (usedInInvoice) {
-    return res.status(409).json({ error: `این کالا در فاکتور ${usedInInvoice.num || usedInInvoice.id} استفاده شده و قابل حذف نیست` });
+  const activity = findProductRealActivity(db, pid, prod);
+  if (activity) {
+    return res.status(activity.status || 409).json(activity);
   }
-  const usedInPurchase = db.prepare(`
-    SELECT id, num FROM purchase_invoices WHERE COALESCE(status,'posted')<>'reversed' AND rows LIKE ?
-    LIMIT 1
-  `).get(`%"product_id":${pid}%`);
-  if (usedInPurchase) {
-    return res.status(409).json({ error: `این کالا در فاکتور خرید ${usedInPurchase.num || usedInPurchase.id} استفاده شده و قابل حذف نیست` });
-  }
-    try {
-      const bomHit = db.prepare(`
-        SELECT 1 AS x FROM sqlite_master WHERE type='table' AND name='bom_lines'
-      `).get();
-      if (bomHit) {
-        const cols = db.prepare('PRAGMA table_info(bom_lines)').all().map((c) => c.name);
-        if (cols.includes('component_product_id') && db.prepare('SELECT id FROM bom_lines WHERE component_product_id=? LIMIT 1').get(pid)) {
-          return res.status(409).json({ error: 'این کالا در فرمول تولید (BOM) استفاده شده و قابل حذف نیست' });
-        }
-        if (cols.includes('product_id') && db.prepare('SELECT id FROM bom_lines WHERE product_id=? LIMIT 1').get(pid)) {
-          return res.status(409).json({ error: 'این کالا در فرمول تولید (BOM) استفاده شده و قابل حذف نیست' });
-        }
-      }
-    } catch (_) { /* optional */ }
 
-  // Stock single-source: a product with kardex history can never be deleted (the ledger is the truth).
+  let websiteWarning = null;
   try {
-    const hist = db.prepare('SELECT 1 AS x FROM inventory_ledger WHERE product_id=? LIMIT 1').get(pid);
-    if (hist) {
-      return res.status(409).json({ error: 'این کالا گردش انبار (کاردکس) دارد و قابل حذف نیست', code: 'E_PRODUCT_HAS_LEDGER' });
-    }
-  } catch (_) { /* ledger table absent in tiny fixtures */ }
+    websiteWarning = await resolveWebsiteWarning(db, prod);
+  } catch (_) { websiteWarning = null; }
+
   try {
     db.transaction(() => {
-      // Only zero cache rows can remain here (no ledger history) — dropped so the product row can go (FK).
-      db.prepare('DELETE FROM warehouse_stock WHERE product_id=?').run(pid);
-      try { db.prepare('DELETE FROM stock_logs WHERE product_id=?').run(pid); } catch (_) {}
-      try { db.prepare('DELETE FROM stocktaking_items WHERE product_id=?').run(pid); } catch (_) {}
-      try { db.prepare('DELETE FROM product_images WHERE product_id=?').run(pid); } catch (_) {}
-      if (prod.image) { try { fs.unlinkSync(path.join(UPLOAD_DIR, prod.image)); } catch (e) {} }
-      db.prepare('DELETE FROM products WHERE id=?').run(pid);
-      // پس از حذف کالا، تفصیلی بدون گردش هم حذف می‌شود (سینک tombstone)
-      if (prod.coa_code) {
-        const rel = releaseTafsili(db, prod.coa_code);
-        if (!rel.ok && rel.reason === 'in_use') {
-          const err = new Error(rel.error || 'کدینگ در گردش است');
-          err.status = 409;
-          throw err;
-        }
-      }
+      cascadeDeleteUnusedProduct(db, prod, { uploadDir: UPLOAD_DIR, userId: req.user && req.user.id });
     })();
   } catch (e) {
-    if (e.status) return res.status(e.status).json({ error: e.message });
-    return res.status(409).json({ error: e.message.includes('FOREIGN KEY')
-      ? 'این کالا به اسناد دیگر وابسته است و قابل حذف نیست'
-      : (e.message || 'حذف ناموفق') });
+    if (e && e.payload) {
+      return res.status(e.status || 409).json(e.payload);
+    }
+    if (e && e.status) {
+      return res.status(e.status).json({
+        error: e.message,
+        code: e.code,
+        table: e.table || null,
+        tables: e.tables || undefined,
+        can_deactivate: e.code === 'E_PRODUCT_IN_USE',
+      });
+    }
+    const msg = (e && e.message) || 'حذف ناموفق';
+    if (/FOREIGN KEY/i.test(msg)) {
+      const { remainingFkTables } = require('../lib/product-delete');
+      const tables = remainingFkTables(db, pid);
+      return res.status(409).json({
+        error: tables.length
+          ? `حذف کالا به‌خاطر وابستگی به جدول ${tables.join(', ')} ممکن نیست`
+          : 'این کالا به اسناد دیگر وابسته است و قابل حذف نیست',
+        code: 'E_PRODUCT_FK',
+        table: tables[0] || null,
+        tables,
+        can_deactivate: true,
+        suggest_deactivate: true,
+      });
+    }
+    return res.status(409).json({ error: msg, code: 'E_PRODUCT_DELETE' });
   }
   audit(req.user.id, 'delete', 'product', pid, `حذف محصول ${prod.name}`);
-  res.json({ ok: true });
+  const out = { ok: true, deleted_id: pid };
+  if (websiteWarning) out.website_warning = websiteWarning;
+  res.json(out);
 });
 
 function normalizeStr(s) {
