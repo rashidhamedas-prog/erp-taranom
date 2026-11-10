@@ -1,5 +1,5 @@
-### ۱۴۰۵/۰۸/۱۹ — fix(products): سخت‌سازی حذف کالا — هر سابقهٔ انبار/سند → ۴۰۹ (SW v632)
-- **Commit:** (پس از merge پر شود) روی `main`؛ شاخه `fix/product-delete-cascade-harden`. **CI احتمالاً اجرا نمی‌شود** (GitHub Actions billing) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون write روی `crm.db` زنده / بدون deploy تا «GO deploy product-delete-unused-cascade».
+﻿### ۱۴۰۵/۰۸/۱۹ — fix(products): سخت‌سازی حذف کالا — هر سابقهٔ انبار/سند → ۴۰۹ (SW v632)
+- **Commit:** merge `a545c578` روی `main` ([PR #200](https://github.com/rashidhamedas-prog/erp-taranom/pull/200))؛ شاخه `fix/product-delete-cascade-harden` (`d0b7322a`). **CI احتمالاً اجرا نمی‌شود** (GitHub Actions billing) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون write روی `crm.db` زنده / بدون deploy تا «GO deploy product-delete-unused-cascade».
 - **Deploy:** ⏸ منتظر «GO deploy product-delete-unused-cascade».
 - **پس از PR #199 (`a1bd1664`):** گارد گردش واقعی ناقص بود (کاردکس معکوس/صفر/فقط مبلغ، movements، حواله، VR، افتتاحیهٔ draft، برگشت خرید، انبارگردانی session، تطبیق JSON کوتاه، `entry_no` اشتباه، outbox سایت).
 - **رفتار جدید:**
