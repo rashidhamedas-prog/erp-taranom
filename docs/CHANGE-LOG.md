@@ -1,3 +1,17 @@
+### ۱۴۰۵/۰۸/۱۹ — fix(products): سخت‌سازی حذف کالا — هر سابقهٔ انبار/سند → ۴۰۹ (SW v632)
+- **Commit:** (پس از merge پر شود) روی `main`؛ شاخه `fix/product-delete-cascade-harden`. **CI احتمالاً اجرا نمی‌شود** (GitHub Actions billing) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون write روی `crm.db` زنده / بدون deploy تا «GO deploy product-delete-unused-cascade».
+- **Deploy:** ⏸ منتظر «GO deploy product-delete-unused-cascade».
+- **پس از PR #199 (`a1bd1664`):** گارد گردش واقعی ناقص بود (کاردکس معکوس/صفر/فقط مبلغ، movements، حواله، VR، افتتاحیهٔ draft، برگشت خرید، انبارگردانی session، تطبیق JSON کوتاه، `entry_no` اشتباه، outbox سایت).
+- **رفتار جدید:**
+  - هر ردیف `inventory_ledger` (معکوس، reversal، qty=0، amount_rial≠0) و هر `inventory_movements` / حواله / VR / opening (draft+posted) / purchase_return / orders.product_id / production docs / stocktaking_items متعلق به session → **۴۰۹** با شماره سند + `can_deactivate`؛ کد `E_PRODUCT_HAS_LEDGER` برای بلوک‌های کاردکس.
+  - تطبیق JSON با مرز رقم (`34` ≠ `344`).
+  - journal با `voucher_number` (نه `entry_no`)؛ خطای SQL بلعیده نمی‌شود؛ `releaseTafsili` فقط برای leaf بدون گردش؛ FK باقیمانده نام جدول + پیشنهاد غیرفعال‌سازی.
+  - `websiteSkuPresenceHint` فقط‌خواندنی: payload واقعی `{matched, catalogMissing:false, code:'all_matched'}` و نتایج error که SKU را روی سایت نشان می‌دهند؛ **بدون** `ensureWebsiteStockOutbox` روی DELETE.
+  - cascade واریانت فقط اگر همان واریانت هیچ ref انبار/سند نداشته باشد؛ خطوط انبارگردانی واقعی cascade نمی‌شوند.
+- **تست (Node 20، DB موقت):** `test-product-delete-unused-cascade.js` ۳۳/۳۳ (بدون id 342/کد 7217)؛ sms ۲۲/۲۲؛ `new Function(app.js)` OK.
+- **SW:** `erp-taranom-v632`؛ `app.js?v=632`، `app.css?v=632`. راهنمای admin/sales به‌روز.
+- **فایل‌ها:** `server/lib/product-delete.js`، `server/routes/products.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-product-delete-unused-cascade.js`، `docs/CHANGE-LOG.md`.
+
 ### ۱۴۰۵/۰۸/۱۹ — fix(products): حذف کالای بدون گردش واقعی + cascade ساختار (SW v631)
 - **Commit:** merge `a1bd1664` روی `main` ([PR #199](https://github.com/rashidhamedas-prog/erp-taranom/pull/199))؛ شاخه `fix/product-delete-unused-cascade` (`2f61dc54`). **CI اجرا نشد** (GitHub Actions billing/spending limit) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون write روی `crm.db` زنده / بدون restore / بدون deploy تا «GO deploy product-delete-unused-cascade».
 - **Deploy:** ⏸ منتظر «GO deploy product-delete-unused-cascade».

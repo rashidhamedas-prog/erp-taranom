@@ -1109,7 +1109,10 @@ router.delete('/:id', auth, adminOrAccounting, async (req, res) => {
         code: e.code,
         table: e.table || null,
         tables: e.tables || undefined,
-        can_deactivate: e.code === 'E_PRODUCT_IN_USE',
+        can_deactivate: true,
+        suggest_deactivate: true,
+        kind: e.kind || undefined,
+        doc_no: e.doc_no || undefined,
       });
     }
     const msg = (e && e.message) || 'حذف ناموفق';
@@ -1127,7 +1130,12 @@ router.delete('/:id', auth, adminOrAccounting, async (req, res) => {
         suggest_deactivate: true,
       });
     }
-    return res.status(409).json({ error: msg, code: 'E_PRODUCT_DELETE' });
+    return res.status(409).json({
+      error: msg,
+      code: 'E_PRODUCT_DELETE',
+      can_deactivate: true,
+      suggest_deactivate: true,
+    });
   }
   audit(req.user.id, 'delete', 'product', pid, `حذف محصول ${prod.name}`);
   const out = { ok: true, deleted_id: pid };
