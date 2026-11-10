@@ -390,6 +390,152 @@ function listDocs(db, { productId = null, limit = 100 } = {}) {
   });
 }
 
+/**
+ * Read-only eligibility list for the VR UI. Same predicates as planReclass (without lines).
+ * @returns {{ product_id, warehouse_id, product, warehouse, integer, allow_negative,
+ *   kardex_qty, attributed_qty, unallocated_net, variants, candidates }}
+ */
+function listCandidates(db, { productId = null, warehouseId = null } = {}) {
+  const pid = parseInt(productId, 10) || 0;
+  const wid = parseInt(warehouseId, 10) || 0;
+  if (!pid) throw vrErr('E_VR_PRODUCT_REQUIRED', 400, 'کالا الزامی است');
+  if (!wid) throw vrErr('E_VR_WAREHOUSE_REQUIRED', 400, 'انبار الزامی است');
+
+  const product = db.prepare('SELECT id, code, name, unit, stock FROM products WHERE id=?').get(pid);
+  if (!product) throw vrErr('E_VR_PRODUCT_NOT_FOUND', 404, 'کالا یافت نشد');
+  const warehouse = db.prepare(
+    'SELECT id, code, name, COALESCE(allow_negative,0) AS allow_negative FROM warehouses WHERE id=?'
+  ).get(wid);
+  if (!warehouse) throw vrErr('E_VR_WAREHOUSE_NOT_FOUND', 404, 'انبار یافت نشد');
+
+  const { hasActiveMatrixVariants } = require('./movement');
+  if (!hasActiveMatrixVariants(db, pid)) {
+    throw vrErr('E_VR_NOT_MATRIX', 409, 'کالا رنگ×سایز فعال ندارد');
+  }
+
+  const { requiresIntegerQty } = require('./qty-policy');
+  const integer = !!requiresIntegerQty(db, pid, product.unit);
+
+  const variants = db.prepare(`
+    SELECT v.id AS variant_id, v.sku, v.active, COALESCE(v.is_default,0) AS is_default,
+      c.name AS color_name, s.name AS size_name,
+      COALESCE(vws.qty, 0) AS qty
+    FROM product_variants v
+    LEFT JOIN product_colors c ON c.id=v.color_id
+    LEFT JOIN product_sizes s ON s.id=v.size_id
+    LEFT JOIN variant_warehouse_stock vws ON vws.variant_id=v.id AND vws.warehouse_id=?
+    WHERE v.product_id=? AND COALESCE(v.is_default,0)=0 AND COALESCE(v.active,0)=1
+    ORDER BY c.sort_order, c.name, s.sort_order, s.name, v.id
+  `).all(wid, pid);
+
+  const { deriveProductStock } = require('./stock-cache');
+  const derived = deriveProductStock(db, pid);
+  const kardexQty = round3(derived.warehouses.get(wid) || 0);
+  let attributedQty = 0;
+  for (const [k, q] of derived.variantWarehouses) {
+    if (k.endsWith(`:${wid}`)) attributedQty = round3(attributedQty + (Number(q) || 0));
+  }
+  const unallocatedNet = round3(derived.unattributed.get(wid) || 0);
+
+  const { isWarehouseOnlyRow } = require('./ledger');
+  const postedVr = tableExists(db, 'variant_reclass_docs')
+    ? new Set(db.prepare(
+      "SELECT source_ledger_id FROM variant_reclass_docs WHERE status='posted' AND product_id=?"
+    ).all(pid).map((r) => Number(r.source_ledger_id)))
+    : new Set();
+
+  const rows = db.prepare(`
+    SELECT id, tx_no, date, event_type, source_type, source_id, warehouse_id,
+      variant_id, status, reversed_of, qty_in, qty_out, amount_rial, je_id, note
+    FROM inventory_ledger
+    WHERE product_id=? AND warehouse_id=?
+    ORDER BY id ASC
+  `).all(pid, wid);
+
+  const candidates = [];
+  for (const row of rows) {
+    if (!isLive(row)) continue;
+    if (Number(row.variant_id) > 0) continue;
+    const qtyIn = Number(row.qty_in) || 0;
+    const qtyOut = Number(row.qty_out) || 0;
+    if ((qtyIn > 0) === (qtyOut > 0)) continue;
+    if (isWarehouseOnlyRow(row)) continue;
+    if (postedVr.has(Number(row.id))) continue;
+    const direction = qtyIn > 0 ? 'in' : 'out';
+    const qty = round3(qtyIn || qtyOut);
+    let counterpart_hint = null;
+    const st = String(row.source_type || '');
+    const et = String(row.event_type || '');
+    if ((et === 'transfer_out' || et === 'transfer_in' || st === 'warehouse_move') && row.source_id) {
+      const other = db.prepare(`
+        SELECT l.id, l.warehouse_id, l.event_type, l.qty_in, l.qty_out, l.variant_id,
+          (SELECT doc_no FROM variant_reclass_docs d
+            WHERE d.source_ledger_id=l.id AND d.status='posted' LIMIT 1) AS vr_doc_no
+        FROM inventory_ledger l
+        WHERE l.product_id=? AND l.source_id=? AND l.id<>?
+          AND COALESCE(l.status,'')='posted' AND l.reversed_of IS NULL
+          AND COALESCE(l.event_type,'') NOT IN ('reversal')
+          AND COALESCE(l.event_type,'') NOT GLOB '*_reversal'
+      `).all(pid, row.source_id, row.id);
+      const peer = other.find((o) => Number(o.warehouse_id) !== wid);
+      if (peer) {
+        const peerHasVr = !!peer.vr_doc_no;
+        const peerAttributed = Number(peer.variant_id) > 0
+          || other.some((o) => Number(o.warehouse_id) === Number(peer.warehouse_id) && Number(o.variant_id) > 0);
+        if (peerHasVr || peerAttributed) {
+          counterpart_hint = {
+            ledger_id: Number(peer.id),
+            warehouse_id: Number(peer.warehouse_id),
+            event_type: peer.event_type,
+            vr_doc_no: peer.vr_doc_no || null,
+            attributed: peerAttributed,
+            message: peer.vr_doc_no
+              ? `طرف مقابل انتقال قبلاً با ${peer.vr_doc_no} تفکیک شده است`
+              : 'طرف مقابل انتقال روی رنگ×سایز ثبت شده است',
+          };
+        }
+      }
+    }
+    candidates.push({
+      ledger_id: Number(row.id),
+      tx_no: row.tx_no || '',
+      date: row.date || '',
+      event_type: row.event_type || '',
+      source_type: row.source_type || '',
+      source_id: row.source_id,
+      warehouse_id: wid,
+      direction,
+      qty,
+      qty_in: qtyIn,
+      qty_out: qtyOut,
+      amount_rial: Math.round(Number(row.amount_rial) || 0),
+      je_id: row.je_id || null,
+      note: row.note || '',
+      eligible: true,
+      counterpart_hint,
+    });
+  }
+
+  return {
+    product_id: pid,
+    warehouse_id: wid,
+    product: { id: product.id, code: product.code, name: product.name, unit: product.unit || '' },
+    warehouse: {
+      id: warehouse.id,
+      code: warehouse.code,
+      name: warehouse.name,
+      allow_negative: Number(warehouse.allow_negative) ? 1 : 0,
+    },
+    integer,
+    allow_negative: Number(warehouse.allow_negative) ? 1 : 0,
+    kardex_qty: kardexQty,
+    attributed_qty: attributedQty,
+    unallocated_net: unallocatedNet,
+    variants,
+    candidates,
+  };
+}
+
 module.exports = {
   DOC_PREFIX,
   SEQ_KEY,
@@ -402,4 +548,5 @@ module.exports = {
   voidReclass,
   getDoc,
   listDocs,
+  listCandidates,
 };

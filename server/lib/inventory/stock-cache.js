@@ -134,15 +134,61 @@ function hasUnattributedQty(d) {
 }
 
 /**
+ * Movement hints for the void-leftover exception to preserveZeros.
+ * hasVoid = at least one inventory_movements.doc_type ending in `_void`.
+ * net = Σ qty_delta for that key. Used only while preserveZeros is on.
+ */
+function loadVariantMovementHints(db, variantIds) {
+  const byVariant = new Map();
+  const byVW = new Map();
+  const ids = (variantIds || []).map(Number).filter((n) => n > 0);
+  if (!ids.length || !tableExists(db, 'inventory_movements')) {
+    return { byVariant, byVW };
+  }
+  const rows = db.prepare(`
+    SELECT variant_id, warehouse_id,
+      SUM(COALESCE(qty_delta,0)) AS net,
+      MAX(CASE WHEN COALESCE(doc_type,'') GLOB '*_void' THEN 1 ELSE 0 END) AS has_void
+    FROM inventory_movements
+    WHERE variant_id IN (${ids.map(() => '?').join(',')})
+    GROUP BY variant_id, warehouse_id
+  `).all(...ids);
+  for (const r of rows) {
+    const vid = Number(r.variant_id) || 0;
+    const wh = r.warehouse_id != null ? Number(r.warehouse_id) : 0;
+    const net = round3(r.net);
+    const hasVoid = !!Number(r.has_void);
+    if (vid && wh) byVW.set(`${vid}:${wh}`, { net, hasVoid });
+    if (!vid) continue;
+    const prev = byVariant.get(vid) || { net: 0, hasVoid: false };
+    byVariant.set(vid, {
+      net: round3(prev.net + net),
+      hasVoid: prev.hasVoid || hasVoid,
+    });
+  }
+  return { byVariant, byVW };
+}
+
+/**
  * Variant-layer write policy when unattributed live qty remains:
  *   - always write non-zero attributed figures from the ledger
- *   - NEVER zero (or invent 0 over) an existing non-zero cache cell
+ *   - NEVER zero an existing non-zero cache cell that has no void movement
+ *     (incident 2026-11-03 guard — historical colour split without ledger rows)
+ *   - EXCEPTION (void leftover): if attributed ledger is 0 AND the cell has at
+ *     least one inventory_movements row whose doc_type ends with `_void` AND
+ *     net(movements) equals attributed ledger (usually 0) → write the ledger
+ *     figure (clear the stale cell after reverseStockDocument).
  * Product / warehouse_stock still follow the full ledger (including unattributed).
+ *
+ * @param {{ net?: number, hasVoid?: boolean }|null} [movHint]
  */
-function variantWant(fromLedger, current, preserveZeros) {
+function variantWant(fromLedger, current, preserveZeros, movHint) {
   const want = round3(fromLedger);
   if (!preserveZeros) return want;
   if (Math.abs(want) > EPS) return want;
+  if (movHint && movHint.hasVoid && Math.abs(round3(movHint.net) - want) < EPS) {
+    return want;
+  }
   return round3(current);
 }
 
@@ -184,12 +230,17 @@ function rebuildStockCache(db, productId, opts = {}) {
       ? db.prepare('SELECT id, stock FROM product_variants WHERE product_id=?').all(pid)
       : [];
     const preserveZeros = !forceVariantLedger && variants.length > 1 && hasUnattributedQty(d);
+    const movHints = preserveZeros
+      ? loadVariantMovementHints(db, variants.map((v) => Number(v.id)))
+      : { byVariant: new Map(), byVW: new Map() };
     const vUpd = db.prepare('UPDATE product_variants SET stock=? WHERE id=?');
     for (const v of variants) {
-      const fromLedger = d.variants.get(Number(v.id)) || 0;
+      const vid = Number(v.id);
+      const fromLedger = d.variants.get(vid) || 0;
       const cur = Number(v.stock) || 0;
-      const want = variantWant(fromLedger, cur, preserveZeros);
-      if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(cur) > EPS) preservedVariantCells += 1;
+      const want = variantWant(fromLedger, cur, preserveZeros, movHints.byVariant.get(vid) || null);
+      if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(cur) > EPS
+        && Math.abs(want - round3(cur)) < EPS) preservedVariantCells += 1;
       if (round3(cur) !== want) vUpd.run(want, v.id);
     }
 
@@ -205,8 +256,9 @@ function rebuildStockCache(db, productId, opts = {}) {
         seen.add(k);
         const fromLedger = d.variantWarehouses.get(k) || 0;
         const curQ = Number(r.qty) || 0;
-        const want = variantWant(fromLedger, curQ, preserveZeros);
-        if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(curQ) > EPS) preservedVariantCells += 1;
+        const want = variantWant(fromLedger, curQ, preserveZeros, movHints.byVW.get(k) || null);
+        if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(curQ) > EPS
+          && Math.abs(want - round3(curQ)) < EPS) preservedVariantCells += 1;
         if (round3(curQ) !== want) upd.run(want, r.variant_id, r.warehouse_id);
       }
       const ins = db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)');
@@ -342,6 +394,8 @@ module.exports = {
   withCacheWriter,
   deriveProductStock,
   hasUnattributedQty,
+  loadVariantMovementHints,
+  variantWant,
   rebuildStockCache,
   rebuildAllStockCaches,
   derivedQty,

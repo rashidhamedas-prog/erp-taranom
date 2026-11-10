@@ -202,6 +202,15 @@ router.post('/ledger/:id/reverse-correction', auth, reverseCorrectionGate, (req,
 {
   const VR = () => require('../lib/inventory/variant-reclass');
   const { centralOnlyStrict } = require('../middleware/auth');
+  // candidates قبل از list عمومی — همان گیت list (بدون centralOnlyStrict).
+  router.get('/variant-reclass/candidates', auth, reverseCorrectionGate, (req, res) => {
+    try {
+      res.json(VR().listCandidates(getDB(), {
+        productId: req.query.product_id || null,
+        warehouseId: req.query.warehouse_id || null,
+      }));
+    } catch (e) { sendErr(res, e); }
+  });
   router.get('/variant-reclass', auth, reverseCorrectionGate, (req, res) => {
     try { res.json(VR().listDocs(getDB(), { productId: req.query.product_id || null, limit: req.query.limit })); } catch (e) { sendErr(res, e); }
   });

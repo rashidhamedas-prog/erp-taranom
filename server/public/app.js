@@ -337,8 +337,8 @@ async function api(method, path, data, isFormData, silent){
         E_UNIT_COST:'بهای واحد باید بزرگ‌تر از صفر باشد',
         E_STOCK_VIA_OPENING:'موجودی از فرم کالا ثبت نمی‌شود — پس از ذخیره، در جدول «موجودی اول دوره» وارد کنید',
         E_VARIANT_LAYER_MISMATCH: j.message || (pname
-          ? ('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) در «'+pname+'» — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ تا اصلاح تفکیک واریانت (سند VR) قابل فروش نیست')
-          : 'ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ تا اصلاح تفکیک واریانت (سند VR) قابل فروش نیست'),
+          ? ('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) در «'+pname+'» — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) قابل فروش نیست')
+          : 'ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) قابل فروش نیست'),
         E_OPENING_REASON_REQUIRED:'دلیل اصلاح الزامی است (حداقل ۵ نویسه)',
         E_OPENING_CONFIRM_REQUIRED:'تیک «تأیید می‌کنم» لازم است',
         E_OPENING_EXISTS:'برای این کالا/انبار/واریانت موجودی اول دوره از قبل ثبت شده است',
@@ -1110,7 +1110,7 @@ function invDriftBadgeHtml(note){
   return '<span class="inv-drift-badge" title="'+esc(t)+'">'+INV_DRIFT_TEXT+'</span>';
 }
 const INV_MISMATCH_TEXT='ناهمخوانی لایهٔ رنگ/سایز';
-const INV_MISMATCH_DEFAULT_NOTE='ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف قابل فروش نیست تا اصلاح تفکیک واریانت (سند VR)';
+const INV_MISMATCH_DEFAULT_NOTE='ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف قابل فروش نیست تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات)';
 const INV_MISMATCH_WARN_NOTE='ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا هست ولی هیچ رنگ/سایزی موجودی ندارد؛ انبار اجازهٔ موجودی منفی دارد — هشدار (فروش مسدود نیست)';
 function invMismatchBadgeHtml(note, blocking){
   const isBlock=blocking!==false;
@@ -1179,7 +1179,7 @@ function renderInvoiceStockWarn(){
     : 'اگر این پیش‌فاکتور به فاکتور قطعی تبدیل شود، موجودی این کالاها منفی می‌شود. ذخیره مسدود نیست.';
   box.hidden=false;
   box.innerHTML=(blocks.length?`<div class="inv-stock-warn inv-stock-warn--block" role="alert">
-    <div class="inv-stock-warn-title">⛔ ${esc(INV_MISMATCH_TEXT)} (variant layer mismatch) — ذخیره مسدود است تا تفکیک رنگ/سایز با سند اصلاح واریانت (VR) درست شود.</div>
+    <div class="inv-stock-warn-title">⛔ ${esc(INV_MISMATCH_TEXT)} (variant layer mismatch) — ذخیره مسدود است تا تفکیک رنگ/سایز در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) درست شود (نه با «تعدیل موجودی»).</div>
     <ul>${blocks.map(i=>'<li><b>'+esc(i.name)+'</b> — '+esc(i.note||INV_MISMATCH_DEFAULT_NOTE)+'</li>').join('')}</ul>
   </div>`:'')+(mismatchWarns.length?`<div class="inv-stock-warn inv-stock-warn--mismatch-warn" role="status">
     <div class="inv-stock-warn-title">⚠ ${esc(INV_MISMATCH_TEXT)} (variant layer mismatch) — هشدار؛ انبار اجازهٔ موجودی منفی دارد و ذخیره مسدود نیست.</div>
@@ -2522,7 +2522,7 @@ const LU = (()=> {
     'acc-detail-categories':'tags', 'acc-other-details':'clipboard', 'acc-equity-info':'briefcase',
     'acc-shareholders':'handshake', 'acc-units':'ruler', 'acc-fiscal-period':'file',
     'acc-cheques-recv':'download', 'acc-cheques-pay':'upload', 'acc-proforma':'file',
-    'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-opening-stock':'clipboard', 'acc-inv-batches':'tags',
+    'acc-orders-list':'cart', 'acc-stocktaking':'clipboard', 'acc-opening-stock':'clipboard', 'acc-variant-reclass':'palette', 'acc-inv-batches':'tags',
     'acc-fabric-rolls':'tags',
     'acc-fabric-roll-kardex':'clipboard',
     'acc-cutting-lays':'scissors',
@@ -2674,7 +2674,7 @@ const ACC_MODULE_MAP={
   'acc-warehouses':'module_warehouses','acc-warehouse-ops':'module_warehouses',
   'acc-warehouse-report':'module_warehouses',
   'acc-variant-stock-report':'module_warehouses','acc-inv-reconcile':'module_warehouses',
-  'acc-stocktaking':'module_warehouses','acc-opening-stock':'module_warehouses','acc-item-kardex':'module_warehouses',
+  'acc-stocktaking':'module_warehouses','acc-opening-stock':'module_warehouses','acc-variant-reclass':'module_warehouses','acc-item-kardex':'module_warehouses',
   'acc-inv-batches':'module_warehouses','acc-fabric-rolls':'module_warehouses','acc-fabric-roll-kardex':'module_warehouses','acc-inv-reservations':'module_warehouses',
   'acc-inv-landed':'module_warehouses',
   'acc-consignments':'module_consignments','acc-production':'module_production',
@@ -2723,6 +2723,10 @@ function filterAccNavItem(it){
   const key=ACC_MODULE_MAP[it.id];
   const flags=CACHE.moduleFlags||{};
   if(key && flags[key]==='0') return false;
+  /* «اصلاح تفکیک رنگ و سایز»: مشاهده با acc_variant_reclass.view یا همان دسترسی ابطال اصلاحی کاردکس (acc_warehouse_ops.delete) */
+  if(it.id==='acc-variant-reclass' && typeof canVariantReclassView==='function' && canVariantReclassView()){
+    return typeof showAccountingTab==='function' ? !!showAccountingTab() : true;
+  }
   if(ME?.role==='admin') return true;
   if(typeof showAccountingTab==='function' && !showAccountingTab()) return false;
   const resource=accItemResource(it);
@@ -6491,11 +6495,11 @@ function applyAutoLivePack(p, pack, dest, warehouseId){
   const mismatchQty=invPackMismatchWhQty(p, pack, whId);
   const negOk=typeof clientAllowsNegativeStock==='function'&&clientAllowsNegativeStock(whId);
   if(mismatchQty>0 && !negOk){
-    showToast('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(mismatchQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — تا اصلاح تفکیک واریانت قابل فروش نیست','error');
+    showToast('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(mismatchQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) قابل فروش نیست','error');
     return false;
   }
   if(mismatchQty>0 && negOk){
-    showToast('هشدار ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(mismatchQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — انبار اجازهٔ موجودی منفی دارد','info');
+    showToast('هشدار ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(mismatchQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — انبار اجازهٔ موجودی منفی دارد — تفکیک را در «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) اصلاح کنید','info');
   }
   const live=livePackRowsForSale(pack, whId);
   if(!live.length){
@@ -6506,7 +6510,7 @@ function applyAutoLivePack(p, pack, dest, warehouseId){
     }
     const whQty=p&&p.wh_qty!=null?Number(p.wh_qty):null;
     if(whQty!=null&&whQty>0 && !negOk){
-      showToast('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(whQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — تا اصلاح تفکیک واریانت قابل فروش نیست','error');
+      showToast('ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch): موجودی کالا '+fmtQtyFa(whQty)+' هست ولی هیچ رنگ/سایزی موجودی ندارد — تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) قابل فروش نیست','error');
       return false;
     }
     showToast('هیچ رنگ/سایز موجودی برای این کالا نیست','error');
@@ -15852,7 +15856,7 @@ ROUTES.accounting = function(){ enterAccountingShell(); };
 
 // Tabs that don't use the shared date-range filter bar (they have their own
 // picker/date logic inline in the body, e.g. account code, as-of date).
-const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','inv-reconcile','stocktaking','opening-stock','commission-rules','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
+const ACC_NOFILTER_TABS = new Set(['chart','coa-codes','account-groups','ledger-accounts','subsidiary-accounts','detail-accounts','detail-categories','other-details','equity-info','shareholders','currencies','fx-rates','pos-devices','pos-report','scale-settings','company-profile','opening-recv-cheques','opening-pay-cheques','journal-docs','cost-centers','customer-groups','party-groups','parties','product-groups','product-colors','product-sizes','balance-sheet','suppliers','banks','check-categories','cash-boxes','persons','item-kardex','inv-batches','fabric-rolls','fabric-roll-kardex','cutting-lays','inv-reservations','inv-landed','petty-cash','trust-checks','warehouses','warehouse-ops','warehouse-report','variant-stock-report','inv-reconcile','stocktaking','opening-stock','variant-reclass','commission-rules','consignments','adv-reports','production','production-orders','cutting-lays','production-boms','production-dashboard','production-close','production-monthly-profit','production-cost-sheet','production-estimate','production-kanban','production-variance','production-reports','production-mrp','production-rates','production-access','payroll','cheque-register','units','fiscal-period','company-settings','orders','portal-units','portal-my-dept','bank-recon','budgeting','reserves','vat-return','seasonal-169','cash-flow-std','kpi-dashboard','party-control-dashboard']);
 
 // Generic wrapper: accounting pages share header; reuse shell when switching tabs.
 function buildAccFilterHtml(tabKey){
@@ -16355,6 +16359,8 @@ async function loadAccTab(tab){
     await renderStocktakingTab(body);
   } else if(tab==='opening-stock'){
     await renderOpeningStockTab(body);
+  } else if(tab==='variant-reclass'){
+    await renderVariantReclassTab(body);
   } else if(tab==='commission-rules'){
     await renderCommissionRulesTab(body);
   } else {
@@ -17585,6 +17591,22 @@ function _kardexOpenSource(refType, refId){
 }
 /** v525: اقدام ردیف کاردکس — ابطال تعدیل دستی، یا تعدیل موجودی همان کالا در انبار ردیف. */
 function kardexAdjustRowActions(l, productId){
+  return kardexAdjustRowActionsBase(l, productId)+kardexVariantReclassRowBtn(l, productId);
+}
+/** ردیف زندهٔ بی‌واریانت (فقط ورود یا فقط خروج، با انبار) ← «🎨 تفکیک رنگ» روی همان ledger_id. فقط با دسترسی ابطال اصلاحی و روی سرور مرکزی. */
+function kardexVariantReclassRowBtn(l, productId){
+  try{
+    if(!l || typeof canVariantReclassMutate!=='function' || !canVariantReclassMutate()) return '';
+    if(l.variant_id || !l.warehouse_id || l.is_group || l.is_wip || l.warehouse_only) return '';
+    if(['reversed','cancelled','canceled','void'].includes(String(l.status||'')) || l.reversal_of || l.reversed_by) return '';
+    const qi=Number(l.qty_in)||0, qo=Number(l.qty_out)||0;
+    if((qi>0)===(qo>0)) return '';
+    if(typeof vrcProductMaybeMatrix==='function' && !vrcProductMaybeMatrix(productId)) return '';
+    const reload=()=>loadItemKardex(productId);
+    return ` <button type="button" class="btn sm ghost" title="این ردیف رنگ/سایز ندارد — تفکیک کل تعداد همین ردیف (${esc(fmtQtyFa(qi||qo))}) به رنگ×سایز، بدون اثر روی دفتر کل" data-csp-click="${CSP.bind('click',function(){openVariantReclassModal({ product_id:productId, warehouse_id:l.warehouse_id, ledger_id:l.id, onDone:reload })})}">🎨 تفکیک رنگ</button>`;
+  }catch(_){ return ''; }
+}
+function kardexAdjustRowActionsBase(l, productId){
   if(!l) return '';
   const reload=()=>loadItemKardex(productId);
   /* FR-P334-A: ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی بدون سند مبدأ */
@@ -17695,6 +17717,7 @@ async function loadItemKardex(productId){
           <button class="btn sm purple" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">⚖️ تعدیل موجودی</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🧾 تعدیل‌ها</button>
         </span>`:''}
+        ${typeof canVariantReclassMutate==='function'&&canVariantReclassMutate()?`<button class="btn sm ghost" title="اصلاح تفکیک رنگ و سایز این کالا (ردیف‌های بی‌واریانت) — فقط سرور مرکزی" data-csp-click="${CSP.bind('click',function(){openVariantReclassModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🎨 تفکیک رنگ</button>`:''}
         ${typeof canStockAdjustVoid==='function'&&canStockAdjustVoid()?`<button class="btn sm ghost" title="همهٔ ردیف‌های «برگشت از فروش» که بدون انبار ثبت شده‌اند" data-csp-click="${CSP.bind('click',function(){openLedgerAssignWarehouse(null, { onDone:()=>loadItemKardex(productId) })})}">📦 برگشت‌های بی‌انبار</button>`:''}
       </div>
       <div class="kardex-print-head">
@@ -25802,7 +25825,7 @@ function closeStockAdjust(){
 function stockShortageOffer(j, ctx){
   try{
     if(!j || !Array.isArray(j.shortages) || !j.shortages.length) return false;
-    // تعدیل موجودی ناهمخوانی لایهٔ رنگ/سایز را حل نمی‌کند — راه درست سند اصلاح واریانت (VR) است.
+    // تعدیل موجودی ناهمخوانی لایهٔ رنگ/سایز را حل نمی‌کند — راه درست صفحهٔ «اصلاح تفکیک رنگ و سایز» (سند VR) است.
     if(j.code==='E_VARIANT_LAYER_MISMATCH') return false;
     if(String(ctx&&ctx.path||'').startsWith('/inventory/adjust')) return false;
     _sadj={ shortages:j.shortages.slice(0,30), message:ctx&&ctx.message||j.error||'', ctx:ctx||{}, done:{}, retried:false,
@@ -26024,6 +26047,600 @@ async function openStockAdjustModal(opts){
   };
   if(opts.product_id) refresh();
 }
+/* =====================================================================
+ * اصلاح تفکیک رنگ و سایز (سند VR) — v633
+ * صفحهٔ انبار ← عملیات (`acc-variant-reclass`) + مودال از کاردکس/گزارش رنگ‌سایز.
+ * API: GET /inventory/variant-reclass/candidates · POST …/preview · POST … (confirm) · GET … · POST …/:id/void
+ * همیشه کل تعداد یک ردیف کاردکس تفکیک می‌شود؛ بدون اثر روی دفتر کل (gl_effect_rial = 0).
+ * ===================================================================== */
+let _vrc=null;
+const VRC_EPS=0.0005;
+const VRC_CENTRAL_MSG='این عملیات فقط روی سرور مرکزی انجام می‌شود؛ در برنامهٔ ویندوز/اندروید (دستگاه) ثبت یا ابطال سند اصلاح تفکیک رنگ و سایز ممکن نیست. از نسخهٔ وب مرکزی استفاده کنید.';
+function canVariantReclassView(){
+  return !!ME && (canPerm('acc_variant_reclass','view') || canStockAdjustVoid());
+}
+/** ثبت/ابطال: فقط با دسترسی ابطال اصلاحی کاردکس و فقط روی سرور مرکزی (نه دستگاه). */
+function canVariantReclassMutate(){
+  return !!ME && canStockAdjustVoid() && !isOfflineDevice();
+}
+/** فقط وقتی کالا در کش صراحتاً غیرماتریسی است دکمه پنهان می‌شود؛ در غیر این صورت سرور تصمیم می‌گیرد. */
+function vrcProductMaybeMatrix(pid){
+  try{
+    const p=(CACHE.allProducts||[]).find(x=>String(x.id)===String(pid));
+    if(!p) return true;
+    if(p.has_variants==null && p.variant_sku_count==null) return true;
+    return typeof productNeedsColorPick==='function' ? !!productNeedsColorPick(p) : true;
+  }catch(_){ return true; }
+}
+function vrcEl(id){
+  return (_vrc && _vrc.host && _vrc.host.isConnected) ? _vrc.host.querySelector('#'+id) : null;
+}
+function vrcFlag(x){
+  if(x===undefined || x===null || x==='') return null;
+  return x===true || x===1 || x==='1' || x==='true';
+}
+function vrcNum(v){
+  if(v===undefined || v===null || String(v).trim()==='') return 0;
+  return parseQty(v,0);
+}
+function vrcIsInt(x){ return Math.abs(x-Math.round(x))<1e-9; }
+function vrcQ(n){ return fmtQtyFa(n); }
+function vrcSigned(n){ const x=round3(n); return (x>0?'+':'')+fmtQtyFa(x); }
+
+/** پاسخ candidates را تحمل‌پذیر نرمال می‌کند (فیلدهای ناموجود = null/خالی). */
+function vrcNormalize(d){
+  d=d||{};
+  const numOrNull=x=>(x===undefined||x===null||x==='')?null:(Number.isFinite(Number(x))?Number(x):null);
+  const rawV=Array.isArray(d.variants)?d.variants:(Array.isArray(d.matrix)?d.matrix:[]);
+  const variants=rawV.map(v=>{
+    const id=Number(v.variant_id!=null?v.variant_id:v.id);
+    const size=(typeof displaySizeName==='function'?displaySizeName(v.size_name):v.size_name);
+    return {
+      id,
+      label:[v.color_name,size].filter(Boolean).join(' / ')||v.label||v.sku||('#'+id),
+      sku:v.sku||'',
+      qty:Number(v.qty!=null?v.qty:(v.stock!=null?v.stock:(v.variant_qty!=null?v.variant_qty:0)))||0,
+      active:!(v.active===0||v.active===false||v.active==='0'),
+      is_default:!!(Number(v.is_default)||v.is_default===true),
+    };
+  }).filter(v=>v.id);
+  const rawC=Array.isArray(d.candidates)?d.candidates:(Array.isArray(d.rows)?d.rows:(Array.isArray(d.ledger_rows)?d.ledger_rows:[]));
+  const candidates=rawC.map(c=>{
+    const qi=Number(c.qty_in)||0, qo=Number(c.qty_out)||0;
+    const dir=c.direction||(qi>0?'in':(qo>0?'out':''));
+    const qty=Number(c.qty!=null?c.qty:(qi||qo))||0;
+    return {
+      id:Number(c.ledger_id!=null?c.ledger_id:c.id),
+      tx_no:c.tx_no||c.doc_num||'',
+      date:c.date||'',
+      event_type:c.event_type||c.source_type||'',
+      description:c.description||c.note||'',
+      direction:dir,
+      qty,
+      amount_rial:c.amount_rial!=null?Number(c.amount_rial):null,
+      eligible:c.eligible!==false && !c.blocker && !c.blocked,
+      why:c.reason||c.blocker_message||(c.blocker&&c.blocker.error)||'',
+    };
+  }).filter(c=>c.id && c.qty>0 && (c.direction==='in'||c.direction==='out'));
+  const elig=candidates.filter(c=>c.eligible);
+  const netElig=round3(elig.reduce((a,c)=>a+(c.direction==='in'?c.qty:-c.qty),0));
+  const active=variants.filter(v=>v.active && !v.is_default);
+  const variantTotal=numOrNull(d.variant_qty!=null?d.variant_qty:d.variant_total);
+  return {
+    product:d.product||null,
+    warehouse:d.warehouse||null,
+    unit:(d.product&&d.product.unit)||d.unit||'',
+    kardex_qty:numOrNull(d.kardex_qty!=null?d.kardex_qty:(d.kardex&&d.kardex.qty)),
+    warehouse_qty:numOrNull(d.warehouse_qty!=null?d.warehouse_qty:(d.wh_qty!=null?d.wh_qty:d.stock_qty)),
+    variant_total:variantTotal!=null?variantTotal:round3(variants.reduce((a,v)=>a+(v.is_default?0:v.qty),0)),
+    unallocated_net:numOrNull(d.unallocated_net),
+    netElig,
+    integer:vrcFlag(d.integer),
+    allow_negative:vrcFlag(d.allow_negative!=null?d.allow_negative:(d.warehouse&&d.warehouse.allow_negative)),
+    variants, active, candidates,
+  };
+}
+
+async function renderVariantReclassTab(body){
+  if(!body) return;
+  if(!canVariantReclassView()){
+    body.innerHTML='<div class="empty">دسترسی محدود — برای «اصلاح تفکیک رنگ و سایز» مجوز مشاهدهٔ این بخش یا «عملیات انبار — حذف» لازم است</div>';
+    return;
+  }
+  await vrcMount(body, {});
+}
+async function openVariantReclassModal(opts){
+  opts=opts||{};
+  if(!canVariantReclassView()){ showToast('برای این بخش دسترسی لازم است','error'); return; }
+  if(isOfflineDevice()){ showToast(VRC_CENTRAL_MSG,'error'); return; }
+  const root=sadjLayer(`<div class="modal-head"><h3>🎨 اصلاح تفکیک رنگ و سایز</h3>
+      <button class="x" data-csp-click="${CSP.bind('click',function(){closeStockAdjust();_vrc=null})}">×</button></div>
+    <div class="modal-body" id="vrcHost"></div>
+    <div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(){closeStockAdjust();_vrc=null})}">بستن</button></div>`, true);
+  await vrcMount(root.querySelector('#vrcHost'), Object.assign({}, opts, { modal:true }));
+}
+
+async function vrcMount(host, opts){
+  opts=opts||{};
+  _vrc={
+    host, opts, mutate:canVariantReclassMutate(),
+    productId:opts.product_id?String(opts.product_id):'', warehouseId:opts.warehouse_id?String(opts.warehouse_id):'',
+    pendingLedger:opts.ledger_id?Number(opts.ledger_id):null,
+    data:null, mode:'row', ledgerId:null, qtys:{}, preview:null, sig:'', busy:false, seq:0, resultHtml:'',
+  };
+  if(isOfflineDevice()){
+    host.innerHTML=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9`)}">🔒 ${esc(VRC_CENTRAL_MSG)}</div>`;
+    return;
+  }
+  await Promise.all([ensureWarehouses().catch(()=>[]), ensureProductsCache().catch(()=>[])]);
+  const prods=CACHE.allProducts||[];
+  const whs=(CACHE.warehouses||[]).filter(w=>w && w.active!==0);
+  const pLabel=p=>(p.code?p.code+' — ':'')+p.name;
+  const p0=_vrc.productId?prods.find(x=>String(x.id)===_vrc.productId):null;
+  host.innerHTML=`<div class="vrc">
+    <div class="muted" data-csp-style="${CSP.style(`font-size:12.5px;line-height:2;margin-bottom:10px`)}">ردیف‌های کاردکس کالای رنگ×سایز که رنگ/سایز ندارند، فقط در موجودی کل و انبار حساب می‌شوند. اینجا <b>تعداد هر رنگ/سایز را خودتان وارد می‌کنید</b> تا همان ردیف به تفکیک ثبت شود (سند VR).
+      <b data-csp-style="${CSP.style(`color:var(--red)`)}">تفکیک همیشه روی کل تعداد همان ردیف انجام می‌شود</b> (مثلاً ردیف ورود ۲۴ یا ردیف خروج ۸) — نه فقط روی «باقیماندهٔ» خالص (مثلاً ۱۶). هیچ سند حسابداری ثبت نمی‌شود و موجودی کل/ارزش/تراز تغییر نمی‌کند.</div>
+    ${_vrc.mutate?'':`<div class="oh-warn" data-csp-style="${CSP.style(`margin-bottom:10px;line-height:1.9`)}">🔒 ${canStockAdjustVoid()?esc(VRC_CENTRAL_MSG):'ثبت و ابطال سند نیاز به دسترسی «عملیات انبار — حذف» دارد؛ فقط مشاهده.'}</div>`}
+    <div class="form-grid">
+      <div class="fg full"><label>کالا *</label>
+        <datalist id="vrc-products">${prods.map(p=>`<option value="${esc(pLabel(p))}"></option>`).join('')}</datalist>
+        <input id="vrc-prod" list="vrc-products" placeholder="کد یا نام کالا" value="${p0?esc(pLabel(p0)):''}" data-csp-change="${CSP.bind('change',function(){vrcPick()})}"></div>
+      <div class="fg"><label>انبار *</label>
+        <select id="vrc-wh" data-csp-change="${CSP.bind('change',function(){vrcPick()})}"><option value="">— انتخاب انبار —</option>${whs.map(w=>`<option value="${w.id}" ${_vrc.warehouseId===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
+      <div class="fg"><label>&nbsp;</label><button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){vrcPick(true)})}">🔍 بارگذاری</button></div>
+    </div>
+    <div id="vrcBody"><div class="muted">کالا و انبار را انتخاب کنید.</div></div>
+    <div id="vrcResult"></div>
+    <div id="vrcDocs"></div>
+  </div>`;
+  if(_vrc.productId && _vrc.warehouseId) await vrcLoad();
+  else if(_vrc.productId) await vrcLoadDocs();
+}
+
+function vrcProductIdFromInput(){
+  const raw=String((vrcEl('vrc-prod')||{}).value||'').trim();
+  if(!raw) return '';
+  const prods=CACHE.allProducts||[];
+  const pLabel=p=>(p.code?p.code+' — ':'')+p.name;
+  const p=prods.find(x=>pLabel(x)===raw||String(x.code||'')===raw||String(x.id)===raw);
+  return p?String(p.id):'';
+}
+function vrcPick(force){
+  if(!_vrc) return;
+  const pid=vrcProductIdFromInput();
+  const wid=String((vrcEl('vrc-wh')||{}).value||'');
+  if(!pid){ if(force) showToast('کالا را از فهرست انتخاب کنید','error'); return; }
+  const changed=(pid!==_vrc.productId)||(wid!==_vrc.warehouseId);
+  _vrc.productId=pid; _vrc.warehouseId=wid;
+  if(!wid){
+    if(force) showToast('انبار را انتخاب کنید','error');
+    _vrc.data=null; _vrc.seq++;
+    const b=vrcEl('vrcBody'); if(b) b.innerHTML='<div class="muted">انبار را انتخاب کنید.</div>';
+    vrcLoadDocs();
+    return;
+  }
+  if(changed || force || !_vrc.data) vrcLoad();
+}
+
+async function vrcLoad(){
+  const S=_vrc; if(!S) return;
+  const pid=S.productId, wid=S.warehouseId;
+  const box=vrcEl('vrcBody'); if(!box) return;
+  const seq=++S.seq;
+  box.innerHTML='<div class="muted">در حال بارگذاری…</div>';
+  let d=null;
+  try{
+    d=await api('GET','/inventory/variant-reclass/candidates?product_id='+encodeURIComponent(pid)+'&warehouse_id='+encodeURIComponent(wid),null,false,true);
+  }catch(e){
+    if(_vrc!==S || seq!==S.seq) return;
+    box.innerHTML=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9`)}">⛔ ${esc(e.message||'خواندن ردیف‌های قابل تفکیک ناموفق بود')}</div>`;
+    S.data=null;
+    vrcLoadDocs();
+    return;
+  }
+  if(_vrc!==S || seq!==S.seq) return;
+  const D=vrcNormalize(d);
+  if(!D.variants.length){
+    try{
+      const s=await api('GET','/product-variants/style/'+pid+'?warehouse_id='+encodeURIComponent(wid),null,false,true);
+      D.variants=((s&&s.variants)||[]).map(v=>({
+        id:Number(v.id),
+        label:[v.color_name,(typeof displaySizeName==='function'?displaySizeName(v.size_name):v.size_name)].filter(Boolean).join(' / ')||v.sku||('#'+v.id),
+        sku:v.sku||'', qty:Number(v.stock)||0, active:v.active!==0, is_default:!!Number(v.is_default),
+      })).filter(v=>v.id);
+      D.active=D.variants.filter(v=>v.active && !v.is_default);
+      D.variant_total=round3(D.variants.reduce((a,v)=>a+(v.is_default?0:v.qty),0));
+    }catch(_){}
+  }
+  if(_vrc!==S || seq!==S.seq) return;
+  S.data=D; S.qtys={}; S.preview=null; S.sig='';
+  const elig=D.candidates.filter(c=>c.eligible);
+  if(S.pendingLedger && elig.some(c=>c.id===S.pendingLedger)) S.ledgerId=S.pendingLedger;
+  else if(S.ledgerId && elig.some(c=>c.id===S.ledgerId)) { /* همان انتخاب */ }
+  else S.ledgerId=(elig.length===1)?elig[0].id:null;
+  S.pendingLedger=null;
+  vrcRenderBody();
+  vrcLoadDocs();
+}
+
+function vrcSelected(){
+  const D=_vrc&&_vrc.data; if(!D) return null;
+  return D.candidates.find(c=>c.id===_vrc.ledgerId && c.eligible)||null;
+}
+function vrcTarget(){
+  const D=_vrc&&_vrc.data; if(!D) return 0;
+  if(_vrc.mode==='net') return D.netElig;
+  const r=vrcSelected(); return r?r.qty:0;
+}
+function vrcEntered(){
+  const D=_vrc.data;
+  let sum=0;
+  (D.active||[]).forEach(v=>{ sum+=vrcNum(_vrc.qtys[v.id]); });
+  return round3(sum);
+}
+function vrcDirFa(dir){ return dir==='in'?'ورود':'خروج'; }
+
+function vrcRenderBody(){
+  const S=_vrc, box=vrcEl('vrcBody'); if(!S||!box) return;
+  const D=S.data;
+  if(!D){ box.innerHTML='<div class="muted">کالا و انبار را انتخاب کنید.</div>'; return; }
+  const unit=esc(D.unit||'');
+  const kpi=(label,val,tone)=>`<div data-csp-style="${CSP.style(`flex:1;min-width:130px;padding:8px 12px;border:1px solid var(--border);border-radius:10px`)}">
+      <div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">${label}</div>
+      <div class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:16px;color:${tone||'inherit'}`)}">${val==null?'—':vrcQ(val)}</div></div>`;
+  const unal=D.unallocated_net!=null?D.unallocated_net:D.netElig;
+  const nonDefault=D.variants.filter(v=>!v.is_default);
+  const elig=D.candidates.filter(c=>c.eligible);
+  const sel=vrcSelected();
+  const net=S.mode==='net';
+  const variantsTbl=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ / سایز</th><th>موجودی رنگ×سایز در این انبار</th></tr></thead><tbody>
+    ${nonDefault.map(v=>`<tr ${v.active?'':`data-csp-style="${CSP.style(`opacity:.55`)}"`}><td>${esc(v.label)}${v.active?'':' <span class="muted">(غیرفعال)</span>'}</td><td class="mono" data-csp-style="${CSP.style(`color:${v.qty<0?'var(--red)':'inherit'};font-weight:${v.qty<0?'700':'400'}`)}">${vrcQ(v.qty)}</td></tr>`).join('')||'<tr><td colspan="2" class="empty">رنگ/سایز فعالی برای این کالا نیست</td></tr>'}
+    <tr data-csp-style="${CSP.style(`background:var(--purple-light)`)}"><td><b>بدون واریانت (ماندهٔ خالص ردیف‌های تفکیک‌نشده)</b></td><td class="mono" data-csp-style="${CSP.style(`font-weight:700;color:${Math.abs(unal)>VRC_EPS?'var(--red)':'inherit'}`)}">${vrcQ(unal)}</td></tr>
+    </tbody></table></div>`;
+  const candTbl=`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th class="no-sort">${net?'':'انتخاب'}</th><th>تاریخ</th><th>شماره</th><th>رویداد</th><th>جهت</th><th>تعداد <b>کل</b> ردیف</th><th>شرح</th></tr></thead><tbody>
+    ${D.candidates.map(c=>{
+      const on=sel&&sel.id===c.id;
+      return `<tr ${c.eligible?'':`data-csp-style="${CSP.style(`opacity:.55`)}"`}>
+        <td>${net?(c.eligible?'✔':''):(c.eligible?`<input type="radio" name="vrcRow" ${on?'checked':''} data-csp-change="${CSP.bind('change',function(){vrcSelectRow(c.id)})}">`:'⛔')}</td>
+        <td class="mono">${escDate(c.date)}</td>
+        <td class="mono">${esc(c.tx_no||('#'+c.id))}</td>
+        <td>${esc(c.event_type||'—')}</td>
+        <td data-csp-style="${CSP.style(`color:${c.direction==='in'?'var(--green)':'var(--red)'}`)}">${vrcDirFa(c.direction)}</td>
+        <td class="mono" data-csp-style="${CSP.style(`font-weight:700;font-size:14px`)}">${vrcQ(c.qty)} ${unit}</td>
+        <td class="muted">${esc(c.description||'')}${c.eligible?'':` <b data-csp-style="${CSP.style(`color:var(--red)`)}">${esc(c.why||'قابل تفکیک نیست')}</b>`}</td></tr>`;
+    }).join('')||`<tr><td colspan="7" class="empty">ردیف زندهٔ بی‌واریانتی برای تفکیک در این انبار نیست</td></tr>`}
+    </tbody></table></div>`;
+  let banner='';
+  if(!net && sel){
+    banner=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">⚠ ردیف انتخاب‌شده <b>${vrcQ(sel.qty)} ${unit}</b> (${vrcDirFa(sel.direction)}) است. <b>جمع تعداد رنگ/سایزها باید دقیقاً ${vrcQ(sel.qty)} شود</b>
+      ${Math.abs(sel.qty-unal)>VRC_EPS?`— نه ماندهٔ خالص ${vrcQ(unal)}؛ تفکیک روی کل همین ردیف است.`:'.'}</div>`;
+  }else if(!net){
+    banner=`<div class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">یک ردیف را انتخاب کنید؛ تفکیک روی <b>کل تعداد همان ردیف</b> انجام می‌شود.</div>`;
+  }else{
+    banner=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">حالت راهنما: فقط تعداد «ماندهٔ خالص» (<b>${vrcQ(D.netElig)} ${unit}</b>) را بین رنگ/سایزها پخش کنید (جمع باید برابر ماندهٔ خالص باشد؛ عدد منفی مجاز است). صفحه آن را به ردیف‌های لازم (ورود اول، بعد خروج) می‌شکند و <b>هر ردیف را کامل</b> تفکیک می‌کند.
+      ${D.unallocated_net!=null && Math.abs(D.unallocated_net-D.netElig)>VRC_EPS?`<br>⚠ ماندهٔ خالص گزارش‌شده (${vrcQ(D.unallocated_net)}) با جمع ردیف‌های قابل‌تفکیک (${vrcQ(D.netElig)}) یکی نیست؛ بعضی ردیف‌ها قابل تفکیک نیستند — این حالت ممکن است ثبت نشود.`:''}</div>`;
+  }
+  const inputsTbl=!S.mutate?'':`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ / سایز</th><th>موجودی فعلی</th><th>${net?'سهم از ماندهٔ خالص':'تعداد'}</th><th>موجودی پس از ثبت</th></tr></thead><tbody>
+    ${(D.active||[]).map(v=>`<tr><td>${esc(v.label)}</td><td class="mono" data-csp-style="${CSP.style(`color:${v.qty<0?'var(--red)':'inherit'}`)}">${vrcQ(v.qty)}</td>
+      <td><input type="number" ${net?'':'min="0"'} step="${D.integer?'1':'any'}" class="vrcQty" data-vid="${v.id}" value="${esc(String(S.qtys[v.id]??''))}" data-csp-style="${CSP.style(`width:110px`)}" data-csp-input="${CSP.bind('input',function(){vrcQtyChanged(v.id,this.value)})}"></td>
+      <td class="mono" id="vrc-after-${v.id}">—</td></tr>`).join('')||'<tr><td colspan="4" class="empty">رنگ/سایز فعالی برای این کالا نیست</td></tr>'}
+    </tbody></table></div>
+    <div id="vrcSum" data-csp-style="${CSP.style(`margin:8px 0;font-weight:700;line-height:1.9`)}"></div>
+    <div class="form-grid"><div class="fg full"><label>علت (حداقل ۵ نویسه) *</label><input id="vrc-reason" maxlength="300" placeholder="مثلاً: تفکیک ردیف قدیمی طبق رسید تولید" data-csp-input="${CSP.bind('input',function(){vrcReasonChanged()})}"></div></div>
+    <div id="vrcPreview" data-csp-style="${CSP.style(`margin-top:8px`)}"></div>
+    <div data-csp-style="${CSP.style(`display:flex;gap:8px;flex-wrap:wrap;margin-top:10px`)}">
+      <button type="button" class="btn" id="vrcBtnPreview" data-csp-click="${CSP.bind('click',function(){vrcDoPreview()})}">👁 پیش‌نمایش</button>
+      <button type="button" class="btn green" id="vrcBtnPost" disabled data-csp-click="${CSP.bind('click',function(){vrcDoPost()})}">✅ ثبت نهایی</button>
+    </div>`;
+  box.innerHTML=`
+    <div data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 10px`)}">
+      ${kpi('کاردکس کالا×انبار',D.kardex_qty)}
+      ${kpi('موجودی انبار',D.warehouse_qty)}
+      ${kpi('جمع رنگ×سایز',D.variant_total)}
+      ${kpi('ماندهٔ بی‌واریانت (خالص)',unal,Math.abs(unal)>VRC_EPS?'var(--red)':'')}
+    </div>
+    <div class="muted" data-csp-style="${CSP.style(`font-size:11.5px;margin-bottom:6px`)}">${D.allow_negative===false?'این انبار موجودی منفی را مجاز نمی‌داند؛ تفکیکی که خانهٔ رنگ×سایز را منفی کند ثبت نمی‌شود.':(D.allow_negative===true?'این انبار موجودی منفی را مجاز می‌داند.':'')}${D.integer?' · واحد کالا صحیح است؛ فقط عدد صحیح.':''}</div>
+    <h4 data-csp-style="${CSP.style(`margin:8px 0 4px`)}">ماتریس رنگ × سایز (مقدار منفی قرمز)</h4>${variantsTbl}
+    <h4 data-csp-style="${CSP.style(`margin:12px 0 4px`)}">ردیف‌های قابل تفکیک (هر ردیف با تعداد کامل)</h4>
+    ${elig.length?`<div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px`)}">
+      <button type="button" class="btn sm ${net?'ghost':''}" data-csp-click="${CSP.bind('click',function(){vrcSetMode('row')})}">تفکیک یک ردیف</button>
+      <button type="button" class="btn sm ${net?'':'ghost'}" data-csp-click="${CSP.bind('click',function(){vrcSetMode('net')})}">راهنما: فقط ماندهٔ خالص (چندردیفی)</button></div>`:''}
+    ${candTbl}
+    ${banner}
+    ${S.mutate&&elig.length?inputsTbl:(S.mutate?'':'<div class="muted">ثبت/ابطال برای شما فعال نیست.</div>')}`;
+  vrcUpdateStatus(true);
+}
+
+function vrcSelectRow(id){
+  if(!_vrc) return;
+  _vrc.ledgerId=id; _vrc.preview=null; _vrc.sig='';
+  vrcRenderBody();
+}
+function vrcSetMode(m){
+  if(!_vrc || _vrc.mode===m) return;
+  _vrc.mode=m; _vrc.qtys={}; _vrc.preview=null; _vrc.sig='';
+  vrcRenderBody();
+}
+function vrcQtyChanged(vid,val){
+  if(!_vrc) return;
+  _vrc.qtys[vid]=val;
+  vrcUpdateStatus(false);
+}
+function vrcReasonChanged(){
+  /* علت داخل امضای پیش‌نمایش نیست؛ فقط دکمهٔ ثبت را بر اساس طول علت نگه می‌داریم */
+  vrcSyncPostBtn();
+}
+function vrcSig(){
+  const S=_vrc;
+  return JSON.stringify({m:S.mode,l:S.ledgerId,p:S.productId,w:S.warehouseId,q:S.qtys});
+}
+function vrcSyncPostBtn(){
+  const b=vrcEl('vrcBtnPost'); if(!b) return;
+  const S=_vrc;
+  const reasonOk=String((vrcEl('vrc-reason')||{}).value||'').trim().length>=5;
+  b.disabled=!(S.mutate && S.preview && S.preview.ok && S.preview.sig===vrcSig() && reasonOk && !S.busy);
+}
+/** جمع واردشده / هدف + «موجودی پس از ثبت»؛ بدون ساخت مجدد ورودی‌ها تا فوکوس نپرد. */
+function vrcUpdateStatus(initial){
+  const S=_vrc; if(!S||!S.data) return;
+  const D=S.data;
+  if(!initial){
+    S.preview=null;
+    const pv=vrcEl('vrcPreview'); if(pv) pv.innerHTML='';
+  }
+  const target=vrcTarget();
+  const sum=vrcEntered();
+  const diff=round3(target-sum);
+  const bar=vrcEl('vrcSum');
+  if(bar){
+    const ok=Math.abs(diff)<=VRC_EPS && target!==0;
+    bar.innerHTML=`جمع واردشده: <span class="mono">${vrcQ(sum)}</span> از هدف <span class="mono">${vrcQ(target)}</span> ${D.unit?esc(D.unit):''}
+      — <span data-csp-style="${CSP.style(`color:${ok?'var(--green)':'var(--red)'}`)}">${ok?'✅ برابر است':(diff>0?('هنوز '+vrcQ(diff)+' باقی مانده'):('به اندازهٔ '+vrcQ(-diff)+' بیشتر است'))}</span>`;
+  }
+  const steps=vrcBuildSteps(true);
+  (D.active||[]).forEach(v=>{
+    const c=vrcEl('vrc-after-'+v.id); if(!c) return;
+    const delta=steps.deltas?steps.deltas[v.id]:undefined;
+    if(delta===undefined){ c.textContent='—'; return; }
+    const after=round3(v.qty+delta);
+    c.textContent=vrcQ(after)+(delta?` (${vrcSigned(delta)})`:'');
+    c.className='mono'+(after<0?' vrc-neg':'');
+    c.style.color=after<0?'var(--red)':'';
+  });
+  vrcSyncPostBtn();
+}
+
+function vrcRowOrder(a,b){
+  const da=String(a.date||''), db=String(b.date||'');
+  return da<db?-1:(da>db?1:a.id-b.id);
+}
+/** پخش کامل تعداد هر ردیف روی سهم رنگ/سایزها (پر کردن ترتیبی). */
+function vrcSplitAcross(rows, perVar){
+  const out={}; rows.forEach(r=>{ out[r.id]=[]; });
+  const pv=perVar.map(x=>({ vid:x.vid, left:round3(x.qty) })).filter(x=>x.left>VRC_EPS);
+  let vi=0;
+  for(const r of rows){
+    let need=round3(r.qty);
+    while(need>VRC_EPS && vi<pv.length){
+      const take=round3(Math.min(need,pv[vi].left));
+      if(take>0){
+        const ex=out[r.id].find(l=>l.variant_id===pv[vi].vid);
+        if(ex) ex.qty=round3(ex.qty+take); else out[r.id].push({ variant_id:pv[vi].vid, qty:take });
+      }
+      need=round3(need-take); pv[vi].left=round3(pv[vi].left-take);
+      if(pv[vi].left<=VRC_EPS) vi++;
+    }
+    if(need>VRC_EPS) return null;
+  }
+  return out;
+}
+/**
+ * برنامهٔ ثبت را از ورودی‌ها می‌سازد. quiet=true: فقط deltas برای نمایش (خطا پیام ندارد).
+ * خروجی: { ok, error, steps:[{ledger_id,tx_no,direction,qty,lines}], deltas:{vid:delta} }
+ */
+function vrcBuildSteps(quiet){
+  const S=_vrc, D=S&&S.data;
+  const fail=(msg,deltas)=>({ ok:false, error:quiet?'':msg, steps:[], deltas });
+  if(!D) return fail('داده‌ای بارگذاری نشده');
+  const act=D.active||[];
+  const vals=act.map(v=>({ v, q:vrcNum(S.qtys[v.id]) }));
+  const entered=vals.filter(x=>Math.abs(x.q)>0);
+  const net=S.mode==='net';
+  const deltas={};
+  let steps=[];
+  if(!act.length) return fail('این کالا رنگ×سایز فعال ندارد');
+  if(D.integer){
+    const bad=entered.find(x=>!vrcIsInt(x.q));
+    if(bad) return fail('این کالا صحیح است؛ تعداد «'+bad.v.label+'» باید عدد صحیح باشد');
+  }
+  if(!net){
+    const r=vrcSelected();
+    if(!r) return fail('یک ردیف قابل تفکیک را انتخاب کنید');
+    const neg=entered.find(x=>x.q<0);
+    if(neg) return fail('تعداد منفی در حالت «یک ردیف» مجاز نیست ('+neg.v.label+')');
+    vals.forEach(x=>{ deltas[x.v.id]=(r.direction==='in'?1:-1)*x.q; });
+    const sum=round3(entered.reduce((a,x)=>a+x.q,0));
+    if(!entered.length) return fail('تعداد هر رنگ/سایز را وارد کنید (جمع باید '+vrcQ(r.qty)+' شود)',deltas);
+    if(Math.abs(sum-r.qty)>VRC_EPS) return fail('جمع واردشده ('+vrcQ(sum)+') باید دقیقاً برابر تعداد کل ردیف ('+vrcQ(r.qty)+') باشد؛ تفکیک روی کل ردیف است، نه ماندهٔ خالص',deltas);
+    steps=[{ ledger_id:r.id, tx_no:r.tx_no, direction:r.direction, qty:r.qty, amount_rial:r.amount_rial,
+      lines:entered.map(x=>({ variant_id:x.v.id, qty:x.q })) }];
+  }else{
+    const elig=D.candidates.filter(c=>c.eligible);
+    if(!elig.length) return fail('ردیف قابل تفکیکی نیست');
+    vals.forEach(x=>{ deltas[x.v.id]=x.q; });
+    const inRows=elig.filter(c=>c.direction==='in').sort(vrcRowOrder);
+    const outRows=elig.filter(c=>c.direction==='out').sort(vrcRowOrder);
+    const I=round3(inRows.reduce((a,c)=>a+c.qty,0)), O=round3(outRows.reduce((a,c)=>a+c.qty,0));
+    const netQ=round3(I-O);
+    const sum=round3(vals.reduce((a,x)=>a+x.q,0));
+    if(!entered.length) return fail('سهم هر رنگ/سایز از ماندهٔ خالص ('+vrcQ(netQ)+') را وارد کنید',deltas);
+    if(Math.abs(sum-netQ)>VRC_EPS) return fail('جمع واردشده ('+vrcQ(sum)+') باید برابر ماندهٔ خالص ('+vrcQ(netQ)+') باشد',deltas);
+    if(Math.abs(netQ)<=VRC_EPS) return fail('ماندهٔ خالص صفر است و نمی‌شود سهم رنگ‌ها را حدس زد؛ با حالت «تفکیک یک ردیف» هر ردیف را جدا تفکیک کنید',deltas);
+    // خروج‌ها: حداقل برای سهم‌های منفی؛ مازاد روی بزرگ‌ترین سهم مثبت (اثر خالص همان سهم می‌ماند)
+    const outV={}; let minSum=0;
+    vals.forEach(x=>{ const m=x.q<0?round3(-x.q):0; outV[x.v.id]=m; minSum=round3(minSum+m); });
+    const extra=round3(O-minSum);
+    if(extra<-VRC_EPS) return fail('سهم‌های منفی ('+vrcQ(minSum)+') از جمع ردیف‌های خروج بی‌واریانت ('+vrcQ(O)+') بیشتر است؛ چنین تفکیکی با این ردیف‌ها ممکن نیست',deltas);
+    if(extra>VRC_EPS){
+      let best=vals[0];
+      vals.forEach(x=>{ if(x.q>best.q) best=x; });
+      outV[best.v.id]=round3(outV[best.v.id]+extra);
+    }
+    const inV=vals.map(x=>({ vid:x.v.id, qty:round3(x.q+outV[x.v.id]) }));
+    if(inV.some(x=>x.qty<-VRC_EPS)) return fail('برنامهٔ ورود/خروج منفی شد؛ سهم‌ها را اصلاح کنید',deltas);
+    const outList=vals.map(x=>({ vid:x.v.id, qty:outV[x.v.id] }));
+    const inSplit=inRows.length?vrcSplitAcross(inRows,inV.map(x=>({vid:x.vid,qty:Math.max(0,x.qty)}))):{};
+    const outSplit=outRows.length?vrcSplitAcross(outRows,outList):{};
+    if(inRows.length && !inSplit) return fail('پخش ردیف‌های ورود روی رنگ/سایزها ممکن نشد',deltas);
+    if(outRows.length && !outSplit) return fail('پخش ردیف‌های خروج روی رنگ/سایزها ممکن نشد',deltas);
+    if(!inRows.length && inV.some(x=>x.qty>VRC_EPS)) return fail('ردیف ورودی برای تخصیص مقدار مثبت نیست',deltas);
+    inRows.forEach(r=>steps.push({ ledger_id:r.id, tx_no:r.tx_no, direction:'in', qty:r.qty, amount_rial:r.amount_rial, lines:inSplit[r.id] }));
+    outRows.forEach(r=>steps.push({ ledger_id:r.id, tx_no:r.tx_no, direction:'out', qty:r.qty, amount_rial:r.amount_rial, lines:outSplit[r.id] }));
+    if(steps.some(s=>!s.lines||!s.lines.length)) return fail('پخش ردیف‌ها کامل نشد',deltas);
+  }
+  if(D.allow_negative===false){
+    const bad=act.find(v=>deltas[v.id]<0 && round3(v.qty+deltas[v.id])<-VRC_EPS);
+    if(bad){
+      const after=round3(bad.qty+deltas[bad.id]);
+      return fail('این برنامه خانهٔ «'+bad.label+'» را منفی می‌کند (موجودی فعلی '+vrcQ(bad.qty)+'، تغییر '+vrcSigned(deltas[bad.id])+' ← '+vrcQ(after)+') و این انبار موجودی منفی را مجاز نمی‌داند؛ تعداد را اصلاح کنید.',deltas);
+    }
+  }
+  return { ok:true, error:'', steps, deltas };
+}
+
+function vrcStepHtml(step, pv, idx, total){
+  const lblOf=id=>{ const v=(_vrc.data.variants||[]).find(x=>x.id===Number(id)); return v?v.label:('#'+id); };
+  const lines=(pv&&pv.lines)||step.lines.map(l=>({ variant_id:l.variant_id, qty:l.qty }));
+  const gl=pv?Number(pv.gl_effect_rial):null;
+  const glOk=pv && pv.gl_effect_rial!==undefined && gl===0;
+  return `<div data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px`)}">
+    <div><b>${total>1?('مرحلهٔ '+vrcQ(idx+1)+' از '+vrcQ(total)+' — '):''}ردیف ${esc(step.tx_no||('#'+step.ledger_id))}</b>
+      <span data-csp-style="${CSP.style(`color:${step.direction==='in'?'var(--green)':'var(--red)'}`)}">${vrcDirFa(step.direction)}</span>
+      · کل تعداد ردیف <b class="mono">${vrcQ(step.qty)}</b>${step.amount_rial!=null?` · مبلغ <span class="mono">${fmt(step.amount_rial)}</span> ریال`:''}</div>
+    <table class="tbl" data-csp-style="${CSP.style(`font-size:12px;margin:6px 0`)}"><thead><tr><th>رنگ / سایز</th><th>تعداد</th>${pv?'<th>مبلغ سهم (ریال)</th>':''}</tr></thead><tbody>
+    ${lines.map(l=>`<tr><td>${esc(lblOf(l.variant_id))}</td><td class="mono">${vrcQ(l.qty)}</td>${pv?`<td class="mono">${l.amount_rial!=null?fmt(l.amount_rial):'—'}</td>`:''}</tr>`).join('')}
+    </tbody></table>
+    ${pv?`<div>اثر روی دفتر کل (<span dir="ltr">gl_effect_rial</span>): <b class="mono" data-csp-style="${CSP.style(`color:${glOk?'var(--green)':'var(--red)'}`)}">${pv.gl_effect_rial===undefined?'—':fmt(gl)}</b> ریال ${glOk?'✅ بدون سند حسابداری':'⛔ باید صفر باشد — ثبت مسدود است'}</div>`:''}
+  </div>`;
+}
+
+async function vrcDoPreview(){
+  const S=_vrc; if(!S||!S.data||S.busy) return;
+  const pvBox=vrcEl('vrcPreview'); if(!pvBox) return;
+  const plan=vrcBuildSteps(false);
+  if(!plan.ok){ pvBox.innerHTML=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9`)}">⛔ ${esc(plan.error)}</div>`; return; }
+  const reason=String((vrcEl('vrc-reason')||{}).value||'').trim();
+  S.busy=true; vrcSyncPostBtn();
+  const btn=vrcEl('vrcBtnPreview'); if(btn) btn.disabled=true;
+  pvBox.innerHTML='<div class="muted">در حال محاسبهٔ پیش‌نمایش…</div>';
+  const results=[]; let allOk=true; let err='';
+  try{
+    for(const step of plan.steps){
+      const r=await api('POST','/inventory/variant-reclass/preview',{ ledger_id:step.ledger_id, lines:step.lines, reason },false,true);
+      results.push(r||{});
+      if(!r || r.gl_effect_rial===undefined || Number(r.gl_effect_rial)!==0) allOk=false;
+    }
+  }catch(e){ allOk=false; err=e.message||'پیش‌نمایش ناموفق بود'; }
+  S.busy=false;
+  if(_vrc!==S) return;
+  if(btn) btn.disabled=false;
+  const html=plan.steps.map((st,i)=>vrcStepHtml(st,results[i],i,plan.steps.length)).join('');
+  pvBox.innerHTML=(plan.steps.length>1?`<div class="muted" data-csp-style="${CSP.style(`margin-bottom:6px;line-height:1.9`)}">این تفکیک در ${vrcQ(plan.steps.length)} سند VR ثبت می‌شود (ورودها اول). اگر مرحلهٔ بعدی خطا بدهد، مراحل قبلیِ ثبت‌شده می‌مانند و با ابطال همان سند برمی‌گردند.</div>`:'')
+    +html+(err?`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9`)}">⛔ ${esc(err)}</div>`:'')
+    +(allOk&&!err?`<div data-csp-style="${CSP.style(`color:var(--green);font-weight:700`)}">✅ پیش‌نمایش درست است — علت را بنویسید و «ثبت نهایی» را بزنید.</div>`:'');
+  S.preview={ ok:allOk&&!err&&results.length===plan.steps.length, sig:vrcSig(), steps:plan.steps };
+  vrcSyncPostBtn();
+}
+
+async function vrcDoPost(){
+  const S=_vrc; if(!S||!S.data||S.busy) return;
+  if(!S.mutate){ showToast(VRC_CENTRAL_MSG,'error'); return; }
+  const reason=String((vrcEl('vrc-reason')||{}).value||'').trim();
+  if(reason.length<5){ showToast('علت حداقل ۵ نویسه','error'); return; }
+  if(!S.preview || !S.preview.ok || S.preview.sig!==vrcSig()){ showToast('بعد از هر تغییر، دوباره «پیش‌نمایش» بزنید','error'); return; }
+  const steps=S.preview.steps;
+  if(!confirm(`${steps.length>1?(vrcQ(steps.length)+' سند VR'):'سند VR'} ثبت قطعی شود؟ (بدون اثر روی دفتر کل؛ ابطال‌پذیر)`)) return;
+  S.busy=true; vrcSyncPostBtn();
+  const posted=[]; let failMsg='', failAt=-1;
+  for(let i=0;i<steps.length;i++){
+    try{
+      const r=await api('POST','/inventory/variant-reclass',{ ledger_id:steps[i].ledger_id, lines:steps[i].lines, reason, confirm:true },false,true);
+      posted.push((r&&r.doc_no)||(r&&r.id?('#'+r.id):'—'));
+    }catch(e){ failMsg=e.message||'ثبت ناموفق بود'; failAt=i; break; }
+  }
+  S.busy=false;
+  if(_vrc!==S) return;
+  let html='';
+  if(posted.length) html+=`<div data-csp-style="${CSP.style(`border:1px solid var(--green);border-radius:8px;padding:8px 12px;margin-top:10px;line-height:1.9`)}">✅ ثبت شد — شمارهٔ سند: <b class="mono">${posted.map(esc).join('، ')}</b> (بدون سند حسابداری)</div>`;
+  if(failAt>=0){
+    html+=`<div class="oh-warn" data-csp-style="${CSP.style(`margin-top:10px;line-height:1.9`)}">⛔ مرحلهٔ ${vrcQ(failAt+1)} از ${vrcQ(steps.length)} (ردیف ${esc(steps[failAt].tx_no||('#'+steps[failAt].ledger_id))}) انجام نشد: ${esc(failMsg)}
+      ${posted.length?`<br><b>مراحل قبلی ثبت شده‌اند (${posted.map(esc).join('، ')}) و می‌مانند.</b> در صورت نیاز همان سندها را از فهرست پایین «ابطال» کنید، یا مشکل را رفع و بقیه را دوباره ثبت کنید.`:''}</div>`;
+    showToast(failMsg,'error');
+  }else{
+    showToast('✅ '+(posted.length>1?(vrcQ(posted.length)+' سند VR ثبت شد'):('سند '+posted[0]+' ثبت شد')));
+  }
+  S.resultHtml=html;
+  const rb=vrcEl('vrcResult'); if(rb) rb.innerHTML=html;
+  if(S.opts && typeof S.opts.onDone==='function' && posted.length){ try{ S.opts.onDone(posted); }catch(_){} }
+  if(posted.length){ S.ledgerId=null; S.preview=null; await vrcLoad(); }
+  else vrcSyncPostBtn();
+  const rb2=vrcEl('vrcResult'); if(rb2) rb2.innerHTML=html;
+}
+
+async function vrcLoadDocs(){
+  const S=_vrc; if(!S) return;
+  const box=vrcEl('vrcDocs'); if(!box) return;
+  if(!S.productId){ box.innerHTML=''; return; }
+  let rows=[];
+  try{
+    const d=await api('GET','/inventory/variant-reclass?product_id='+encodeURIComponent(S.productId)+'&limit=100',null,false,true);
+    rows=Array.isArray(d)?d:((d&&(d.docs||d.rows||d.items))||[]);
+  }catch(e){
+    if(_vrc===S) box.innerHTML=`<div class="muted" data-csp-style="${CSP.style(`margin-top:12px`)}">فهرست سندهای VR خوانده نشد: ${esc(e.message||'')}</div>`;
+    return;
+  }
+  if(_vrc!==S) return;
+  const lblOf=id=>{ const v=((S.data&&S.data.variants)||[]).find(x=>x.id===Number(id)); return v?v.label:('#'+id); };
+  const stFa=st=>st==='posted'?'ثبت‌شده':((st==='voided'||st==='void'||st==='cancelled')?'⛔ ابطال‌شده':esc(st||'—'));
+  box.innerHTML=`<h4 data-csp-style="${CSP.style(`margin:14px 0 4px`)}">🧾 سندهای VR این کالا</h4>
+    <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr>
+      <th>شماره</th><th>تاریخ</th><th>ردیف مبدأ</th><th>تفکیک</th><th>علت</th><th>وضعیت</th><th class="no-sort"></th></tr></thead><tbody>
+    ${rows.map(r=>{
+      const lines=Array.isArray(r.lines)?r.lines:[];
+      const posted=r.status==='posted';
+      const dt=r.date?escDate(r.date):(r.created_at?esc(String(r.created_at).slice(0,16)):'');
+      return `<tr ${posted?'':`data-csp-style="${CSP.style(`opacity:.6`)}"`}>
+        <td class="mono">${esc(r.doc_no||('#'+r.id))}</td>
+        <td class="mono">${dt}</td>
+        <td class="mono">#${esc(String(r.source_ledger_id||''))}</td>
+        <td>${lines.map(l=>esc(lblOf(l.variant_id))+': <b class="mono">'+vrcQ(l.qty)+'</b>').join('<br>')}</td>
+        <td class="muted">${esc(r.reason||'')}</td>
+        <td>${stFa(r.status)}</td>
+        <td>${posted&&S.mutate?`<button type="button" class="btn sm red" data-csp-click="${CSP.bind('click',function(){vrcVoid(r.id, r.doc_no)})}">⛔ ابطال</button>`:''}</td></tr>`;
+    }).join('')||emptyRow(7)}
+    </tbody></table></div>`;
+}
+
+async function vrcVoid(id, docNo){
+  const S=_vrc; if(!S||!S.mutate||S.busy) return;
+  const reason=prompt('علت ابطال سند '+(docNo||('#'+id))+' (حداقل ۵ نویسه):');
+  if(reason==null) return;
+  if(String(reason).trim().length<5){ showToast('علت حداقل ۵ نویسه','error'); return; }
+  if(!confirm('سند '+(docNo||('#'+id))+' ابطال شود؟ ردیف‌های تفکیکی معکوس و ردیف اصلی دوباره زنده می‌شود (بدون حذف).')) return;
+  S.busy=true;
+  try{
+    await api('POST','/inventory/variant-reclass/'+id+'/void',{ reason:String(reason).trim(), confirm:true },false,true);
+    showToast('سند '+(docNo||('#'+id))+' ابطال شد');
+    S.busy=false;
+    if(S.opts && typeof S.opts.onDone==='function'){ try{ S.opts.onDone(null); }catch(_){} }
+    if(_vrc===S){ if(S.productId&&S.warehouseId) await vrcLoad(); else await vrcLoadDocs(); }
+  }catch(e){
+    S.busy=false;
+    showToast(e.message||'ابطال ناموفق بود','error');
+  }
+}
+
 /** تعدیل‌های دستی اخیر + ابطال کامل (R13). */
 async function openStockAdjustRecent(opts){
   opts=opts||{};
@@ -42956,16 +43573,19 @@ function renderAdminGuide(){
   return [
     helpSec('🗑️','حذف کالای بدون گردش واقعی (v632)',`
       <p>کالای مصنوعی بدون هیچ سابقهٔ انبار/سند با <span dir="ltr">DELETE /api/products/:id</span> حذف می‌شود. هر ردیف کاردکس (حتی معکوس/صفر/فقط مبلغ)، حرکت/حواله/VR/افتتاحیه/برگشت خرید/انبارگردانی/BOM یا گردش تفصیلی → <b>۴۰۹</b> با شماره سند و پیشنهاد غیرفعال‌سازی. شناسهٔ کوتاه در JSON با شناسهٔ بلند اشتباه نمی‌شود. حذف ERP صفحهٔ وب‌سایت را پاک نمی‌کند.</p>`),
-    helpSec('🎨','سند اصلاح تفکیک واریانت (VR) + بازیابی از بکاپ (v627)',`
-      <p>ردیف‌های قدیمی کاردکس کالای رنگ×سایز که <span dir="ltr">variant_id</span> ندارند فقط در موجودی کل و انبار حساب می‌شوند و در ماتریس رنگ×سایز «بدون واریانت» می‌مانند. <b>سند اصلاح تفکیک واریانت</b> (شماره از توالی <b>VR</b>) چنین ردیفی را به تفکیک واریانت دوباره ثبت می‌کند؛ هیچ عددی دستی نوشته نمی‌شود.</p>
+    helpSec('🎨','صفحهٔ «اصلاح تفکیک رنگ و سایز» (سند VR) + بازیابی از بکاپ (v633)',`
+      <p>ردیف‌های قدیمی کاردکس کالای رنگ×سایز که <span dir="ltr">variant_id</span> ندارند فقط در موجودی کل و انبار حساب می‌شوند و در ماتریس رنگ×سایز «بدون واریانت» می‌مانند. <b>سند اصلاح تفکیک واریانت</b> (شماره از توالی <b>VR</b>) چنین ردیفی را به تفکیک واریانت دوباره ثبت می‌کند. از v633 این کار با صفحهٔ <b>انبار ← عملیات ← «🎨 اصلاح تفکیک رنگ و سایز»</b> انجام می‌شود (فقط مدیر یا دسترسی «عملیات انبار — حذف»، فقط سرور مرکزی؛ روی ویندوز/اندروید فقط پیام «این عملیات فقط روی سرور مرکزی…» دیده می‌شود). <b>تعداد هر رنگ/سایز را خودتان وارد می‌کنید</b>؛ سیستم فقط جمع را کنترل می‌کند و هیچ تخصیصی را حدس نمی‌زند.</p>
       <ul>
+        <li><b>مراحل صفحه:</b> ۱) کالا و انبار را انتخاب کنید ← کاردکس، ماتریس رنگ×سایز (با خانه‌های منفی)، «ماندهٔ بی‌واریانت (خالص)» و هر ردیف قابل تفکیک نمایش داده می‌شود. ۲) یک ردیف را انتخاب کنید. <b>تفکیک همیشه روی کل تعداد همان ردیف است</b> (مثلاً ردیف ورود ۲۴ یا ردیف خروج ۸)، نه فقط روی «باقیماندهٔ» ۱۶ — جمع تعدادهای رنگ/سایز باید دقیقاً برابر تعداد همان ردیف باشد (نوار «جمع واردشده / هدف» لحظه‌ای نشان می‌دهد؛ برای کالای صحیح فقط عدد صحیح). ۳) علت (حداقل ۵ نویسه) را بنویسید و «پیش‌نمایش» بزنید: باید <span dir="ltr">gl_effect_rial = 0</span> یعنی «بدون اثر روی دفتر کل» دیده شود. ۴) «ثبت نهایی» ← شمارهٔ سند VR نمایش داده می‌شود. فهرست سندهای VR همان کالا و دکمهٔ «ابطال» (با علت و تأیید) پایین همان صفحه است.</li>
+        <li><b>حالت «ماندهٔ خالص (راهنمای چندردیفی)»:</b> اگر فقط می‌دانید ماندهٔ بی‌واریانت (مثلاً ۱۶) بین چه رنگ/سایزهایی است، همان اعداد را وارد کنید (جمع = ماندهٔ خالص؛ خانهٔ منفی هم مجاز است). صفحه خودش آن را به ردیف‌های لازم می‌شکند (<b>ردیف‌های ورود اول</b>، بعد خروج) و جدول برنامه را نشان می‌دهد؛ ثبت ردیف‌به‌ردیف با همان API زیر انجام می‌شود. اگر یکی از مراحل بعدی خطا بدهد، مراحل قبلیِ ثبت‌شده می‌مانند و پیام می‌گوید با ابطال سند همان‌ها برگردانید. برنامه‌ای که خانهٔ رنگ/سایز را در انبارِ «موجودی منفی غیرمجاز» منفی کند قبل از ارسال با پیام فارسی رد می‌شود.</li>
+        <li><b>میانبرها:</b> در «کاردکس کالا» دکمهٔ «🎨 تفکیک رنگ» (بالای جدول و کنار ردیف‌های ورود/خروج بی‌واریانت زنده) و در «گزارش رنگ و سایز» دکمهٔ «🎨 اصلاح تفکیک» روی ردیف‌های ناهمخوان، همین صفحه را با کالا/انبار پر می‌کنند. «⚖️ تعدیل موجودی» ناهمخوانی رنگ/سایز را حل نمی‌کند.</li>
         <li><b>اثر:</b> برای هر واریانت یک ردیف کاردکس با همان رویداد، منبع، تاریخ، سند حسابداری و بها (جمع تعداد و جمع مبلغ = ردیف اصلی؛ باقیماندهٔ گرد روی سطر آخر) و معکوس ردیف اصلی. موجودی کل، میانگین بها، ارزش موجودی و تراز آزمایشی تغییر نمی‌کند و <b>سند حسابداری جدیدی ثبت نمی‌شود</b>.</li>
         <li><b>شرط‌ها:</b> ردیف زنده (ثبت‌شده و معکوس‌نشده)، بدون واریانت، با انبار، روی کالای رنگ×سایز فعال؛ ردیف بستهٔ برش (فقط انبار) قبول نمی‌شود. جمع سطرها باید دقیقاً برابر تعداد ردیف باشد، واریانت‌ها متعلق به همان کالا و فعال باشند، علت (حداقل ۵ نویسه) و تأیید صریح لازم است. برای هر ردیف فقط یک سند ثبت‌شده مجاز است. در انبار در حال انبارگردانی ثبت نمی‌شود.</li>
         <li><b>ابطال (R13):</b> ردیف‌های تفکیکی معکوس و ردیف اصلی دوباره زنده می‌شود (بدون حذف). اگر از یکی از واریانت‌ها بعد از سند فروش/خروج شده باشد خطای <span dir="ltr">E_VR_VARIANT_CONSUMED</span> می‌گیرید.</li>
         <li><b>دسترسی:</b> مدیر یا دسترسی حذف عملیات انبار (همان ابطال اصلاحی کاردکس)؛ فقط روی سرور مرکزی.</li>
         <li><b>اسکریپت:</b> <span dir="ltr">server/scripts/stock-variant-resolve.js</span> (پیش‌فرض پیش‌نمایش): ردیف‌های گروه «ambiguous variant» فهرست تصمیم دستی را با سند + کالا + تعداد به خط فاکتور/برگشت/افتتاحیه تطبیق می‌دهد و فقط در تطبیق یکتا واریانت را پر می‌کند؛ رسیدهای تولید PO-0019 را با سند VR طبق خطوط رسید (۱۴/۲۰/۱۸/۱۶/۱۶) تفکیک می‌کند. خروجی <span dir="ltr">resolved.csv</span> و <span dir="ltr">unresolved.csv</span>؛ اعمال فقط با <span dir="ltr">--apply --i-have-go</span> پس از پشتیبان، با کنترل ثابت‌ماندن تراز آزمایشی و تطبیق زیرسیستم‌ها.</li>
         <li><b>بازیابی پس از صفر شدن کش رنگ×سایز (v627):</b> اسکریپت <span dir="ltr">restore-variant-split-from-backup.js</span> هدف هر کالا×انبار را از بکاپ <span dir="ltr">pre-stock-rebuild</span> به‌علاوهٔ حرکات با واریانت پس از بکاپ می‌سازد و فقط با سند VR روی ردیف‌های بی‌واریانت (گروه auto) پیش می‌رود؛ گروه دستی/منفی/drift از قبل فقط گزارش می‌شود و حدس تخصیص ندارد. پیش‌فرض dry-run؛ deploy و <span dir="ltr">--apply</span> هر کدام GO جداگانه می‌خواهند.</li>
-        <li>API: <span dir="ltr">POST /api/inventory/variant-reclass/preview</span> و <span dir="ltr">POST /api/inventory/variant-reclass</span> با <span dir="ltr">{"ledger_id","lines":[{"variant_id","qty"}],"reason","confirm":true}</span>؛ فهرست <span dir="ltr">GET /api/inventory/variant-reclass</span>؛ ابطال <span dir="ltr">POST /api/inventory/variant-reclass/:id/void</span> با reason و confirm.</li>
+        <li>API: <span dir="ltr">GET /api/inventory/variant-reclass/candidates?product_id&amp;warehouse_id</span> (ردیف‌های مجاز + ماتریس + <span dir="ltr">unallocated_net</span>)؛ <span dir="ltr">POST /api/inventory/variant-reclass/preview</span> و <span dir="ltr">POST /api/inventory/variant-reclass</span> با <span dir="ltr">{"ledger_id","lines":[{"variant_id","qty"}],"reason","confirm":true}</span>؛ فهرست <span dir="ltr">GET /api/inventory/variant-reclass</span>؛ ابطال <span dir="ltr">POST /api/inventory/variant-reclass/:id/void</span> با reason و confirm.</li>
       </ul>`),
     helpSec('📦','منبع واحد موجودی کالا = کاردکس (v627)',`
       <p><b>موجودی فقط از کاردکس (دفتر موجودی) محاسبه می‌شود؛ ویرایش مستقیم عدد موجودی ممکن نیست؛ تغییر موجودی فقط با سند (افتتاحیه/تعدیل/انتقال)؛ گزارش تطبیق «کش موجودی با کاردکس» در کنترل‌های تطبیق.</b></p>
@@ -43303,9 +43923,9 @@ function renderAdminGuide(){
         <li><b>پاپ‌اور 📦:</b> برای ردیف «پک» هر SKU جدا (رنگ / سایز: موجودی) نشان داده می‌شود، نه جمع SKUها؛ اگر رزرو باشد «موجود X · رزرو Y» هم دیده می‌شود.</li>
         <li><b>برچسب ردیف:</b> تک‌SKU عدد را نشان می‌دهد؛ پک «کافی» یا «کمبود در n SKU» (هر SKU با تعداد همان SKU مقایسه می‌شود).</li>
         <li><b>کارت پیکر:</b> موجودی سطح کالا؛ رزرو سبد فقط یک‌بار کسر می‌شود (افزایش نسبت به تعداد قبلی فاکتور). «در انبار دیگر» فقط از موجودی سطح کالا می‌آید.</li>
-        <li><b>⚠ ناهمخوان با کاردکس:</b> فقط وقتی موجودی کالا×انبار با کاردکس نمی‌خواند کنار عدد نشان داده می‌شود (عدد عوض نمی‌شود؛ فقط قطعی نیست). اصلاح داده با «اصلاح دادهٔ انبار» انجام می‌شود، نه با این صفحه.</li>
+        <li><b>⚠ ناهمخوان با کاردکس:</b> فقط وقتی موجودی کالا×انبار با کاردکس نمی‌خواند کنار عدد نشان داده می‌شود (عدد عوض نمی‌شود؛ فقط قطعی نیست). ناهمخوانی رنگ/سایز را با «🎨 اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) درست کنید، نه با این صفحه و نه با «تعدیل موجودی».</li>
         <li><b>ℹ رنگ/سایز بدون سند حرکت کامل (v629):</b> اختلاف موجودی رنگ/سایز با جمع حرکت‌هایش دیگر بج ⚠ نیست؛ فقط یک ℹ کم‌رنگ با توضیح در tooltip است. فروش را مسدود نمی‌کند و عدد یا وضعیت کمبود را تغییر نمی‌دهد.</li>
-        <li><b>⛔/⚠ ناهمخوانی لایهٔ رنگ/سایز (v630):</b> اگر کالای رنگ‌سایزدار در یک انبار موجودی کالا داشته باشد ولی <b>هیچ</b> رنگ/سایزی موجودی نداشته باشد: وقتی <b>اجازهٔ موجودی منفی انبار خاموش</b> است ردیف <b>مسدود</b> می‌شود (برچسب قرمز ⛔، ذخیره متوقف، <span dir="ltr">409 E_VARIANT_LAYER_MISMATCH</span>)؛ وقتی <b>اجازهٔ موجودی منفی انبار روشن</b> است فقط <b>هشدار</b> است (برچسب نارنجی ⚠، فروش و ذخیره مجاز، qty/قیمت بدون تغییر). «تعدیل موجودی» این را حل نمی‌کند؛ راه درست <b>سند اصلاح واریانت (VR)</b> است.</li>
+        <li><b>⛔/⚠ ناهمخوانی لایهٔ رنگ/سایز (v630):</b> اگر کالای رنگ‌سایزدار در یک انبار موجودی کالا داشته باشد ولی <b>هیچ</b> رنگ/سایزی موجودی نداشته باشد: وقتی <b>اجازهٔ موجودی منفی انبار خاموش</b> است ردیف <b>مسدود</b> می‌شود (برچسب قرمز ⛔، ذخیره متوقف، <span dir="ltr">409 E_VARIANT_LAYER_MISMATCH</span>)؛ وقتی <b>اجازهٔ موجودی منفی انبار روشن</b> است فقط <b>هشدار</b> است (برچسب نارنجی ⚠، فروش و ذخیره مجاز، qty/قیمت بدون تغییر). «تعدیل موجودی» این را حل نمی‌کند؛ راه درست صفحهٔ <b>انبار ← عملیات ← «🎨 اصلاح تفکیک رنگ و سایز»</b> (سند VR) است؛ همان‌جا ردیف‌ها و تعدادها را خودتان وارد و پیش‌نمایش می‌کنید.</li>
         <li><b>تازگی:</b> کش اعداد ۶۰ ثانیه اعتبار دارد و با باز کردن فاکتور، ذخیره و تبدیل پیش‌فاکتور خالی می‌شود.</li>
       </ul>`),
     helpSec('📦','فروش از انبار دیگر — دسترسی و popover (v567)',`
@@ -44469,7 +45089,7 @@ function renderSalesGuide(){
       <p>حواله انبار فاکتور چندانباری، اقلام هر انبار را جدا چاپ می‌کند. اگر سربرگ ادواری باشد ولی ردیف از انبار دائمی باشد، بهای تمام‌شده همان ردیف ثبت می‌شود. فروش با کمبود بدون اجازهٔ منفی انبار فقط با تأیید دسترسی «موجودی منفی» ممکن است.</p>`),
     helpSec('🏭','موجودی ردیف فاکتور بر اساس انبار همان ردیف',`
       <p>هشدار کمبود و برچسب «موجودی این انبار» برای هر ردیف فاکتور/پیش‌فاکتور از <b>انبار همان ردیف</b> خوانده می‌شود، نه فقط انبار سربرگ. با عوض کردن انبار ردیف، موجودی و هشدار فوراً به‌روز می‌شود. در فهرست کالا فقط رزرو ردیف‌هایی که انبارشان با سربرگ یکی است از موجودی کم می‌شود تا عدد منفی ساختگی دیده نشود.</p>
-      <p><b>نشان‌ها (v630):</b> «⚠ ناهمخوان با کاردکس» مثل قبل فقط هشدار است. «ℹ» کنار عدد یعنی رنگ/سایز سند حرکت کامل ندارد — فقط اطلاعاتی است و فروش را نمی‌بندد. برچسب <b>«ناهمخوانی لایهٔ رنگ/سایز»</b> یعنی کالا در این انبار موجودی دارد ولی هیچ رنگ/سایزی موجودی ندارد: اگر انبار اجازهٔ موجودی منفی نداشته باشد (⛔ قرمز) ردیف تا اصلاح تفکیک واریانت (سند VR) قابل فروش نیست؛ اگر اجازه داشته باشد (⚠ نارنجی) فقط هشدار است و فاکتور ثبت می‌شود — باز هم به انباردار اطلاع دهید.</p>`),
+      <p><b>نشان‌ها (v630):</b> «⚠ ناهمخوان با کاردکس» مثل قبل فقط هشدار است. «ℹ» کنار عدد یعنی رنگ/سایز سند حرکت کامل ندارد — فقط اطلاعاتی است و فروش را نمی‌بندد. برچسب <b>«ناهمخوانی لایهٔ رنگ/سایز»</b> یعنی کالا در این انبار موجودی دارد ولی هیچ رنگ/سایزی موجودی ندارد: اگر انبار اجازهٔ موجودی منفی نداشته باشد (⛔ قرمز) ردیف تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) قابل فروش نیست؛ اگر اجازه داشته باشد (⚠ نارنجی) فقط هشدار است و فاکتور ثبت می‌شود — باز هم به انباردار اطلاع دهید.</p>`),
     helpSec('⚖️','موجودی کافی نیست',`
       <p>اگر هنگام ثبت فاکتور پیام «موجودی کافی نیست» آمد، پنجره‌ای با جدول کالا، انبار، موجود، نیاز و کسری باز می‌شود. اگر دسترسی «عملیات انبار — ایجاد» دارید (مدیر و حسابدار به‌طور پیش‌فرض)، دکمهٔ «⚖️ تعدیل موجودی» کنار هر ردیف فرم تعدیل را با همان کسری باز می‌کند (دلیل الزامی)؛ وقتی همهٔ ردیف‌ها تعدیل شد، همان فاکتور خودکار یک بار دوباره فرستاده می‌شود. اگر پیام «برای تعدیل موجودی دسترسی لازم است» را دیدید، تعداد را کم کنید یا از انباردار/حسابدار دارای دسترسی بخواهید موجودی را شمارش و تعدیل کند.</p>`),
     helpSec('📏','واحد روی فاکتور',`

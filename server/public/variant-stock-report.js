@@ -653,21 +653,26 @@ function vsrDetailRows(data) {
 function vsrHtmlDetail(data) {
   const cols = vsrVisibleCols();
   const rows = vsrDetailRows(data);
+  const canFix = typeof canVariantReclassMutate === 'function' && canVariantReclassMutate() && typeof openVariantReclassModal === 'function';
   const head = cols.map(function (col) {
     return '<th' + (col.kind ? ' data-col-kind="' + col.kind + '"' : '') + '>' + esc(col.label) + '</th>';
-  }).join('');
+  }).join('') + (canFix ? '<th class="no-sort"></th>' : '');
   const body = rows.map(function (cell) {
     const nrm = vsrNorm(cell);
     const rowCls = nrm && nrm.ghost ? ' class="whrep-ghost"' : (nrm && nrm.drift ? ' class="whrep-drift"' : '');
+    const drifted = !!(nrm && (nrm.drift || nrm.ghost)) || !!(vsrLayerOf(cell) && vsrLayerOf(cell).drift);
+    const fixCell = canFix
+      ? '<td>' + (drifted ? '<button type="button" class="btn sm ghost" title="اصلاح تفکیک رنگ و سایز این کالا در همین انبار (بدون اثر روی دفتر کل)" data-csp-click="' + CSP.bind('click', function () { openVariantReclassModal({ product_id: cell.product_id, warehouse_id: cell.warehouse_id, onDone: function () { vsrReload(); } }); }) + '">🎨 اصلاح تفکیک</button>' : '') + '</td>'
+      : '';
     return '<tr' + rowCls + '>' + cols.map(function (col) {
       if (col.html) return '<td>' + col.html(cell) + '</td>';
       const raw = col.pick(cell);
       const text = col.key === 'qty' ? vsrQty(raw) : (col.kind === 'money' || col.kind === 'avg' ? vsrMoney(raw) : esc(raw || '—'));
       const color = col.key === 'color' ? vsrSwatch(cell.color_hex, cell.color_name) + ' ' + esc(cell.color_name) : text;
       return '<td class="' + (col.kind || col.key === 'code' || col.key === 'sku' ? 'mono' : '') + '"' + (col.kind ? ' data-col-kind="' + col.kind + '"' : '') + '>' + (col.key === 'color' ? color : text) + '</td>';
-    }).join('') + '</tr>';
+    }).join('') + fixCell + '</tr>';
   }).join('');
-  const empty = '<tr><td colspan="' + cols.length + '" class="muted">' + (vsrState().onlyLow ? 'خانه‌ای در بازهٔ کم‌موجود نیست. آستانه را از بالا عوض کنید.' : 'ردیفی برای این فیلتر نیست. اگر صفرها را می‌خواهید، «موجودی صفر در جدول» را روشن کنید.') + '</td></tr>';
+  const empty = '<tr><td colspan="' + (cols.length + (canFix ? 1 : 0)) + '" class="muted">' + (vsrState().onlyLow ? 'خانه‌ای در بازهٔ کم‌موجود نیست. آستانه را از بالا عوض کنید.' : 'ردیفی برای این فیلتر نیست. اگر صفرها را می‌خواهید، «موجودی صفر در جدول» را روشن کنید.') + '</td></tr>';
   return '<div class="tbl-wrap" data-scroll="1"><table class="tbl"><thead><tr>' + head + '</tr></thead><tbody>' + (body || empty) + '</tbody></table></div>';
 }
 
