@@ -55,6 +55,8 @@ function invLineStockEntry(row, headerWh, stockCache) {
       drift_variant: !!e.drift_variant,
       info: String(e.info || ''),
       mismatch: !!e.mismatch,
+      mismatch_blocking: e.mismatch_blocking != null ? !!e.mismatch_blocking : !!e.mismatch,
+      allow_negative: Number(e.allow_negative) ? 1 : 0,
       block_note: String(e.block_note || ''),
       stocked_sku_count: e.stocked_sku_count != null ? Number(e.stocked_sku_count) : null,
     };
@@ -62,7 +64,8 @@ function invLineStockEntry(row, headerWh, stockCache) {
   const n = Number(e) || 0;
   return {
     on_hand: n, reserved: 0, own: 0, available: n, drift: false, note: '',
-    drift_variant: false, info: '', mismatch: false, block_note: '', stocked_sku_count: null,
+    drift_variant: false, info: '', mismatch: false, mismatch_blocking: false, allow_negative: 0,
+    block_note: '', stocked_sku_count: null,
   };
 }
 /* /XWH-SHARED */
@@ -97,6 +100,7 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
   let unknownN = 0;
   let drift = false;
   let mismatch = false;
+  let mismatchBlocking = false;
   let mismatchNote = '';
   const skus = order.map(function (key) {
     const g = by[key];
@@ -110,6 +114,7 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
     if (known && e.drift) drift = true;
     if (known && e.mismatch) {
       mismatch = true;
+      if (e.mismatch_blocking) mismatchBlocking = true;
       if (!mismatchNote) mismatchNote = e.block_note;
     }
     return {
@@ -127,6 +132,7 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
       drift_variant: known ? e.drift_variant : false,
       info: known ? e.info : '',
       mismatch: known ? e.mismatch : false,
+      mismatch_blocking: known ? !!e.mismatch_blocking : false,
       block_note: known ? e.block_note : '',
       short: short,
     };
@@ -138,8 +144,10 @@ function invGroupStockAt(rows, whId, stockCache, variantLabel) {
     unknownN: unknownN,
     drift: drift,
     mismatch: mismatch,
+    mismatchBlocking: mismatchBlocking,
     mismatchNote: mismatchNote,
-    ok: skus.length > 0 && shortN === 0 && unknownN === 0 && !mismatch,
+    // warn-only mismatch (allow_negative=1) does not flip ok / block save
+    ok: skus.length > 0 && shortN === 0 && unknownN === 0 && !mismatchBlocking,
   };
 }
 /* /XWH-SHARED */
@@ -168,6 +176,7 @@ function invCardAvail(productId, whId, stockCache, fallbackWhQty, heldQty, cartQ
     note: e ? e.note : '',
     info: e ? e.info : '',
     mismatch: !!(e && e.mismatch),
+    mismatch_blocking: !!(e && e.mismatch_blocking),
     block_note: e ? e.block_note : '',
   };
 }
@@ -252,7 +261,7 @@ function collectInvoiceStockWarnings(cart, opts) {
       const mBase = g.name || (findProduct(g.product_id) && findProduct(g.product_id).name) || 'کالا';
       issues.push({
         kind: 'variant_layer_mismatch',
-        blocking: true,
+        blocking: !!pe.mismatch_blocking,
         product_id: g.product_id,
         warehouse_id: g.warehouse_id,
         name: mBase + ' (' + mWhName + ')',

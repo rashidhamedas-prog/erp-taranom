@@ -6,8 +6,8 @@
  * Mismatch per product × warehouse = active colour×size matrix, no matrix SKU with vws > 0 there,
  * yet the product layer (ledger.warehouseQty) > 0. Such stock must never be sold:
  *   1. variantLayerMismatch helper: flags / no flag when one SKU is stocked / non-matrix product
- *   2. line-availability: variant_layer_mismatch + block_reason/block_note, numbers untouched
- *   3. ATP: E_VARIANT_LAYER_MISMATCH even with allow_negative=1 / forceAllowNegative / backorder
+ *   2. line-availability: variant_layer_mismatch + block_reason only when allow_negative=0; warn when =1
+ *   3. ATP: E_VARIANT_LAYER_MISMATCH when allow_negative=0; warn-only (no throw) when allow_negative=1
  *   4. normal shortage still E_ATP_INSUFFICIENT; stocked SKU sells
  *   5. HTTP POST /api/invoices → 409 with code + message passthrough, nothing written
  *
@@ -107,12 +107,15 @@ async function main() {
   const byWh = (arr, id) => arr.find((r) => r.warehouse_id === id);
   const lv = byWh(lineAvailability(db, { productId: PM, variantId: VM1 }), whA);
   ok(lv.variant_layer_mismatch === true && lv.stocked_sku_count === 0, 'variant row PM/M@A flagged', lv);
-  ok(lv.block_reason === 'variant_layer_mismatch' && /ناهمخوانی لایهٔ رنگ\/سایز/.test(lv.block_note) && /variant layer mismatch/.test(lv.block_note) && /4/.test(lv.block_note),
-    'block_reason + Persian block_note with product qty', lv.block_note);
+  ok(lv.mismatch_blocking === true && lv.block_reason === 'variant_layer_mismatch' && /ناهمخوانی لایهٔ رنگ\/سایز/.test(lv.block_note) && /variant layer mismatch/.test(lv.block_note) && /4/.test(lv.block_note),
+    'allow_negative=0 → mismatch_blocking + block_reason + Persian block_note with product qty', lv.block_note);
   ok(lv.on_hand === 0 && lv.available === 0 && lv.product_wh_qty === 4, 'numbers untouched (variant on_hand 0, product_wh_qty 4)', lv);
   const lp = byWh(lineAvailability(db, { productId: PM }), whA);
-  ok(lp.variant_layer_mismatch === true && lp.block_reason === 'variant_layer_mismatch' && lp.on_hand === 4 && lp.available === 4,
+  ok(lp.variant_layer_mismatch === true && lp.block_reason === 'variant_layer_mismatch' && lp.mismatch_blocking === true && lp.on_hand === 4 && lp.available === 4,
     'product row of matrix product flagged; on_hand/available stay 4', lp);
+  const lvN = byWh(lineAvailability(db, { productId: PM, variantId: VM1 }), whN);
+  ok(lvN.variant_layer_mismatch === true && lvN.mismatch_blocking === false && lvN.block_reason === null && /هشدار/.test(lvN.block_note) && lvN.product_wh_qty === 3,
+    'allow_negative=1 → flag + warn note, no block_reason; numbers untouched', lvN);
   const ls = byWh(lineAvailability(db, { productId: PS, variantId: VS2 }), whA);
   ok(ls.variant_layer_mismatch === false && ls.block_reason === null && ls.block_note === '' && ls.stocked_sku_count === 1,
     'PS (one SKU stocked): no flag even on the empty SKU', ls);
@@ -122,34 +125,49 @@ async function main() {
   ok(byWh(batch[0].warehouses, whA).variant_layer_mismatch && byWh(batch[1].warehouses, whA).variant_layer_mismatch && !byWh(batch[2].warehouses, whA).variant_layer_mismatch,
     'batch: memoised per product×warehouse, flags consistent');
 
-  // ── 3) ATP blocks mismatch regardless of negative policy ─────────────────────
+  // ── 3) ATP: block when allow_negative=0; warn-only when allow_negative=1 ─────
   console.log('\n— 3) ATP gate —');
   const line = (pid, qty, extra = {}) => ({ product_id: pid, qty, price: 100000, ...extra });
   const ev = atp.evaluateAvailableToPromise(db, [line(PM, 1, { variant_id: VM1, warehouse_id: whA })], whA, { custId });
-  ok(ev.mismatches.length === 1 && ev.shortages[0].reason === 'variant_layer_mismatch' && ev.shortages[0].scope === 'variant_layer',
-    'evaluate: mismatch entry sorted first', ev.shortages.map((s) => s.reason || s.scope));
+  ok(ev.mismatches.length === 1 && ev.blockingMismatches.length === 1 && ev.shortages[0].reason === 'variant_layer_mismatch' && ev.shortages[0].scope === 'variant_layer',
+    'evaluate@A: blocking mismatch sorted first in shortages', ev.shortages.map((s) => s.reason || s.scope));
   ok(ev.shortages[0].name === 'مانتو ناهمخوان' && ev.shortages[0].warehouse_name === 'انبار اصلی' && ev.shortages[0].stocked_sku_count === 0,
     'mismatch entry carries describe() fields', ev.shortages[0]);
 
+  const evN = atp.evaluateAvailableToPromise(db, [line(PM, 1, { variant_id: VM1, warehouse_id: whN })], whN, { custId });
+  ok(evN.mismatches.length === 1 && evN.mismatches[0].bypassed === true && evN.mismatches[0].severity === 'warn'
+    && evN.blockingMismatches.length === 0 && evN.shortages.length === 0,
+    'evaluate@N allow_negative=1: warn mismatch, not in shortages', evN);
+
   let e = catchErr(() => atp.assertAvailableToPromise(db, [line(PM, 1, { variant_id: VM1, warehouse_id: whN })], whN, { custId }));
-  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH' && e.status === 409, 'assert: allow_negative=1 warehouse still → 409 E_VARIANT_LAYER_MISMATCH', e && { code: e.code, msg: e.message });
+  ok(!e, 'assert: allow_negative=1 warehouse → NO throw (warn-only)', e && { code: e.code, msg: e.message });
+  const warnPass = atp.assertAvailableToPromise(db, [line(PM, 1, { variant_id: VM1, warehouse_id: whN })], whN, { custId });
+  ok(warnPass.warnMismatches && warnPass.warnMismatches.length === 1 && warnPass.shortages.length === 0,
+    'assert@N returns warnMismatches, empty shortages', warnPass);
+
+  e = catchErr(() => atp.assertAvailableToPromise(db, [line(PM, 1, { variant_id: VM1, warehouse_id: whA })], whA, { custId }));
+  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH' && e.status === 409, 'assert: allow_negative=0 → 409 E_VARIANT_LAYER_MISMATCH', e && { code: e.code, msg: e.message });
   ok(e && /ناهمخوانی لایهٔ رنگ\/سایز/.test(e.message) && /variant layer mismatch/.test(e.message) && !/کافی نیست/.test(e.message),
     'message: «ناهمخوانی لایهٔ رنگ/سایز» + "variant layer mismatch", never «کافی نیست»', e && e.message);
-  ok(e && /مانتو ناهمخوان/.test(e.message) && /قرمز\/M/.test(e.message) && /انبار منفی‌مجاز/.test(e.message), 'message names product, colour/size and warehouse', e && e.message);
+  ok(e && /مانتو ناهمخوان/.test(e.message) && /قرمز\/M/.test(e.message) && /انبار اصلی/.test(e.message), 'message names product, colour/size and warehouse', e && e.message);
   ok(e && Array.isArray(e.mismatches) && e.mismatches.length === 1 && Array.isArray(e.shortages), 'error carries shortages + mismatches');
 
   e = catchErr(() => atp.assertAvailableToPromise(db, [line(PM, 1, { warehouse_id: whA })], whA, { custId, forceAllowNegative: true }));
-  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH', 'assert: product-level line + forceAllowNegative → E_VARIANT_LAYER_MISMATCH', e && e.code);
+  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH', 'assert: product-level line + forceAllowNegative on allow_negative=0 WH → still E_VARIANT_LAYER_MISMATCH', e && e.code);
 
   e = catchErr(() => atp.decideSaleFulfillment(db, {
     rows: [line(PM, 1, { variant_id: VM1, warehouse_id: whA })], headerWarehouseId: whA, custId,
     backorderRequested: true, role: 'admin', forceAllowNegative: true,
   }));
-  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH', 'decide: admin backorder request never converts a mismatch into a backorder', e && e.code);
+  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH', 'decide@A: admin backorder never converts a blocking mismatch into a backorder', e && e.code);
   e = catchErr(() => atp.decideSaleFulfillment(db, {
     rows: [line(PM, 1, { variant_id: VM1, warehouse_id: whA })], headerWarehouseId: whA, custId, provisional: true,
   }));
-  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH', 'decide: provisional (device) request → E_VARIANT_LAYER_MISMATCH', e && e.code);
+  ok(e && e.code === 'E_VARIANT_LAYER_MISMATCH', 'decide@A: provisional (device) request → E_VARIANT_LAYER_MISMATCH', e && e.code);
+  const decN = atp.decideSaleFulfillment(db, {
+    rows: [line(PM, 1, { variant_id: VM1, warehouse_id: whN })], headerWarehouseId: whN, custId,
+  });
+  ok(decN.mode === 'deduct' && decN.shortages.length === 0, 'decide@N allow_negative=1: deduct proceeds (warn-only)', decN);
 
   // ── 4) normal shortage + healthy SKU ─────────────────────────────────────────
   console.log('\n— 4) unchanged behaviour —');
@@ -190,16 +208,27 @@ async function main() {
   const invCount = () => db.prepare('SELECT COUNT(*) c FROM invoices').get().c;
   const ledCount = () => db.prepare('SELECT COUNT(*) c FROM inventory_ledger').get().c;
   const before = [invCount(), ledCount()];
-  const r = await post({
-    cust_id: custId, type: 'normal', date: '1405/07/12', pay_type: 'credit', warehouse_id: whN, backorder: true,
-    client_request_id: 'vlm-http-1',
+  const rBlock = await post({
+    cust_id: custId, type: 'normal', date: '1405/07/12', pay_type: 'credit', warehouse_id: whA, backorder: true,
+    client_request_id: 'vlm-http-block',
+    rows: [line(PM, 1, { variant_id: VM1, warehouse_id: whA })],
+  });
+  ok(rBlock.status === 409 && rBlock.data && rBlock.data.code === 'E_VARIANT_LAYER_MISMATCH',
+    'HTTP allow_negative=0 → 409 E_VARIANT_LAYER_MISMATCH', rBlock);
+  ok(rBlock.data && /variant layer mismatch/.test(rBlock.data.error || '') && !/کافی نیست/.test(rBlock.data.error || ''),
+    'HTTP error text passes through', rBlock.data && rBlock.data.error);
+  ok(rBlock.data && Array.isArray(rBlock.data.variant_layer_mismatches) && rBlock.data.variant_layer_mismatches.length === 1 && Array.isArray(rBlock.data.atp_shortages),
+    'payload: variant_layer_mismatches + atp_shortages', rBlock.data && Object.keys(rBlock.data));
+  ok(invCount() === before[0] && ledCount() === before[1], 'block path: nothing written', [before, invCount(), ledCount()]);
+
+  const rWarn = await post({
+    cust_id: custId, type: 'normal', date: '1405/07/12', pay_type: 'credit', warehouse_id: whN,
+    client_request_id: 'vlm-http-warn',
     rows: [line(PM, 1, { variant_id: VM1, warehouse_id: whN })],
   });
-  ok(r.status === 409 && r.data && r.data.code === 'E_VARIANT_LAYER_MISMATCH', 'admin + backorder + allow_negative warehouse → 409 E_VARIANT_LAYER_MISMATCH', r);
-  ok(r.data && /variant layer mismatch/.test(r.data.error || '') && !/کافی نیست/.test(r.data.error || ''), 'HTTP error text passes through', r.data && r.data.error);
-  ok(r.data && Array.isArray(r.data.variant_layer_mismatches) && r.data.variant_layer_mismatches.length === 1 && Array.isArray(r.data.atp_shortages),
-    'payload: variant_layer_mismatches + atp_shortages', r.data && Object.keys(r.data));
-  ok(invCount() === before[0] && ledCount() === before[1], 'nothing written (invoice/ledger counts unchanged)', [before, invCount(), ledCount()]);
+  ok(rWarn.status >= 200 && rWarn.status < 300 && !(rWarn.data && rWarn.data.code === 'E_VARIANT_LAYER_MISMATCH'),
+    'HTTP allow_negative=1 → sale accepted (no E_VARIANT_LAYER_MISMATCH)', rWarn);
+  ok(invCount() === before[0] + 1, 'warn path: invoice created', [before[0], invCount()]);
 
   server.close();
   console.log(`\nResult: ${pass} passed, ${fail} failed\n`);
