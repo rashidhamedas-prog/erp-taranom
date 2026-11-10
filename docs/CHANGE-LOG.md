@@ -1,4 +1,13 @@
-﻿### ۱۴۰۵/۰۸/۱۹ — fix(products): سخت‌سازی حذف کالا — هر سابقهٔ انبار/سند → ۴۰۹ (SW v632)
+﻿### ۱۴۰۵/۰۸/۱۹ — feat: UI اصلاح تفکیک رنگ و سایز (VR) + رفع stale cache بعد از void (SW v633)
+- **Deploy:** ⏸ pending `GO deploy variant-reclass-ui` — بدون write روی live `crm.db`؛ repair `--apply` فقط بعد از `GO repair-void-adjust-variant`.
+- **شاخه:** `feat/variant-reclass-ui-v633` (پایه: `origin/main` `6a5a3d87`). CI GitHub خاموش (billing) ⇒ تست محلی Node 20.
+- **A. UI + candidates:** صفحه «اصلاح تفکیک رنگ و سایز» در انبار→عملیات (`acc-variant-reclass`)؛ `GET /api/inventory/variant-reclass/candidates`؛ entry از کاردکس و گزارش رنگ×سایز؛ راهنما به‌روز.
+- **B. Void cache:** در `rebuildStockCache`/`variantWant` وقتی `preserveZeros` روشن است، اگر ledger منتسب=0 و movement با `*_void` و net=ledger ⇒ پاک کردن سلول stale (بدون `forceVariantLedger` پیش‌فرض). اسکریپت dry-run `repair-void-adjust-variant-cache.js`.
+- **تست:** `test-variant-reclass-ui-and-void-cache.js` + سبز ماندن `test:variant-reclass` / `test:variant-restore-guard` / `test:stock-cache-recon`.
+- **فایل‌ها:** `lib/inventory/{variant-reclass,stock-cache}.js`، `routes/inventory.js`، `scripts/{test-variant-reclass-ui-and-void-cache,repair-void-adjust-variant-cache}.js`، `public/{app.js,acc-nav.js,variant-stock-report.js,index.html,sw.js}`، `lib/accounting-access.js`، `package.json`، CHANGE-LOG.
+- **ممنوع:** product id 342 / code 7217؛ بدون deploy در این PR.
+
+### ۱۴۰۵/۰۸/۱۹ — fix(products): سخت‌سازی حذف کالا — هر سابقهٔ انبار/سند → ۴۰۹ (SW v632)
 - **Commit:** merge `a545c578` روی `main` ([PR #200](https://github.com/rashidhamedas-prog/erp-taranom/pull/200))؛ شاخه `fix/product-delete-cascade-harden` (`d0b7322a`). **CI احتمالاً اجرا نمی‌شود** (GitHub Actions billing) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون write روی `crm.db` زنده / بدون deploy تا «GO deploy product-delete-unused-cascade».
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۱۹ — overlay SFTP روی درخت کثیف VPS (HEAD گیت هنوز `8a5cd54` / شاخه alias؛ بدون `git pull`/`reset --hard`/`--update-env`). tip محتوا `f7dc5383` / merge `a545c578` (PR #200)؛ SW **v632**؛ `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health/ready HTTP 200 + `image_engine` sharp 0.33.5؛ روی سرور (DB موقت) `test-product-delete-unused-cascade` ۳۳/۳۳؛ stamp `.sftp-deploy-stamp-product-delete-unused-cascade-v632`. اسکریپت: `scripts/_deploy-product-delete-unused-cascade-v632.py`. بدون تغییر داده / بدون write روی `crm.db`.
 - **پس از PR #199 (`a1bd1664`):** گارد گردش واقعی ناقص بود (کاردکس معکوس/صفر/فقط مبلغ، movements، حواله، VR، افتتاحیهٔ draft، برگشت خرید، انبارگردانی session، تطبیق JSON کوتاه، `entry_no` اشتباه، outbox سایت).
