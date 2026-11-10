@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۱۹ — fix(products): حذف کالای بدون گردش واقعی + cascade ساختار (SW v631)
-- **Commit:** شاخه `fix/product-delete-unused-cascade` (PR جدید؛ نه #198). فقط کد؛ بدون write روی `crm.db` زنده / بدون restore / بدون deploy تا «GO deploy product-delete-unused-cascade».
+- **Commit:** merge `a1bd1664` روی `main` ([PR #199](https://github.com/rashidhamedas-prog/erp-taranom/pull/199))؛ شاخه `fix/product-delete-unused-cascade` (`2f61dc54`). **CI اجرا نشد** (GitHub Actions billing/spending limit) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون write روی `crm.db` زنده / بدون restore / بدون deploy تا «GO deploy product-delete-unused-cascade».
 - **Deploy:** ⏸ منتظر «GO deploy product-delete-unused-cascade».
 - **مشکل:** `DELETE /api/products/:id` برای کالای تازه‌ساخته بدون سند (مثل idهای ۳۴۴/۳۴۵) با `FOREIGN KEY constraint failed` می‌خورد چون `product_variants` / `product_style_colors|sizes` / `website_stock_outbox` (ساختهٔ خودکار) cascade نمی‌شدند.
 - **رفتار جدید:**
