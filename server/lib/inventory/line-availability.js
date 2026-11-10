@@ -33,10 +33,13 @@
  *   drift_variant (vws vs movements) is INFORMATIONAL only: it never sets `drift` and its text goes
  *   to `variant_info_note` (ℹ, not ⚠) — legacy vws rows often predate inventory_movements.
  *
- * Variant-layer mismatch (variant-layer.variantLayerMismatch, same rule the ATP gate blocks on):
+ * Variant-layer mismatch (variant-layer.variantLayerMismatch):
  *   matrix product, no colour/size with vws > 0 at that warehouse, yet warehouse_stock > 0.
- *   Flagged as variant_layer_mismatch / stocked_sku_count / block_reason / block_note on BOTH variant
- *   and product rows of the product. Numbers (on_hand / available / reserved) are untouched.
+ *   Always flagged as variant_layer_mismatch (+ stocked_sku_count / block_note) on BOTH variant
+ *   and product rows. Severity follows warehouses.allow_negative:
+ *     allow_negative=0 → mismatch_blocking=true, block_reason set (sale blocked)
+ *     allow_negative=1 → mismatch_blocking=false, block_reason=null (warning badge only)
+ *   Numbers (on_hand / available / reserved) are untouched either way.
  */
 const { warehouseQty } = require('./ledger');
 const { variantWarehouseQty } = require('./movement');
@@ -214,11 +217,18 @@ function lineAvailabilityWith(ctx, { productId, variantId = null, warehouseIds =
 
     const layer = layerFor(ctx, pid, whId);
     const mismatch = !!layer.mismatch;
+    const allowNeg = Number(w.allow_negative) ? 1 : 0;
+    const mismatchBlocking = mismatch && !allowNeg;
+    const mismatchNote = mismatch
+      ? (mismatchBlocking
+        ? `ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا ${productWhQty} هست ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف قابل فروش نیست تا اصلاح تفکیک واریانت`
+        : `ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا ${productWhQty} هست ولی هیچ رنگ/سایزی موجودی ندارد؛ انبار اجازهٔ موجودی منفی دارد — هشدار (فروش مسدود نیست)`)
+      : '';
 
     return {
       warehouse_id: whId,
       name: String(w.name || ''),
-      allow_negative: Number(w.allow_negative) ? 1 : 0,
+      allow_negative: allowNeg,
       source: isVariant ? 'vws' : 'warehouse_stock',
       on_hand: onHand,
       reserved,
@@ -238,11 +248,10 @@ function lineAvailabilityWith(ctx, { productId, variantId = null, warehouseIds =
       layer_note: notes.join(' | '),
       variant_info_note: variantInfoNote,
       variant_layer_mismatch: mismatch,
+      mismatch_blocking: mismatchBlocking,
       stocked_sku_count: layer.stocked_sku_count,
-      block_reason: mismatch ? MISMATCH_REASON : null,
-      block_note: mismatch
-        ? `ناهمخوانی لایهٔ رنگ/سایز (variant layer mismatch) — موجودی کالا ${productWhQty} هست ولی هیچ رنگ/سایزی موجودی ندارد؛ این ردیف قابل فروش نیست تا اصلاح تفکیک واریانت`
-        : '',
+      block_reason: mismatchBlocking ? MISMATCH_REASON : null,
+      block_note: mismatchNote,
     };
   });
 }

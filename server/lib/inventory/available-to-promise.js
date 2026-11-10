@@ -30,11 +30,15 @@
  *
  * Policy (decideSaleFulfillment):
  *   - variant-layer mismatch (variant-layer.variantLayerMismatch: matrix product, no colour/size with
- *     vws > 0 in that warehouse, warehouse_stock > 0) ⇒ 409 E_VARIANT_LAYER_MISMATCH. Not a shortage:
- *     allow_negative / forceAllowNegative / backorder / provisional never bypass it.
+ *     vws > 0 in that warehouse, warehouse_stock > 0):
+ *       warehouses.allow_negative=0 ⇒ 409 E_VARIANT_LAYER_MISMATCH (blocks; backorder/provisional/
+ *         forceAllowNegative never convert it into a sale).
+ *       warehouses.allow_negative=1 ⇒ warning only (entry.severity='warn', bypassed); not in shortages,
+ *         no throw. Global inventory_allow_negative alone does NOT soften a mismatch — only the
+ *         warehouse column does (same rule line-availability.mismatch_blocking uses).
  *   - default              : any shortage ⇒ 409 E_ATP_INSUFFICIENT (Persian message), nothing written.
  *   - warehouse allow_negative=1 or settings.inventory_allow_negative='1' ⇒ that warehouse is exempt
- *     (explicit admin configuration, same switch warehouse issue/transfer documents honour).
+ *     from ordinary shortage checks (explicit admin configuration, same switch warehouse docs honour).
  *   - body.backorder === true AND role admin|accounting ⇒ whole invoice becomes 'backorder':
  *     accepted, NO stock movement, stock_deducted stays 0. Other roles asking for backorder ⇒ 403.
  *   - device (SYNC_ROLE=device) or header x-offline-provisional: '1' ⇒ 'provisional': ATP still checked,
@@ -108,6 +112,17 @@ function salesAllowsNegative(db, warehouseId) {
   try {
     const g = db.prepare("SELECT value FROM settings WHERE key='inventory_allow_negative'").get();
     return !!(g && String(g.value) === '1');
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Warehouse column only — used for variant-layer mismatch warn vs block (not the global setting). */
+function warehouseAllowsNegative(db, warehouseId) {
+  if (!warehouseId) return false;
+  try {
+    const wh = db.prepare('SELECT allow_negative FROM warehouses WHERE id=?').get(warehouseId);
+    return !!(wh && Number(wh.allow_negative));
   } catch (_) {
     return false;
   }
@@ -367,15 +382,22 @@ function evaluateAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
     checked.push(entry);
   }
 
-  // 3) variant-layer mismatch: a data-layer inconsistency, not a shortage — blocks even when the
-  //    warehouse / caller allows negative stock.
+  // 3) variant-layer mismatch: data-layer inconsistency (not a shortage).
+  //    warehouses.allow_negative=0 → blocking (into shortages); =1 → warn-only (bypassed).
   const mismatches = [];
   const layerCache = new Map();
+  const whNegCache = new Map();
+  const whNeg = (whId) => {
+    const k = whId || 0;
+    if (!whNegCache.has(k)) whNegCache.set(k, warehouseAllowsNegative(db, whId));
+    return whNegCache.get(k);
+  };
   for (const s of skuReq.values()) {
     const pk = productKeyOf(s.productId, s.warehouseId);
     if (!layerCache.has(pk)) layerCache.set(pk, variantLayerMismatch(db, s.productId, s.warehouseId));
     const layer = layerCache.get(pk);
     if (!layer.mismatch) continue;
+    const warnOnly = whNeg(s.warehouseId);
     const d = describe(db, s.productId, s.variantId, s.warehouseId);
     const entry = {
       scope: 'variant_layer',
@@ -389,7 +411,8 @@ function evaluateAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
       atp: 0,
       requested: s.qty,
       short_by: s.qty,
-      bypassed: false,
+      bypassed: warnOnly,
+      severity: warnOnly ? 'warn' : 'block',
       product_wh_qty: layer.product_wh_qty,
       stocked_sku_count: layer.stocked_sku_count,
       ...d,
@@ -397,26 +420,35 @@ function evaluateAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
       warehouse_name: d.warehouseName,
     };
     mismatches.push(entry);
-    shortages.push(entry);
+    if (!warnOnly) shortages.push(entry);
     checked.push(entry);
   }
 
-  // Mismatches first, then variant shortages (most specific), then product-level ones.
+  // Blocking mismatches first, then variant shortages (most specific), then product-level ones.
   const rank = (x) => (isMismatchEntry(x) ? 0 : (x.variant_id ? 1 : 2));
   shortages.sort((a, b) => rank(a) - rank(b));
-  return { shortages, checked, productShort: [...productShort], mismatches };
+  const blockingMismatches = mismatches.filter((m) => !m.bypassed);
+  return {
+    shortages, checked, productShort: [...productShort],
+    mismatches, blockingMismatches, warnMismatches: mismatches.filter((m) => m.bypassed),
+  };
 }
 
 function variantLayerError(result) {
-  return atpErr('E_VARIANT_LAYER_MISMATCH', 409, mismatchMessage(result.mismatches[0]), {
+  const list = (result.blockingMismatches && result.blockingMismatches.length)
+    ? result.blockingMismatches
+    : (result.mismatches || []).filter((m) => !m.bypassed);
+  return atpErr('E_VARIANT_LAYER_MISMATCH', 409, mismatchMessage(list[0]), {
     shortages: result.shortages,
     mismatches: result.mismatches,
+    blockingMismatches: list,
   });
 }
 
 /**
  * Throws 409 E_VARIANT_LAYER_MISMATCH when the first blocking entry is a variant-layer mismatch,
  * 409 E_ATP_INSUFFICIENT on any other shortage; returns the evaluation otherwise.
+ * Warn-only mismatches (warehouse.allow_negative=1) never throw.
  */
 function assertAvailableToPromise(db, rows, headerWarehouseId, opts = {}) {
   const result = evaluateAvailableToPromise(db, rows, headerWarehouseId, opts);
@@ -452,7 +484,8 @@ function isProvisionalRequest(req, isDeviceFn) {
  * Decide how a firm sale is fulfilled. Call INSIDE the sale transaction, BEFORE posting stock.
  * @returns {{ mode:'deduct'|'backorder'|'provisional', fulfillment_state:string, shortages:Array, checked:Array }}
  * @throws 409 E_VARIANT_LAYER_MISMATCH | 409 E_ATP_INSUFFICIENT | 403 E_BACKORDER_FORBIDDEN
- *   A variant-layer mismatch is never turned into a backorder / provisional sale.
+ *   A blocking variant-layer mismatch (warehouse.allow_negative=0) is never turned into a
+ *   backorder / provisional sale. Warn-only mismatches (allow_negative=1) do not throw.
  */
 function decideSaleFulfillment(db, {
   rows, headerWarehouseId, custId = null, excludeInvoiceId = null,
@@ -462,7 +495,9 @@ function decideSaleFulfillment(db, {
   const result = evaluateAvailableToPromise(db, rows, headerWarehouseId, {
     custId, excludeInvoiceId, forceAllowNegative,
   });
-  if (result.mismatches && result.mismatches.length) throw variantLayerError(result);
+  const blocking = result.blockingMismatches
+    || ((result.mismatches || []).filter((m) => !m.bypassed));
+  if (blocking.length) throw variantLayerError(result);
   const { shortages, checked } = result;
   let mode = provisional ? 'provisional' : 'deduct';
   if (shortages.length) {
@@ -490,6 +525,7 @@ module.exports = {
   layerOnHand,
   reservedForOthers,
   salesAllowsNegative,
+  warehouseAllowsNegative,
   isBackorderRequested,
   canAuthorizeBackorder,
   isProvisionalRequest,

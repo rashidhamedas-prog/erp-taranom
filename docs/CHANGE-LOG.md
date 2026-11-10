@@ -1,3 +1,13 @@
+### ۱۴۰۵/۰۸/۱۹ — fix(inventory): ناهمخوانی لایهٔ رنگ/سایز در انبار allow_negative=1 فقط هشدار (SW v630)
+- **Commit:** شاخه `fix/allow-negative-variant-warn` (PR در حال باز شدن). فقط کد؛ بدون تغییر داده / restore / VR / backfill.
+- **Deploy:** ⏸ منتظر «GO deploy allow-negative-variant-warn».
+- **رفتار:** `variant_layer_mismatch` همچنان تشخیص داده می‌شود و بج «ناهمخوانی لایهٔ رنگ/سایز» نشان داده می‌شود؛ ولی:
+  - `warehouses.allow_negative=0` → مسدود (مثل قبل): `mismatch_blocking`/`block_reason`، 409 `E_VARIANT_LAYER_MISMATCH`، ذخیره/پک متوقف.
+  - `warehouses.allow_negative=1` → فقط هشدار: `mismatch_blocking=false`، `block_reason=null`، ATP throw نمی‌کند؛ qty/قیمت بدون تغییر. تنظیم سراسری `inventory_allow_negative` به‌تنهایی mismatch را نرم نمی‌کند (فقط ستون انبار).
+- **عمداً دست‌نخورده:** fallback ATP به unattributed / `layerOnHand` بایت‌به‌بایت.
+- **SW:** `erp-taranom-v630`؛ `app.js?v=630`، `app.css?v=630`. راهنما به‌روز.
+- **فایل‌ها:** `server/lib/inventory/{line-availability,available-to-promise}.js`، `server/lib/invoice-line-wh-stock.js`، `server/public/{app.js,app.css,index.html,sw.js}`، `server/scripts/test-variant-layer-mismatch.js`.
+
 ### ۱۴۰۵/۰۸/۱۳ — fix(inventory): اعتبارسنجی لایهٔ واریانت — drift واریانت فقط اطلاعاتی، گارد «variant layer mismatch»، ردیف حرکت در سند VR، اسکریپت CI ناوردای موجودی (SW v629)
 - **Commit:** merge `93f15685` روی `main` ([PR #197](https://github.com/rashidhamedas-prog/erp-taranom/pull/197))؛ شاخه `fix/variant-validation-v629` (`ebdb1710` + `4ec5ae93`؛ نام `fix/variant-layer-validation` را GitHub با Internal Server Error رد کرد). **CI اجرا نشد** (GitHub Actions: «recent account payments have failed / spending limit») ⇒ merge با تأیید کاربر بر اساس تست‌های محلی. فقط کد؛ **بدون تغییر داده / بدون backfill**.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۱۹ — overlay SFTP روی درخت کثیف VPS (HEAD گیت هنوز `8a5cd54` / شاخه alias؛ بدون `git pull`/`reset --hard`/`--update-env`). tip محتوا `5988f21f` / merge `93f15685`؛ SW **v629**؛ `pm2 restart erp-taranom`؛ health HTTP 200 + `image_engine.ok` (sharp 0.33.5)؛ `variant-layer.js` حاضر؛ stamp `.sftp-deploy-stamp-variant-validation-v629`. اسکریپت: `scripts/_deploy-variant-validation-v629.py`.
