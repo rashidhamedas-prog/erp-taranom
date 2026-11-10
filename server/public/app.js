@@ -26109,23 +26109,45 @@ function vrcNormalize(d){
     const qi=Number(c.qty_in)||0, qo=Number(c.qty_out)||0;
     const dir=c.direction||(qi>0?'in':(qo>0?'out':''));
     const qty=Number(c.qty!=null?c.qty:(qi||qo))||0;
+    const rawCp=c.counterpart||c.counterpart_hint||null;
+    let counterpart=null;
+    if(rawCp){
+      const lines=Array.isArray(rawCp.lines)?rawCp.lines.map(l=>({
+        variant_id:Number(l.variant_id!=null?l.variant_id:l.variantId),
+        qty:Number(l.qty)||0,
+      })).filter(l=>l.variant_id && l.qty>0):[];
+      counterpart={
+        doc_no:rawCp.doc_no||'',
+        vr_doc_no:rawCp.vr_doc_no||null,
+        lines,
+        exact:rawCp.exact===true || rawCp.exact===1 || rawCp.exact==='1',
+      };
+    }
     return {
       id:Number(c.ledger_id!=null?c.ledger_id:c.id),
       tx_no:c.tx_no||c.doc_num||'',
       date:c.date||'',
-      event_type:c.event_type||c.source_type||'',
+      event_type:c.event_type||'',
+      source_type:c.source_type||'',
       description:c.description||c.note||'',
       direction:dir,
       qty,
       amount_rial:c.amount_rial!=null?Number(c.amount_rial):null,
       eligible:c.eligible!==false && !c.blocker && !c.blocked,
       why:c.reason||c.blocker_message||(c.blocker&&c.blocker.error)||'',
+      counterpart,
     };
   }).filter(c=>c.id && c.qty>0 && (c.direction==='in'||c.direction==='out'));
   const elig=candidates.filter(c=>c.eligible);
   const netElig=round3(elig.reduce((a,c)=>a+(c.direction==='in'?c.qty:-c.qty),0));
   const active=variants.filter(v=>v.active && !v.is_default);
   const variantTotal=numOrNull(d.variant_qty!=null?d.variant_qty:d.variant_total);
+  const isTransferCand=c=>{
+    const et=String(c.event_type||''), st=String(c.source_type||'');
+    return et==='transfer_out'||et==='transfer_in'||st==='warehouse_move';
+  };
+  const transferElig=elig.filter(isTransferCand);
+  const net_blocked=transferElig.length>0 && transferElig.some(c=>!c.counterpart||c.counterpart.exact!==true||!(c.counterpart.lines&&c.counterpart.lines.length));
   return {
     product:d.product||null,
     warehouse:d.warehouse||null,
@@ -26137,6 +26159,7 @@ function vrcNormalize(d){
     netElig,
     integer:vrcFlag(d.integer),
     allow_negative:vrcFlag(d.allow_negative!=null?d.allow_negative:(d.warehouse&&d.warehouse.allow_negative)),
+    net_blocked,
     variants, active, candidates,
   };
 }
@@ -26254,6 +26277,7 @@ async function vrcLoad(){
   }
   if(_vrc!==S || seq!==S.seq) return;
   S.data=D; S.qtys={}; S.preview=null; S.sig='';
+  if(D.net_blocked && S.mode==='net') S.mode='row';
   const elig=D.candidates.filter(c=>c.eligible);
   if(S.pendingLedger && elig.some(c=>c.id===S.pendingLedger)) S.ledgerId=S.pendingLedger;
   else if(S.ledgerId && elig.some(c=>c.id===S.ledgerId)) { /* همان انتخاب */ }
@@ -26317,9 +26341,11 @@ function vrcRenderBody(){
       ${Math.abs(sel.qty-unal)>VRC_EPS?`— نه ماندهٔ خالص ${vrcQ(unal)}؛ تفکیک روی کل همین ردیف است.`:'.'}</div>`;
   }else if(!net){
     banner=`<div class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">یک ردیف را انتخاب کنید؛ تفکیک روی <b>کل تعداد همان ردیف</b> انجام می‌شود.</div>`;
+  }else if(D.net_blocked){
+    banner=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">برای این کالا تفکیک خودکار ممکن نیست؛ هر ردیف را جدا تفکیک کنید. (طرف مقابل انتقال تفکیک دقیق ندارد یا پیدا نشد.)</div>`;
   }else{
-    banner=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">حالت راهنما: فقط تعداد «ماندهٔ خالص» (<b>${vrcQ(D.netElig)} ${unit}</b>) را بین رنگ/سایزها پخش کنید (جمع باید برابر ماندهٔ خالص باشد؛ عدد منفی مجاز است). صفحه آن را به ردیف‌های لازم (ورود اول، بعد خروج) می‌شکند و <b>هر ردیف را کامل</b> تفکیک می‌کند.
-      ${D.unallocated_net!=null && Math.abs(D.unallocated_net-D.netElig)>VRC_EPS?`<br>⚠ ماندهٔ خالص گزارش‌شده (${vrcQ(D.unallocated_net)}) با جمع ردیف‌های قابل‌تفکیک (${vrcQ(D.netElig)}) یکی نیست؛ بعضی ردیف‌ها قابل تفکیک نیستند — این حالت ممکن است ثبت نشود.`:''}</div>`;
+    banner=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">حالت راهنما: فقط تعداد «ماندهٔ خالص» (<b>${vrcQ(D.netElig)} ${unit}</b>) را بین رنگ/سایزها پخش کنید (جمع باید برابر ماندهٔ خالص باشد). خروج انتقال دقیقاً از تفکیک طرف مقابل گرفته می‌شود؛ ورود = ماندهٔ شمارش‌شده + همان تفکیک طرف مقابل. ترتیب: ورود اول، بعد خروج.
+      ${D.unallocated_net!=null && Math.abs(D.unallocated_net-D.netElig)>VRC_EPS?`<br>⚠ ماندهٔ خالص گزارش‌شده (${vrcQ(D.unallocated_net)}) با جمع ردیف‌های قابل‌تفکیک (${vrcQ(D.netElig)}) یکی نیست.`:''}</div>`;
   }
   const inputsTbl=!S.mutate?'':`<div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead><tr><th>رنگ / سایز</th><th>موجودی فعلی</th><th>${net?'سهم از ماندهٔ خالص':'تعداد'}</th><th>موجودی پس از ثبت</th></tr></thead><tbody>
     ${(D.active||[]).map(v=>`<tr><td>${esc(v.label)}</td><td class="mono" data-csp-style="${CSP.style(`color:${v.qty<0?'var(--red)':'inherit'}`)}">${vrcQ(v.qty)}</td>
@@ -26345,7 +26371,7 @@ function vrcRenderBody(){
     <h4 data-csp-style="${CSP.style(`margin:12px 0 4px`)}">ردیف‌های قابل تفکیک (هر ردیف با تعداد کامل)</h4>
     ${elig.length?`<div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px`)}">
       <button type="button" class="btn sm ${net?'ghost':''}" data-csp-click="${CSP.bind('click',function(){vrcSetMode('row')})}">تفکیک یک ردیف</button>
-      <button type="button" class="btn sm ${net?'':'ghost'}" data-csp-click="${CSP.bind('click',function(){vrcSetMode('net')})}">راهنما: فقط ماندهٔ خالص (چندردیفی)</button></div>`:''}
+      <button type="button" class="btn sm ${net?'':'ghost'}" ${D.net_blocked?'disabled title="برای این کالا تفکیک خودکار ممکن نیست"':''} data-csp-click="${CSP.bind('click',function(){if(_vrc&&_vrc.data&&_vrc.data.net_blocked){showToast('برای این کالا تفکیک خودکار ممکن نیست؛ هر ردیف را جدا تفکیک کنید.','error');return;} vrcSetMode('net')})}">راهنما: فقط ماندهٔ خالص (چندردیفی)</button></div>`:''}
     ${candTbl}
     ${banner}
     ${S.mutate&&elig.length?inputsTbl:(S.mutate?'':'<div class="muted">ثبت/ابطال برای شما فعال نیست.</div>')}`;
@@ -26359,6 +26385,10 @@ function vrcSelectRow(id){
 }
 function vrcSetMode(m){
   if(!_vrc || _vrc.mode===m) return;
+  if(m==='net' && _vrc.data && _vrc.data.net_blocked){
+    showToast('برای این کالا تفکیک خودکار ممکن نیست؛ هر ردیف را جدا تفکیک کنید.','error');
+    return;
+  }
   _vrc.mode=m; _vrc.qtys={}; _vrc.preview=null; _vrc.sig='';
   vrcRenderBody();
 }
@@ -26468,6 +26498,7 @@ function vrcBuildSteps(quiet){
   }else{
     const elig=D.candidates.filter(c=>c.eligible);
     if(!elig.length) return fail('ردیف قابل تفکیکی نیست');
+    if(D.net_blocked) return fail('برای این کالا تفکیک خودکار ممکن نیست؛ هر ردیف را جدا تفکیک کنید.',deltas);
     vals.forEach(x=>{ deltas[x.v.id]=x.q; });
     const inRows=elig.filter(c=>c.direction==='in').sort(vrcRowOrder);
     const outRows=elig.filter(c=>c.direction==='out').sort(vrcRowOrder);
@@ -26476,27 +26507,58 @@ function vrcBuildSteps(quiet){
     const sum=round3(vals.reduce((a,x)=>a+x.q,0));
     if(!entered.length) return fail('سهم هر رنگ/سایز از ماندهٔ خالص ('+vrcQ(netQ)+') را وارد کنید',deltas);
     if(Math.abs(sum-netQ)>VRC_EPS) return fail('جمع واردشده ('+vrcQ(sum)+') باید برابر ماندهٔ خالص ('+vrcQ(netQ)+') باشد',deltas);
-    if(Math.abs(netQ)<=VRC_EPS) return fail('ماندهٔ خالص صفر است و نمی‌شود سهم رنگ‌ها را حدس زد؛ با حالت «تفکیک یک ردیف» هر ردیف را جدا تفکیک کنید',deltas);
-    // خروج‌ها: حداقل برای سهم‌های منفی؛ مازاد روی بزرگ‌ترین سهم مثبت (اثر خالص همان سهم می‌ماند)
-    const outV={}; let minSum=0;
-    vals.forEach(x=>{ const m=x.q<0?round3(-x.q):0; outV[x.v.id]=m; minSum=round3(minSum+m); });
-    const extra=round3(O-minSum);
-    if(extra<-VRC_EPS) return fail('سهم‌های منفی ('+vrcQ(minSum)+') از جمع ردیف‌های خروج بی‌واریانت ('+vrcQ(O)+') بیشتر است؛ چنین تفکیکی با این ردیف‌ها ممکن نیست',deltas);
-    if(extra>VRC_EPS){
-      let best=vals[0];
-      vals.forEach(x=>{ if(x.q>best.q) best=x; });
-      outV[best.v.id]=round3(outV[best.v.id]+extra);
+    if(Math.abs(netQ)<=VRC_EPS) return fail('ماندهٔ خالص صفر است؛ با حالت «تفکیک یک ردیف» هر ردیف را جدا تفکیک کنید',deltas);
+    const isTransfer=c=>{
+      const et=String(c.event_type||''), st=String(c.source_type||'');
+      return et==='transfer_out'||et==='transfer_in'||st==='warehouse_move';
+    };
+    const transferRows=elig.filter(isTransfer);
+    if(transferRows.some(c=>!c.counterpart||c.counterpart.exact!==true||!(c.counterpart.lines&&c.counterpart.lines.length))){
+      return fail('برای این کالا تفکیک خودکار ممکن نیست؛ هر ردیف را جدا تفکیک کنید.',deltas);
     }
-    const inV=vals.map(x=>({ vid:x.v.id, qty:round3(x.q+outV[x.v.id]) }));
-    if(inV.some(x=>x.qty<-VRC_EPS)) return fail('برنامهٔ ورود/خروج منفی شد؛ سهم‌ها را اصلاح کنید',deltas);
-    const outList=vals.map(x=>({ vid:x.v.id, qty:outV[x.v.id] }));
-    const inSplit=inRows.length?vrcSplitAcross(inRows,inV.map(x=>({vid:x.vid,qty:Math.max(0,x.qty)}))):{};
-    const outSplit=outRows.length?vrcSplitAcross(outRows,outList):{};
-    if(inRows.length && !inSplit) return fail('پخش ردیف‌های ورود روی رنگ/سایزها ممکن نشد',deltas);
-    if(outRows.length && !outSplit) return fail('پخش ردیف‌های خروج روی رنگ/سایزها ممکن نشد',deltas);
-    if(!inRows.length && inV.some(x=>x.qty>VRC_EPS)) return fail('ردیف ورودی برای تخصیص مقدار مثبت نیست',deltas);
-    inRows.forEach(r=>steps.push({ ledger_id:r.id, tx_no:r.tx_no, direction:'in', qty:r.qty, amount_rial:r.amount_rial, lines:inSplit[r.id] }));
-    outRows.forEach(r=>steps.push({ ledger_id:r.id, tx_no:r.tx_no, direction:'out', qty:r.qty, amount_rial:r.amount_rial, lines:outSplit[r.id] }));
+    // خروج انتقال: دقیقاً counterpart.lines — بدون dump روی بزرگ‌ترین رنگ
+    const counterpartByVar={};
+    for(const r of outRows){
+      if(isTransfer(r)){
+        const lines=(r.counterpart.lines||[]).map(l=>({ variant_id:Number(l.variant_id), qty:round3(Number(l.qty)||0) })).filter(l=>l.variant_id&&l.qty>0);
+        const lsum=round3(lines.reduce((a,l)=>a+l.qty,0));
+        if(Math.abs(lsum-r.qty)>VRC_EPS) return fail('تفکیک طرف مقابل ردیف '+esc(r.tx_no||('#'+r.id))+' با تعداد ردیف یکی نیست (اختلاف '+vrcQ(lsum-r.qty)+')',deltas);
+        lines.forEach(l=>{ counterpartByVar[l.variant_id]=round3((counterpartByVar[l.variant_id]||0)+l.qty); });
+        steps.push({ ledger_id:r.id, tx_no:r.tx_no, direction:'out', qty:r.qty, amount_rial:r.amount_rial, lines });
+      }else{
+        return fail('ردیف خروج بدون طرف مقابل انتقال پشتیبانی نمی‌شود؛ هر ردیف را جدا تفکیک کنید.',deltas);
+      }
+    }
+    // ورود = ماندهٔ شمارش‌شده + Σ تفکیک طرف مقابل هر رنگ
+    const inByVar={};
+    act.forEach(v=>{
+      const q=round3(vrcNum(S.qtys[v.id])+(counterpartByVar[v.id]||0));
+      if(q>VRC_EPS) inByVar[v.id]=q;
+    });
+    const inTotal=round3(Object.keys(inByVar).reduce((a,k)=>a+inByVar[k],0));
+    if(Math.abs(inTotal-I)>VRC_EPS){
+      return fail('جمع برنامهٔ ورود ('+vrcQ(inTotal)+') با تعداد ردیف‌های ورود ('+vrcQ(I)+') یکی نیست (اختلاف '+vrcQ(inTotal-I)+'). ماندهٔ شمارش‌شده + تفکیک طرف مقابل باید دقیقاً برابر ردیف ورود باشد.',deltas);
+    }
+    const remaining={...inByVar};
+    const inSteps=[];
+    for(const r of inRows){
+      let need=round3(r.qty);
+      const lines=[];
+      Object.keys(remaining).map(Number).sort((a,b)=>a-b).forEach(vid=>{
+        if(need<=VRC_EPS) return;
+        const left=remaining[vid]||0;
+        if(!(left>VRC_EPS)) return;
+        const take=round3(Math.min(need,left));
+        lines.push({ variant_id:vid, qty:take });
+        remaining[vid]=round3(left-take);
+        need=round3(need-take);
+      });
+      if(need>VRC_EPS) return fail('پخش ردیف ورود '+esc(r.tx_no||('#'+r.id))+' کامل نشد (کمبود '+vrcQ(need)+')',deltas);
+      const lsum=round3(lines.reduce((a,l)=>a+l.qty,0));
+      if(Math.abs(lsum-r.qty)>VRC_EPS) return fail('جمع تفکیک ورود ('+vrcQ(lsum)+') با تعداد ردیف ('+vrcQ(r.qty)+') یکی نیست (اختلاف '+vrcQ(lsum-r.qty)+')',deltas);
+      inSteps.push({ ledger_id:r.id, tx_no:r.tx_no, direction:'in', qty:r.qty, amount_rial:r.amount_rial, lines });
+    }
+    steps=inSteps.concat(steps);
     if(steps.some(s=>!s.lines||!s.lines.length)) return fail('پخش ردیف‌ها کامل نشد',deltas);
   }
   if(D.allow_negative===false){

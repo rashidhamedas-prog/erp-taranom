@@ -375,6 +375,202 @@ function getDoc(db, id) {
   return { ...d, lines };
 }
 
+/**
+ * Colour split on the other side of a transfer (for guided remainder).
+ * Prefer a posted VR on the peer source row (even if that peer is now reversed);
+ * else sum live attributed peer rows. Skip qty-0 / *revalue* peers.
+ * @returns {{ doc_no, vr_doc_no, lines:[{variant_id,qty}], exact:boolean }|null}
+ */
+function resolveCounterpart(db, row, productId, warehouseId, sourceQty) {
+  const st = String(row.source_type || '');
+  const et = String(row.event_type || '');
+  if (!(et === 'transfer_out' || et === 'transfer_in' || st === 'warehouse_move') || !row.source_id) {
+    return null;
+  }
+  const peers = db.prepare(`
+    SELECT l.id, l.tx_no, l.warehouse_id, l.event_type, l.source_type, l.source_id,
+      l.variant_id, l.status, l.reversed_of, l.qty_in, l.qty_out
+    FROM inventory_ledger l
+    WHERE l.product_id=? AND l.source_id=? AND COALESCE(l.source_type,'')=?
+      AND l.id<>? AND COALESCE(l.warehouse_id,0)<>COALESCE(?,0)
+      AND COALESCE(l.event_type,'') NOT IN ('reversal')
+      AND COALESCE(l.event_type,'') NOT GLOB '*_reversal'
+      AND LOWER(COALESCE(l.event_type,'')) NOT GLOB '*revalue*'
+    ORDER BY l.id ASC
+  `).all(productId, row.source_id, st, row.id, warehouseId);
+
+  const withQty = peers.filter((p) => {
+    const q = Math.abs(Number(p.qty_in) || 0) + Math.abs(Number(p.qty_out) || 0);
+    return q > QTY_EPS;
+  });
+  if (!withQty.length) return null;
+
+  if (tableExists(db, 'variant_reclass_docs')) {
+    for (const p of withQty) {
+      const vr = db.prepare(
+        "SELECT id, doc_no, lines_json FROM variant_reclass_docs WHERE source_ledger_id=? AND status='posted'"
+      ).get(p.id);
+      if (!vr) continue;
+      let raw = [];
+      try { raw = JSON.parse(vr.lines_json || '[]'); } catch (_) { raw = []; }
+      const lines = [];
+      const seen = new Set();
+      for (const l of raw) {
+        const vid = Number(l && (l.variant_id != null ? l.variant_id : l.variantId)) || 0;
+        const q = round3(Number(l && l.qty) || 0);
+        if (!vid || !(q > 0) || seen.has(vid)) continue;
+        seen.add(vid);
+        lines.push({ variant_id: vid, qty: q });
+      }
+      const sum = round3(lines.reduce((a, l) => a + l.qty, 0));
+      return {
+        doc_no: p.tx_no || '',
+        vr_doc_no: vr.doc_no || null,
+        lines,
+        exact: Math.abs(sum - sourceQty) <= QTY_EPS,
+      };
+    }
+  }
+
+  const attributed = withQty.filter((p) => isLive(p) && Number(p.variant_id) > 0);
+  if (!attributed.length) return null;
+  const byVar = new Map();
+  for (const p of attributed) {
+    const vid = Number(p.variant_id);
+    const q = round3(Number(p.qty_in) || Number(p.qty_out) || 0);
+    byVar.set(vid, round3((byVar.get(vid) || 0) + q));
+  }
+  const lines = [...byVar.entries()]
+    .filter(([, q]) => q > QTY_EPS)
+    .map(([variant_id, qty]) => ({ variant_id, qty }))
+    .sort((a, b) => a.variant_id - b.variant_id);
+  const sum = round3(lines.reduce((a, l) => a + l.qty, 0));
+  return {
+    doc_no: attributed[0].tx_no || '',
+    vr_doc_no: null,
+    lines,
+    exact: Math.abs(sum - sourceQty) <= QTY_EPS,
+  };
+}
+
+/**
+ * Guided remainder (net mode): leftover per colour + exact transfer counterpart lines.
+ * Outbound steps use counterpart.lines; inbound = leftover + Σ outbound counterpart per colour.
+ * @returns {{ ok:boolean, error?:string, blocked?:boolean, steps?:object[] }}
+ */
+function planGuidedRemainder({ candidates, leftoverLines } = {}) {
+  const elig = (candidates || []).filter((c) => c && c.eligible !== false);
+  const transfers = elig.filter((c) => {
+    const et = String(c.event_type || '');
+    const st = String(c.source_type || '');
+    return et === 'transfer_out' || et === 'transfer_in' || st === 'warehouse_move';
+  });
+  if (transfers.some((c) => !c.counterpart || c.counterpart.exact !== true
+    || !Array.isArray(c.counterpart.lines) || !c.counterpart.lines.length)) {
+    return {
+      ok: false,
+      blocked: true,
+      error: 'برای این کالا تفکیک خودکار ممکن نیست؛ هر ردیف را جدا تفکیک کنید.',
+      steps: [],
+    };
+  }
+
+  const leftover = new Map();
+  for (const l of leftoverLines || []) {
+    const vid = Number(l.variant_id || l.variantId) || 0;
+    const q = round3(Number(l.qty) || 0);
+    if (!vid) continue;
+    leftover.set(vid, round3((leftover.get(vid) || 0) + q));
+  }
+
+  const inRows = elig.filter((c) => c.direction === 'in').sort((a, b) => Number(a.ledger_id) - Number(b.ledger_id));
+  const outRows = elig.filter((c) => c.direction === 'out').sort((a, b) => Number(a.ledger_id) - Number(b.ledger_id));
+  const counterpartByVar = new Map();
+  const steps = [];
+
+  for (const r of outRows) {
+    const lines = (r.counterpart.lines || []).map((l) => ({
+      variant_id: Number(l.variant_id),
+      qty: round3(Number(l.qty) || 0),
+    })).filter((l) => l.variant_id && l.qty > 0);
+    const sum = round3(lines.reduce((a, l) => a + l.qty, 0));
+    if (Math.abs(sum - Number(r.qty)) > QTY_EPS) {
+      return {
+        ok: false,
+        blocked: true,
+        error: `تفکیک طرف مقابل خروج (${r.tx_no || r.ledger_id}) با تعداد ردیف یکی نیست (اختلاف ${round3(sum - Number(r.qty))}).`,
+        steps: [],
+      };
+    }
+    for (const l of lines) {
+      counterpartByVar.set(l.variant_id, round3((counterpartByVar.get(l.variant_id) || 0) + l.qty));
+    }
+    steps.push({
+      ledger_id: Number(r.ledger_id),
+      tx_no: r.tx_no || '',
+      direction: 'out',
+      qty: Number(r.qty),
+      lines,
+    });
+  }
+
+  const inByVar = new Map();
+  const allVids = new Set([...leftover.keys(), ...counterpartByVar.keys()]);
+  for (const vid of allVids) {
+    const q = round3((leftover.get(vid) || 0) + (counterpartByVar.get(vid) || 0));
+    if (q > QTY_EPS) inByVar.set(vid, q);
+  }
+  const inTotal = round3([...inByVar.values()].reduce((a, q) => a + q, 0));
+  const inNeed = round3(inRows.reduce((a, r) => a + Number(r.qty), 0));
+  if (inRows.length && Math.abs(inTotal - inNeed) > QTY_EPS) {
+    return {
+      ok: false,
+      error: `جمع برنامهٔ ورود (${inTotal}) با تعداد ردیف‌های ورود (${inNeed}) یکی نیست (اختلاف ${round3(inTotal - inNeed)}). ماندهٔ شمارش‌شده + تفکیک طرف مقابل باید دقیقاً برابر ردیف ورود باشد.`,
+      steps: [],
+    };
+  }
+
+  // Inbound first: greedy fill by ledger id order.
+  const inSteps = [];
+  let remaining = new Map(inByVar);
+  for (const r of inRows) {
+    let need = round3(Number(r.qty));
+    const lines = [];
+    for (const [vid, left] of [...remaining.entries()]) {
+      if (need <= QTY_EPS) break;
+      if (!(left > QTY_EPS)) continue;
+      const take = round3(Math.min(need, left));
+      lines.push({ variant_id: vid, qty: take });
+      remaining.set(vid, round3(left - take));
+      need = round3(need - take);
+    }
+    if (need > QTY_EPS) {
+      return {
+        ok: false,
+        error: `پخش ردیف ورود ${r.tx_no || r.ledger_id} کامل نشد (کمبود ${need}).`,
+        steps: [],
+      };
+    }
+    const sum = round3(lines.reduce((a, l) => a + l.qty, 0));
+    if (Math.abs(sum - Number(r.qty)) > QTY_EPS) {
+      return {
+        ok: false,
+        error: `جمع تفکیک ورود (${sum}) با تعداد ردیف (${r.qty}) یکی نیست (اختلاف ${round3(sum - Number(r.qty))}).`,
+        steps: [],
+      };
+    }
+    inSteps.push({
+      ledger_id: Number(r.ledger_id),
+      tx_no: r.tx_no || '',
+      direction: 'in',
+      qty: Number(r.qty),
+      lines,
+    });
+  }
+
+  return { ok: true, steps: inSteps.concat(steps) };
+}
+
 function listDocs(db, { productId = null, limit = 100 } = {}) {
   if (!tableExists(db, 'variant_reclass_docs')) return [];
   const where = productId ? 'WHERE d.product_id=?' : '';
@@ -463,39 +659,7 @@ function listCandidates(db, { productId = null, warehouseId = null } = {}) {
     if (postedVr.has(Number(row.id))) continue;
     const direction = qtyIn > 0 ? 'in' : 'out';
     const qty = round3(qtyIn || qtyOut);
-    let counterpart_hint = null;
-    const st = String(row.source_type || '');
-    const et = String(row.event_type || '');
-    if ((et === 'transfer_out' || et === 'transfer_in' || st === 'warehouse_move') && row.source_id) {
-      const other = db.prepare(`
-        SELECT l.id, l.warehouse_id, l.event_type, l.qty_in, l.qty_out, l.variant_id,
-          (SELECT doc_no FROM variant_reclass_docs d
-            WHERE d.source_ledger_id=l.id AND d.status='posted' LIMIT 1) AS vr_doc_no
-        FROM inventory_ledger l
-        WHERE l.product_id=? AND l.source_id=? AND l.id<>?
-          AND COALESCE(l.status,'')='posted' AND l.reversed_of IS NULL
-          AND COALESCE(l.event_type,'') NOT IN ('reversal')
-          AND COALESCE(l.event_type,'') NOT GLOB '*_reversal'
-      `).all(pid, row.source_id, row.id);
-      const peer = other.find((o) => Number(o.warehouse_id) !== wid);
-      if (peer) {
-        const peerHasVr = !!peer.vr_doc_no;
-        const peerAttributed = Number(peer.variant_id) > 0
-          || other.some((o) => Number(o.warehouse_id) === Number(peer.warehouse_id) && Number(o.variant_id) > 0);
-        if (peerHasVr || peerAttributed) {
-          counterpart_hint = {
-            ledger_id: Number(peer.id),
-            warehouse_id: Number(peer.warehouse_id),
-            event_type: peer.event_type,
-            vr_doc_no: peer.vr_doc_no || null,
-            attributed: peerAttributed,
-            message: peer.vr_doc_no
-              ? `طرف مقابل انتقال قبلاً با ${peer.vr_doc_no} تفکیک شده است`
-              : 'طرف مقابل انتقال روی رنگ×سایز ثبت شده است',
-          };
-        }
-      }
-    }
+    const counterpart = resolveCounterpart(db, row, pid, wid, qty);
     candidates.push({
       ledger_id: Number(row.id),
       tx_no: row.tx_no || '',
@@ -512,7 +676,7 @@ function listCandidates(db, { productId = null, warehouseId = null } = {}) {
       je_id: row.je_id || null,
       note: row.note || '',
       eligible: true,
-      counterpart_hint,
+      counterpart,
     });
   }
 
@@ -549,4 +713,6 @@ module.exports = {
   getDoc,
   listDocs,
   listCandidates,
+  resolveCounterpart,
+  planGuidedRemainder,
 };

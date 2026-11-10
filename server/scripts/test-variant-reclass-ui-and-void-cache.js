@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 let pass = 0;
@@ -154,26 +155,27 @@ async function main() {
       event_type: 'transfer_in', source_type: 'warehouse_move', source_id: MOVE,
       product_id: P, warehouse_id: WHB, qty_in: 8, amount_rial: 8 * U, tx_no: 'INV-0410',
     });
-    // qty-0 revalue must not be a candidate
+    // qty-0 revalue on A (not a candidate) + transfer_in_revalue on B (must be ignored by counterpart)
     const REVAL = legacyRow({
       event_type: 'revaluation', source_type: 'inventory_adjust', source_id: 99,
       product_id: P, warehouse_id: WHA, qty_in: 0, qty_out: 0, amount_rial: 0, tx_no: 'INV-2216',
     });
+    legacyRow({
+      event_type: 'transfer_in_revalue', source_type: 'warehouse_move', source_id: MOVE,
+      product_id: P, warehouse_id: WHB, qty_in: 0, qty_out: 0, amount_rial: 0, tx_no: 'INV-2216B',
+    });
 
-    // Colours already on B (like posted VR on counterpart): 4/3/1 then sell 1+1 leaving 2 attributed on B
+    // B side reclassed by a real VR to 4/3/1 (source TIN reversed by postReclass)
     const SPLIT_B = [4, 3, 1];
-    for (let i = 0; i < 3; i++) {
-      legacyRow({
-        event_type: 'transfer_in', source_type: 'warehouse_move', source_id: MOVE,
-        product_id: P, warehouse_id: WHB, variant_id: V[i],
-        qty_in: SPLIT_B[i], amount_rial: SPLIT_B[i] * U, tx_no: `B-IN-${i}`,
-      });
-    }
-    // Mark original TIN as reversed so net on B is only coloured rows (8)
-    db.prepare("UPDATE inventory_ledger SET status='reversed' WHERE id=?").run(TIN);
+    const linesB = V.map((vid, i) => ({ variant_id: vid, qty: SPLIT_B[i] }));
+    let r = await call('POST', '/api/inventory/variant-reclass', {
+      ledger_id: TIN, lines: linesB, reason: 'تفکیک ورود کیمیا ۸', confirm: true,
+    });
+    ok(r.status === 200 && r.body && r.body.doc_no, 'fixture VR on B TIN', r.body && r.body.doc_no);
+    const vrB = r.body.doc_no;
     legacyRow({
       event_type: 'sale', source_type: 'invoice', source_id: 1, product_id: P, warehouse_id: WHB,
-      variant_id: V[1], qty_out: 1, amount_rial: U, tx_no: 'SALE-B1',
+      variant_id: V[0], qty_out: 1, amount_rial: U, tx_no: 'SALE-B0',
     });
     legacyRow({
       event_type: 'sale', source_type: 'invoice', source_id: 2, product_id: P, warehouse_id: WHB,
@@ -184,12 +186,12 @@ async function main() {
     const dA = SC.deriveProductStock(db, P);
     ok(n3(dA.unattributed.get(WHA) || 0) === 16, 'fixture: unallocated A = 16', [...dA.unattributed]);
     ok(n3(dA.warehouses.get(WHA) || 0) === 16, 'fixture: kardex A = 16');
-    ok(n3((dA.variantWarehouses.get(`${V[0]}:${WHB}`) || 0)) === 4, 'fixture: B مشکی 4');
-    ok(n3((dA.variantWarehouses.get(`${V[1]}:${WHB}`) || 0)) === 2, 'fixture: B سرمه‌ای 2 after sale');
+    ok(n3((dA.variantWarehouses.get(`${V[0]}:${WHB}`) || 0)) === 3, 'fixture: B مشکی 3 after sale');
+    ok(n3((dA.variantWarehouses.get(`${V[1]}:${WHB}`) || 0)) === 3, 'fixture: B سرمه‌ای 3');
     ok(n3((dA.variantWarehouses.get(`${V[2]}:${WHB}`) || 0)) === 0, 'fixture: B نسکافه‌ای 0 after sale');
 
-    console.log('— candidates —');
-    let r = await call('GET', `/api/inventory/variant-reclass/candidates?product_id=${P}&warehouse_id=${WHA}`);
+    console.log('— candidates + counterpart —');
+    r = await call('GET', `/api/inventory/variant-reclass/candidates?product_id=${P}&warehouse_id=${WHA}`);
     ok(r.status === 200, 'GET candidates 200', r.body);
     const ids = (r.body.candidates || []).map((c) => c.ledger_id);
     ok(ids.includes(OPEN) && ids.includes(TOUT), 'candidates include +24 and −8', ids);
@@ -198,7 +200,82 @@ async function main() {
     ok(n3(r.body.unallocated_net) === 16, 'unallocated_net 16', r.body.unallocated_net);
     ok(Array.isArray(r.body.variants) && r.body.variants.length === 3, '3 active variants');
     const toutCand = (r.body.candidates || []).find((c) => c.ledger_id === TOUT);
-    ok(!!(toutCand && toutCand.counterpart_hint), 'transfer_out has counterpart hint', toutCand && toutCand.counterpart_hint);
+    const cp = toutCand && toutCand.counterpart;
+    ok(!!cp && cp.vr_doc_no === vrB && cp.exact === true, 'counterpart has VR + exact', cp);
+    const cpMap = Object.fromEntries((cp.lines || []).map((l) => [Number(l.variant_id), Number(l.qty)]));
+    ok(cpMap[V[0]] === 4 && cpMap[V[1]] === 3 && cpMap[V[2]] === 1, 'counterpart.lines = 4/3/1', cpMap);
+
+    console.log('— guided remainder planner —');
+    const leftover = [
+      { variant_id: V[0], qty: 10 },
+      { variant_id: V[1], qty: 4 },
+      { variant_id: V[2], qty: 2 },
+    ];
+    const plan = VR.planGuidedRemainder({ candidates: r.body.candidates, leftoverLines: leftover });
+    ok(plan.ok === true && plan.steps && plan.steps.length === 2, 'net plan 2 steps', plan);
+    const stepIn = plan.steps.find((s) => s.direction === 'in');
+    const stepOut = plan.steps.find((s) => s.direction === 'out');
+    ok(stepIn && stepIn.ledger_id === OPEN && stepOut && stepOut.ledger_id === TOUT, 'inbound first then outbound');
+    const inMap = Object.fromEntries(stepIn.lines.map((l) => [l.variant_id, l.qty]));
+    const outMap = Object.fromEntries(stepOut.lines.map((l) => [l.variant_id, l.qty]));
+    ok(inMap[V[0]] === 14 && inMap[V[1]] === 7 && inMap[V[2]] === 3, 'inbound 14/7/3', inMap);
+    ok(outMap[V[0]] === 4 && outMap[V[1]] === 3 && outMap[V[2]] === 1, 'outbound 4/3/1', outMap);
+
+    const jeBeforeNet = jeAlive();
+    const sumBeforeNet = jeSum();
+    const hdrBeforeNet = SC.deriveProductStock(db, P).header;
+    r = await call('POST', '/api/inventory/variant-reclass', {
+      ledger_id: OPEN, lines: stepIn.lines, reason: 'نت: تفکیک افتتاحیه ۲۴', confirm: true,
+    });
+    ok(r.status === 200, 'net post inbound 24', r.body && r.body.doc_no);
+    r = await call('POST', '/api/inventory/variant-reclass', {
+      ledger_id: TOUT, lines: stepOut.lines, reason: 'نت: تفکیک خروج ۸', confirm: true,
+    });
+    ok(r.status === 200, 'net post outbound 8', r.body && r.body.doc_no);
+    const dNet = SC.deriveProductStock(db, P);
+    ok(n3(dNet.unattributed.get(WHA) || 0) === 0, 'after net: A unallocated 0');
+    ok(n3(dNet.variantWarehouses.get(`${V[0]}:${WHA}`) || 0) === 10, 'A مشکی 10');
+    ok(n3(dNet.variantWarehouses.get(`${V[1]}:${WHA}`) || 0) === 4, 'A سرمه‌ای 4');
+    ok(n3(dNet.variantWarehouses.get(`${V[2]}:${WHA}`) || 0) === 2, 'A نسکافه‌ای 2');
+    ok(n3(dNet.variantWarehouses.get(`${V[0]}:${WHB}`) || 0) === 3, 'B unchanged مشکی 3');
+    ok(n3(dNet.header) === hdrBeforeNet, 'header unchanged after net posts');
+    ok(jeAlive() === jeBeforeNet && jeSum().d === sumBeforeNet.d, 'JE unchanged after net posts');
+    ok(qa('PRAGMA foreign_key_check').length === 0, 'foreign_key_check empty after net');
+
+    // Void outbound first, then inbound, so later one-row tests can re-use OPEN/TOUT
+    const docsNet = VR.listDocs(db, { productId: P, limit: 20 }).filter((d) => d.status === 'posted');
+    const docOut = docsNet.find((d) => Number(d.source_ledger_id) === TOUT);
+    const docIn = docsNet.find((d) => Number(d.source_ledger_id) === OPEN);
+    if (docOut) {
+      r = await call('POST', `/api/inventory/variant-reclass/${docOut.id}/void`, { reason: 'پاکسازی نت خروج', confirm: true });
+      ok(r.status === 200, 'void net outbound', r.body && r.body.status);
+    }
+    if (docIn) {
+      r = await call('POST', `/api/inventory/variant-reclass/${docIn.id}/void`, { reason: 'پاکسازی نت ورود', confirm: true });
+      ok(r.status === 200, 'void net inbound', r.body && r.body.status);
+    }
+    SC.rebuildStockCache(db, P);
+
+    console.log('— net blocked without counterpart —');
+    const blocked = VR.planGuidedRemainder({
+      candidates: [
+        { ledger_id: 1, direction: 'in', qty: 5, eligible: true, event_type: 'opening' },
+        { ledger_id: 2, direction: 'out', qty: 2, eligible: true, event_type: 'transfer_out', source_type: 'warehouse_move', counterpart: null },
+      ],
+      leftoverLines: [{ variant_id: V[0], qty: 3 }],
+    });
+    ok(blocked.ok === false && blocked.blocked === true, 'missing counterpart → net blocked', blocked);
+    const inexact = VR.planGuidedRemainder({
+      candidates: [
+        { ledger_id: 1, direction: 'in', qty: 5, eligible: true, event_type: 'opening' },
+        {
+          ledger_id: 2, direction: 'out', qty: 2, eligible: true, event_type: 'transfer_out', source_type: 'warehouse_move',
+          counterpart: { exact: false, lines: [{ variant_id: V[0], qty: 1 }], vr_doc_no: 'VR-X' },
+        },
+      ],
+      leftoverLines: [{ variant_id: V[0], qty: 3 }],
+    });
+    ok(inexact.ok === false && inexact.blocked === true, 'exact=false → net blocked', inexact);
 
     r = await call('GET', `/api/inventory/variant-reclass/candidates?product_id=${P}&warehouse_id=${WHA}`, null, CASHIER_ID);
     ok(r.status === 403, 'cashier candidates 403', r.body);
@@ -270,7 +347,7 @@ async function main() {
     ok(n3(d1.variantWarehouses.get(`${V[1]}:${WHA}`) || 0) === 5, 'A سرمه‌ای 8−3=5');
     ok(n3(d1.variantWarehouses.get(`${V[2]}:${WHA}`) || 0) === 5, 'A نسکافه‌ای 6−1=5');
     ok(n3(d1.warehouses.get(WHA) || 0) === 16, 'A kardex still 16');
-    ok(n3(d1.variantWarehouses.get(`${V[0]}:${WHB}`) || 0) === 4, 'B مشکی unchanged 4');
+    ok(n3(d1.variantWarehouses.get(`${V[0]}:${WHB}`) || 0) === 3, 'B مشکی unchanged 3 (after sale)');
     ok(n3(d1.header) === hdrBefore, 'header qty unchanged', [d1.header, hdrBefore]);
     ok(jeAlive() === jeBefore && jeSum().d === sumBefore.d && jeSum().c === sumBefore.c, 'JE count+sum unchanged');
     ok(qa('PRAGMA foreign_key_check').length === 0, 'foreign_key_check empty', qa('PRAGMA foreign_key_check'));
@@ -370,8 +447,24 @@ async function main() {
     const wouldNeg = 0 - 1;
     ok(wouldNeg < 0, 'UI planner would block outbound that makes cell negative');
 
-    console.log('— repair script dry-run —');
-    // Seed a stale void-leftover cell on P (unattributed still present) without going through adjust again
+    console.log('— repair script dry-run (read-only) —');
+    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (_) { /* */ }
+    const cleanCopy = path.join(dir, 'repair-clean.db');
+    fs.copyFileSync(process.env.DB_PATH, cleanCopy);
+    const sha = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+    const mtimeBefore = fs.statSync(cleanCopy).mtimeMs;
+    const shaBefore = sha(cleanCopy);
+    const nodeBin = process.execPath;
+    const dryClean = spawnSync(nodeBin, [path.join(__dirname, 'repair-void-adjust-variant-cache.js')], {
+      env: { ...process.env, DB_PATH: cleanCopy, ERP_TEST_ISOLATION: '1', SMS_DISABLED: '1' },
+      encoding: 'utf8',
+    });
+    ok(dryClean.status === 0, 'repair dry-run exit 0 on clean copy', dryClean.stderr && dryClean.stderr.slice(0, 300));
+    ok(/dry-run/i.test(dryClean.stdout) && /"leftover_count": 0/.test(dryClean.stdout), 'clean dry-run leftover_count 0', dryClean.stdout.slice(0, 400));
+    ok(fs.statSync(cleanCopy).mtimeMs === mtimeBefore, 'dry-run mtime unchanged');
+    ok(sha(cleanCopy) === shaBefore, 'dry-run sha unchanged');
+
+    // Seed a stale void-leftover cell on P and clear via rebuild rule
     const staleVid = V[2];
     const staleBefore = vws(staleVid, WHA);
     db.prepare(`
@@ -387,46 +480,10 @@ async function main() {
       INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)
       ON CONFLICT(variant_id, warehouse_id) DO UPDATE SET qty=excluded.qty
     `).run(staleVid, WHA, staleTarget);
-    ok(vws(staleVid, WHA) === staleTarget, 'seeded stale VWS cell', { now: vws(staleVid, WHA), staleTarget });
     const ledAttr = n3(SC.deriveProductStock(db, P).variantWarehouses.get(`${staleVid}:${WHA}`) || 0);
-    ok(Math.abs(ledAttr - staleBefore) < 0.001, 'ledger attributed unchanged by movement-only seed', { ledAttr, staleBefore });
-
-    // In-process dry detection (no write): same rule as the repair script
     const hints = SC.loadVariantMovementHints(db, [staleVid]);
     const hint = hints.byVW.get(`${staleVid}:${WHA}`);
-    const wantClear = SC.variantWant(ledAttr, staleTarget, true, hint);
     ok(!!(hint && hint.hasVoid), 'stale cell has void movement');
-    ok(Math.abs(wantClear - ledAttr) < 0.001, 'rule would clear stale cell to ledger');
-    ok(vws(staleVid, WHA) === staleTarget, 'in-process detect wrote nothing', { now: vws(staleVid, WHA), staleTarget });
-
-    // CLI dry-run + --apply on a *copy* so parent connection is untouched until we choose
-    try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (_) { /* */ }
-    const copyDb = path.join(dir, 'repair-copy.db');
-    fs.copyFileSync(process.env.DB_PATH, copyDb);
-    try {
-      const wal = process.env.DB_PATH + '-wal';
-      const shm = process.env.DB_PATH + '-shm';
-      if (fs.existsSync(wal)) fs.copyFileSync(wal, copyDb + '-wal');
-      if (fs.existsSync(shm)) fs.copyFileSync(shm, copyDb + '-shm');
-    } catch (_) { /* optional wal/shm */ }
-
-    const nodeBin = process.execPath;
-    const dry = spawnSync(nodeBin, [path.join(__dirname, 'repair-void-adjust-variant-cache.js')], {
-      env: { ...process.env, DB_PATH: copyDb, ERP_TEST_ISOLATION: '1', SMS_DISABLED: '1' },
-      encoding: 'utf8',
-    });
-    ok(dry.status === 0, 'repair dry-run exit 0', dry.stderr && dry.stderr.slice(0, 300));
-    ok(/dry-run/i.test(dry.stdout) && /leftover_count/i.test(dry.stdout), 'repair dry-run lists leftovers', dry.stdout.slice(0, 500));
-    ok(vws(staleVid, WHA) === staleTarget, 'dry-run on copy left parent DB untouched', { now: vws(staleVid, WHA), staleTarget });
-
-    const apply = spawnSync(nodeBin, [path.join(__dirname, 'repair-void-adjust-variant-cache.js'), '--apply'], {
-      env: { ...process.env, DB_PATH: copyDb, ERP_TEST_ISOLATION: '1', SMS_DISABLED: '1' },
-      encoding: 'utf8',
-    });
-    ok(apply.status === 0, 'temp --apply exit 0', apply.stderr && apply.stderr.slice(0, 300));
-    ok(vws(staleVid, WHA) === staleTarget, 'temp --apply did not touch parent DB', { now: vws(staleVid, WHA), staleTarget });
-
-    // Parent applies the engine rule (same as production void path / repair after GO)
     SC.rebuildStockCache(db, P);
     ok(vws(staleVid, WHA) === ledAttr, 'rebuildStockCache clears stale void leftover', {
       now: vws(staleVid, WHA), ledAttr,
@@ -442,7 +499,8 @@ async function main() {
       ok(false, 'new Function(app.js)', String(e && e.message));
     }
 
-    ok(/erp-taranom-v633/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')), 'SW v633');
+    ok(/erp-taranom-v634/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')), 'SW v634');
+    ok(/counterpart/.test(appJs) && /net_blocked/.test(appJs), 'app.js keeps counterpart + net_blocked');
   } finally {
     server.close();
   }

@@ -1,4 +1,12 @@
-﻿### ۱۴۰۵/۰۸/۱۹ — feat: UI اصلاح تفکیک رنگ و سایز (VR) + رفع stale cache بعد از void (SW v633)
+﻿### ۱۴۰۵/۰۸/۱۹ — fix: counterpart دقیق انتقال + guided remainder بدون dump (SW v634)
+- **Deploy:** ⏸ pending `GO deploy variant-reclass-ui` — بدون write روی live `crm.db`؛ بدون repair `--apply`.
+- **شاخه:** `feat/variant-reclass-ui-v634` (پایه: merge PR #203 `a329063b`).
+- **counterpart:** `listCandidates` تفکیک واقعی طرف مقابل انتقال را برمی‌گرداند (`counterpart.lines` از VR پست‌شده حتی اگر peer معکوس باشد، یا Σ ردیف‌های attributed زنده؛ نادیده گرفتن `*revalue*` و qty=0؛ `exact`).
+- **guided remainder:** `planGuidedRemainder` + UI: خروج = دقیقاً `counterpart.lines`؛ ورود = ماندهٔ شمارش‌شده + همان؛ بدون dump روی بزرگ‌ترین رنگ؛ اگر counterpart نباشد/`exact=false` ⇒ `net_blocked`.
+- **repair:** پیش‌فرض `server/crm.db`؛ dry-run فقط read-only (`query_only`) بدون `initDB`.
+- **تست:** `test-variant-reclass-ui-and-void-cache` + سبز ماندن variant-reclass / restore-guard / stock-cache-recon / sms.
+
+### ۱۴۰۵/۰۸/۱۹ — feat: UI اصلاح تفکیک رنگ و سایز (VR) + رفع stale cache بعد از void (SW v633)
 - **Deploy:** ⏸ pending `GO deploy variant-reclass-ui` — بدون write روی live `crm.db`؛ repair `--apply` فقط بعد از `GO repair-void-adjust-variant`.
 - **شاخه:** `feat/variant-reclass-ui-v633` (پایه: `origin/main` `6a5a3d87`). CI GitHub خاموش (billing) ⇒ تست محلی Node 20.
 - **A. UI + candidates:** صفحه «اصلاح تفکیک رنگ و سایز» در انبار→عملیات (`acc-variant-reclass`)؛ `GET /api/inventory/variant-reclass/candidates`؛ entry از کاردکس و گزارش رنگ×سایز؛ راهنما به‌روز.
