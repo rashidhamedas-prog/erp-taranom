@@ -1,6 +1,6 @@
 ### ۱۴۰۵/۰۸/۱۹ — fix(inventory): ناهمخوانی لایهٔ رنگ/سایز در انبار allow_negative=1 فقط هشدار (SW v630)
 - **Commit:** merge `9e5884ca` روی `main` ([PR #198](https://github.com/rashidhamedas-prog/erp-taranom/pull/198))؛ شاخه `fix/allow-negative-variant-warn` (`35280e04`). **CI اجرا نشد** (GitHub Actions billing/spending limit) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون تغییر داده / restore / VR / backfill.
-- **Deploy:** ⏸ منتظر «GO deploy allow-negative-variant-warn».
+- **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۱۹ — overlay SFTP روی درخت کثیف VPS (HEAD گیت هنوز `8a5cd54` / شاخه alias؛ بدون `git pull`/`reset --hard`/`--update-env`). tip محتوا `714f0c0b` / merge `9e5884ca`؛ SW **v630**؛ `pm2 restart erp-taranom`؛ health HTTP 200 + `image_engine.ok` (sharp 0.33.5)؛ stamp `.sftp-deploy-stamp-allow-negative-variant-warn-v630`. اسکریپت: `scripts/_deploy-allow-negative-variant-warn-v630.py`. بدون تغییر داده.
 - **رفتار:** `variant_layer_mismatch` همچنان تشخیص داده می‌شود و بج «ناهمخوانی لایهٔ رنگ/سایز» نشان داده می‌شود؛ ولی:
   - `warehouses.allow_negative=0` → مسدود (مثل قبل): `mismatch_blocking`/`block_reason`، 409 `E_VARIANT_LAYER_MISMATCH`، ذخیره/پک متوقف.
   - `warehouses.allow_negative=1` → فقط هشدار: `mismatch_blocking=false`، `block_reason=null`، ATP throw نمی‌کند؛ qty/قیمت بدون تغییر. تنظیم سراسری `inventory_allow_negative` به‌تنهایی mismatch را نرم نمی‌کند (فقط ستون انبار).
