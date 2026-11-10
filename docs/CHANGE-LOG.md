@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۱۹ — fix(inventory): ناهمخوانی لایهٔ رنگ/سایز در انبار allow_negative=1 فقط هشدار (SW v630)
-- **Commit:** شاخه `fix/allow-negative-variant-warn` (PR در حال باز شدن). فقط کد؛ بدون تغییر داده / restore / VR / backfill.
+- **Commit:** merge `9e5884ca` روی `main` ([PR #198](https://github.com/rashidhamedas-prog/erp-taranom/pull/198))؛ شاخه `fix/allow-negative-variant-warn` (`35280e04`). **CI اجرا نشد** (GitHub Actions billing/spending limit) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون تغییر داده / restore / VR / backfill.
 - **Deploy:** ⏸ منتظر «GO deploy allow-negative-variant-warn».
 - **رفتار:** `variant_layer_mismatch` همچنان تشخیص داده می‌شود و بج «ناهمخوانی لایهٔ رنگ/سایز» نشان داده می‌شود؛ ولی:
   - `warehouses.allow_negative=0` → مسدود (مثل قبل): `mismatch_blocking`/`block_reason`، 409 `E_VARIANT_LAYER_MISMATCH`، ذخیره/پک متوقف.
