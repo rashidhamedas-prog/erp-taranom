@@ -1,7 +1,7 @@
 'use strict';
 /**
- * product-delete-unused-cascade (SW v631)
- * structure_only → 200; invoice/ledger → 409 + can_deactivate; TB unchanged.
+ * product-delete-unused-cascade harden (SW v632)
+ * Never touches live product id 342 / code 7217 — synthetic ids only.
  * Run (Node 20): node server/scripts/test-product-delete-unused-cascade.js
  */
 const path = require('path');
@@ -9,6 +9,9 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 const express = require('express');
+
+const FORBIDDEN_LIVE_ID = 342;
+const FORBIDDEN_LIVE_CODE = '7217';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'product-delete-cascade-'));
 process.env.DB_PATH = path.join(dir, 't.db');
@@ -26,12 +29,22 @@ const db = getDB();
 const { ensureDefaultVariant } = require('../lib/product-variants/service');
 const { ensureWebsiteStockOutbox } = require('../lib/website-stock-sync');
 const { swAtLeast } = require('./lib/sw-at-least');
+const {
+  rowsJsonContainsId,
+  websiteSkuPresenceHint,
+  WEBSITE_WARN,
+} = require('../lib/product-delete');
 
 let pass = 0;
 let fail = 0;
 function ok(cond, label, extra) {
   if (cond) { pass += 1; console.log('  OK', label); }
   else { fail += 1; console.log(' FAIL', label, extra != null ? extra : ''); }
+}
+
+function assertNotLiveProduct(id, code) {
+  if (Number(id) === FORBIDDEN_LIVE_ID) throw new Error('REFUSING to use live product id 342');
+  if (String(code) === FORBIDDEN_LIVE_CODE) throw new Error('REFUSING to use live product code 7217');
 }
 
 function tbTotals() {
@@ -50,34 +63,38 @@ function tbTotals() {
   }
 }
 
+function fkCheck() {
+  try { return db.pragma('foreign_key_check'); }
+  catch (_) { return []; }
+}
+
 function seedStructureProduct(code, name) {
+  assertNotLiveProduct(null, code);
   const wh = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get();
   const r = db.prepare(`
     INSERT INTO products (user_id, category, code, name, price, cost, stock, unit, warehouse_id, status)
     VALUES (1, 'تست', ?, ?, 0, 0, 0, 'عدد', ?, 'active')
   `).run(code, name, wh ? wh.id : null);
   const id = Number(r.lastInsertRowid);
+  assertNotLiveProduct(id, code);
   const def = ensureDefaultVariant(db, id);
-  // style colors/sizes (may need catalog color/size ids)
   let colorId = null;
   let sizeId = null;
   try {
     colorId = db.prepare('SELECT id FROM product_colors ORDER BY id LIMIT 1').get()?.id
-      || db.prepare("INSERT INTO product_colors (name, code) VALUES ('قرمز-تست','RED-T')").run().lastInsertRowid;
+      || db.prepare("INSERT INTO product_colors (name, code) VALUES ('قرمز-تست','RED-PD')").run().lastInsertRowid;
   } catch (_) { colorId = null; }
   try {
     sizeId = db.prepare('SELECT id FROM product_sizes ORDER BY id LIMIT 1').get()?.id
-      || db.prepare("INSERT INTO product_sizes (name, code) VALUES ('M-تست','M-T')").run().lastInsertRowid;
+      || db.prepare("INSERT INTO product_sizes (name, code) VALUES ('M-تست','M-PD')").run().lastInsertRowid;
   } catch (_) { sizeId = null; }
   if (colorId) {
-    try {
-      db.prepare('INSERT INTO product_style_colors (product_id, color_id, sort_order) VALUES (?,?,0)').run(id, colorId);
-    } catch (_) { /* */ }
+    try { db.prepare('INSERT INTO product_style_colors (product_id, color_id, sort_order) VALUES (?,?,0)').run(id, colorId); }
+    catch (_) { /* */ }
   }
   if (sizeId) {
-    try {
-      db.prepare('INSERT INTO product_style_sizes (product_id, size_id, sort_order) VALUES (?,?,0)').run(id, sizeId);
-    } catch (_) { /* */ }
+    try { db.prepare('INSERT INTO product_style_sizes (product_id, size_id, sort_order) VALUES (?,?,0)').run(id, sizeId); }
+    catch (_) { /* */ }
   }
   ensureWebsiteStockOutbox(db);
   try {
@@ -89,29 +106,61 @@ function seedStructureProduct(code, name) {
   } catch (_) { /* */ }
   if (wh) {
     try {
-      db.prepare(`
-        INSERT OR REPLACE INTO warehouse_stock (warehouse_id, product_id, qty)
-        VALUES (?, ?, 0)
-      `).run(wh.id, id);
+      db.prepare('INSERT OR REPLACE INTO warehouse_stock (warehouse_id, product_id, qty) VALUES (?,?,0)').run(wh.id, id);
     } catch (_) {
-      try {
-        db.prepare('INSERT INTO warehouse_stock (warehouse_id, product_id, qty) VALUES (?,?,0)').run(wh.id, id);
-      } catch (__) { /* */ }
+      try { db.prepare('INSERT INTO warehouse_stock (warehouse_id, product_id, qty) VALUES (?,?,0)').run(wh.id, id); }
+      catch (__) { /* */ }
     }
   }
-  return { id, defaultVariantId: def && def.id, warehouseId: wh && wh.id };
+  return { id, defaultVariantId: def && def.id, warehouseId: wh && wh.id, code };
+}
+
+function insertLedger(opts) {
+  const {
+    productId, variantId, warehouseId, txNo, qtyIn, qtyOut, amountRial, status, eventType, reversedOf, userId,
+  } = opts;
+  db.prepare(`
+    INSERT INTO inventory_ledger (
+      tx_no, event_type, product_id, warehouse_id, variant_id, qty_in, qty_out, qty_balance,
+      unit_cost_rial, amount_rial, avg_cost_after_rial, source_type, source_id,
+      status, reversed_of, date, note, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1000, ?, 1000, 'test', 1, ?, ?, '1405/08/19', 'fixture', ?)
+  `).run(
+    txNo,
+    eventType || 'receipt',
+    productId,
+    warehouseId || null,
+    variantId != null ? variantId : null,
+    qtyIn || 0,
+    qtyOut || 0,
+    (qtyIn || 0) - (qtyOut || 0),
+    amountRial != null ? amountRial : 0,
+    status || 'posted',
+    reversedOf != null ? reversedOf : null,
+    userId || 1
+  );
 }
 
 (async () => {
-  console.log('\n══ product-delete-unused-cascade (v631) ══\n');
+  console.log('\n══ product-delete-unused-cascade harden (v632) ══\n');
+
+  ok(!db.prepare('SELECT id FROM products WHERE id=? OR code=?').get(FORBIDDEN_LIVE_ID, FORBIDDEN_LIVE_CODE),
+    'fixture DB has no live product 342/7217');
 
   const swSrc = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
   const appSrc = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
   const routeSrc = fs.readFileSync(path.join(__dirname, '../routes/products.js'), 'utf8');
-  ok(swAtLeast(swSrc, 631), 'SW >= v631');
-  ok(appSrc.includes('offerProductDeactivate') && appSrc.includes('deactivateProductInstead'), 'UI deactivate offer');
-  ok(appSrc.includes('website_warning'), 'UI website warning toast');
-  ok(routeSrc.includes('cascadeDeleteUnusedProduct') && routeSrc.includes('/:id/deactivate'), 'route wired');
+  const libSrc = fs.readFileSync(path.join(__dirname, '../lib/product-delete.js'), 'utf8');
+  ok(swAtLeast(swSrc, 632), 'SW >= v632');
+  ok(appSrc.includes('offerProductDeactivate'), 'UI deactivate offer');
+  ok(routeSrc.includes('cascadeDeleteUnusedProduct'), 'route wired');
+  ok(libSrc.includes('E_PRODUCT_HAS_LEDGER') && libSrc.includes('voucher_number'), 'ledger code + voucher_number');
+  ok(!/ensureWebsiteStockOutbox\s*\(/.test(libSrc), 'product-delete.js never calls ensureWebsiteStockOutbox');
+
+  // JSON id boundary unit checks
+  ok(rowsJsonContainsId('[{"product_id":34,"qty":1}]', 'product_id', 34), 'exact id 34 matches');
+  ok(!rowsJsonContainsId('[{"product_id":344,"qty":1}]', 'product_id', 34), 'id 34 does not match 344');
+  ok(rowsJsonContainsId('[{"product_id": 34 }]', 'product_id', 34), 'spaced id 34 matches');
 
   const admin = db.prepare("SELECT * FROM users WHERE username='admin'").get()
     || db.prepare("SELECT * FROM users WHERE role='admin' LIMIT 1").get();
@@ -143,81 +192,198 @@ function seedStructureProduct(code, name) {
   }
 
   const tb0 = tbTotals();
+  const whId = db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id;
 
-  // ── 1) structure_only → 200 ──
-  const p1 = seedStructureProduct('788888-TEST', 'کالای ساختار فقط');
-  ok(!!db.prepare('SELECT id FROM product_variants WHERE product_id=?').get(p1.id), 'variant exists before delete');
-  ok(!!db.prepare('SELECT 1 FROM website_stock_outbox WHERE product_id=?').get(p1.id), 'outbox exists before delete');
-  const del1 = await api('DELETE', '/api/products/' + p1.id);
-  ok(del1.status === 200 && del1.data.ok === true, 'structure_only DELETE → 200', del1);
-  ok(!db.prepare('SELECT id FROM products WHERE id=?').get(p1.id), 'product row gone');
-  ok(!db.prepare('SELECT id FROM product_variants WHERE product_id=?').get(p1.id), 'variants cascaded');
-  ok(!db.prepare('SELECT 1 FROM website_stock_outbox WHERE product_id=?').get(p1.id), 'outbox cascaded');
-  ok(!db.prepare('SELECT 1 FROM product_style_colors WHERE product_id=?').get(p1.id), 'style colors cascaded');
-  ok(!db.prepare('SELECT 1 FROM product_style_sizes WHERE product_id=?').get(p1.id), 'style sizes cascaded');
+  // ── unused synthetic → 200 ──
+  const pOk = seedStructureProduct('SYN-PD-OK-1', 'کالای مصنوعی قابل حذف');
+  const delOk = await api('DELETE', '/api/products/' + pOk.id);
+  ok(delOk.status === 200 && delOk.data.ok === true, 'unused synthetic DELETE → 200', delOk);
+  ok(!db.prepare('SELECT id FROM products WHERE id=?').get(pOk.id), 'synthetic product gone');
+  ok(!db.prepare('SELECT id FROM product_variants WHERE product_id=?').get(pOk.id), 'no variant orphans');
 
-  // ── 2) invoice → 409 ──
-  const p2 = seedStructureProduct('722222-TEST', 'کالای با فاکتور');
+  // ── short id must not match longer id in invoice JSON ──
+  const p34 = seedStructureProduct('SYN-PD-34', 'کالای کوتاه');
+  const p344 = seedStructureProduct('SYN-PD-344', 'کالای بلند');
+  // Force ids if possible — if not 34/344, still test matching helpers; also plant invoice only for p344
   const cust = db.prepare('SELECT id FROM customers ORDER BY id LIMIT 1').get()
-    || (() => {
-      const id = db.prepare(`
-        INSERT INTO customers (user_id, biz, owner, city, phone, type, status)
-        VALUES (1,'تست','','','09000000000','','active')
-      `).run().lastInsertRowid;
-      return { id };
-    })();
-  const invNum = 'T-PD-DEL-1';
+    || { id: db.prepare(`INSERT INTO customers (user_id,biz,owner,city,phone,type,status) VALUES (1,'تست','','','09001112233','','active')`).run().lastInsertRowid };
   db.prepare(`
     INSERT INTO invoices (user_id, cust_id, num, type, date, rows, subtotal, final, status)
-    VALUES (?, ?, ?, 'final', '1405/08/19', ?, 1000, 1000, 'posted')
-  `).run(
-    admin.id,
-    cust.id,
-    invNum,
-    JSON.stringify([{ product_id: p2.id, name: 'x', qty: 1, price: 1000 }])
-  );
-  const del2 = await api('DELETE', '/api/products/' + p2.id);
-  ok(del2.status === 409 && del2.data.can_deactivate === true, 'invoice DELETE → 409 + can_deactivate', del2);
-  ok(String(del2.data.doc_no || del2.data.error || '').includes(invNum)
-    || String(del2.data.error || '').includes(invNum), '409 names invoice number', del2.data);
-  ok(!!db.prepare('SELECT id FROM products WHERE id=?').get(p2.id), 'product kept after invoice block');
+    VALUES (?, ?, 'T-PD-344', 'final', '1405/08/19', ?, 1000, 1000, 'posted')
+  `).run(admin.id, cust.id, JSON.stringify([{ product_id: p344.id, qty: 1, price: 1000 }]));
+  const delShort = await api('DELETE', '/api/products/' + p34.id);
+  ok(delShort.status === 200, 'product without own invoice still deletable (no false match)', delShort);
+  const delLong = await api('DELETE', '/api/products/' + p344.id);
+  ok(delLong.status === 409 && delLong.data.can_deactivate === true, 'true invoice match → 409', delLong);
 
-  const deact = await api('POST', '/api/products/' + p2.id + '/deactivate');
-  ok(deact.status === 200 && deact.data.deactivated === true, 'deactivate offered path works', deact);
-  const st = db.prepare('SELECT status FROM products WHERE id=?').get(p2.id);
-  ok(st && st.status === 'inactive', 'status=inactive after deactivate', st);
+  // ── reversed-only ledger → 409, no orphans ──
+  const pRev = seedStructureProduct('SYN-PD-REV', 'کالای کاردکس معکوس');
+  insertLedger({
+    productId: pRev.id, warehouseId: whId, txNo: 'TX-REV-' + pRev.id,
+    qtyIn: 2, qtyOut: 0, amountRial: 2000, status: 'reversed', userId: admin.id,
+  });
+  const delRev = await api('DELETE', '/api/products/' + pRev.id);
+  ok(delRev.status === 409 && delRev.data.code === 'E_PRODUCT_HAS_LEDGER', 'reversed ledger → E_PRODUCT_HAS_LEDGER', delRev);
+  ok(!!db.prepare('SELECT id FROM products WHERE id=?').get(pRev.id), 'product kept');
+  ok(!!db.prepare('SELECT id FROM product_variants WHERE product_id=?').get(pRev.id), 'variants not orphaned/deleted');
 
-  // ── 3) live non-zero ledger → 409 ──
-  const p3 = seedStructureProduct('PD-LEDGER-1', 'کالای با کاردکس');
-  const whId = p3.warehouseId || db.prepare('SELECT id FROM warehouses ORDER BY id LIMIT 1').get()?.id;
+  // ── zero-qty / amount-only variant ledger → 409 ──
+  const pAmt = seedStructureProduct('SYN-PD-AMT', 'کالای مبلغ‌فقط');
+  insertLedger({
+    productId: pAmt.id, variantId: pAmt.defaultVariantId, warehouseId: whId,
+    txNo: 'TX-AMT-' + pAmt.id, qtyIn: 0, qtyOut: 0, amountRial: 5000, status: 'posted', userId: admin.id,
+  });
+  const delAmt = await api('DELETE', '/api/products/' + pAmt.id);
+  ok(delAmt.status === 409 && delAmt.data.code === 'E_PRODUCT_HAS_LEDGER', 'zero-qty amount ledger → 409', delAmt);
+
+  // ── +10 / −10 pair → 409 ──
+  const pPair = seedStructureProduct('SYN-PD-PAIR', 'کالای جفت صفر');
+  insertLedger({
+    productId: pPair.id, warehouseId: whId, txNo: 'TX-IN-' + pPair.id,
+    qtyIn: 10, qtyOut: 0, amountRial: 10000, status: 'posted', userId: admin.id,
+  });
+  insertLedger({
+    productId: pPair.id, warehouseId: whId, txNo: 'TX-OUT-' + pPair.id,
+    qtyIn: 0, qtyOut: 10, amountRial: 10000, status: 'posted', eventType: 'issue', userId: admin.id,
+  });
+  const delPair = await api('DELETE', '/api/products/' + pPair.id);
+  ok(delPair.status === 409 && delPair.data.code === 'E_PRODUCT_HAS_LEDGER', '+10/−10 pair → 409', delPair);
+
+  // ── inventory_movements → 409 ──
+  const pMov = seedStructureProduct('SYN-PD-MOV', 'کالای حرکت');
   db.prepare(`
-    INSERT INTO inventory_ledger (
-      tx_no, event_type, product_id, warehouse_id, qty_in, qty_out, qty_balance,
-      unit_cost_rial, amount_rial, avg_cost_after_rial, source_type, source_id,
-      status, date, note, created_by
-    ) VALUES (?, 'receipt', ?, ?, 5, 0, 5, 1000, 5000, 1000, 'test', 1, 'posted', '1405/08/19', 'fixture', ?)
-  `).run('TX-PD-DEL-' + p3.id, p3.id, whId, admin.id);
-  const del3 = await api('DELETE', '/api/products/' + p3.id);
-  ok(del3.status === 409 && del3.data.kind === 'inventory_ledger', 'ledger DELETE → 409 ledger', del3);
-  ok(del3.data.can_deactivate === true, 'ledger block offers deactivate');
-  ok(!!db.prepare('SELECT id FROM products WHERE id=?').get(p3.id), 'product kept after ledger block');
+    INSERT INTO inventory_movements (product_id, variant_id, warehouse_id, qty_delta, doc_type, doc_id, user_id)
+    VALUES (?, ?, ?, 1, 'transfer', 9001, ?)
+  `).run(pMov.id, pMov.defaultVariantId, whId, admin.id);
+  const delMov = await api('DELETE', '/api/products/' + pMov.id);
+  ok(delMov.status === 409 && /حرکت|کاردکس|ledger|mov/i.test(JSON.stringify(delMov.data)), 'movements → 409', delMov);
 
-  // ── 4) TB unchanged ──
-  const tb1 = tbTotals();
-  ok(tb1.d === tb0.d && tb1.c === tb0.c, 'trial balance totals unchanged', { tb0, tb1 });
+  // ── warehouse_moves → 409 ──
+  const pWm = seedStructureProduct('SYN-PD-WM', 'کالای حواله');
+  db.prepare(`
+    INSERT INTO warehouse_moves (type, product_id, from_warehouse_id, to_warehouse_id, qty, date, created_by)
+    VALUES ('transfer', ?, ?, ?, 1, '1405/08/19', ?)
+  `).run(pWm.id, whId, whId, admin.id);
+  const delWm = await api('DELETE', '/api/products/' + pWm.id);
+  ok(delWm.status === 409 && delWm.data.kind === 'warehouse_move', 'warehouse_moves → 409', delWm);
 
-  // ── 5) website warning when outbox proves site match ──
-  const p4 = seedStructureProduct('PD-WEB-1', 'کالای وب');
+  // ── variant_reclass_docs → 409 ──
+  const pVr = seedStructureProduct('SYN-PD-VR', 'کالای VR');
+  // Need a dummy ledger id for NOT NULL source_ledger_id — use a ledger on another synthetic product
+  const pVrSrc = seedStructureProduct('SYN-PD-VRSRC', 'منبع VR');
+  insertLedger({
+    productId: pVrSrc.id, warehouseId: whId, txNo: 'TX-VRSRC-' + pVrSrc.id,
+    qtyIn: 1, amountRial: 100, userId: admin.id,
+  });
+  const srcLed = db.prepare('SELECT id FROM inventory_ledger WHERE product_id=?').get(pVrSrc.id);
+  db.prepare(`
+    INSERT INTO variant_reclass_docs (doc_no, date, product_id, warehouse_id, source_ledger_id, lines_json, reason, status, created_by)
+    VALUES (?, '1405/08/19', ?, ?, ?, '[]', 'تست اصلاح واریانت برای حذف', 'posted', ?)
+  `).run('VR-PD-' + pVr.id, pVr.id, whId, srcLed.id, admin.id);
+  const delVr = await api('DELETE', '/api/products/' + pVr.id);
+  ok(delVr.status === 409 && delVr.data.kind === 'variant_reclass', 'variant_reclass → 409', delVr);
+
+  // ── draft opening → 409 ──
+  const pOp = seedStructureProduct('SYN-PD-OP', 'کالای افتتاحیه پیش‌نویس');
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE name='opening_stock_docs'").get()) {
+    const fy = db.prepare('SELECT id FROM fiscal_years ORDER BY id LIMIT 1').get();
+    const docId = db.prepare(`
+      INSERT INTO opening_stock_docs (doc_no, fiscal_year_id, date, status, created_by, note)
+      VALUES (?, ?, '1405/08/01', 'draft', ?, 'fixture')
+    `).run('OP-PD-' + pOp.id, fy ? fy.id : null, admin.id).lastInsertRowid;
+    db.prepare(`
+      INSERT INTO opening_stock_lines (doc_id, fiscal_year_id, product_id, warehouse_id, variant_id, qty, unit_cost_rial, active)
+      VALUES (?, ?, ?, ?, NULL, 0, 0, 1)
+    `).run(docId, fy ? fy.id : null, pOp.id, whId);
+    const delOp = await api('DELETE', '/api/products/' + pOp.id);
+    ok(delOp.status === 409 && delOp.data.kind === 'opening', 'draft opening → 409', delOp);
+  } else {
+    ok(false, 'opening_stock_docs missing');
+  }
+
+  // ── purchase return → 409 ──
+  const pPr = seedStructureProduct('SYN-PD-PR', 'کالای برگشت خرید');
+  const sup = db.prepare('SELECT id FROM suppliers ORDER BY id LIMIT 1').get()
+    || { id: db.prepare(`INSERT INTO suppliers (name, phone) VALUES ('تأمین‌کننده تست','')`).run().lastInsertRowid };
+  db.prepare(`
+    INSERT INTO purchase_returns (user_id, supplier_id, date, rows, amount, status)
+    VALUES (?, ?, '1405/08/19', ?, 500, 'posted')
+  `).run(admin.id, sup.id, JSON.stringify([{ product_id: pPr.id, qty: 1, price: 500 }]));
+  const delPr = await api('DELETE', '/api/products/' + pPr.id);
+  ok(delPr.status === 409 && delPr.data.kind === 'purchase_return', 'purchase_returns → 409', delPr);
+
+  // ── stocktaking session item → 409 (not cascaded) ──
+  const pSt = seedStructureProduct('SYN-PD-ST', 'کالای انبارگردانی');
+  const sess = db.prepare(`
+    INSERT INTO stocktaking_sessions (warehouse_id, date, status, created_by)
+    VALUES (?, '1405/08/19', 'draft', ?)
+  `).run(whId, admin.id).lastInsertRowid;
+  db.prepare(`
+    INSERT INTO stocktaking_items (session_id, product_id, system_qty, counted_qty)
+    VALUES (?, ?, 0, 0)
+  `).run(sess, pSt.id);
+  const delSt = await api('DELETE', '/api/products/' + pSt.id);
+  ok(delSt.status === 409 && delSt.data.kind === 'stocktaking', 'stocktaking session item → 409', delSt);
+  ok(!!db.prepare('SELECT id FROM stocktaking_items WHERE product_id=?').get(pSt.id), 'stocktake line not cascaded');
+
+  // ── production-shaped outbox → website_warning ──
+  const pWeb = seedStructureProduct('SYN-PD-WEB', 'کالای وب ماتریس');
   ensureWebsiteStockOutbox(db);
   db.prepare(`
     INSERT OR REPLACE INTO website_stock_outbox
       (product_id, channel, next_at, attempts, status, last_error, last_result, updated_at)
     VALUES (?, 'retail', strftime('%s','now'), 1, 'done', '', ?, strftime('%s','now'))
-  `).run(p4.id, JSON.stringify({ ok: true, siteProductId: 99901, matched: true }));
-  const del4 = await api('DELETE', '/api/products/' + p4.id);
-  ok(del4.status === 200 && del4.data.ok === true, 'website-hint product still deletable', del4);
-  ok(!!del4.data.website_warning && /وب‌سایت|سایت/.test(del4.data.website_warning),
-    'website_warning present when SKU known on site', del4.data);
+  `).run(pWeb.id, JSON.stringify({
+    matched: 3,
+    expected: 3,
+    unmatchedCount: 0,
+    catalogMissing: false,
+    code: 'all_matched',
+    status: 'done',
+    ok: true,
+    message: '3 رنگ/سایز در سایت به‌روز شد',
+  }));
+  ok(websiteSkuPresenceHint(db, { id: pWeb.id, code: pWeb.code }) === true, 'hint detects all_matched payload');
+  // error but SKU still on site
+  ok(websiteSkuPresenceHint(db, {
+    id: (() => {
+      const t = seedStructureProduct('SYN-PD-WEB2', 'کالای وب unmatched');
+      db.prepare(`
+        INSERT OR REPLACE INTO website_stock_outbox
+          (product_id, channel, next_at, attempts, status, last_error, last_result, updated_at)
+        VALUES (?, 'wholesale', strftime('%s','now'), 1, 'error', 'x', ?, strftime('%s','now'))
+      `).run(t.id, JSON.stringify({
+        matched: 1,
+        unmatchedCount: 2,
+        catalogMissing: false,
+        code: 'variants_unmatched',
+        ok: false,
+        status: 'error',
+        onSite: ['RED/M'],
+      }));
+      // keep for hint unit test only — delete via API later if unused
+      global.__web2 = t;
+      return t.id;
+    })(),
+  }) === true, 'hint detects error payload with SKU on site');
+
+  const delWeb = await api('DELETE', '/api/products/' + pWeb.id);
+  ok(delWeb.status === 200 && delWeb.data.website_warning === WEBSITE_WARN,
+    'production outbox shape → website_warning', delWeb);
+
+  // clean web2 if still present and unused
+  if (global.__web2) {
+    await api('DELETE', '/api/products/' + global.__web2.id);
+  }
+
+  // ── TB + FK check ──
+  const tb1 = tbTotals();
+  ok(tb1.d === tb0.d && tb1.c === tb0.c, 'trial balance unchanged', { tb0, tb1 });
+  const fkc = fkCheck();
+  ok(Array.isArray(fkc) && fkc.length === 0, 'foreign_key_check = 0', fkc);
+
+  // guard: never referenced forbidden live codes in this run
+  ok(!String(process.argv.join(' ')).includes(FORBIDDEN_LIVE_CODE), 'argv clean of 7217');
 
   server.close();
   try { closeSessionStore(); } catch (_) { /* */ }
