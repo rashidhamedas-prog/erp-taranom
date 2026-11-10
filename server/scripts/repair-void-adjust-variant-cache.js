@@ -15,30 +15,24 @@
  * Excludes product id 342 and code 7217.
  *
  * Usage:
- *   node server/scripts/repair-void-adjust-variant-cache.js            # dry-run
+ *   node server/scripts/repair-void-adjust-variant-cache.js            # dry-run (read-only)
  *   node server/scripts/repair-void-adjust-variant-cache.js --apply     # writes (requires GO from Hamed)
  *
  * Cursor must NOT run --apply. Production apply only after: GO repair-void-adjust-variant
  */
 const path = require('path');
 const fs = require('fs');
+const Database = require('better-sqlite3');
 
 const APPLY = process.argv.includes('--apply');
 const EXCLUDE_IDS = new Set([342]);
 const EXCLUDE_CODES = new Set(['7217']);
 
-function main() {
-  const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'crm.db');
-  if (!fs.existsSync(dbPath) && !process.env.DB_PATH) {
-    console.error('DB not found:', dbPath);
-    process.exit(1);
-  }
-  process.env.SYNC_ROLE = process.env.SYNC_ROLE || 'central';
-  const { initDB, getDB } = require('../db');
-  initDB();
-  const db = getDB();
-  const SC = require('../lib/inventory/stock-cache');
+function defaultDbPath() {
+  return path.join(__dirname, '..', 'crm.db');
+}
 
+function collectLeftovers(db, SC) {
   const products = db.prepare(`
     SELECT DISTINCT p.id, p.code, p.name
     FROM products p
@@ -112,18 +106,49 @@ function main() {
       }
     }
   }
+  return leftovers;
+}
+
+function main() {
+  const dbPath = process.env.DB_PATH || defaultDbPath();
+  if (!fs.existsSync(dbPath) && !process.env.DB_PATH) {
+    console.error('DB not found:', dbPath);
+    process.exit(1);
+  }
+
+  if (!APPLY) {
+    // Read-only: never initDB / heal / migrate.
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true, timeout: 8000 });
+    try {
+      db.pragma('query_only = ON');
+      const SC = require('../lib/inventory/stock-cache');
+      const leftovers = collectLeftovers(db, SC);
+      console.log(JSON.stringify({
+        mode: 'dry-run',
+        db: dbPath,
+        leftover_count: leftovers.length,
+        leftovers,
+      }, null, 2));
+      console.log('\nDry-run only — no writes. Re-run with --apply after GO repair-void-adjust-variant.');
+    } finally {
+      try { db.close(); } catch (_) { /* */ }
+    }
+    process.exit(0);
+  }
+
+  process.env.SYNC_ROLE = process.env.SYNC_ROLE || 'central';
+  const { initDB, getDB } = require('../db');
+  initDB();
+  const db = getDB();
+  const SC = require('../lib/inventory/stock-cache');
+  const leftovers = collectLeftovers(db, SC);
 
   console.log(JSON.stringify({
-    mode: APPLY ? 'apply' : 'dry-run',
+    mode: 'apply',
     db: dbPath,
     leftover_count: leftovers.length,
     leftovers,
   }, null, 2));
-
-  if (!APPLY) {
-    console.log('\nDry-run only — no writes. Re-run with --apply after GO repair-void-adjust-variant.');
-    process.exit(0);
-  }
 
   const touched = new Set();
   const run = db.transaction(() => {
@@ -140,7 +165,6 @@ function main() {
   run();
 
   for (const pid of touched) {
-    // Re-apply the new rebuild rule (not forceVariantLedger) so preserved cells without void stay.
     SC.rebuildStockCache(db, pid);
     try {
       require('../lib/website-stock-sync').notifyStockChanged(db, pid);
