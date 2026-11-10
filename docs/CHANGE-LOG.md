@@ -1,5 +1,5 @@
 ﻿### ۱۴۰۵/۰۸/۱۹ — fix: counterpart دقیق انتقال + guided remainder بدون dump (SW v634)
-- **Deploy:** ⏸ pending `GO deploy variant-reclass-ui` — بدون write روی live `crm.db`؛ بدون repair `--apply`.
+- **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۱۹ — overlay SFTP (`scripts/_deploy-variant-reclass-ui-v634.py`) روی درخت کثیف VPS (HEAD گیت `8a5cd54`؛ بدون `git pull`/`reset --hard`/`--update-env`). tip/merge `8623af47` (PR #204)؛ SW **v634**؛ بکاپ `/home/taranom/backups/crm.db.20261110-183837` (+wal/shm)؛ `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health/ready HTTP 200 + `image_engine` sharp 0.33.5؛ روی سرور (DB موقت) `test-variant-reclass-ui-and-void-cache` ۸۰/۰؛ stamp `.sftp-deploy-stamp-variant-reclass-ui-v634`. بدون write روی live `crm.db`؛ بدون repair `--apply`.
 - **شاخه:** `feat/variant-reclass-ui-v634` (پایه: merge PR #203 `a329063b`).
 - **counterpart:** `listCandidates` تفکیک واقعی طرف مقابل انتقال را برمی‌گرداند (`counterpart.lines` از VR پست‌شده حتی اگر peer معکوس باشد، یا Σ ردیف‌های attributed زنده؛ نادیده گرفتن `*revalue*` و qty=0؛ `exact`).
 - **guided remainder:** `planGuidedRemainder` + UI: خروج = دقیقاً `counterpart.lines`؛ ورود = ماندهٔ شمارش‌شده + همان؛ بدون dump روی بزرگ‌ترین رنگ؛ اگر counterpart نباشد/`exact=false` ⇒ `net_blocked`.
@@ -7,7 +7,7 @@
 - **تست:** `test-variant-reclass-ui-and-void-cache` + سبز ماندن variant-reclass / restore-guard / stock-cache-recon / sms.
 
 ### ۱۴۰۵/۰۸/۱۹ — feat: UI اصلاح تفکیک رنگ و سایز (VR) + رفع stale cache بعد از void (SW v633)
-- **Deploy:** ⏸ pending `GO deploy variant-reclass-ui` — بدون write روی live `crm.db`؛ repair `--apply` فقط بعد از `GO repair-void-adjust-variant`.
+- **Deploy:** ✅ همراه v634 (همان overlay ایران؛ merge `a329063b` داخل tip `8623af47`) — بدون repair `--apply`.
 - **شاخه:** `feat/variant-reclass-ui-v633` (پایه: `origin/main` `6a5a3d87`). CI GitHub خاموش (billing) ⇒ تست محلی Node 20.
 - **A. UI + candidates:** صفحه «اصلاح تفکیک رنگ و سایز» در انبار→عملیات (`acc-variant-reclass`)؛ `GET /api/inventory/variant-reclass/candidates`؛ entry از کاردکس و گزارش رنگ×سایز؛ راهنما به‌روز.
 - **B. Void cache:** در `rebuildStockCache`/`variantWant` وقتی `preserveZeros` روشن است، اگر ledger منتسب=0 و movement با `*_void` و net=ledger ⇒ پاک کردن سلول stale (بدون `forceVariantLedger` پیش‌فرض). اسکریپت dry-run `repair-void-adjust-variant-cache.js`.
