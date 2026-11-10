@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۱۹ — fix(products): حذف کالای بدون گردش واقعی + cascade ساختار (SW v631)
+- **Commit:** شاخه `fix/product-delete-unused-cascade` (PR جدید؛ نه #198). فقط کد؛ بدون write روی `crm.db` زنده / بدون restore / بدون deploy تا «GO deploy product-delete-unused-cascade».
+- **Deploy:** ⏸ منتظر «GO deploy product-delete-unused-cascade».
+- **مشکل:** `DELETE /api/products/:id` برای کالای تازه‌ساخته بدون سند (مثل idهای ۳۴۴/۳۴۵) با `FOREIGN KEY constraint failed` می‌خورد چون `product_variants` / `product_style_colors|sizes` / `website_stock_outbox` (ساختهٔ خودکار) cascade نمی‌شدند.
+- **رفتار جدید:**
+  - «گردش واقعی» = کاردکس زندهٔ غیرصفر، فاکتور فروش/خرید/برگشت، افتتاحیهٔ posted، BOM (حتی draft)، سفارش تولید، گردش journal روی `products.coa_code` → **۴۰۹** با شماره سند + `can_deactivate`؛ UI پیشنهاد غیرفعال‌سازی (`POST /api/products/:id/deactivate` → `status='inactive'`).
+  - بدون گردش واقعی: در یک تراکنش cascade می‌شود (`website_stock_outbox`، `default_variant_id=NULL`، variants، style colors/sizes، کش‌های صفر، stock_logs/stocktaking_items/product_images، سپس `products`، سپس `releaseTafsili`). FK روشن می‌ماند؛ اگر FK دیگری بماند پیام نام جدول را می‌گوید.
+  - اگر کد روی وب‌سایت باشد (hint از outbox موفق یا probe ووکامرس): `website_warning` که حذف ERP صفحهٔ سایت را پاک نمی‌کند.
+- **تست (Node 20):** `test-product-delete-unused-cascade.js` ۲۴/۲۴ (structure_only ۲۰۰، فاکتور/کاردکس ۴۰۹، TB ثابت، website_warning).
+- **SW:** `erp-taranom-v631`؛ `app.js?v=631`، `app.css?v=631`. راهنمای admin/sales به‌روز.
+- **فایل‌ها:** `server/lib/product-delete.js`، `server/routes/products.js`، `server/public/{app.js,index.html,sw.js}`، `server/scripts/test-product-delete-unused-cascade.js`، `docs/CHANGE-LOG.md`.
+
 ### ۱۴۰۵/۰۸/۱۹ — fix(inventory): ناهمخوانی لایهٔ رنگ/سایز در انبار allow_negative=1 فقط هشدار (SW v630)
 - **Commit:** merge `9e5884ca` روی `main` ([PR #198](https://github.com/rashidhamedas-prog/erp-taranom/pull/198))؛ شاخه `fix/allow-negative-variant-warn` (`35280e04`). **CI اجرا نشد** (GitHub Actions billing/spending limit) ⇒ merge بر اساس تست محلی Node 20. فقط کد؛ بدون تغییر داده / restore / VR / backfill.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۱۹ — overlay SFTP روی درخت کثیف VPS (HEAD گیت هنوز `8a5cd54` / شاخه alias؛ بدون `git pull`/`reset --hard`/`--update-env`). tip محتوا `714f0c0b` / merge `9e5884ca`؛ SW **v630**؛ `pm2 restart erp-taranom`؛ health HTTP 200 + `image_engine.ok` (sharp 0.33.5)؛ stamp `.sftp-deploy-stamp-allow-negative-variant-warn-v630`. اسکریپت: `scripts/_deploy-allow-negative-variant-warn-v630.py`. بدون تغییر داده.

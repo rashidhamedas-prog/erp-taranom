@@ -42954,6 +42954,8 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🗑️','حذف کالای بدون گردش واقعی (v631)',`
+      <p>کالای جدید که فقط ساختار دارد (واریانت پیش‌فرض، رنگ/سایز، کش صفر، outbox سایت) با <span dir="ltr">DELETE /api/products/:id</span> حذف می‌شود. اگر گردش واقعی داشته باشد (کاردکس زنده غیرصفر، فاکتور فروش/خرید/برگشت، افتتاحیه ثبت‌شده، BOM حتی پیش‌نویس، سفارش تولید، یا گردش تفصیلی کالا) پاسخ <b>۴۰۹</b> با شماره سند و پیشنهاد <b>غیرفعال‌سازی</b> (<span dir="ltr">POST /api/products/:id/deactivate</span> → <span dir="ltr">status=inactive</span>) می‌آید. اگر کد روی وب‌سایت باشد، هشدار می‌دهد که حذف ERP صفحهٔ سایت را پاک نمی‌کند.</p>`),
     helpSec('🎨','سند اصلاح تفکیک واریانت (VR) + بازیابی از بکاپ (v627)',`
       <p>ردیف‌های قدیمی کاردکس کالای رنگ×سایز که <span dir="ltr">variant_id</span> ندارند فقط در موجودی کل و انبار حساب می‌شوند و در ماتریس رنگ×سایز «بدون واریانت» می‌مانند. <b>سند اصلاح تفکیک واریانت</b> (شماره از توالی <b>VR</b>) چنین ردیفی را به تفکیک واریانت دوباره ثبت می‌کند؛ هیچ عددی دستی نوشته نمی‌شود.</p>
       <ul>
@@ -43426,7 +43428,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>ورود کالا روی سرور مرکزی <b>یکجا</b> ثبت می‌شود و گزارش تطبیق می‌دهد: شناخته‌شده = جدید + آپدیت + ردشده + ناموفق. شمارندهٔ لیست باید با تعداد واقعی کالا یکی باشد</li>
         <li>ستون موجودی کالا <b>اعشار تا ۳ رقم</b> نگه می‌دارد (متر پارچه مثل ۰٫۲۴). ورود دوباره موجودی کالایی که قبلاً گردش انبار دارد را عوض نمی‌کند</li>
         <li><b>داده تکراری هرگز ذخیره نمی‌شود</b> — ردیف تکراری کالا/شخص/کدینگ به‌روزرسانی می‌شود و تعداد اعلام می‌گردد (اشخاص: تلفن/کد؛ کالا: کد/بارکد/نام)</li>
-        <li>حذف کالای واردشده از اکسل پس از پاک‌سازی موجودی انبار ممکن است؛ اگر در فاکتور باشد مسدود می‌شود</li>
+        <li>حذف کالای بدون گردش واقعی (فقط ساختار رنگ/سایز/کش صفر و outbox سایت) مجاز است؛ اگر فاکتور/کاردکس زنده/BOM/سفارش تولید/سند افتتاحیه یا گردش تفصیلی داشته باشد مسدود می‌شود و پیشنهاد <b>غیرفعال‌سازی</b> می‌آید. حذف در ERP صفحهٔ وب‌سایت را پاک نمی‌کند</li>
       </ul>`),
     helpSec('🗔','پنجره‌ها، مودال و موبایل',`
       <p>فعال/غیرفعال کردن پنجره‌های چندگانه از <b>تنظیمات → عمومی → پنجره‌های چندگانه</b>. فقط داخل <b>ماژول حسابداری</b> هر زیرمنو در پنجره جدا باز می‌شود.</p>
@@ -44439,6 +44441,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('🗑️','حذف کالای بدون گردش (v631)',`
+      <p>کالای تازه‌ساخته بدون فاکتور/کاردکس/BOM را می‌توان حذف کرد (ساختار رنگ×سایز و outbox سایت هم پاک می‌شود). اگر سند واقعی داشته باشد حذف مسدود است و گزینهٔ <b>غیرفعال‌سازی</b> پیشنهاد می‌شود. حذف در ERP صفحهٔ وب‌سایت را برنمی‌دارد.</p>`),
     helpSec('📦','منبع واحد موجودی = کاردکس (v623)',`
       <p><b>موجودی فقط از کاردکس (دفتر موجودی) محاسبه می‌شود؛ ویرایش مستقیم عدد موجودی ممکن نیست؛ تغییر موجودی فقط با سند (افتتاحیه/تعدیل/انتقال)؛ گزارش تطبیق «کش موجودی با کاردکس» در کنترل‌های تطبیق.</b></p>`),
     helpSec('📥','موجودی کالا در فرم کالا (v609)',`
@@ -44712,14 +44716,49 @@ async function doPurgeUser(id){
   }catch(e){ showToast(e.message||'خطا در حذف','error'); }
 }
 async function doDelete(entity,id){
-  await api('DELETE','/'+entity+'/'+id);
-  closeModal(); showToast(entity==='invoices'?'ابطال شد':'حذف شد');
-  // refresh whatever is open
-  if(entity==='customers'){ await reloadCustomers(); if(CURRENT_PAGE==='customers')renderCustTable(); }
-  else if(entity==='followups'){ CACHE.followups=await api('GET','/followups'); renderFupView(); }
-  else if(entity==='invoices'){ CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; if(IN_ACC_SHELL&&accTab==='sales-invoices') loadAccTab('sales-invoices'); else renderInvTable(); }
-  else if(entity==='products'){ await loadProductsFiltered(); renderProdGrid(true); }
-  else if(entity==='admin/users'){ CACHE.users=await api('GET','/auth/users'); refreshSettUsers(); }
+  try{
+    const r=await api('DELETE','/'+entity+'/'+id);
+    closeModal();
+    if(entity==='products' && r && r.website_warning){
+      showToast(r.website_warning,'info');
+      showToast('حذف شد');
+    } else {
+      showToast(entity==='invoices'?'ابطال شد':'حذف شد');
+    }
+    if(entity==='customers'){ await reloadCustomers(); if(CURRENT_PAGE==='customers')renderCustTable(); }
+    else if(entity==='followups'){ CACHE.followups=await api('GET','/followups'); renderFupView(); }
+    else if(entity==='invoices'){ CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; if(IN_ACC_SHELL&&accTab==='sales-invoices') loadAccTab('sales-invoices'); else renderInvTable(); }
+    else if(entity==='products'){ await loadProductsFiltered(); renderProdGrid(true); }
+    else if(entity==='admin/users'){ CACHE.users=await api('GET','/auth/users'); refreshSettUsers(); }
+  }catch(e){
+    if(entity==='products' && e && e.payload && (e.payload.can_deactivate || e.payload.suggest_deactivate)){
+      offerProductDeactivate(id, e.payload);
+      return;
+    }
+    /* toast already shown by api() */
+  }
+}
+function offerProductDeactivate(id, payload){
+  const msg=(payload && payload.error) || 'این کالا به‌خاطر اسناد واقعی قابل حذف نیست.';
+  openModal(`
+    <div class="modal-head"><h3>حذف ممکن نیست</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
+    <div class="modal-body" data-csp-style="${CSP.style(`line-height:1.9`)}">
+      <p>${esc(msg)}</p>
+      <p class="muted" data-csp-style="${CSP.style(`font-size:13px`)}">می‌توانید کالا را <b>غیرفعال</b> کنید تا در فهرست فعال‌ها نیاید (اسناد قبلی حفظ می‌شوند).</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-csp-click="${CSP.bind('click',function(event){deactivateProductInstead((id))})}">⛔ غیرفعال کن</button>
+      <button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">انصراف</button>
+    </div>`);
+}
+async function deactivateProductInstead(id){
+  try{
+    await api('POST','/products/'+id+'/deactivate');
+    closeModal();
+    showToast('کالا غیرفعال شد');
+    await loadProductsFiltered();
+    renderProdGrid(true);
+  }catch(_){ /* toast by api */ }
 }
 function openChangePass(){
   const isDeviceBuild = APP_INFO && APP_INFO.role==='device';
