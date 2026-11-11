@@ -11321,10 +11321,11 @@ async function prodModal(id){
                   return gallery.map((fn,i)=>{
                     const row=(p.images||[]).find(im=>(im.filename||im)===fn);
                     const iid=row&&row.id?row.id:0;
-                    const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+                    // Pass fn/iid/id by closure — do NOT embed '${safe}' in a normal function body
+                    // (that sends the literal characters ${safe} and 400 «نام فایل نامعتبر است»).
                     return `<div data-csp-style="${CSP.style(`position:relative;cursor:zoom-in`)}" data-csp-click="${CSP.bind('click',function(event){openProductAlbumFromCard((id||0))})}">
                       ${prodImgTag(fn,'class=\"prod-thumb\"')}
-                      ${id&&(iid||fn)?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(id),('${safe}'))})}">×</button>`:''}
+                      ${id&&(iid||fn)?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage(iid,id,fn)})}">×</button>`:''}
                       ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;inset-inline-start:4px`)}">اصلی</span>`:''}
                     </div>`;
                   }).join('');
@@ -13262,10 +13263,9 @@ function bindProductImageInstantUpload(productId){
           box.innerHTML=gallery.length?gallery.map((fn,i)=>{
             const row=(saved.images||[]).find(im=>(im.filename||im)===fn);
             const iid=row&&row.id?row.id:0;
-            const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
             return `<div data-csp-style="${CSP.style(`position:relative;cursor:zoom-in`)}" data-csp-click="${CSP.bind('click',function(event){openProductAlbumFromCard((productId))})}">
               ${prodImgTag(fn,'class=\"prod-thumb\"')}
-              ${(iid||fn)?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(productId),('${safe}'))})}">×</button>`:''}
+              ${(iid||fn)?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage(iid,productId,fn)})}">×</button>`:''}
               ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;inset-inline-start:4px`)}">اصلی</span>`:''}
             </div>`;
           }).join(''):'<span class="muted">تصویری ثبت نشده</span>';
@@ -38593,7 +38593,13 @@ async function deleteProductImage(imageId, productId, filename){
     if(imageId){
       await api('DELETE','/products/images/'+imageId);
     }else if(productId){
-      const body = filename ? { filename: String(filename) } : {};
+      // Basename only; omit body when empty so server clears products.image.
+      let fn = filename == null ? '' : String(filename).trim();
+      if(fn){
+        fn = fn.replace(/^.*[\\/]/, ''); // strip accidental URL/path prefix
+        if(fn === '${safe}' || fn.includes('${')) fn = '';
+      }
+      const body = fn ? { filename: fn } : {};
       await api('DELETE','/products/'+productId+'/images/primary', body);
     }else{
       throw new Error('شناسه تصویر یا محصول نامعتبر است');
@@ -44512,7 +44518,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>گروه کالا در نوار سمت راست؛ جدول کالاها سمت چپ</li>
         <li>انتخاب و حذف گروهی؛ ویرایش با ✏️</li>
         <li>چند تصویر برای هر کالا — عکس‌های جدید به گالری <b>اضافه</b> می‌شوند و عکس قبلی را پاک نمی‌کنند</li>
-        <li><b>حذف تصویر (v636):</b> دکمهٔ × روی هر تصویر گالری (حتی «اصلی» بدون ردیف گالری) تصویر را حذف می‌کند؛ ستون تصویر اصلی پاک یا به تصویر بعدی منتقل می‌شود و با ذخیرهٔ بعدی دوباره برنمی‌گردد</li>
+        <li><b>حذف تصویر (v637):</b> دکمهٔ × روی هر تصویر (حتی «اصلی» بدون ردیف گالری) تصویر را حذف می‌کند؛ ستون تصویر اصلی پاک یا به تصویر بعدی منتقل می‌شود و با ذخیرهٔ بعدی برنمی‌گردد</li>
         <li>آپلود فوری عکس در مودال ویرایش فقط تصویر را ذخیره می‌کند و <b>موجودی، تعداد در پک، قیمت و سایر فیلدها را تغییر نمی‌دهد</b></li>
         <li>دسته‌بندی‌ها از زیرمنوی گروه‌های کالا</li>
       </ul>

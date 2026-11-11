@@ -1,4 +1,13 @@
-﻿### ۱۴۰۵/۰۸/۲۰ — ops: deploy حذف تصویر کالا روی Iran (SW v636) — GO
+﻿### ۱۴۰۵/۰۸/۲۰ — fix: حذف primary دیگر «نام فایل نامعتبر است» نمی‌دهد (SW v637)
+- **باگ زنده:** بعد از deploy v636، × روی «اصلی» (۱۰۰۱۰۲/۷۰۶۳) ⇒ `DELETE …/images/primary` **400** با پیام «نام فایل نامعتبر است» (دو toast). لاگ: چند درخواست 400 در ۱۵:۴۸–۱۵:۵۰ UTC.
+- **علت:** در `data-csp-click` مقدار `('${safe}')` داخل **function معمولی** بود ⇒ به سرور رشتهٔ literal `` `${safe}` `` می‌رفت، نه `p_….webp`.
+- **فیکس:** UI با closure مقدار واقعی `fn` را می‌فرستد؛ `deleteProductImage` basename می‌گیرد و `${…}` را دور می‌اندازد؛ سرور اگر filename نامعتبر بود به `products.image` فعلی fallback می‌کند (دیگر 400 برای garbage).
+- **SW:** `erp-taranom-v637`؛ `app.js?v=637`.
+- **تست Node 20:** `test-product-image-delete-clears-primary` OK (+assertion برای body=`${safe}`).
+- **Deploy:** در همان نوبت overlay Iran پس از commit.
+- **فایل‌ها:** `routes/products.js`، `public/{app.js,sw.js,index.html}`، `scripts/test-product-image-delete-clears-primary.js`، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۲۰ — ops: deploy حذف تصویر کالا روی Iran (SW v636) — GO
 - **Deploy:** ✅ tip `07a14bdf` — overlay SFTP (بدون `git pull`/`--update-env`) — بکاپ `/home/taranom/backups/crm.db.20261111-191716` (+wal/shm؛ sha256 `19d8732b…`) — pm2 restart erp-taranom — health 200 + sharp 0.33.5 — SW **erp-taranom-v636** — stamp `.sftp-deploy-stamp-product-image-delete-v636`.
 - **Overlay hashes = tip:** products=`1b927535…`، app=`009dc414…`، sw=`94a864eb…`، index=`505c56bb…`.
 - **Snapshot پیش/پس یکسان:** JE approved lines c=1701 sum=186946878880؛ ledger max=4577؛ p342=`342|7217|0`؛ p100 image=`p_7ef0…` / `images_json=[]` (داده عمداً دست نخورد؛ حامد با × روی ۱۰۰۱۰۲/۷۰۶۳/… پاک می‌کند).

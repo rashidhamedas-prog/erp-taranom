@@ -194,6 +194,16 @@ server.listen(0, async () => {
       assert.equal(del2.status, 200, 'missing-file primary delete');
       const row2 = db.prepare('SELECT image FROM products WHERE id=?').get(pid);
       assert.ok(!row2.image, 'ghost column cleared without file');
+
+      // Broken CSP embedding used to send literal "${safe}" → must still clear primary
+      const fn3 = mkFilename();
+      writeFile(fn3);
+      db.prepare('UPDATE products SET image=?, images_json=? WHERE id=?').run(fn3, '[]', pid);
+      const del3 = await req('DELETE', '/api/products/' + pid + '/images/primary', { filename: '${safe}' });
+      assert.equal(del3.status, 200, 'garbage filename fallback ' + JSON.stringify(del3.body));
+      const row3 = db.prepare('SELECT image FROM products WHERE id=?').get(pid);
+      assert.ok(!row3.image, 'primary cleared despite garbage filename body');
+      assert.equal(fileExists(fn3), false);
     }
 
     // 3) Two gallery images — delete primary promotes remaining

@@ -34,8 +34,15 @@ function listProductImages(db, productId) {
 
 /** Basename-only product image name under UPLOAD_DIR (rejects traversal). */
 function sanitizeProductImageFilename(name) {
-  const raw = String(name || '').trim();
-  if (!raw || raw.includes('..') || /[\\/]/.test(raw) || path.isAbsolute(raw)) return null;
+  let raw = String(name || '').trim();
+  if (!raw) return null;
+  // Accept accidental URL/path from clients; keep only the final basename.
+  if (raw.includes('/') || raw.includes('\\')) {
+    raw = path.basename(raw.replace(/\\/g, '/'));
+  }
+  // Broken CSP template embedding used to send the literal "${safe}".
+  if (!raw || raw.includes('${') || raw === '${safe}') return null;
+  if (raw.includes('..') || /[\\/]/.test(raw) || path.isAbsolute(raw)) return null;
   try {
     const { isValidFileName } = require('../sync/files');
     if (!isValidFileName(raw, 'products')) return null;
@@ -148,20 +155,25 @@ function removeProductImage(db, { productId, imageId, filename } = {}) {
     resolvedProductId = Number(prod.id);
     if (filename != null && String(filename).trim() !== '') {
       const requested = sanitizeProductImageFilename(filename);
-      if (!requested) {
-        const err = new Error('نام فایل نامعتبر است');
-        err.status = 400;
-        throw err;
+      if (requested) {
+        const inGallery = db.prepare(
+          'SELECT 1 FROM product_images WHERE product_id=? AND filename=? LIMIT 1'
+        ).get(resolvedProductId, requested);
+        if (prod.image !== requested && !inGallery) {
+          const err = new Error('یافت نشد');
+          err.status = 404;
+          throw err;
+        }
+        targetFilename = requested;
+      } else {
+        // Bad/garbage client filename (e.g. literal "${safe}") → clear current primary.
+        targetFilename = sanitizeProductImageFilename(prod.image);
+        if (!targetFilename) {
+          const err = new Error('یافت نشد');
+          err.status = 404;
+          throw err;
+        }
       }
-      const inGallery = db.prepare(
-        'SELECT 1 FROM product_images WHERE product_id=? AND filename=? LIMIT 1'
-      ).get(resolvedProductId, requested);
-      if (prod.image !== requested && !inGallery) {
-        const err = new Error('یافت نشد');
-        err.status = 404;
-        throw err;
-      }
-      targetFilename = requested;
     } else {
       targetFilename = sanitizeProductImageFilename(prod.image);
       if (!targetFilename) {
