@@ -194,16 +194,18 @@ router.post('/stock-matrix', auth, adminOrAccounting, (req, res) => {
     const productId = parseInt(req.body.product_id || req.body.productId, 10);
     if (!productId) return res.status(400).json({ error: 'product_id الزامی است' });
     const cells = Array.isArray(req.body.cells) ? req.body.cells : [];
+    const structureOnly = req.body.structure_only === true || req.body.structure_only === 1;
     const opts = {
       warehouse_id: req.body.warehouse_id,
       auto_barcode: req.body.auto_barcode !== false,
       reason_code: req.body.reason_code,
       date: req.body.date,
       note: req.body.note,
+      structure_only: structureOnly,
     };
     // P1: structure_only → build/activate SKUs only (product form save). Otherwise every CHANGED
     // cell is one postAdjust(mode=count, variant_id) in a single transaction (kardex row + JE).
-    const row = db.transaction(() => (req.body.structure_only === true || req.body.structure_only === 1
+    const row = db.transaction(() => (structureOnly
       ? applyStockMatrix(db, productId, cells, opts)
       : postStockMatrix(db, productId, cells, opts, req.user)))();
     try { audit(req.user.id, 'update', 'product_variants', productId, `ماتریس موجودی ${row.stock}`, req); } catch (_) {}
@@ -282,10 +284,63 @@ router.get('/style/:productId', auth, (req, res) => {
     } else {
       variants = variants.map((v) => ({ ...v, stock_global: Number(v.stock) || 0 }));
     }
+    let styleColors = [];
+    let styleSizes = [];
+    try {
+      styleColors = db.prepare(`
+        SELECT sc.color_id AS id, sc.sort_order,
+               c.name AS name, c.code AS code, c.hex AS hex
+        FROM product_style_colors sc
+        LEFT JOIN product_colors c ON c.id = sc.color_id
+        WHERE sc.product_id=?
+        ORDER BY COALESCE(sc.sort_order, 0), sc.color_id
+      `).all(productId);
+    } catch (_) { styleColors = []; }
+    try {
+      styleSizes = db.prepare(`
+        SELECT ss.size_id AS id, ss.sort_order,
+               s.name AS name, s.code AS code
+        FROM product_style_sizes ss
+        LEFT JOIN product_sizes s ON s.id = ss.size_id
+        WHERE ss.product_id=?
+        ORDER BY COALESCE(ss.sort_order, 0), ss.size_id
+      `).all(productId);
+    } catch (_) { styleSizes = []; }
+    // Fallback: inactive matrix SKUs still encode the style axes when style tables are empty.
+    if (!styleColors.length) {
+      try {
+        styleColors = db.prepare(`
+          SELECT DISTINCT v.color_id AS id, COALESCE(c.sort_order, 0) AS sort_order,
+                 c.name AS name, c.code AS code, c.hex AS hex
+          FROM product_variants v
+          LEFT JOIN product_colors c ON c.id = v.color_id
+          WHERE v.product_id=? AND COALESCE(v.is_default,0)=0 AND v.color_id IS NOT NULL
+          ORDER BY COALESCE(c.sort_order, 0), v.color_id
+        `).all(productId);
+      } catch (_) { /* ignore */ }
+    }
+    if (!styleSizes.length) {
+      try {
+        styleSizes = db.prepare(`
+          SELECT DISTINCT v.size_id AS id, COALESCE(s.sort_order, 0) AS sort_order,
+                 s.name AS name, s.code AS code
+          FROM product_variants v
+          LEFT JOIN product_sizes s ON s.id = v.size_id
+          WHERE v.product_id=? AND COALESCE(v.is_default,0)=0 AND v.size_id IS NOT NULL
+          ORDER BY COALESCE(s.sort_order, 0), v.size_id
+        `).all(productId);
+      } catch (_) { /* ignore */ }
+    }
+    const styleColorIds = styleColors.map((r) => Number(r.id)).filter(Boolean);
+    const styleSizeIds = styleSizes.map((r) => Number(r.id)).filter(Boolean);
     res.json({
       ...meta,
       product_id: productId,
       variants,
+      style_colors: styleColors,
+      style_sizes: styleSizes,
+      style_color_ids: styleColorIds,
+      style_size_ids: styleSizeIds,
       warehouse_id: scoped ? warehouseId : null,
       stock_scope: stockScope,
       warehouse_name: warehouseName,

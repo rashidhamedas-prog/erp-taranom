@@ -1,4 +1,18 @@
-﻿### ۱۴۰۵/۰۸/۱۹ — fix: counterpart دقیق انتقال + guided remainder بدون dump (SW v634)
+﻿### ۱۴۰۵/۰۸/۲۰ — fix: ذخیرهٔ رنگ×سایز با VWS=0/opening_seed دیگر رنگ را خاموش نمی‌کند (SW v635)
+- **Deploy:** ❌ منتظر `GO deploy variant-save-fix` — بدون pm2 / بدون write روی `crm.db` زنده.
+- **شاخه:** `fix/variant-save-history-zero` (پایه: `origin/main` `eb6bdd48` / tip محتوایی v634).
+- **باگ:** روی کالای ماتریسی با موجودی بی‌واریانت (مثل ۱۰۰۱۰۲)، بعد از PUT + generate-matrix + stock-matrix(`structure_only`) و drain وب‌سایت، `retireZeroStockColors` همهٔ رنگ‌ها را inactive می‌کرد چون `variantHasStockHistory` ردیف VWS با qty=0 و `inventory_movements.doc_type='opening_seed'` را تاریخچه می‌دانست؛ UI فقط `active=1` می‌خواند ⇒ فرم خالی.
+- **فیکس کد:**
+  - `variantHasStockHistory`: فقط qty واقعی (pv/VWS abs>eps)، `inventory_ledger.variant_id`، یا movement غیر از `opening_seed`.
+  - `applyStockMatrix`: `keepColorIds` شامل همهٔ `color_id`های درخواست.
+  - drain وب‌سایت: keep از `product_style_colors` بدون ledger واریانت + SKUهای payload بدون ledger.
+  - `GET /product-variants/style/:id`: `style_colors` / `style_sizes` / `style_color_ids` / `style_size_ids`؛ چیپ ادیتور از همین‌ها prime می‌شود.
+- **SW:** `erp-taranom-v635`.
+- **تست:** `test-variant-save-history-zero-persists.js` (جدید) + `test-new-color-persists-on-save.js`.
+- **ممنوع:** تخصیص ۱۴۸ واحد، دست‌زدن به محصول ۳۴۲/۷۲۱۷، اسکریپت repair روی production.
+- **فایل‌ها:** `lib/product-variants/service.js`، `lib/website-stock-sync.js`، `routes/product-variants.js`، `public/{app.js,sw.js}`، `scripts/test-variant-save-history-zero-persists.js`، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۱۹ — fix: counterpart دقیق انتقال + guided remainder بدون dump (SW v634)
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۱۹ — overlay SFTP (`scripts/_deploy-variant-reclass-ui-v634.py`) روی درخت کثیف VPS (HEAD گیت `8a5cd54`؛ بدون `git pull`/`reset --hard`/`--update-env`). tip/merge `8623af47` (PR #204)؛ SW **v634**؛ بکاپ `/home/taranom/backups/crm.db.20261110-183837` (+wal/shm)؛ `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health/ready HTTP 200 + `image_engine` sharp 0.33.5؛ روی سرور (DB موقت) `test-variant-reclass-ui-and-void-cache` ۸۰/۰؛ stamp `.sftp-deploy-stamp-variant-reclass-ui-v634`. بدون write روی live `crm.db`؛ بدون repair `--apply`.
 - **شاخه:** `feat/variant-reclass-ui-v634` (پایه: merge PR #203 `a329063b`).
 - **counterpart:** `listCandidates` تفکیک واقعی طرف مقابل انتقال را برمی‌گرداند (`counterpart.lines` از VR پست‌شده حتی اگر peer معکوس باشد، یا Σ ردیف‌های attributed زنده؛ نادیده گرفتن `*revalue*` و qty=0؛ `exact`).

@@ -11927,11 +11927,25 @@ function prodPreserveColorIds(vars){
   const shown=prodMatrixColorIds(vars);
   return [...prodLiveColorIds(vars)].filter(id=>!shown.has(id));
 }
-/** All color/size ids already on the style (including zero-stock cells). */
-function prodStyleColorIds(vars){
+/** All color/size ids already on the style (including zero-stock / inactive SKUs). */
+function prodStyleIdsFromMeta(styleMeta, keyIds, keyRows, rowId){
+  if(!styleMeta) return null;
+  if(Array.isArray(styleMeta[keyIds]) && styleMeta[keyIds].length){
+    return styleMeta[keyIds].map(Number).filter(Boolean);
+  }
+  if(Array.isArray(styleMeta[keyRows]) && styleMeta[keyRows].length){
+    return styleMeta[keyRows].map(r=>Number(r&&(r.id!=null?r.id:r[rowId]))).filter(Boolean);
+  }
+  return null;
+}
+function prodStyleColorIds(vars, styleMeta){
+  const fromMeta=prodStyleIdsFromMeta(styleMeta,'style_color_ids','style_colors','color_id');
+  if(fromMeta && fromMeta.length) return new Set(fromMeta);
   return new Set((vars||[]).filter(v=>v&&Number(v.is_default)!==1&&v.active!==0).map(v=>Number(v.color_id)).filter(Boolean));
 }
-function prodStyleSizeIds(vars){
+function prodStyleSizeIds(vars, styleMeta){
+  const fromMeta=prodStyleIdsFromMeta(styleMeta,'style_size_ids','style_sizes','size_id');
+  if(fromMeta && fromMeta.length) return new Set(fromMeta);
   return new Set((vars||[]).filter(v=>v&&Number(v.is_default)!==1&&v.active!==0).map(v=>Number(v.size_id)).filter(Boolean));
 }
 function prodSkuCanMutate(){
@@ -12008,8 +12022,8 @@ function prodColorFilter(list,q){
   return (list||[]).filter(c=>c && (k(c.name).includes(nq) || k(c.code).includes(nq)));
 }
 /* /PCS-SHARED */
-function prodSkuClassifyColors(styleVars,_whId){
-  const styleIds=[...prodStyleColorIds(styleVars)];
+function prodSkuClassifyColors(styleVars,_whId, styleMeta){
+  const styleIds=[...prodStyleColorIds(styleVars, styleMeta)];
   const matrixSet=prodMatrixColorIds(styleVars);
   const otherWh=prodPreserveColorIds(styleVars).map(Number).filter(Boolean);
   const otherSet=new Set(otherWh);
@@ -12157,7 +12171,7 @@ function pcsRefreshMatrixSums(){
   colSums.forEach((t,i)=>{ if(footCells[i]) footCells[i].textContent=fmt(t); });
   if(footCells[colSums.length]) footCells[colSums.length].textContent=fmt(colSums.reduce((a,b)=>a+b,0));
 }
-function ensureProdSkuSticky(productId, styleVars, sizesCatalog){
+function ensureProdSkuSticky(productId, styleVars, sizesCatalog, styleMeta){
   const pid=Number(productId)||0;
   let st=window._prodSkuSticky;
   if(!st || Number(st.productId)!==pid){
@@ -12166,9 +12180,10 @@ function ensureProdSkuSticky(productId, styleVars, sizesCatalog){
     window._prodMatrixDraft={ productId:pid, byWh:{} };
   }
   if(st.primed) return st;
-  const styleColors=[...prodStyleColorIds(styleVars)];
-  const styleSizes=[...prodStyleSizeIds(styleVars)];
+  const styleColors=[...prodStyleColorIds(styleVars, styleMeta)];
+  const styleSizes=[...prodStyleSizeIds(styleVars, styleMeta)];
   // همهٔ رنگ‌های سبک در colorIds می‌مانند تا ذخیره چیزی را غیرفعال نکند
+  // (حتی اگر SKUها inactive باشند — از style_color_ids / product_style_colors)
   if(styleColors.length || styleSizes.length){
     st.colorIds=styleColors;
     const catOrder=(sizesCatalog||[]).map(s=>Number(s.id));
@@ -12178,7 +12193,7 @@ function ensureProdSkuSticky(productId, styleVars, sizesCatalog){
     });
   }else{
     st.colorIds=[...prodMatrixColorIds(styleVars)];
-    st.sizeOrder=[...prodStyleSizeIds(styleVars)];
+    st.sizeOrder=[...prodStyleSizeIds(styleVars, styleMeta)];
   }
   st.primed=true;
   return st;
@@ -12509,16 +12524,17 @@ async function loadProdSkuChips(productId, opts){
   const preserveColorIds=prodPreserveColorIds(styleVars);
   window._prodPreserveColorIds=preserveColorIds;
   window._prodStyleVariants=styleVars;
+  window._prodStyleMeta=style||null;
   window._prodStockByWh=(style&&style.stock_by_warehouse)||[];
   window._prodColorCatalog=colors;
   window._prodSizeCatalog=sizes;
-  const cls=prodSkuClassifyColors(styleVars, defaultWh);
+  const cls=prodSkuClassifyColors(styleVars, defaultWh, style);
   window._prodSkuColorClass=cls;
   const whQty=prodWarehouseColorTotals(styleVars);
 
   const st=opts.keepSticky && window._prodSkuSticky && window._prodSkuSticky.primed
     ? window._prodSkuSticky
-    : ensureProdSkuSticky(productId, styleVars, sizes);
+    : ensureProdSkuSticky(productId, styleVars, sizes, style);
   if(opts.keepSticky && !opts.skipDomSync) syncProdSkuStickyFromDom();
   const usedC=new Set((st.colorIds||[]).map(Number));
   const usedS=new Set((st.sizeOrder||[]).map(Number));
@@ -43633,6 +43649,13 @@ function helpSec(icon,title,body){
 }
 function renderAdminGuide(){
   return [
+    helpSec('🎨','ذخیرهٔ رنگ×سایز بدون جابه‌جایی موجودی (v635)',`
+      <p>در فرم کالا، تیک زدن رنگ/سایز و «ذخیره» فقط ساختار ماتریس را می‌سازد یا دوباره فعال می‌کند؛ <b>موجودی را جابه‌جا نمی‌کند</b> و سند حسابداری جدید نمی‌سازد. اگر موجودی کل روی کالا بدون واریانت مانده باشد (مثلاً افتتاحیهٔ بی‌رنگ)، رنگ‌های انتخاب‌شده بعد از ذخیره و همگام‌سازی سایت خاموش نمی‌شوند.</p>
+      <ul>
+        <li>رنگ‌هایی که واقعاً موجودی گرفته و دوباره دقیقاً صفر شده‌اند و از تیک سبک برداشته شده‌اند همچنان پس از push سایت مخفی می‌شوند.</li>
+        <li>اگر فرم را باز کنید و رنگ‌ها دیده نشوند ولی قبلاً روی کالا تعریف شده بودند، چیپ‌ها از پیوست سبک (<span dir="ltr">product_style_colors</span>) پر می‌شوند حتی وقتی SKUها غیرفعال‌اند.</li>
+        <li>تخصیص موجودی بی‌واریانت به رنگ/سایز جداست: صفحهٔ <b>انبار ← عملیات ← اصلاح تفکیک رنگ و سایز</b> (سند VR).</li>
+      </ul>`),
     helpSec('🗑️','حذف کالای بدون گردش واقعی (v632)',`
       <p>کالای مصنوعی بدون هیچ سابقهٔ انبار/سند با <span dir="ltr">DELETE /api/products/:id</span> حذف می‌شود. هر ردیف کاردکس (حتی معکوس/صفر/فقط مبلغ)، حرکت/حواله/VR/افتتاحیه/برگشت خرید/انبارگردانی/BOM یا گردش تفصیلی → <b>۴۰۹</b> با شماره سند و پیشنهاد غیرفعال‌سازی. شناسهٔ کوتاه در JSON با شناسهٔ بلند اشتباه نمی‌شود. حذف ERP صفحهٔ وب‌سایت را پاک نمی‌کند.</p>`),
     helpSec('🎨','صفحهٔ «اصلاح تفکیک رنگ و سایز» (سند VR) + بازیابی از بکاپ (v633)',`

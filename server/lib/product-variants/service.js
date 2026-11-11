@@ -488,18 +488,22 @@ function variantCarriesStock(db, variantRow) {
   return false;
 }
 
+/** Cache-backfill movement types — not durable stock history for colour retirement. */
+const CACHE_BACKFILL_DOC_TYPES = new Set(['opening_seed']);
+
 /**
- * A zero SKU counts as previously stocked when any durable stock projection/history exists.
- * `variant_warehouse_stock` row existence (even now zero) intentionally counts as history:
- * legacy imports/tests wrote that cache directly before immutable ledgers carried variant_id.
+ * A zero SKU counts as previously stocked only with durable real history:
+ * current pv.stock / VWS qty (abs > eps), inventory_ledger.variant_id, or a non-seed movement.
+ * Bare VWS rows at qty 0 (leftover cache after an unallocated opening) are NOT history.
  */
 function variantHasStockHistory(db, variantRow) {
   if (Math.abs(Number(variantRow.stock) || 0) > STOCK_EPS) return true;
   if (colorHadStockInProcess(db, variantRow.product_id, variantRow.color_id)) return true;
   try {
-    const hit = db.prepare(
-      'SELECT 1 AS x FROM variant_warehouse_stock WHERE variant_id=? LIMIT 1'
-    ).get(variantRow.id);
+    const hit = db.prepare(`
+      SELECT 1 AS x FROM variant_warehouse_stock
+      WHERE variant_id=? AND ABS(COALESCE(qty,0)) > ? LIMIT 1
+    `).get(variantRow.id, STOCK_EPS);
     if (hit) return true;
   } catch (_) { /* VWS table may be absent in tiny fixtures */ }
   try {
@@ -513,12 +517,90 @@ function variantHasStockHistory(db, variantRow) {
   } catch (_) { /* ledger table/column may be absent in tiny fixtures */ }
   for (const table of ['inventory_movements', 'variant_stock_moves']) {
     try {
-      const hit = db.prepare(`SELECT 1 AS x FROM ${table} WHERE variant_id=? LIMIT 1`)
-        .get(variantRow.id);
+      const hit = db.prepare(`
+        SELECT 1 AS x FROM ${table}
+        WHERE variant_id=?
+          AND COALESCE(doc_type,'') NOT IN (${[...CACHE_BACKFILL_DOC_TYPES].map(() => '?').join(',')})
+        LIMIT 1
+      `).get(variantRow.id, ...CACHE_BACKFILL_DOC_TYPES);
       if (hit) return true;
-    } catch (_) { /* optional/legacy movement table */ }
+    } catch (_) { /* optional/legacy movement table or no doc_type */ }
   }
   return false;
+}
+
+/** True when any SKU of this colour has an inventory_ledger row stamped with variant_id. */
+function colorHasLedgerVariantHistory(db, productId, colorId) {
+  const pid = parseInt(productId, 10);
+  const cid = Number(colorId);
+  if (!pid || !cid) return false;
+  try {
+    const L = require('../inventory/ledger');
+    if (!L.ledgerHasVariantColumn(db)) return false;
+    const hit = db.prepare(`
+      SELECT 1 AS x
+      FROM inventory_ledger il
+      JOIN product_variants v ON v.id = il.variant_id
+      WHERE v.product_id=? AND v.color_id=?
+      LIMIT 1
+    `).get(pid, cid);
+    return !!hit;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Keep-set for post-website-push retire: style colours still attached that have no
+ * ledger variant_id history (structure definition / unallocated opening case).
+ */
+function keepColorIdsForPostPushRetire(db, productId) {
+  const pid = parseInt(productId, 10);
+  if (!pid) return [];
+  const keep = [];
+  try {
+    const rows = db.prepare(
+      'SELECT color_id FROM product_style_colors WHERE product_id=?'
+    ).all(pid);
+    for (const row of rows) {
+      const cid = Number(row.color_id);
+      if (!cid) continue;
+      if (!colorHasLedgerVariantHistory(db, pid, cid)) keep.push(cid);
+    }
+  } catch (_) { /* style table optional in tiny fixtures */ }
+  return normalizeColorIds(keep);
+}
+
+/**
+ * Keep-set from the matrix payload just pushed: colours whose SKUs have no ledger history.
+ * Payload rows use erpVariantSku (no color_id); resolve via product_variants.sku.
+ */
+function keepColorIdsFromPushPayload(db, productId, payload) {
+  const pid = parseInt(productId, 10);
+  if (!pid) return [];
+  const variants = payload && Array.isArray(payload.variants) ? payload.variants : [];
+  const keep = [];
+  const findBySku = (() => {
+    try {
+      return db.prepare(`
+        SELECT id, color_id FROM product_variants
+        WHERE product_id=? AND sku=? AND COALESCE(is_default,0)=0
+        LIMIT 1
+      `);
+    } catch (_) { return null; }
+  })();
+  if (!findBySku) return [];
+  for (const row of variants) {
+    const sku = String((row && row.erpVariantSku) || '').trim();
+    if (!sku) continue;
+    try {
+      const v = findBySku.get(pid, sku);
+      const cid = v ? Number(v.color_id) : 0;
+      if (!cid) continue;
+      if (!colorHasLedgerVariantHistory(db, pid, cid)) keep.push(cid);
+    } catch (_) { /* skip */ }
+  }
+  return normalizeColorIds(keep);
 }
 
 /**
@@ -801,10 +883,15 @@ function applyStockMatrix(db, productId, cells, opts = {}) {
       neverStockedSelected.push(colorId);
     }
   }
+  // Structure-only product-form save must keep every colour the user just selected —
+  // even when genuine history exists and current qty is 0 (unallocated opening).
+  // Qty matrix saves must NOT blanket-keep selected colours: a colour that had stock
+  // and returned to exactly 0 should still retire (see test-new-color-persists-on-save).
   const keepColorIds = normalizeColorIds([
     ...(opts.generatedKeepColorIds || []),
     ...newlyActivated,
     ...neverStockedSelected,
+    ...(opts.structure_only ? colorIds : []),
   ]);
   afterVariantStockWrite(db, productId, { keepColorIds });
   refreshLiveColorCount(db, productId, colorIds.length);
@@ -1061,6 +1148,10 @@ module.exports = {
   afterVariantStockWrite,
   holdColorRetire,
   releaseColorRetire,
+  variantHasStockHistory,
+  colorHasLedgerVariantHistory,
+  keepColorIdsForPostPushRetire,
+  keepColorIdsFromPushPayload,
   styleMetadata,
   variantLineSummary,
   attachVariantFlags,

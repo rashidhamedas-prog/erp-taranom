@@ -996,7 +996,12 @@ async function drainWebsiteStockOutbox(db) {
         );
         if (push.ok) {
           try {
-            require('./product-variants/service').retireZeroStockColors(db, row.product_id);
+            const PV = require('./product-variants/service');
+            const keepColorIds = [
+              ...PV.keepColorIdsForPostPushRetire(db, row.product_id),
+              ...PV.keepColorIdsFromPushPayload(db, row.product_id, payload),
+            ];
+            PV.retireZeroStockColors(db, row.product_id, { keepColorIds });
           } catch (e) {
             console.error('[website-stock-sync] retire zero color', e && e.message);
           }
