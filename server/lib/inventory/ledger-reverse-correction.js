@@ -87,8 +87,9 @@ function validateBody(body) {
 }
 
 /**
- * Matrix product + row without variant_id + with_stock → the variant×warehouse layer must move too,
- * so an explicit breakdown summing to |qty_delta| is required (else the layer drifts from warehouse_stock).
+ * Matrix product + row without variant_id + with_stock:
+ *   - no breakdown → allow warehouse/header/kardex-only void (VWS unchanged; unallocated shrinks)
+ *   - breakdown sent → refuse; use «تفکیک رنگ» (VR), not this path
  */
 function resolveVariantBreakdown(db, plan, breakdown) {
   if (plan.variant_id) {
@@ -101,12 +102,15 @@ function resolveVariantBreakdown(db, plan, breakdown) {
     if (breakdown) throw rcErr('کالا رنگ×سایز نیست؛ variant_breakdown لازم نیست', 400, 'E_LEDGER_REVERSE_VARIANT_BREAKDOWN');
     return null;
   }
-  throw rcErr(
-    'این ردیف تاریخیِ کالای رنگ×سایز واریانت ندارد؛ ابطال خودکار آن بدون ساخت ردیف بی‌واریانت جدید ممکن نیست. ابتدا با شمارش واریانت‌ها اصلاحش کنید',
-    409,
-    'E_LEDGER_REVERSE_UNATTRIBUTED_MATRIX',
-    { product_id: plan.product_id, qty: Math.abs(plan.qty_delta) }
-  );
+  if (breakdown) {
+    throw rcErr(
+      'برای تقسیم این ردیف به رنگ‌ها از «تفکیک رنگ» استفاده کنید؛ ابطال اصلاحی با اثر موجودی فقط موجودی انبار/کالا را برمی‌گرداند و لایهٔ رنگ را جابه‌جا نمی‌کند',
+      409,
+      'E_LEDGER_REVERSE_USE_VARIANT_RECLASS',
+      { product_id: plan.product_id, qty: Math.abs(plan.qty_delta) }
+    );
+  }
+  return null;
 }
 
 function isReversalRow(row) {
@@ -280,9 +284,11 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   const warnings = [];
   if (warehouseId == null) warnings.push('ردیف انبار ندارد؛ فقط حالت «فقط کاردکس» ممکن است');
   if (gate.warning) warnings.push(gate.warning);
-  if (matrix && !variantId) warnings.push(
-    'این ردیف تاریخیِ کالای رنگ×سایز واریانت ندارد و ابطال خودکار آن در مدل SSOT پشتیبانی نمی‌شود؛ ابتدا با شمارش واریانت‌ها اصلاحش کنید'
-  );
+  if (matrix && !variantId) {
+    warnings.push(
+      'این ردیف رنگ/سایز ندارد؛ ابطال با اثر موجودی فقط موجودی انبار و کالا را تغییر می‌دهد و لایهٔ رنگ×سایز (VWS) دست نمی‌خورد. برای تقسیم به رنگ‌ها از «تفکیک رنگ» استفاده کنید'
+    );
+  }
   let variantLayer = null;
   if (matrix && !variantId && warehouseId != null) {
     try {
@@ -296,7 +302,9 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   const draft = draftPlanFor(db, row);
   const existingDraft = draft && draft.needed ? findLiveReversingDraftForJe(db, draft.je_id) : null;
   if (draft && draft.needed && !existingDraft) {
-    warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})؛ سند ثبت نمی‌شود و فقط پیش‌نویس سند برگشت ساخته می‌شود`);
+    const accts = (draft.lines || []).map((l) => l.code).filter(Boolean);
+    const acctHint = accts.length ? ` (حساب‌های سند: ${accts.join(' / ')})` : '';
+    warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})${acctHint}؛ سند ثبت نمی‌شود و فقط پیش‌نویس سند برگشت ساخته می‌شود — پیش‌نویس را بدون خواندن حساب‌ها ثبت نکنید`);
   } else if (draft && draft.needed && existingDraft) {
     warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})؛ پیش‌نویس برگشت موجود (#${existingDraft.id}) دوباره استفاده می‌شود`);
   }
@@ -338,9 +346,9 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
     } : null,
     matrix,
     variant_breakdown_required: false,
-    variant_breakdown_supported: !(matrix && !variantId),
+    variant_breakdown_supported: false,
     variant_layer_in_warehouse: variantLayer,
-    with_stock_allowed: !blocker && withStockOk && !(matrix && !variantId),
+    with_stock_allowed: !blocker && withStockOk && warehouseId != null,
     kardex_only_allowed: false,
     voucher_draft: draft ? {
       will_create: !!draft.needed && !existingDraft,

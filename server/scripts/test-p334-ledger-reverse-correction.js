@@ -381,7 +381,7 @@ async function main() {
         'kardex_only fallback refused; cache remains ledger-derived');
     }
 
-    console.log('— matrix product (row without variant) ⇒ variant_breakdown required —');
+    console.log('— matrix product (row without variant) ⇒ with_stock allowed, VWS unchanged —');
     {
       const P4 = insert('products', { user_id: ADMIN_ID, name: 'کالای رنگ‌سایز', code: 'P334-MX', price: 1, average_cost_rial: 0, stock: 2, unit: 'عدد' });
       const V1 = insert('product_variants', { product_id: P4, sku: 'P334-MX-1', color: 'قرمز', size: '1', active: 1, is_default: 0, stock: 1 });
@@ -413,22 +413,22 @@ async function main() {
       const url = `/api/inventory/ledger/${led.id}/reverse-correction`;
       const prev = await call('GET', `/api/inventory/ledger/${led.id}/reverse-correction-preview`);
       ok(prev.status === 200 && prev.body.variant_breakdown_required === false
-        && prev.body.variant_breakdown_supported === false && prev.body.with_stock_allowed === false
-        && (prev.body.variant_layer_in_warehouse || []).length === 2,
-      'preview: unattributed matrix correction is explicitly unsupported and variant layer is listed', prev.body);
+        && prev.body.variant_breakdown_supported === false && prev.body.with_stock_allowed === true
+        && (prev.body.variant_layer_in_warehouse || []).length === 2
+        && prev.body.warehouse_stock.after_with_stock === 0,
+      'preview: unattributed matrix with_stock allowed; VWS listed; ws → 0', prev.body);
       const base = { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'with_stock' };
-      const c0 = changes();
+      const rBd = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: V2, qty: 1 }] });
+      ok(rBd.status === 409 && rBd.body.code === 'E_LEDGER_REVERSE_USE_VARIANT_RECLASS'
+        && ws(P4, WH35) === 2 && vq(V1) === 1 && vq(V2) === 1,
+        'breakdown on this path → use VR; zero writes', { body: rBd.body, v1: vq(V1), v2: vq(V2) });
+      const r5 = await call('POST', url, { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'kardex_only' });
+      ok(r5.status === 409 && r5.body.code === 'E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT',
+        'kardex_only still refused', r5.body);
       const r0 = await call('POST', url, base);
-      ok(r0.status === 409 && r0.body.code === 'E_LEDGER_REVERSE_UNATTRIBUTED_MATRIX' && changes() === c0,
-        'legacy matrix row without variant ⇒ clear refusal, zero writes', r0.body);
-      const r5 = await call('POST', url, { reason: 'تست رنگ‌سایز', confirm: true, stock_effect: 'kardex_only', variant_breakdown: [{ variant_id: V1, qty: 2 }] });
-      ok(r5.status === 409 && r5.body.code === 'E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT' && changes() === c0,
-        'breakdown with kardex_only ⇒ SSOT refusal', r5.body);
-      const r6 = await call('POST', url, { ...base, variant_breakdown: [{ variant_id: V1, qty: 1 }, { variant_id: V2, qty: 1 }] });
-      ok(r6.status === 409 && r6.body.code === 'E_LEDGER_REVERSE_UNATTRIBUTED_MATRIX'
-        && ws(P4, WH35) === 2 && vq(V1) === 1 && vq(V2) === 1 && changes() === c0,
-        'even a complete breakdown is refused because SSOT forbids a new matrix row without variant',
-        { body: r6.body, v1: vq(V1), v2: vq(V2) });
+      ok(r0.status === 200 && ws(P4, WH35) === 0 && vq(V1) === 1 && vq(V2) === 1,
+        'with_stock void of unattributed opening → ws 0, VWS unchanged',
+        { body: r0.body, ws: ws(P4, WH35), v1: vq(V1), v2: vq(V2) });
     }
 
     console.log('— sync capture —');

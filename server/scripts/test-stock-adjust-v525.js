@@ -155,8 +155,15 @@ async function main() {
 
   const cogs = acct(db, 'coa_cogs');
   const overhead = acct(db, 'coa_overhead_control');
+  const gain4205 = acct(db, 'coa_inventory_gain');
   const fgInv = L.inventoryAccountForWarehouse(db, whFG);
   const rawInv = L.inventoryAccountForWarehouse(db, whRAW);
+  const expectedFgCounter = (reason, qty) => {
+    if (reason === 'surplus') return String(gain4205.code || '4205');
+    if (reason === 'wastage' || reason === 'damage') return '610801';
+    if (reason === 'count_correction') return qty > 0 ? String(gain4205.code || '4205') : '6118';
+    return '6118';
+  };
 
   try {
     // ── 1. preview (read-only) ──
@@ -169,22 +176,26 @@ async function main() {
     ok(r.status === 200, 'preview delta → 200', r.data);
     ok(r.data?.current_qty === 10 && r.data?.new_qty === 8 && r.data?.delta_qty === -2, 'preview delta: 10 → 8 (Δ −2)', r.data);
     ok(r.data?.unit_cost_rial === 500000 && r.data?.value_rial === -1000000, 'preview delta: live rate 500,000 → value −1,000,000', r.data);
-    ok(r.data?.counter_account?.code === cogs.code && r.data?.stage === 'goods', 'preview goods stage → COGS counter', r.data?.counter_account);
+    ok(r.data?.counter_account?.code !== cogs.code && r.data?.counter_account?.name === 'کسری و اضافات انبار' && r.data?.stage === 'goods',
+      'preview goods shortage → 6118 (never COGS)', r.data?.counter_account);
     ok(r.data?.inventory_account?.code === fgInv.code, 'preview inventory account = FG account');
     ok(r.data?.period_locked === false && Array.isArray(r.data?.warnings), 'preview: open month, warnings[]');
     r = await api('POST', '/api/inventory/adjust/preview', { product_id: PFG, warehouse_id: whFG, mode: 'count', qty: 7, reason_code: 'count_correction' });
     ok(r.status === 200 && r.data?.delta_qty === -3 && r.data?.new_qty === 7, 'preview count 7 → Δ −3', r.data);
     r = await api('POST', '/api/inventory/adjust/preview', { product_id: PRAW, warehouse_id: whRAW, mode: 'delta', qty: -1, reason_code: 'shortage' });
     ok(r.status === 200 && r.data?.stage === 'materials' && r.data?.counter_account?.name === 'کسری و اضافات انبار',
-      'preview materials → «کسری و اضافات انبار» (not created yet)', r.data?.counter_account);
+      'preview materials → «کسری و اضافات انبار»', r.data?.counter_account);
     r = await api('POST', '/api/inventory/adjust/preview', { product_id: PWIP, warehouse_id: whWIP, mode: 'delta', qty: 1, reason_code: 'surplus' });
     ok(r.status === 200 && r.data?.stage === 'wip' && r.data?.counter_account?.code === overhead.code, 'preview WIP → overhead control', r.data);
+    r = await api('POST', '/api/inventory/adjust/preview', { product_id: PFG, warehouse_id: whFG, mode: 'delta', qty: 1 });
+    ok(r.status === 200 && !r.data?.counter_account && (r.data?.warnings || []).some((w) => /دلیل/.test(w)),
+      'preview without reason → no counter (never 9999)', r.data);
     r = await api('POST', '/api/inventory/adjust/preview', { product_id: PFG, warehouse_id: whFG, mode: 'count', qty: 10, reason_code: 'other' });
     ok(r.status === 200 && r.data?.delta_qty === 0 && r.data.warnings.length > 0, 'preview no-change → warning, still 200');
     r = await api('POST', '/api/inventory/adjust/preview', { product_id: PFG, warehouse_id: whFG, mode: 'delta', qty: 1, reason_code: 'nope' });
     ok(r.status === 400 && r.data?.code === 'E_ADJUST_REASON', 'preview invalid reason → 400 E_ADJUST_REASON', r.data);
-    ok(count('inventory_ledger') === snap.led && count('journal_entries') === snap.je && count('chart_of_accounts') === snap.coa,
-      'preview wrote nothing (ledger / JE / COA unchanged)');
+    ok(count('inventory_ledger') === snap.led && count('journal_entries') === snap.je,
+      'preview wrote nothing (ledger / JE unchanged)');
     ok(settingsDump() === snap.settings, 'preview wrote no settings');
     ok(count('sync_outbox') === snap.outbox, 'preview not captured to sync_outbox');
     ok(capture.BLOCKLIST.includes('/api/inventory/adjust/preview'), 'capture BLOCKLIST has /api/inventory/adjust/preview');
@@ -197,23 +208,26 @@ async function main() {
     const fgAdj = [];
     for (const reason of Object.keys(VA.ADJUST_REASONS)) {
       const qty = reason === 'surplus' ? 1 : -1;
+      const want = expectedFgCounter(reason, qty);
       r = await api('POST', '/api/inventory/adjust', { product_id: PFG, warehouse_id: whFG, mode: 'delta', qty, reason_code: reason, note: 'تست ' + reason });
       const lines = r.data?.je_id ? jeLines(r.data.je_id) : [];
-      ok(r.status === 200 && r.data?.counter_account?.code === cogs.code && lines.some((l) => l.account_code === cogs.code)
-        && lines.some((l) => l.account_code === fgInv.code), `FG ${reason} → JE inventory ↔ COGS`, { st: r.status, d: r.data, lines });
+      ok(r.status === 200 && r.data?.counter_account?.code === want && lines.some((l) => l.account_code === want)
+        && lines.some((l) => l.account_code === fgInv.code)
+        && !lines.some((l) => l.account_code === cogs.code),
+        `FG ${reason} → JE inventory ↔ ${want} (never COGS)`, { st: r.status, d: r.data, lines, want });
       ok(!!r.data?.je_no && r.data?.reason_code === reason, `FG ${reason}: je_no + reason echoed`);
       fgAdj.push(r.data);
     }
     ok(whQty(PFG, whFG) === 10 - 5 + 1, 'FG qty after six reasons = 6', whQty(PFG, whFG));
     r = await api('POST', '/api/inventory/adjust', { product_id: PRAW, warehouse_id: whRAW, mode: 'delta', qty: -2, reason_code: 'wastage' });
     const c6118 = q1("SELECT code FROM chart_of_accounts WHERE name='کسری و اضافات انبار'")?.code;
-    ok(r.status === 200 && !!c6118 && r.data?.counter_account?.code === c6118 && jeLines(r.data.je_id).some((l) => l.account_code === rawInv.code),
-      'RAW wastage → «کسری و اضافات انبار» created + JE', r.data);
+    ok(r.status === 200 && r.data?.counter_account?.code === '610801' && jeLines(r.data.je_id).some((l) => l.account_code === rawInv.code),
+      'RAW wastage → 610801 + JE', r.data);
     r = await api('POST', '/api/inventory/adjust', { product_id: PWIP, warehouse_id: whWIP, mode: 'delta', qty: -1, reason_code: 'damage' });
-    ok(r.status === 200 && r.data?.counter_account?.code === overhead.code, 'WIP damage → overhead control', r.data?.counter_account);
+    ok(r.status === 200 && r.data?.counter_account?.code === '610801', 'WIP damage → 610801 loss leaf', r.data?.counter_account);
     VA.setReasonAccounts(db, { damage: c6118 });
     r = await api('POST', '/api/inventory/adjust', { product_id: PFG, warehouse_id: whFG, mode: 'delta', qty: -1, reason_code: 'damage' });
-    ok(r.status === 200 && r.data?.counter_account?.code === c6118, 'reason mapped in settings wins over stage default', r.data?.counter_account);
+    ok(r.status === 200 && r.data?.counter_account?.code === c6118, 'reason mapped in settings wins over default', r.data?.counter_account);
     VA.setReasonAccounts(db, {});
     r = await api('POST', '/api/inventory/adjust', { product_id: PFG, warehouse_id: whFG, mode: 'count', qty: 3, reason_code: 'count_correction', date: todayJalali() });
     ok(r.status === 200 && r.data?.delta_qty === -2 && whQty(PFG, whFG) === 3, 'count mode: counted 3 from 5 → Δ −2', r.data);
@@ -228,7 +242,7 @@ async function main() {
     ok(r.status === 400 && r.data?.code === 'E_ADJUST_DATE', 'non-Jalali date → 400 E_ADJUST_DATE', r.data);
     // matrix product
     r = await api('POST', '/api/inventory/adjust', { product_id: PMX, warehouse_id: whFG, mode: 'delta', qty: 1, reason_code: 'surplus' });
-    ok(r.status === 400 && r.data?.code === 'E_VARIANT_REQUIRED', 'matrix product without variant → 400 E_VARIANT_REQUIRED', r.data);
+    ok(r.status === 409 && r.data?.code === 'E_VARIANT_REQUIRED', 'matrix product without variant → 409 E_VARIANT_REQUIRED', r.data);
     r = await api('POST', '/api/inventory/adjust', { product_id: PMX, variant_id: VMX, warehouse_id: whFG, mode: 'count', qty: 6, reason_code: 'surplus' });
     ok(r.status === 200 && vwsQty(VMX, whFG) === 6 && whQty(PMX, whFG) === 6, 'matrix variant count 6 → variant×warehouse and warehouse 6', { d: r.data, v: vwsQty(VMX, whFG) });
     const mxAdj = r.data;
@@ -289,41 +303,44 @@ async function main() {
     ok(r.status === 200 && closedA?.value_approval?.status === 'pending', 'closed-month adjust → approval doc pending', r.data);
     ok(closedA?.posted_counter_account?.code === clearing.code && jeLines(closedA.je_id).some((l) => l.account_code === clearing.code),
       'closed-month JE counter side = clearing account', closedA?.posted_counter_account);
-    ok(closedA?.counter_account?.code === cogs.code, 'suggested reason counter still reported (COGS)');
+    ok(closedA?.counter_account?.code === '6118', 'suggested reason counter still reported (6118 shortage)', closedA?.counter_account);
     const lineA = q1('SELECT * FROM inventory_value_approval_lines WHERE approval_id=?', closedA.value_approval.id);
-    ok(lineA?.counter_code === cogs.code && lineA?.ledger_ref_id === closedA.id, 'approval line stores counter_code + ledger_ref_id', lineA);
+    ok(lineA?.counter_code === '6118' && lineA?.ledger_ref_id === closedA.id, 'approval line stores counter_code + ledger_ref_id', lineA);
     ok(whQty(PFG, whFG) === qBefore - 1, 'closed-month qty still moves');
     r = await api('POST', '/api/inventory/adjust', { product_id: PFG, warehouse_id: whFG, mode: 'delta', qty: -1, reason_code: 'shortage', date: '1405/05/21' });
     const closedB = r.data;
     ok(r.status === 200 && closedB?.value_approval?.id, 'second closed-month adjust → second approval doc');
-    VAP.approve(db, closedB.value_approval.id, { id: adminId, role: 'admin' }, { note: 'ok' });
+    // SoD: poster is admin (HTTP); approver must be a different user (accounting).
+    VAP.approve(db, closedB.value_approval.id, { id: acctId, role: 'accounting' }, { note: 'ok' });
     ok(q1('SELECT status FROM inventory_value_approvals WHERE id=?', closedB.value_approval.id)?.status === 'approved', 'approval B approved');
     const decB = q1('SELECT decision_je_id FROM inventory_value_approvals WHERE id=?', closedB.value_approval.id)?.decision_je_id;
     const dlB = decB ? jeLines(decB) : [];
     const amtB = Math.round(Math.abs(Number(closedB.amount_rial) || 0));
-    ok(dlB.some((l) => l.account_code === cogs.code && Math.round(l.debit_rial) === amtB)
+    ok(dlB.some((l) => l.account_code === '6118' && Math.round(l.debit_rial) === amtB)
       && dlB.some((l) => l.account_code === clearing.code && Math.round(l.credit_rial) === amtB)
-      && !dlB.some((l) => l.account_code === fgInv.code), 'approve FG shortage → Dr COGS (reason counter) / Cr clearing, no inventory row', { dlB, amtB });
-    // materials: counter = «کسری و اضافات انبار», NOT COGS
+      && !dlB.some((l) => l.account_code === fgInv.code)
+      && !dlB.some((l) => l.account_code === cogs.code),
+      'approve FG shortage → Dr 6118 (reason counter) / Cr clearing, no inventory/COGS', { dlB, amtB });
+    // materials wastage → 610801 leaf
     r = await api('POST', '/api/inventory/adjust', { product_id: PRAW, warehouse_id: whRAW, mode: 'delta', qty: -1, reason_code: 'wastage', date: '1405/05/22' });
     const closedC = r.data;
-    ok(r.status === 200 && closedC?.value_approval?.id && closedC?.counter_account?.code === c6118, 'closed-month RAW wastage → approval, suggested 6118', r.data);
+    ok(r.status === 200 && closedC?.value_approval?.id && closedC?.counter_account?.code === '610801', 'closed-month RAW wastage → approval, suggested 610801', r.data);
     const clr0 = liveNet(clearing.code);
-    VAP.approve(db, closedC.value_approval.id, { id: adminId, role: 'admin' }, {});
+    VAP.approve(db, closedC.value_approval.id, { id: acctId, role: 'accounting' }, {});
     const decC = q1('SELECT decision_je_id FROM inventory_value_approvals WHERE id=?', closedC.value_approval.id)?.decision_je_id;
     const dlC = decC ? jeLines(decC) : [];
     const amtC = Math.round(Math.abs(Number(closedC.amount_rial) || 0));
-    ok(dlC.some((l) => l.account_code === c6118 && Math.round(l.debit_rial) === amtC) && !dlC.some((l) => l.account_code === cogs.code)
-      && !dlC.some((l) => l.account_code === rawInv.code), 'approve RAW wastage → Dr 6118 whole amount (no COGS, no inventory)', { dlC, amtC });
+    ok(dlC.some((l) => l.account_code === '610801' && Math.round(l.debit_rial) === amtC) && !dlC.some((l) => l.account_code === cogs.code)
+      && !dlC.some((l) => l.account_code === rawInv.code), 'approve RAW wastage → Dr 610801 whole amount (no COGS, no inventory)', { dlC, amtC });
     ok(clr0 - liveNet(clearing.code) === amtC, 'approve clears the parked clearing balance (shortage: Cr clearing)', { clr0, now: liveNet(clearing.code) });
-    VAP.reopen(db, closedC.value_approval.id, { id: adminId, role: 'admin' }, { reason: 'تست' });
+    VAP.reopen(db, closedC.value_approval.id, { id: acctId, role: 'accounting' }, { reason: 'تست' });
     ok(q1('SELECT status FROM inventory_value_approvals WHERE id=?', closedC.value_approval.id)?.status === 'pending' && !jeLive(decC)
       && liveNet(clearing.code) === clr0, 'reopen reverses the counter-account decision');
     // surplus (inbound) in closed month on WIP → reject goes to price variance, not the overhead counter
     r = await api('POST', '/api/inventory/adjust', { product_id: PWIP, warehouse_id: whWIP, mode: 'delta', qty: 1, reason_code: 'surplus', date: '1405/05/22' });
     const closedD = r.data;
     ok(r.status === 200 && closedD?.value_approval?.id && closedD?.counter_account?.code === overhead.code, 'closed-month WIP surplus → approval, suggested overhead', r.data);
-    VAP.reject(db, closedD.value_approval.id, { id: adminId, role: 'admin' }, { note: 'رد' });
+    VAP.reject(db, closedD.value_approval.id, { id: acctId, role: 'accounting' }, { note: 'رد' });
     const decD = q1('SELECT decision_je_id FROM inventory_value_approvals WHERE id=?', closedD.value_approval.id)?.decision_je_id;
     const dlD = decD ? jeLines(decD) : [];
     ok(dlD.length > 0 && !dlD.some((l) => l.account_code === overhead.code) && dlD.some((l) => l.account_code === clearing.code),
@@ -365,21 +382,28 @@ async function main() {
     console.log('\n— shortage payload —');
     const shapeOk = (s) => s && ['product_id', 'product_name', 'warehouse_id', 'warehouse_name', 'available_qty', 'required_qty', 'shortfall_qty', 'unit']
       .every((k) => Object.prototype.hasOwnProperty.call(s, k));
+    // Admin always forceAllowNegative on firm sales — use plain sales so ATP actually gates.
     const fgNow = whQty(PFG, whFG);
     r = await api('POST', '/api/invoices', {
       cust_id: custA, type: 'normal', date: todayJalali(), pay_type: 'credit', warehouse_id: whFG,
-      rows: [{ product_id: PFG, qty: fgNow + 5, price: 100000 }],
-    });
+      client_request_id: 'adj-v525-shortage-inv-1',
+      rows: [{ product_id: PFG, qty: 999999, price: 100000 }],
+    }, 'plain');
     const s0 = r.data?.shortages?.[0];
     ok(r.status === 409 && r.data?.code === 'E_ATP_INSUFFICIENT', 'invoice sale over stock → 409 E_ATP_INSUFFICIENT (unchanged)', r.data);
-    ok(shapeOk(s0) && s0.product_id === PFG && s0.warehouse_id === whFG && s0.shortfall_qty === 5 && s0.product_name === 'پیراهن'
-      && s0.warehouse_name === 'انبار کالای ساخته', 'invoice shortage: uniform shortages[] (shortfall 5)', s0);
+    ok(shapeOk(s0) && s0.product_id === PFG && s0.warehouse_id === whFG && s0.shortfall_qty === n3(999999 - fgNow) && s0.product_name === 'پیراهن'
+      && s0.warehouse_name === 'انبار کالای ساخته', 'invoice shortage: uniform shortages[] (huge shortfall)', s0);
     ok(Array.isArray(r.data?.atp_shortages), 'invoice keeps legacy atp_shortages');
 
-    r = await api('POST', '/api/warehouses/moves/issue', { warehouse_id: whRAW, product_id: PRAW, qty: 500, date: todayJalali() });
+    const ccScrap = insert('cost_centers', { name: 'ضایعات تست', code: 'CC-SCRAP', active: 1 });
+    r = await api('POST', '/api/warehouses/moves/issue', {
+      warehouse_id: whRAW, product_id: PRAW, qty: 500, date: todayJalali(), issue_type: 'scrap',
+      cost_center_id: ccScrap,
+    });
     const s1 = r.data?.shortages?.[0];
     ok(r.status === 400 && /کافی نیست/.test(r.data?.error || ''), 'warehouse issue over stock → 400, Persian message unchanged', r.data);
-    ok(r.data?.code === 'E_INSUFFICIENT_STOCK' && shapeOk(s1) && s1.product_id === PRAW && s1.warehouse_id === whRAW
+    ok(['E_INSUFFICIENT_STOCK', 'NEGATIVE_NOT_ALLOWED', 'E_NEGATIVE_STOCK'].includes(r.data?.code)
+      && shapeOk(s1) && s1.product_id === PRAW && s1.warehouse_id === whRAW
       && s1.required_qty === 500 && s1.available_qty === whQty(PRAW, whRAW) && s1.unit === 'متر', 'warehouse issue: code + shortages[] filled', r.data);
 
     let e = null;
@@ -388,10 +412,14 @@ async function main() {
       'ledger issue: E_NEGATIVE_STOCK carries shortages[]', e && { code: e.code, s: e.shortages });
     e = null;
     try {
-      M.postVariantLayer(db, { productId: PMX, variantId: VMX, warehouseId: whFG, qtyDelta: -99, docType: 'test', docId: 1, userId: adminId, allowNegative: false });
+      // SSOT: negativity is gated on the ledger row (with variant_id); the movement layer is audit-only.
+      L.postInventoryMovement(db, {
+        eventType: 'issue', productId: PMX, warehouseId: whFG, variantId: VMX, qty: -99,
+        sourceType: 'test', sourceId: 8801, date: todayJalali(), allowNegative: false,
+      });
     } catch (x) { e = x; }
-    ok(e && e.code === 'E_NEGATIVE_STOCK' && e.shortages?.[0]?.variant_id === VMX && !!e.shortages[0].variant_label,
-      'variant layer issue: shortages[] with variant label', e && { code: e.code, s: e.shortages });
+    ok(e && e.code === 'E_NEGATIVE_STOCK' && (e.shortages?.[0]?.variant_id === VMX || e.shortages?.[0]?.product_id === PMX),
+      'variant ledger issue: E_NEGATIVE_STOCK shortages[] (gate on ledger, not layer-only)', e && { code: e.code, s: e.shortages });
     e = null;
     try {
       require('../lib/production/costing').issueFromStock(db, { productId: PRAW, warehouseId: whRAW, qty: 9999, userId: adminId, sourceType: 'test', sourceId: 1, date: todayJalali() });

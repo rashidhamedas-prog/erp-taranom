@@ -17610,10 +17610,10 @@ function _kardexOpenSource(refType, refId){
 function kardexAdjustRowActions(l, productId){
   return kardexAdjustRowActionsBase(l, productId)+kardexVariantReclassRowBtn(l, productId);
 }
-/** ردیف زندهٔ بی‌واریانت (فقط ورود یا فقط خروج، با انبار) ← «🎨 تفکیک رنگ» روی همان ledger_id. فقط با دسترسی ابطال اصلاحی و روی سرور مرکزی. */
+/** ردیف زندهٔ بی‌واریانت ← «🎨 تفکیک رنگ». روی دستگاه هم دیده می‌شود ولی فقط پیام مرکزی می‌دهد (نه silent). */
 function kardexVariantReclassRowBtn(l, productId){
   try{
-    if(!l || typeof canVariantReclassMutate!=='function' || !canVariantReclassMutate()) return '';
+    if(!l || typeof canStockAdjustVoid!=='function' || !canStockAdjustVoid()) return '';
     if(l.variant_id || !l.warehouse_id || l.is_group || l.is_wip || l.warehouse_only) return '';
     if(['reversed','cancelled','canceled','void'].includes(String(l.status||'')) || l.reversal_of || l.reversed_by) return '';
     const qi=Number(l.qty_in)||0, qo=Number(l.qty_out)||0;
@@ -17734,7 +17734,7 @@ async function loadItemKardex(productId){
           <button class="btn sm purple" data-csp-click="${CSP.bind('click',function(){openStockAdjustModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">⚖️ تعدیل موجودی</button>
           <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){openStockAdjustRecent({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🧾 تعدیل‌ها</button>
         </span>`:''}
-        ${typeof canVariantReclassMutate==='function'&&canVariantReclassMutate()?`<button class="btn sm ghost" title="اصلاح تفکیک رنگ و سایز این کالا (ردیف‌های بی‌واریانت) — فقط سرور مرکزی" data-csp-click="${CSP.bind('click',function(){openVariantReclassModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🎨 تفکیک رنگ</button>`:''}
+        ${typeof canStockAdjustVoid==='function'&&canStockAdjustVoid()?`<button class="btn sm ghost" title="اصلاح تفکیک رنگ و سایز این کالا (ردیف‌های بی‌واریانت) — فقط سرور مرکزی" data-csp-click="${CSP.bind('click',function(){openVariantReclassModal({product_id:productId, warehouse_id:_kardexState.warehouse_id||null, onDone:()=>loadItemKardex(productId)})})}">🎨 تفکیک رنگ</button>`:''}
         ${typeof canStockAdjustVoid==='function'&&canStockAdjustVoid()?`<button class="btn sm ghost" title="همهٔ ردیف‌های «برگشت از فروش» که بدون انبار ثبت شده‌اند" data-csp-click="${CSP.bind('click',function(){openLedgerAssignWarehouse(null, { onDone:()=>loadItemKardex(productId) })})}">📦 برگشت‌های بی‌انبار</button>`:''}
       </div>
       <div class="kardex-print-head">
@@ -25945,7 +25945,7 @@ async function openStockAdjustModal(opts){
         <div class="fg full"><label>کالا *</label><input id="sadj-prod" list="sadj-products" placeholder="کد یا نام کالا" value="${p0?esc(pLabel(p0)):''}"></div>
         <div class="fg"><label>انبار</label><select id="sadj-wh"><option value="">— کل کالا (بدون انبار) —</option>${whs.map(w=>`<option value="${w.id}" ${String(opts.warehouse_id||'')===String(w.id)?'selected':''}>${esc(w.name)}</option>`).join('')}</select></div>
         <div class="fg" id="sadj-var-wrap" data-csp-style="${CSP.style('display:none')}"><label>رنگ / سایز *</label><select id="sadj-var"><option value="">—</option></select></div>
-        <div class="fg"><label>موجودی فعلی</label><div id="sadj-cur" class="mono" data-csp-style="${CSP.style(`padding:8px 0;font-weight:700`)}">—</div></div>
+        <div class="fg"><label id="sadj-cur-lbl">موجودی این رنگ در این انبار</label><div id="sadj-cur" class="mono" data-csp-style="${CSP.style(`padding:8px 0;font-weight:700`)}">—</div></div>
         <div class="fg full"><label>نوع تعدیل</label>
           <div data-csp-style="${CSP.style(`display:flex;gap:6px;flex-wrap:wrap`)}">
             <button type="button" class="btn sm ${mode==='count'?'':'ghost'}" id="sadj-m-count" data-csp-click="${CSP.bind('click',function(){sadjSetMode('count')})}">🔢 تعداد شمارش‌شده</button>
@@ -25993,22 +25993,34 @@ async function openStockAdjustModal(opts){
   }
   function renderPlan(pl){
     const box=el('sadj-preview'); if(!box) return;
-    if(el('sadj-cur')) el('sadj-cur').textContent=fmtQtyFa(pl.current_qty)+' '+(pl.unit||'');
+    const usable=pl.current_qty_usable!==false && pl.current_qty!=null;
+    if(el('sadj-cur-lbl')) el('sadj-cur-lbl').textContent=pl.matrix?'موجودی این رنگ در این انبار':'موجودی فعلی';
+    if(el('sadj-cur')){
+      el('sadj-cur').textContent=usable?(fmtQtyFa(pl.current_qty)+' '+(pl.unit||'')):(pl.matrix?'— رنگ را انتخاب کنید —':'—');
+    }
     const varWrap=el('sadj-var-wrap');
     if(varWrap){ varWrap.style.display=pl.matrix?'':'none'; if(pl.matrix) loadVariants(pl.product_id, pl.warehouse_id); }
     const costWrap=el('sadj-cost-wrap');
     if(costWrap){
-      costWrap.style.display=(pl.delta_qty>0 && pl.can_override_cost)?'':'none';
+      costWrap.style.display=(usable && pl.delta_qty>0 && pl.can_override_cost)?'':'none';
       if(el('sadj-cost')) el('sadj-cost').placeholder=fmt(pl.live_rate_rial||0)+' (میانگین)';
     }
-    const d=Number(pl.delta_qty)||0;
+    const d=usable?(Number(pl.delta_qty)||0):0;
     const v=Number(pl.value_rial)||0;
+    const layers=!usable?'':`<div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">این رنگ×انبار: <b class="mono">${fmtQtyFa(pl.variant_qty!=null?pl.variant_qty:pl.current_qty)}</b>
+      · کل انبار: <b class="mono">${pl.warehouse_qty==null?'—':fmtQtyFa(pl.warehouse_qty)}</b>
+      · بدون رنگ: <b class="mono">${fmtQtyFa(pl.unallocated_net||0)}</b></div>`;
+    const ctr=pl.counter_account&&pl.counter_account.code
+      ?`<b>${esc(pl.counter_account.code)} ${esc(pl.counter_account.name||'')}</b>`
+      :`<b data-csp-style="${CSP.style(`color:#b45309`)}">دلیل را انتخاب کنید</b>`;
     box.innerHTML=`
-      <div>موجودی: <b class="mono">${fmtQtyFa(pl.current_qty)}</b> ← <b class="mono">${fmtQtyFa(pl.new_qty)}</b>
-        (<b class="mono" data-csp-style="${CSP.style(`color:${d<0?'var(--red)':'var(--green)'}`)}">${d>0?'+':''}${fmtQtyFa(d)}</b> ${esc(pl.unit||'')})</div>
-      ${d?`<div>بهای واحد: <b class="mono">${fmt(pl.unit_cost_rial||0)}</b> ریال · اثر ریالی: <b class="mono">${fmt(Math.abs(v))}</b> ریال ${v<0?'(کاهش موجودی)':'(افزایش موجودی)'}</div>`:''}
+      ${usable?`<div>موجودی: <b class="mono">${fmtQtyFa(pl.current_qty)}</b> ← <b class="mono">${fmtQtyFa(pl.new_qty)}</b>
+        (<b class="mono" data-csp-style="${CSP.style(`color:${d<0?'var(--red)':'var(--green)'}`)}">${d>0?'+':''}${fmtQtyFa(d)}</b> ${esc(pl.unit||'')})</div>`
+        :`<div data-csp-style="${CSP.style(`color:#b45309`)}">⚠ برای کالای رنگ×سایز تا رنگ/سایز انتخاب نشود موجودی فعلی و پیش‌نمایش معتبر نیست (جمع انبار به‌عنوان موجودی فعلی نشان داده نمی‌شود).</div>`}
+      ${layers}
+      ${usable&&d?`<div>بهای واحد: <b class="mono">${fmt(pl.unit_cost_rial||0)}</b> ریال · اثر ریالی: <b class="mono">${fmt(Math.abs(v))}</b> ریال ${v<0?'(کاهش موجودی)':'(افزایش موجودی)'}</div>`:''}
       <div>حساب موجودی: <b>${esc(pl.inventory_account?.code||'')} ${esc(pl.inventory_account?.name||'')}</b></div>
-      <div>حساب مقابل: <b>${esc(pl.counter_account?.code||'')} ${esc(pl.counter_account?.name||'')}</b>
+      <div>حساب مقابل: ${ctr}
         <span class="muted">· مرحله: ${esc(SADJ_STAGE_FA[pl.stage]||pl.stage||'—')}</span></div>
       ${pl.period_locked?`<div class="oh-warn" data-csp-style="${CSP.style(`margin-top:6px`)}">🔒 ماه بسته است؛ اثر ریالی برای تأیید می‌رود (تا تأیید، طرف مقابل سند در «تعدیل بهای در انتظار تأیید» می‌ماند).</div>`:''}
       ${(pl.warnings||[]).filter(w=>!/^ماه بسته است/.test(w)).map(w=>`<div data-csp-style="${CSP.style(`color:#b45309`)}">⚠ ${esc(w)}</div>`).join('')}`;
@@ -26046,7 +26058,11 @@ async function openStockAdjustModal(opts){
     if(!b.product_id){ showToast('کالا را از فهرست انتخاب کنید','error'); return; }
     if(b.qty===''||b.qty==null||!Number.isFinite(Number(b.qty))){ showToast('تعداد را وارد کنید','error'); return; }
     if(!b.reason_code){ showToast('دلیل تعدیل الزامی است','error'); el('sadj-reason')?.focus(); return; }
+    if(st.plan && st.plan.matrix && !b.warehouse_id){ showToast('برای کالای رنگ×سایز، انبار را انتخاب کنید','error'); return; }
     if(st.plan && st.plan.matrix && !b.variant_id){ showToast('رنگ / سایز را انتخاب کنید','error'); return; }
+    if(st.plan && st.plan.matrix && Math.abs(Number(st.plan.unallocated_net)||0)>1e-9){
+      showToast('ابتدا موجودی بدون رنگ این انبار را با «تفکیک رنگ» یا «ابطال اصلاحی» اصلاح کنید','error'); return;
+    }
     const btn=el('sadj-save'); if(btn) btn.disabled=true;
     try{
       const r=await api('POST','/inventory/adjust',b,false,true);
@@ -26354,8 +26370,13 @@ function vrcRenderBody(){
     </tbody></table></div>`;
   let banner='';
   if(!net && sel){
+    const vwsAlready=Math.abs(Number(D.variant_total)||0)>VRC_EPS;
+    const unalEqIn=sel.direction==='in' && D.unallocated_net!=null && Math.abs(Number(D.unallocated_net)-Number(sel.qty))<=VRC_EPS;
+    const dropHint=unalEqIn && vwsAlready
+      ?`<br><b data-csp-style="${CSP.style(`color:var(--red)`)}">⚠ لایهٔ رنگ×سایز این انبار از قبل موجودی دارد. تفکیک این ورود، موجودی رنگ‌ها را بیشتر می‌کند. اگر هدف هم‌تراز کردن موجودی انبار با رنگ‌هاست، به‌جای تفکیک از «↩ ابطال اصلاحی با اثر موجودی» روی همین ردیف استفاده کنید.</b>`
+      :'';
     banner=`<div class="oh-warn" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">⚠ ردیف انتخاب‌شده <b>${vrcQ(sel.qty)} ${unit}</b> (${vrcDirFa(sel.direction)}) است. <b>جمع تعداد رنگ/سایزها باید دقیقاً ${vrcQ(sel.qty)} شود</b>
-      ${Math.abs(sel.qty-unal)>VRC_EPS?`— نه ماندهٔ خالص ${vrcQ(unal)}؛ تفکیک روی کل همین ردیف است.`:'.'}</div>`;
+      ${Math.abs(sel.qty-unal)>VRC_EPS?`— نه ماندهٔ خالص ${vrcQ(unal)}؛ تفکیک روی کل همین ردیف است.`:'.'}${dropHint}</div>`;
   }else if(!net){
     banner=`<div class="muted" data-csp-style="${CSP.style(`line-height:1.9;margin:8px 0`)}">یک ردیف را انتخاب کنید؛ تفکیک روی <b>کل تعداد همان ردیف</b> انجام می‌شود.</div>`;
   }else if(D.net_blocked){
@@ -43760,18 +43781,18 @@ function renderAdminGuide(){
         <li><b>انبار الزامی:</b> از این نسخه برگشت از فروش بدون فاکتور بدون انتخاب «انبار مقصد برگشت» ثبت نمی‌شود (خطای <span dir="ltr">E_SR_WH_REQUIRED</span>). روی فاکتور، اگر انبار انتخاب نشود از سطر/سر فاکتور یا کاردکس فروش همان فاکتور برداشته می‌شود؛ انبار پیش‌فرض کالا هرگز حدس زده نمی‌شود. انبار سند ذخیره می‌شود و در ویرایش پیش‌فرض است؛ ویرایش دیگر انبار یا رنگ×سایز را نمی‌اندازد.</li>
         <li>API: <span dir="ltr">GET /api/inventory/ledger/assign-warehouse-preview[?ids=1,2]</span> و <span dir="ltr">POST /api/inventory/ledger/assign-warehouse</span> با بدنهٔ <span dir="ltr">{"ids":[…], "warehouse_id"?, "overrides"?:{"id":wh}, "confirm":true, "reason":"…", "force"?, "date"?}</span>؛ تک‌ردیفی: <span dir="ltr">…/ledger/:id/assign-warehouse(-preview)</span>.</li>
       </ul>`),
-    helpSec('↩','ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی کاردکس + گزارش اختلاف موجودی انبار با کاردکس (v638)',`
+    helpSec('↩','ابطال اصلاحی ردیف افتتاحیه/هم‌ترازی کاردکس + گزارش اختلاف موجودی انبار با کاردکس (v639)',`
       <p>ردیف‌های کاردکس که <b>سند مبدأ ندارند</b> — «موجودی اول دوره» قدیمی (opening_inventory)، «هم‌ترازی کاردکس» (stock_reconcile) و ردیف‌های opening — از ابطال عادی رد می‌شوند. برای آن‌ها در کاردکس کالا کنار ردیف دکمهٔ <b>«↩ ابطال اصلاحی»</b> هست (فقط مدیر یا دارندهٔ دسترسی «عملیات انبار — حذف»).</p>
       <ul>
         <li>اول <b>پیش‌نمایش فقط‌خواندنی</b> نشان داده می‌شود: کاردکس (تعداد و ارزش) و موجودی انبار، قبل و بعد.</li>
         <li>باید <b>اثر موجودی</b> را صریح انتخاب کنید: «با اثر موجودی» (موجودی انبار و کالا هم به همان اندازه برمی‌گردد). گیت منفی فقط وقتی ابطال <b>کمبود را می‌سازد یا بدتر می‌کند</b> (ابطال ورود و موجودی بعد از ابطال &lt; ۰) رد می‌کند؛ ابطال خروج که موجودی را بالا می‌برد حتی اگر بعد همچنان منفی باشد مجاز است. «فقط کاردکس» در UI غیرفعال است و سرور با SSOT آن را ۴۰۹ می‌کند.</li>
         <li>اگر انبار <span dir="ltr">allow_negative=1</span> یا تنظیم سراسری <span dir="ltr">inventory_allow_negative=1</span> باشد، ابطال کاهندهٔ موجودی هم می‌تواند منفی شود (هم‌سو با فروش در آن انبار).</li>
         <li><b>علت (حداقل ۵ نویسه)</b> و <b>تأیید نهایی</b> الزامی است. ردیف اصلی «ابطال‌شده» و یک ردیف معکوس ثبت می‌شود؛ هیچ ردیفی حذف یا ویرایش نمی‌شود. ابطال دوباره یا ابطال ردیف معکوس رد می‌شود. علت و اثر موجودی در گزارش ممیزی ثبت می‌شود.</li>
-        <li>اگر ردیف سند حسابداری داشته باشد، <b>سندی ثبت نمی‌شود</b>؛ فقط یک <b>پیش‌نویس سند برگشت</b> (با شمارهٔ ردیف کاردکس در شرح) ساخته می‌شود تا حسابداری بررسی و ثبت کند. اگر چند ردیف هم‌ترازی به یک JE وصل باشند، برای همان JE فقط <b>یک</b> پیش‌نویس زنده ساخته می‌شود.</li>
+        <li>اگر ردیف سند حسابداری داشته باشد، <b>سندی ثبت نمی‌شود</b>؛ فقط یک <b>پیش‌نویس سند برگشت</b> (با شمارهٔ ردیف کاردکس و نام حساب‌های سند در هشدار) ساخته می‌شود تا حسابداری بررسی و ثبت کند — پیش‌نویس را کورکورانه ثبت نکنید. اگر چند ردیف هم‌ترازی به یک JE وصل باشند، برای همان JE فقط <b>یک</b> پیش‌نویس زنده ساخته می‌شود.</li>
         <li>ردیف‌های دارای سند (فاکتور، خرید، تولید، سند انبار، انتقال) فقط از ابطال سند مبدأ برمی‌گردند؛ تعدیل دستی از دکمهٔ ⛔ همان تعدیل.</li>
         <li><b>گزارش اختلاف:</b> <span dir="ltr">GET /api/inventory/stock-kardex-mismatch?product_id=&amp;warehouse_id=</span> (مدیر/حسابداری) کالا×انبارهایی را نشان می‌دهد که موجودی انبار با ماندهٔ کاردکس برابر نیست (هر دو عدد، اختلاف و ارزش کاردکس). فقط‌خواندنی؛ هیچ اصلاح خودکاری ندارد.</li>
         <li>API: <span dir="ltr">POST /api/inventory/ledger/:id/reverse-correction</span> با بدنهٔ <span dir="ltr">{"confirm": true, "reason": "…", "stock_effect": "with_stock" | "kardex_only"}</span>؛ پیش‌نمایش <span dir="ltr">GET …/reverse-correction-preview</span>.</li>
-        <li>کالای رنگ×سایز: اگر ردیف کاردکس واریانت ندارد، «با اثر موجودی» فقط با توزیع واریانت پذیرفته می‌شود (<span dir="ltr">variant_breakdown: [{variant_id, qty}]</span>، جمع = تعداد ردیف، بدون منفی‌شدن لایهٔ رنگ‌سایز)؛ وگرنه ۴۰۹.</li>
+        <li><b>کالای رنگ×سایز بدون واریانت روی ردیف (v639):</b> «با اثر موجودی» <b>بدون</b> جدول توزیع واریانت مجاز است — فقط موجودی انبار/کالا برمی‌گردد و لایهٔ رنگ (VWS) دست نمی‌خورد (مناسب وقتی رنگ‌ها از قبل درست‌اند و افتتاحیهٔ بی‌واریانت موجودی انبار را باد کرده). برای تقسیم ردیف به رنگ‌ها از «🎨 تفکیک رنگ» استفاده کنید؛ ارسال <span dir="ltr">variant_breakdown</span> در این مسیر ۴۰۹ می‌شود.</li>
       </ul>`),
     helpSec('✂️','FR-P334-B: ردیف ۱۲۷۳ از پیش‌نویس تعدیل بی‌سند حذف شد + گزارش‌های تولید بدون سند پیش‌نویس (v606)',`
       <p>طبق تصمیم مدیر، ردیف کاردکس <b>۱۲۷۳</b> (کالای ۳۳۴، انبار ۳۴، ۶۶٬۶۷۹٬۹۴۲ ریال، «بررسی WIP») با <b>برگشت رسمی کاردکس</b> (FR-P334-A) حل می‌شود، نه با پیش‌نویس سند. هیچ سندی خودکار ثبت نمی‌شود.</p>
@@ -44496,17 +44517,16 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>از دست رفته</b> فقط با دلیل باخت</li>
       </ul>
       <div class="tip">کشیدن کارت کانبان پس از تأیید در سرور ذخیره می‌شود. داشبورد CRM همان مراحل را با مبلغ و مبلغ موزون ریال نشان می‌دهد.</div>`),
-    helpSec('⚖️','تعدیل موجودی (کسری/اضافی) — v525',`
+    helpSec('⚖️','تعدیل موجودی (کسری/اضافی) — v639',`
       <ul>
         <li><b>در لحظهٔ خطا:</b> هر جا (فاکتور فروش، حوالهٔ انبار، حوالهٔ مواد، تبدیل پیش‌فاکتور، …) پیام «موجودی کافی نیست» بیاید، برای کاربر مجاز پنجره‌ای با جدول کالا/انبار/موجود/نیاز/کسری باز می‌شود. دکمهٔ «⚖️ تعدیل موجودی» هر ردیف فرم تعدیل را با «کم و زیاد» به اندازهٔ کسری و دلیل «اصلاح شمارش» پر می‌کند. <b>تکرار خودکار:</b> وقتی همهٔ ردیف‌های کسری تعدیل شد، همان عملیات قبلی (همان دکمه یا همان درخواست) خودکار <b>فقط یک بار</b> دوباره اجرا می‌شود؛ موفق ← پیام موفقیت، کسری دوباره ← همین پنجره با فهرست تازه (حلقه ندارد). «🔁 تکرار عملیات» فقط وقتی دیده می‌شود که بخشی از ردیف‌ها تعدیل شده یا تکرار خودکار ممکن نبوده. فرم/سند اصلی بسته نمی‌شود. کاربر بدون دسترسی همان جدول کسری را می‌بیند با پیام «برای تعدیل موجودی دسترسی لازم است» و بدون دکمهٔ تعدیل.</li>
         <li><b>دکمهٔ مستقل:</b> «⚖️ تعدیل موجودی» و «🧾 تعدیل‌های اخیر» در «عملیات انبار»، بالای کاردکس کالا (و ⚖️ کنار هر ردیف کاردکس) و در «ریالی و تعدیل بهای موجودی».</li>
-        <li><b>فرم:</b> کالا، انبار، رنگ/سایز (برای کالای ماتریسی الزامی)، نوع «🔢 تعداد شمارش‌شده» (سیستم اختلاف را حساب می‌کند) یا «± کم و زیاد»، <b>دلیل (الزامی)</b>، تاریخ شمسی و توضیح. پیش‌نمایش زنده: موجودی فعلی ← جدید، بهای واحد، اثر ریالی، حساب موجودی، حساب مقابل و مرحله — پیش‌نمایش هیچ چیزی ثبت نمی‌کند و در صف همگام‌سازی دستگاه نمی‌رود.</li>
-        <li><b>حساب مقابل:</b> دلیلی که در «مبنای ریالی ← حساب مقابل تعدیل دستی» حساب اختصاصی دارد همان حساب؛ وگرنه بر اساس مرحله: مواد ← «کسری و اضافات انبار» (۶۱۱۸)، کالای در جریان ساخت ← سربار، کالای ساخته‌شده/بازرگانی ← بهای تمام‌شده.</li>
+        <li><b>فرم (v639):</b> کالا، انبار، رنگ/سایز (برای کالای ماتریسی هر دو الزامی)، نوع «🔢 تعداد شمارش‌شده» یا «± کم و زیاد»، <b>دلیل (الزامی)</b>، تاریخ و توضیح. برچسب موجودی: «موجودی این رنگ در این انبار». تا رنگ انتخاب نشود جمع انبار به‌عنوان موجودی فعلی نشان داده نمی‌شود. اگر در همان انبار موجودی بدون رنگ مانده باشد، پیش‌نمایش هشدار می‌دهد و ثبت با ۴۰۹ (<span dir="ltr">E_ADJUST_UNATTRIBUTED_EXISTS</span>) رد می‌شود — اول «تفکیک رنگ» یا «ابطال اصلاحی با اثر موجودی». هر ثبت فقط یک انبار × یک رنگ.</li>
+        <li><b>حساب مقابل (هر دو حالت یکسان):</b> اضافی / اصلاح شمارشِ افزایشی ← <b>۴۲۰۵ اضافی انبارگردانی</b>؛ کسری / اصلاح شمارشِ کاهشی / سایر ← <b>۶۱۱۸ کسری و اضافات انبار</b>؛ ضایعات/خرابی ← <b>۶۱۰۸۰۱ خالص کسری انبار</b> (نه والد ۶۱۰۸). هرگز ۵۱۰۱ (بهای تمام‌شده) و هرگز ۹۹۹۹. بدون دلیل، پیش‌نمایش حساب مقابل نشان نمی‌دهد. نگاشت اختیاری دلیل در تنظیمات فقط اگر برگ فعال گروه ۴/۵/۶ باشد؛ وگرنه ۴۰۹.</li>
         <li><b>بها:</b> کسری با نرخ زندهٔ خروجی خارج می‌شود. اضافی پیش‌فرض با بهای میانگین وارد می‌شود؛ تغییر بهای واحد اضافی فقط با دسترسی «ارزش‌گذاری موجودی — ایجاد».</li>
-        <li><b>ماه بسته:</b> تعداد عادی ثبت می‌شود ولی طرف مقابل سند به «تعدیل بهای در انتظار تأیید» می‌رود و یک سند در «تأیید تغییر بها» ساخته می‌شود. <b>تأیید ← همان حساب مقابل دلیل/مرحله</b> (مثلاً «کسری و اضافات انبار» ۶۱۱۸ برای مواد) برای کل مبلغ — نه بهای تمام‌شده؛ رد ← انحراف بها؛ ابطال تصمیم همه را برمی‌گرداند.</li>
-        <li><b>دسترسی (سرور هم کنترل می‌کند):</b> ثبت، پیش‌نمایش و فهرست تعدیل‌ها ← مدیر یا «عملیات انبار — ایجاد»؛ ابطال تعدیل ← «عملیات انبار — حذف». نقش حسابدار این دو را به‌طور پیش‌فرض دارد؛ انباردار/فروش بدون این دسترسی خطای ۴۰۳ می‌گیرد و دکمه‌ها را نمی‌بیند. از «مدیریت کاربران ← دسترسی‌ها» قابل اعطا/سلب است.</li>
-        <li><b>برگشت از خرید در ماه بسته:</b> تعداد عادی کم می‌شود ولی با نرخ میانگین استخر خارج می‌شود تا میانگین تغییر نکند؛ مابه‌التفاوت با بهای سند، برای هر برگشت یک سند «تأیید تغییر بها (قفل دوره)» می‌سازد. ابطال برگشت، آن سند را هم لغو می‌کند. انتقال پورتال تولید بین دو استخر در ماه بسته هم برای هر پارامتر یک سند تأیید می‌سازد.</li>
-        <li><b>ابطال (R13):</b> از «🧾 تعدیل‌های اخیر» یا ⛔ کنار ردیف کاردکس — موجودی (و رنگ/سایز)، سند حسابداری و سند تأیید ماه بسته با هم برمی‌گردند؛ حذف فیزیکی ندارد.</li>
+        <li><b>ماه بسته:</b> تعداد عادی ثبت می‌شود ولی طرف مقابل سند به «تعدیل بهای در انتظار تأیید» می‌رود و یک سند در «تأیید تغییر بها» ساخته می‌شود. تأیید ← همان حساب مقابل دلیل؛ رد ← انحراف بها.</li>
+        <li><b>دسترسی:</b> ثبت/پیش‌نمایش/فهرست ← مدیر یا «عملیات انبار — ایجاد»؛ ابطال ← «عملیات انبار — حذف».</li>
+        <li><b>ابطال (R13):</b> از «🧾 تعدیل‌های اخیر» یا ⛔ کنار ردیف کاردکس — موجودی (و رنگ/سایز)، سند حسابداری همان تعدیل، لایه‌های بهای بازشده توسط همان ورود، و سطل ارزش‌گذاری با هم برمی‌گردند؛ حذف فیزیکی ندارد.</li>
       </ul>`),
     helpSec('🛍️','محصولات و موجودی',`
       <p>صفحه <b>محصولات در ERP فقط برای مشاهده و فیلتر</b> است. افزودن، ویرایش، حذف و دسته‌بندی فقط از <b>ماژول حسابداری → کالاها</b> انجام می‌شود.</p>
@@ -45193,8 +45213,8 @@ function renderSalesGuide(){
     helpSec('🏭','موجودی ردیف فاکتور بر اساس انبار همان ردیف',`
       <p>هشدار کمبود و برچسب «موجودی این انبار» برای هر ردیف فاکتور/پیش‌فاکتور از <b>انبار همان ردیف</b> خوانده می‌شود، نه فقط انبار سربرگ. با عوض کردن انبار ردیف، موجودی و هشدار فوراً به‌روز می‌شود. در فهرست کالا فقط رزرو ردیف‌هایی که انبارشان با سربرگ یکی است از موجودی کم می‌شود تا عدد منفی ساختگی دیده نشود.</p>
       <p><b>نشان‌ها (v630):</b> «⚠ ناهمخوان با کاردکس» مثل قبل فقط هشدار است. «ℹ» کنار عدد یعنی رنگ/سایز سند حرکت کامل ندارد — فقط اطلاعاتی است و فروش را نمی‌بندد. برچسب <b>«ناهمخوانی لایهٔ رنگ/سایز»</b> یعنی کالا در این انبار موجودی دارد ولی هیچ رنگ/سایزی موجودی ندارد: اگر انبار اجازهٔ موجودی منفی نداشته باشد (⛔ قرمز) ردیف تا اصلاح تفکیک در صفحهٔ «اصلاح تفکیک رنگ و سایز» (انبار ← عملیات) قابل فروش نیست؛ اگر اجازه داشته باشد (⚠ نارنجی) فقط هشدار است و فاکتور ثبت می‌شود — باز هم به انباردار اطلاع دهید.</p>`),
-    helpSec('⚖️','موجودی کافی نیست',`
-      <p>اگر هنگام ثبت فاکتور پیام «موجودی کافی نیست» آمد، پنجره‌ای با جدول کالا، انبار، موجود، نیاز و کسری باز می‌شود. اگر دسترسی «عملیات انبار — ایجاد» دارید (مدیر و حسابدار به‌طور پیش‌فرض)، دکمهٔ «⚖️ تعدیل موجودی» کنار هر ردیف فرم تعدیل را با همان کسری باز می‌کند (دلیل الزامی)؛ وقتی همهٔ ردیف‌ها تعدیل شد، همان فاکتور خودکار یک بار دوباره فرستاده می‌شود. اگر پیام «برای تعدیل موجودی دسترسی لازم است» را دیدید، تعداد را کم کنید یا از انباردار/حسابدار دارای دسترسی بخواهید موجودی را شمارش و تعدیل کند.</p>`),
+    helpSec('⚖️','موجودی کافی نیست (v639)',`
+      <p>اگر هنگام ثبت فاکتور پیام «موجودی کافی نیست» آمد، پنجره‌ای با جدول کالا، انبار، موجود، نیاز و کسری باز می‌شود. اگر دسترسی «عملیات انبار — ایجاد» دارید (مدیر و حسابدار به‌طور پیش‌فرض)، دکمهٔ «⚖️ تعدیل موجودی» کنار هر ردیف فرم تعدیل را با همان کسری باز می‌کند (دلیل الزامی؛ برای کالای رنگ×سایز، رنگ/سایز و انبار هم لازم است و تا موجودی بدون‌رنگ آن انبار صفر نشود ثبت نمی‌شود)؛ وقتی همهٔ ردیف‌ها تعدیل شد، همان فاکتور خودکار یک بار دوباره فرستاده می‌شود. اگر پیام «برای تعدیل موجودی دسترسی لازم است» را دیدید، تعداد را کم کنید یا از انباردار/حسابدار دارای دسترسی بخواهید موجودی را شمارش و تعدیل کند.</p>`),
     helpSec('📏','واحد روی فاکتور',`
       <p>واحد هر ردیف فاکتور همان واحد کالاست. عدد و جفت و ست را نمی‌شود خرد کرد. متر و یارد و کیلو اعشار دارند و در کاردکس، فهرست کالا و گزارش انبار تا ۳ رقم دیده می‌شوند؛ مبلغ ریال صحیح می‌ماند. اگر واحد کالا اشتباه است، از مدیر بخواهید در فرم کالا آن را از فهرست واحدها عوض کند؛ خود فاکتور واحد جدا نمی‌سازد.</p>`),
     helpSec('✂️','ضایعات لایه‌چینی',`

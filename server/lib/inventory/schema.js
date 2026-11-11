@@ -223,6 +223,8 @@ function seedAccounts(db) {
   if (!tableExists(db, 'chart_of_accounts')) return;
   const accounts = [
     { code: '6108', name: 'کسری و ضایعات انبار', type: 'expense', parent_code: '6100' },
+    { code: '610801', name: 'خالص کسری انبار', type: 'expense', parent_code: '6108' },
+    { code: '6118', name: 'کسری و اضافات انبار', type: 'expense', parent_code: '6000' },
     { code: '4205', name: 'اضافی انبارگردانی', type: 'income', parent_code: '4200' },
     { code: '1115', name: 'موجودی در راه (حمل)', type: 'asset', parent_code: '1100' },
   ];

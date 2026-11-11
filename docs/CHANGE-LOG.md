@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۸/۲۰ — fix: تعدیل موجودی count/delta + ابطال افتتاحیهٔ بی‌واریانت + حساب مقابل ۴۲۰۵/۶۱۱۸/۶۱۰۸۰۱ (SW v639)
+- **شاخه:** `fix/stock-adjust-fix` از `origin/main@25bc125d` (پس از void-stock-effect v638). منبع: `taranom-cursor-stock-adjust-fix.md`.
+- **Deploy:** ⏳ عمداً متوقف تا عبارت دقیق `GO deploy stock-adjust-fix` — بدون pm2 / بدون write روی `crm.db` / بدون اسکریپت repair داده.
+- **باگ‌ها:** (۱) count و delta روی کالای ماتریسی با رنگ خالی جمع انبار را «موجودی فعلی» می‌گرفتند و پس از انتخاب رنگ، VWS را درست و kardex را باد می‌کردند وقتی افتتاحیهٔ بی‌واریانت زنده بود؛ (۲) ابطال اصلاحی ردیف `opening_inventory` بدون `variant_id` به‌خاطر `matrix && !variantId` قفل `with_stock` می‌ماند؛ (۳) پیش‌نمایش بدون دلیل حساب ۹۹۹۹ نشان می‌داد و ضایعات به ۵۱۰۱/۶۱۰۸ والد می‌رفت؛ (۴) ابطال تعدیل لایه‌های بها را نمی‌بست.
+- **فیکس:**
+  - `manual-adjust.js`: ماتریس ⇒ انبار+واریانت اجباری (preview/POST)؛ `unallocated_net≠0` ⇒ ۴۰۹ `E_ADJUST_UNATTRIBUTED_EXISTS`؛ count/delta برای همان Δ یکسان؛ بدون دلیل پیش‌نمایش بدون counter (نه ۹۹۹۹)؛ void ⇒ بستن cost layers + `rebuildBuckets`.
+  - `ledger-reverse-correction.js`: `with_stock` برای ردیف بی‌واریانت ماتریسی مجاز؛ `variant_breakdown` ⇒ ۴۰۹ (مسیر درست = VR).
+  - `value-accounts.js` + seed `schema.js`: surplus/count+ ⇒ ۴۲۰۵؛ shortage/count−/other ⇒ ۶۱۱۸؛ wastage/damage ⇒ برگ ۶۱۰۸۰۱؛ گارد leaf روی نگاشت تنظیمات.
+  - `app.js`: فرم تعدیل برچسب «موجودی این رنگ در این انبار»؛ هشدار unattr؛ toast دستگاه برای «تفکیک رنگ»؛ هشدار VR وقتی VWS از قبل با شمارش یکی است؛ Help ادمین/فروش v639.
+- **SW:** `erp-taranom-v639`؛ `index.html` `app.js?v=639`.
+- **تست Node 20.19.5:** `test-stock-adjust-fix` ۱۵۹/۰؛ `test-stock-adjust-v525` ۱۱۴/۰؛ `test-p334-ledger-reverse-correction` ۶۵/۰؛ `test-void-stock-effect-already-negative` ۲۰/۰؛ `test-variant-reclass` ۶۷/۰؛ `test-sms` ۲۲/۰؛ `new Function(app.js)` OK. محصول ۳۴۲/۷۲۱۷ دست‌نخورده.
+- **فایل‌ها:** `lib/inventory/{ledger-reverse-correction,manual-adjust,value-accounts,schema}.js`، `public/{app.js,sw.js,index.html}`، `scripts/{test-stock-adjust-fix,test-stock-adjust-v525,test-p334-ledger-reverse-correction}.js`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۲۰ — fix: ابطال اصلاحی OUT وقتی انبار از قبل منفی است دیگر «با اثر موجودی» را قفل نمی‌کند (SW v638)
 - **شاخه:** fix/void-stock-effect tip (rebase روی origin/main پس از product-image-delete v637 hotfix). منبع: taranom-cursor-void-stock-effect.md.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۰ — overlay اول با tip 313de3ec / LRC=223956a9… (بکاپ crm.db.20261111-192242-void-stock-v637؛ stamp .sftp-deploy-stamp-void-stock-effect-fix-v637؛ snapshot JE 805 / 186946878880 / ledger max 4577 / p342=342|7217|0 / p122 WH35=-2 / INV-4091=posted|121|1). سپس rebase روی main (hotfix تصویر) و redeploy ترکیبی SW **v638** تا app.js هم evaluateWithStockGate و هم فیکس deleteProductImage(fn) را داشته باشد.

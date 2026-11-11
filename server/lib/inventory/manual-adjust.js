@@ -1,13 +1,15 @@
 'use strict';
 /**
  * v525 — manual stock adjustment (تعدیل موجودی) with reason, preview and full reversal.
+ * stock-adjust-fix: matrix requires warehouse+variant; refuse while unallocated_net≠0;
+ * counters via value-accounts (4205 / 6118 / 610801 — never 5101 / 9999); void closes cost layers.
  *
  *   planAdjust  → read-only preview (no writes): current/new qty, live outbound rate, value,
- *                 counter-account by stage+reason (value-accounts), closed-month notice.
+ *                 counter-account by reason+sign (value-accounts), closed-month notice.
  *   postAdjust  → one transaction: ledger row (+ variant×warehouse layer), balanced JE,
  *                 closed inventory month → JE counter side to «تعدیل بهای در انتظار تأیید» and an
  *                 approval doc via value-approval.begin/gate/finish (reason closed_period).
- *   reverseAdjust → R13: ledger reversal + variant layer + JE reversal + approval cancel.
+ *   reverseAdjust → R13: ledger reversal + variant layer + JE reversal + approval cancel + layer close.
  *
  * mode 'delta' = signed qty; mode 'count' = counted qty (delta computed inside the tx).
  * Surplus unit cost defaults to the live pool/average rate; overriding it needs
@@ -87,6 +89,19 @@ function currentQty(db, { productId, warehouseId, variantId }) {
   return round3(require('./ledger').stockOf(db, { productId, warehouseId: warehouseId || null }));
 }
 
+function unallocatedNet(db, productId, warehouseId) {
+  if (!warehouseId) return 0;
+  try {
+    const d = require('./stock-cache').deriveProductStock(db, productId);
+    return round3(d.unattributed.get(Number(warehouseId)) || 0);
+  } catch (_) { return 0; }
+}
+
+function warehouseQtyOf(db, productId, warehouseId) {
+  if (!warehouseId) return null;
+  return round3(require('./ledger').stockOf(db, { productId, warehouseId }));
+}
+
 /** Live rate an outbound row would take now; also the default surplus rate. */
 function liveRate(db, { productId, warehouseId, product }) {
   const V = require('./valuation');
@@ -104,14 +119,11 @@ function isPeriodic(db, warehouseId) {
   try { return !!require('./periodic-close').isPeriodicWarehouse(db, warehouseId); } catch (_) { return false; }
 }
 
-function counterFor(db, { inventoryCode, reasonCode, peek }) {
-  if (reasonCode) {
-    const c = VA.adjustCounterAccount(db, { inventoryCode, reasonCode, peek });
-    return { code: c.code, name: c.name, stage: c.stage, source: c.source };
-  }
-  const { acct } = require('../coa-map');
-  const a = acct(db, 'coa_adjustment');
-  return { code: a.code, name: a.name, stage: VA.stageOfInventoryCode(db, inventoryCode), source: 'legacy' };
+function counterFor(db, { inventoryCode, reasonCode, deltaQty, peek }) {
+  if (!reasonCode) return null;
+  const c = VA.adjustCounterAccount(db, { inventoryCode, reasonCode, deltaQty, peek });
+  if (!c) return null;
+  return { code: c.code, name: c.name, stage: c.stage, source: c.source };
 }
 
 /**
@@ -123,32 +135,73 @@ function planAdjust(db, body, user, { peek = true } = {}) {
   const warnings = [];
   const mv = require('./movement');
   const matrix = mv.hasActiveMatrixVariants(db, productId);
-  const cur = currentQty(db, { productId, warehouseId, variantId });
-  const delta = round3(mode === 'count' ? qty - cur : qty);
-  const newQty = round3(cur + delta);
+  const unalloc = unallocatedNet(db, productId, warehouseId);
+  const whQty = warehouseQtyOf(db, productId, warehouseId);
+  const variantUsable = !matrix || !!variantId;
+  const cur = variantUsable
+    ? currentQty(db, { productId, warehouseId, variantId })
+    : null;
+  const delta = variantUsable ? round3(mode === 'count' ? qty - cur : qty) : null;
+  const newQty = (variantUsable && delta != null) ? round3(cur + delta) : null;
   const integer = require('./qty-policy').requiresIntegerQty(db, productId, product.unit);
-  if (integer && Math.abs(delta - Math.round(delta)) > 1e-9) warnings.push('این کالا قطعه‌ای است؛ تعداد باید عدد صحیح باشد');
-  if (matrix && !variantId) warnings.push('کالای رنگ×سایز: برای اثر روی موجودی هر ترکیب، رنگ/سایز را انتخاب کنید');
-  if (!warehouseId) warnings.push('انبار انتخاب نشده؛ فقط موجودی کل کالا تعدیل می‌شود');
-  if (!delta) warnings.push('تعداد جدید با موجودی فعلی برابر است؛ تعدیلی لازم نیست');
-  if (newQty < -1e-9 && !require('./ledger').allowNegative(db, warehouseId)) {
+  if (matrix && !warehouseId) warnings.push('کالای رنگ×سایز: انبار الزامی است');
+  if (matrix && !variantId) {
+    warnings.push('کالای رنگ×سایز: تا رنگ/سایز انتخاب نشود «موجودی فعلی» نمایش داده نمی‌شود و ثبت ممکن نیست');
+  }
+  if (matrix && warehouseId && Math.abs(unalloc) > 1e-9) {
+    warnings.push(
+      `در این انبار ${unalloc} واحد بدون رنگ/سایز مانده است؛ ابتدا «تفکیک رنگ» یا «ابطال اصلاحی با اثر موجودی» را روی ردیف بی‌واریانت انجام دهید، سپس تعدیل رنگ`
+    );
+  }
+  if (!matrix && !warehouseId) warnings.push('انبار انتخاب نشده؛ فقط موجودی کل کالا تعدیل می‌شود');
+  if (integer && delta != null && Math.abs(delta - Math.round(delta)) > 1e-9) {
+    warnings.push('این کالا قطعه‌ای است؛ تعداد باید عدد صحیح باشد');
+  }
+  if (delta != null && !delta) warnings.push('تعداد جدید با موجودی فعلی برابر است؛ تعدیلی لازم نیست');
+  if (newQty != null && newQty < -1e-9 && !require('./ledger').allowNegative(db, warehouseId)) {
     warnings.push(`موجودی بعد از تعدیل منفی می‌شود (${newQty}) و ثبت رد خواهد شد`);
   }
+  if (!reasonCode) warnings.push('دلیل را انتخاب کنید');
   const rate = liveRate(db, { productId, warehouseId, product });
-  if (rate.method !== 'moving_average' && delta < 0) warnings.push('روش ارزش‌گذاری لایه‌ای است؛ مبلغ نهایی خروجی از لایه‌های بها محاسبه می‌شود');
+  if (rate.method !== 'moving_average' && delta != null && delta < 0) {
+    warnings.push('روش ارزش‌گذاری لایه‌ای است؛ مبلغ نهایی خروجی از لایه‌های بها محاسبه می‌شود');
+  }
   const allowOverride = canOverrideCost(user, db);
   let unit = rate.unit;
   let costOverridden = false;
-  if (delta > 0 && inp.unitCost != null && Math.abs(inp.unitCost - rate.unit) >= 1) {
+  if (delta != null && delta > 0 && inp.unitCost != null && Math.abs(inp.unitCost - rate.unit) >= 1) {
     unit = inp.unitCost;
     costOverridden = true;
     if (!allowOverride) warnings.push('تغییر بهای واحد فقط با دسترسی «ارزش‌گذاری موجودی — ثبت» مجاز است');
   }
-  if (delta > 0 && !unit) warnings.push('بهای میانگین این کالا صفر است؛ اضافی بدون ارزش ریالی وارد می‌شود');
-  const valueRial = Math.round(unit * Math.abs(delta)) * (delta < 0 ? -1 : 1);
+  if (delta != null && delta > 0 && !unit) warnings.push('بهای میانگین این کالا صفر است؛ اضافی بدون ارزش ریالی وارد می‌شود');
+  const valueRial = (delta == null || !delta)
+    ? 0
+    : Math.round(unit * Math.abs(delta)) * (delta < 0 ? -1 : 1);
   const { inventoryAccountForWarehouse } = require('./ledger');
   const inv = inventoryAccountForWarehouse(db, warehouseId);
-  const counter = counterFor(db, { inventoryCode: inv.code, reasonCode, peek });
+  let counter = null;
+  let counterSource = null;
+  let stage = VA.stageOfInventoryCode(db, inv.code);
+  if (reasonCode && delta != null) {
+    try {
+      const c = counterFor(db, { inventoryCode: inv.code, reasonCode, deltaQty: delta, peek });
+      if (c) {
+        counter = { code: c.code, name: c.name };
+        counterSource = c.source;
+        stage = c.stage;
+      }
+    } catch (e) {
+      if (e && e.code === 'E_ADJUST_COUNTER_NOT_LEAF') {
+        warnings.push(e.message);
+        counter = null;
+        counterSource = null;
+        if (!peek) throw e;
+      } else {
+        throw e;
+      }
+    }
+  }
   const PL = require('./period-lock');
   const periodLocked = PL.isPeriodLocked(db, date);
   const valueLocked = PL.isValueLocked(db, date);
@@ -169,6 +222,10 @@ function planAdjust(db, body, user, { peek = true } = {}) {
     reason_code: reasonCode,
     reason_label: reasonCode ? VA.ADJUST_REASONS[reasonCode] : null,
     current_qty: cur,
+    current_qty_usable: variantUsable,
+    variant_qty: variantId ? cur : null,
+    warehouse_qty: whQty,
+    unallocated_net: unalloc,
     new_qty: newQty,
     delta_qty: delta,
     unit_cost_rial: unit,
@@ -178,10 +235,10 @@ function planAdjust(db, body, user, { peek = true } = {}) {
     cost_overridden: costOverridden,
     can_override_cost: allowOverride,
     value_rial: valueRial,
-    counter_account: { code: counter.code, name: counter.name },
-    counter_source: counter.source,
+    counter_account: counter,
+    counter_source: counterSource,
     inventory_account: { code: inv.code, name: inv.name },
-    stage: counter.stage,
+    stage,
     period_locked: periodLocked,
     value_gated: valueLocked && !periodic && !!valueRial,
     periodic,
@@ -214,16 +271,40 @@ function postAdjust(db, body, user, opts = {}) {
     if (plan.warehouse_id) {
       require('./cycle-count').assertWarehouseNotCounting(db, [plan.warehouse_id], { label: 'تعدیل موجودی' });
     }
-    if (!delta) throw adjErr('E_ADJUST_NO_CHANGE', 400, 'موجودی شمارش‌شده با موجودی فعلی برابر است؛ تعدیلی ثبت نشد');
+    // SSOT: every ledger row of a matrix product names its SKU (the ledger refuses otherwise).
+    if (plan.matrix && !plan.warehouse_id) {
+      throw adjErr('E_WAREHOUSE_REQUIRED', 409, 'برای کالای رنگ×سایز، انبار را انتخاب کنید');
+    }
+    if (plan.matrix && !plan.variant_id) {
+      throw adjErr('E_VARIANT_REQUIRED', 409, 'برای کالای رنگ×سایز، رنگ/سایز را انتخاب کنید');
+    }
+    if (plan.matrix && plan.warehouse_id && Math.abs(Number(plan.unallocated_net) || 0) > 1e-9) {
+      throw adjErr(
+        'E_ADJUST_UNATTRIBUTED_EXISTS',
+        409,
+        'در این انبار موجودی بدون رنگ/سایز مانده است؛ ابتدا «تفکیک رنگ» یا «ابطال اصلاحی با اثر موجودی» را انجام دهید، سپس تعدیل هر رنگ',
+        { product_id: plan.product_id, warehouse_id: plan.warehouse_id, unallocated_net: plan.unallocated_net }
+      );
+    }
+    if (delta == null || !delta) throw adjErr('E_ADJUST_NO_CHANGE', 400, 'موجودی شمارش‌شده با موجودی فعلی برابر است؛ تعدیلی ثبت نشد');
     if (plan.integer && Math.abs(delta - Math.round(delta)) > 1e-9) {
       throw adjErr('E_QTY_NOT_INTEGER', 400, 'موجودی کالای قطعه‌ای باید عدد صحیح باشد');
     }
-    // SSOT: every ledger row of a matrix product names its SKU (the ledger refuses otherwise).
-    if (plan.matrix && !plan.variant_id) {
-      throw adjErr('E_VARIANT_REQUIRED', 400, 'برای کالای رنگ×سایز، رنگ/سایز را انتخاب کنید');
-    }
     if (plan.cost_overridden && !plan.can_override_cost) {
       throw adjErr('E_ADJUST_COST_FORBIDDEN', 403, 'تغییر بهای واحد تعدیل فقط با دسترسی «ارزش‌گذاری موجودی — ثبت» مجاز است');
+    }
+    if (plan.reason_code && !plan.counter_account) {
+      throw adjErr('E_ADJUST_COUNTER_NOT_LEAF', 409, 'حساب مقابل تعدیل برگ فعال نیست');
+    }
+    // Legacy callers (no mode/reason_code, free-text reason): keep coa_adjustment for the JE only.
+    // Preview never returns 9999 when reason is empty.
+    if (!plan.reason_code && !plan.counter_account) {
+      try {
+        const { acct } = require('../coa-map');
+        const a = acct(db, 'coa_adjustment');
+        plan.counter_account = { code: a.code, name: a.name };
+        plan.counter_source = 'legacy';
+      } catch (_) { /* */ }
     }
     const L = require('./ledger');
     // P1: adjusting a SKU that was retired/unchecked brings it back (never E_VARIANT_INACTIVE).
@@ -285,8 +366,8 @@ function postAdjust(db, body, user, opts = {}) {
       sourceType: SOURCE,
       sourceId: led.id,
       description: `تعدیل دستی موجودی ${led.tx_no} — ${plan.product_name}${reasonFa ? ' — ' + reasonFa : ''}${note ? ' — ' + note.slice(0, 120) : ''}`,
-      counterCode: counter.code,
-      counterName: counter.name,
+      counterCode: counter ? counter.code : undefined,
+      counterName: counter ? counter.name : undefined,
     });
     db.prepare('UPDATE inventory_ledger SET source_id=?, je_id=? WHERE id=?').run(led.id, jeId, led.id);
     out = {
@@ -308,6 +389,20 @@ function postAdjust(db, body, user, opts = {}) {
     };
   })();
   return out;
+}
+
+/** Close open cost layers born by this inbound adjust (MA path does not consume them on reverse). */
+function closeCostLayersForLedger(db, ledgerId) {
+  const id = Number(ledgerId) || 0;
+  if (!id) return 0;
+  try {
+    const r = db.prepare(`
+      UPDATE inventory_cost_layers
+      SET qty_remaining=0, amount_rial=0, status='closed'
+      WHERE ledger_id=? AND status='open'
+    `).run(id);
+    return Number(r.changes) || 0;
+  } catch (_) { return 0; }
 }
 
 /** R13 full reversal of a manual adjustment ledger row (inside caller transaction). */
@@ -333,6 +428,11 @@ function reverseAdjustInTx(db, row, user, { date, note } = {}) {
   if (row.je_id) {
     require('../void-journal').reverseJournalEntry(db, row.je_id, { userId: user && user.id, reason: why });
   }
+  // MA inbound opens a layer but reverse OUT does not close it — close by ledger_id, then rebuild buckets.
+  if ((Number(row.qty_in) || 0) > 0) closeCostLayersForLedger(db, row.id);
+  try {
+    require('./valuation').rebuildBuckets(db, { productId: row.product_id });
+  } catch (_) { /* valuation optional */ }
   return rev;
 }
 
@@ -373,5 +473,6 @@ module.exports = {
   planAdjust,
   postAdjust,
   reverseAdjustInTx,
+  closeCostLayersForLedger,
   listRecent,
 };
