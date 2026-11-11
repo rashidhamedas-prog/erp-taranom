@@ -1,6 +1,6 @@
 ﻿### ۱۴۰۵/۰۸/۲۰ — fix: ذخیرهٔ رنگ×سایز با VWS=0/opening_seed دیگر رنگ را خاموش نمی‌کند (SW v635)
-- **Commit:** `ae3c719b` روی `fix/variant-save-history-zero` (پایه: `origin/main` `eb6bdd48` / tip محتوایی v634).
-- **Deploy:** ❌ منتظر `GO deploy variant-save-fix` — بدون pm2 / بدون write روی `crm.db` زنده.
+- **Commit:** tip `5d3b6657` (فیکس `ae3c719b`) روی `fix/variant-save-history-zero` / `main` (پایه: `eb6bdd48` / v634).
+- **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۰ — overlay SFTP روی درخت کثیف VPS (HEAD گیت `8a5cd54`؛ بدون `git pull`/`reset --hard`/`--update-env`). قبل: `service.js`=`4b5182e9…`، `website-stock-sync.js`=`3bc08471…`، SW v634. بعد: hashes محلی مطابق tip؛ SW **v635**؛ `app.js?v=635`؛ بکاپ `/home/taranom/backups/crm.db.20261111-172543` (+wal/shm)؛ `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + `image_engine` sharp 0.33.5؛ stamp `.sftp-deploy-stamp-variant-save-fix-v635`. snapshot DB پیش/پس یکسان: JE approved 804 / sum debit 186940421923 / ledger max 4559 / p342=`342|7217|0` / p100 ledger `560:NULL:148:831`. بدون write روی دادهٔ زنده جز overlay فایل.
 - **تست (Node 20):** `test-variant-save-history-zero-persists` ۲۳/۰؛ `test-new-color-persists-on-save` ۱۴/۰؛ `test-prod-sku-color-panel` ۷۱؛ `test-sms` ۲۲/۰.
 - **باگ:** روی کالای ماتریسی با موجودی بی‌واریانت (مثل ۱۰۰۱۰۲)، بعد از PUT + generate-matrix + stock-matrix(`structure_only`) و drain وب‌سایت، `retireZeroStockColors` همهٔ رنگ‌ها را inactive می‌کرد چون `variantHasStockHistory` ردیف VWS با qty=0 و `inventory_movements.doc_type='opening_seed'` را تاریخچه می‌دانست؛ UI فقط `active=1` می‌خواند ⇒ فرم خالی.
 - **فیکس کد:**
