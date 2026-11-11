@@ -1,6 +1,7 @@
 ﻿### ۱۴۰۵/۰۸/۲۰ — fix: ذخیرهٔ رنگ×سایز با VWS=0/opening_seed دیگر رنگ را خاموش نمی‌کند (SW v635)
+- **Commit:** `ae3c719b` روی `fix/variant-save-history-zero` (پایه: `origin/main` `eb6bdd48` / tip محتوایی v634).
 - **Deploy:** ❌ منتظر `GO deploy variant-save-fix` — بدون pm2 / بدون write روی `crm.db` زنده.
-- **شاخه:** `fix/variant-save-history-zero` (پایه: `origin/main` `eb6bdd48` / tip محتوایی v634).
+- **تست (Node 20):** `test-variant-save-history-zero-persists` ۲۳/۰؛ `test-new-color-persists-on-save` ۱۴/۰؛ `test-prod-sku-color-panel` ۷۱؛ `test-sms` ۲۲/۰.
 - **باگ:** روی کالای ماتریسی با موجودی بی‌واریانت (مثل ۱۰۰۱۰۲)، بعد از PUT + generate-matrix + stock-matrix(`structure_only`) و drain وب‌سایت، `retireZeroStockColors` همهٔ رنگ‌ها را inactive می‌کرد چون `variantHasStockHistory` ردیف VWS با qty=0 و `inventory_movements.doc_type='opening_seed'` را تاریخچه می‌دانست؛ UI فقط `active=1` می‌خواند ⇒ فرم خالی.
 - **فیکس کد:**
   - `variantHasStockHistory`: فقط qty واقعی (pv/VWS abs>eps)، `inventory_ledger.variant_id`، یا movement غیر از `opening_seed`.
