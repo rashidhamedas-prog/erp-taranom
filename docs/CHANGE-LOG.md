@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۲۱ — fix: کش رنگ دیگر روی تعدیل/انتقال به ۰ یخ نمی‌زند؛ گزارش = کاردکس (+بدون رنگ) (SW v640)
-- **شاخه:** `fix/adjust-variant-sync-fix` (پایه: `origin/main` @ `6fcad545` / v639). منبع: `taranom-cursor-adjust-variant-sync-fix.md`.
+- **شاخه / Commit:** `fix/adjust-variant-sync-fix` → `main` @ `6083deb4` (پایه: `6fcad545` / v639). منبع: `taranom-cursor-adjust-variant-sync-fix.md`.
 - **Deploy:** ⏳ gated — فقط بعد از عبارت دقیق `GO deploy adjust-variant-sync-fix`. هیچ rebuild/heal روی `crm.db` در بوت یا deploy؛ حامد ۷۱۵۴ و بقیه را خودش اصلاح می‌کند. محصول ۳۴۲/۷۲۱۷ دست‌نخورده.
 - **باگ:** وقتی کالا در هر انبار `unattributed` زنده داشت، `preserveZeros` خانه‌های attributed با ledger=۰ را در VWS/`product_variants.stock` نگه می‌داشت (مثال ۷۱۵۴: کاردکس ۳، گزارش رنگ ۸؛ WH34 بعد از تعدیل به ۰ هنوز مقادیر قبل از تعدیل). گزارش رنگ فقط attributed می‌شمرد و ردیف «بدون رنگ» نداشت.
 - **فیکس:**
