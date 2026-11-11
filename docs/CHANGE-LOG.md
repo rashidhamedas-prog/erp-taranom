@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۲۰ — fix: تعدیل موجودی count/delta + ابطال افتتاحیهٔ بی‌واریانت + حساب مقابل ۴۲۰۵/۶۱۱۸/۶۱۰۸۰۱ (SW v639)
-- **شاخه:** `fix/stock-adjust-fix` از `origin/main@25bc125d` (پس از void-stock-effect v638). منبع: `taranom-cursor-stock-adjust-fix.md`.
+- **Commit:** `7bd7e10b` روی `fix/stock-adjust-fix` / `main` / alias (پایه: `25bc125d` / v638). منبع: `taranom-cursor-stock-adjust-fix.md`.
 - **Deploy:** ⏳ عمداً متوقف تا عبارت دقیق `GO deploy stock-adjust-fix` — بدون pm2 / بدون write روی `crm.db` / بدون اسکریپت repair داده.
 - **باگ‌ها:** (۱) count و delta روی کالای ماتریسی با رنگ خالی جمع انبار را «موجودی فعلی» می‌گرفتند و پس از انتخاب رنگ، VWS را درست و kardex را باد می‌کردند وقتی افتتاحیهٔ بی‌واریانت زنده بود؛ (۲) ابطال اصلاحی ردیف `opening_inventory` بدون `variant_id` به‌خاطر `matrix && !variantId` قفل `with_stock` می‌ماند؛ (۳) پیش‌نمایش بدون دلیل حساب ۹۹۹۹ نشان می‌داد و ضایعات به ۵۱۰۱/۶۱۰۸ والد می‌رفت؛ (۴) ابطال تعدیل لایه‌های بها را نمی‌بست.
 - **فیکس:**
