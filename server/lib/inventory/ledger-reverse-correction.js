@@ -13,11 +13,16 @@
  * Append-only: original row → status 'reversed', one new reversal row (reversed_of=id). No amount is
  * edited, nothing deleted. Stock effect is explicit:
  *   with_stock  — warehouse_stock (+ products.stock header, + variant×warehouse layer when the row
- *                 carries variant_id) move by the reversal delta; refused (409) if it would go negative.
- *   kardex_only — only the kardex/valuation buckets change; every stock cache stays untouched.
- * A row with je_id never posts a JE here: a voucher_drafts row with the reversing lines is created.
+ *                 carries variant_id) move by the reversal delta. Refused (409) only when the void
+ *                 would *create or worsen* a shortage (qtyDelta < 0 and after < 0), unless the
+ *                 warehouse (or settings.inventory_allow_negative) allows negatives. A stock-
+ *                 increasing void (void of an OUT) is never blocked just because after is still < 0.
+ *   kardex_only — refused (SSOT); every stock cache must follow the ledger.
+ * A row with je_id never posts a JE here: a voucher_drafts row with the reversing lines is created
+ * (at most one live draft per je_id for this flow).
  */
 const { MANUAL_SOURCES } = require('../subledger-recon');
+const { allowNegative } = require('./ledger');
 
 const CORRECTION_SOURCES = new Set(['opening_inventory', 'stock_reconcile', 'opening']);
 const STOCK_EFFECTS = new Set(['with_stock', 'kardex_only']);
@@ -179,6 +184,46 @@ function tableHasColumn(db, table, col) {
   try { return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col); } catch (_) { return false; }
 }
 
+/** Live voucher_draft already opened for this JE by a prior reverse-correction (same flow tag). */
+function findLiveReversingDraftForJe(db, jeId) {
+  const id = Number(jeId) || 0;
+  if (!id) return null;
+  try {
+    return db.prepare(`
+      SELECT id FROM voucher_drafts
+      WHERE description LIKE ? AND description LIKE ?
+      ORDER BY id ASC LIMIT 1
+    `).get(`%[${DRAFT_TAG}:%`, `%برگشت JE#${id}%`) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * with_stock gate: block only when this void would create/worsen a shortage.
+ * qtyDelta >= 0 (void of OUT / zero-qty) never fails for negativity.
+ * qtyDelta < 0 (void of IN): after must be >= 0 unless warehouse/global allow_negative.
+ */
+function evaluateWithStockGate(db, {
+  warehouseId, qtyDelta, wsBefore, vwsBefore, wsAfterWith, vwsAfterWith,
+}) {
+  if (warehouseId == null) return { ok: false, warning: null };
+  if (qtyDelta >= 0) return { ok: true, warning: null };
+  if (allowNegative(db, warehouseId)) return { ok: true, warning: null };
+  const wsBad = wsAfterWith != null && wsAfterWith < -1e-9;
+  const vwsBad = vwsAfterWith != null && vwsAfterWith < -1e-9;
+  if (!wsBad && !vwsBad) return { ok: true, warning: null };
+  const layers = [];
+  if (wsBad) layers.push(`انبار ${wsAfterWith}`);
+  if (vwsBad) layers.push(`رنگ‌سایز ${vwsAfterWith}`);
+  const alreadyNeg = (wsBefore != null && wsBefore < -1e-9)
+    || (vwsBefore != null && vwsBefore < -1e-9);
+  const warning = alreadyNeg
+    ? `با اثر موجودی، کمبود موجودی بدتر می‌شود (${layers.join(' / ')}) و ثبت رد خواهد شد`
+    : `با اثر موجودی، موجودی انبار منفی می‌شود (${layers.join(' / ')}) و ثبت رد خواهد شد`;
+  return { ok: false, warning };
+}
+
 /** Reversing lines (rial) of the row's JE, or null when it has no live GL effect. */
 function draftPlanFor(db, row) {
   if (!row.je_id) return null;
@@ -228,14 +273,13 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
   try { matrix = require('./movement').hasActiveMatrixVariants(db, productId); } catch (_) { matrix = false; }
   const wsAfterWith = ws == null ? null : round3(ws + qtyDelta);
   const vwsAfterWith = vws == null ? null : round3(vws + qtyDelta);
-  const withStockOk = warehouseId != null
-    && wsAfterWith >= -1e-9
-    && (vwsAfterWith == null || vwsAfterWith >= -1e-9);
+  const gate = evaluateWithStockGate(db, {
+    warehouseId, qtyDelta, wsBefore: ws, vwsBefore: vws, wsAfterWith, vwsAfterWith,
+  });
+  const withStockOk = gate.ok;
   const warnings = [];
   if (warehouseId == null) warnings.push('ردیف انبار ندارد؛ فقط حالت «فقط کاردکس» ممکن است');
-  if (!withStockOk && warehouseId != null) {
-    warnings.push(`با اثر موجودی، موجودی انبار منفی می‌شود (${wsAfterWith}${vwsAfterWith != null ? ` / رنگ‌سایز ${vwsAfterWith}` : ''}) و ثبت رد خواهد شد`);
-  }
+  if (gate.warning) warnings.push(gate.warning);
   if (matrix && !variantId) warnings.push(
     'این ردیف تاریخیِ کالای رنگ×سایز واریانت ندارد و ابطال خودکار آن در مدل SSOT پشتیبانی نمی‌شود؛ ابتدا با شمارش واریانت‌ها اصلاحش کنید'
   );
@@ -250,7 +294,12 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
     } catch (_) { variantLayer = null; }
   }
   const draft = draftPlanFor(db, row);
-  if (draft && draft.needed) warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})؛ سند ثبت نمی‌شود و فقط پیش‌نویس سند برگشت ساخته می‌شود`);
+  const existingDraft = draft && draft.needed ? findLiveReversingDraftForJe(db, draft.je_id) : null;
+  if (draft && draft.needed && !existingDraft) {
+    warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})؛ سند ثبت نمی‌شود و فقط پیش‌نویس سند برگشت ساخته می‌شود`);
+  } else if (draft && draft.needed && existingDraft) {
+    warnings.push(`ردیف سند حسابداری دارد (JE#${draft.je_id})؛ پیش‌نویس برگشت موجود (#${existingDraft.id}) دوباره استفاده می‌شود`);
+  }
   const out = {
     ledger_id: Number(row.id),
     tx_no: row.tx_no || null,
@@ -294,7 +343,9 @@ function planCorrection(db, ledgerId, { stockEffect = null } = {}) {
     with_stock_allowed: !blocker && withStockOk && !(matrix && !variantId),
     kardex_only_allowed: false,
     voucher_draft: draft ? {
-      will_create: !!draft.needed, je_id: draft.je_id, je_status: draft.je_status, lines: draft.lines,
+      will_create: !!draft.needed && !existingDraft,
+      reuse_draft_id: existingDraft ? Number(existingDraft.id) : null,
+      je_id: draft.je_id, je_status: draft.je_status, lines: draft.lines,
     } : null,
     warnings,
   };
@@ -363,10 +414,15 @@ function reverseCorrection(db, ledgerId, body, user, { audit } = {}) {
     }
     let draftId = null;
     if (draft && draft.needed) {
-      const desc = `[${DRAFT_TAG}:ledger#${row.id}] برگشت JE#${draft.je_id} — ابطال اصلاحی ردیف کاردکس ${row.tx_no || ('#' + row.id)} — علت: ${reason}`.slice(0, 500);
-      draftId = Number(db.prepare(`
-        INSERT INTO voucher_drafts (date, description, lines_json, cost_center_id, created_by) VALUES (?,?,?,?,?)
-      `).run(revDate, desc, JSON.stringify(draft.lines), null, (user && user.id) || null).lastInsertRowid);
+      const existing = findLiveReversingDraftForJe(db, draft.je_id);
+      if (existing) {
+        draftId = Number(existing.id);
+      } else {
+        const desc = `[${DRAFT_TAG}:ledger#${row.id}] برگشت JE#${draft.je_id} — ابطال اصلاحی ردیف کاردکس ${row.tx_no || ('#' + row.id)} — علت: ${reason}`.slice(0, 500);
+        draftId = Number(db.prepare(`
+          INSERT INTO voucher_drafts (date, description, lines_json, cost_center_id, created_by) VALUES (?,?,?,?,?)
+        `).run(revDate, desc, JSON.stringify(draft.lines), null, (user && user.id) || null).lastInsertRowid);
+      }
     }
     const kAfter = kardexOf(db, plan.product_id, plan.warehouse_id);
     out = {
@@ -423,4 +479,6 @@ module.exports = {
   planCorrection,
   reverseCorrection,
   kardexOf,
+  evaluateWithStockGate,
+  findLiveReversingDraftForJe,
 };
