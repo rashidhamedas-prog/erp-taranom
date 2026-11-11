@@ -1,4 +1,15 @@
-﻿### ۱۴۰۵/۰۸/۲۰ — fix: حذف primary دیگر «نام فایل نامعتبر است» نمی‌دهد (SW v637)
+### ۱۴۰۵/۰۸/۲۰ — fix: ابطال اصلاحی OUT وقتی انبار از قبل منفی است دیگر «با اثر موجودی» را قفل نمی‌کند (SW v638)
+- **شاخه:** fix/void-stock-effect tip (rebase روی origin/main پس از product-image-delete v637 hotfix). منبع: taranom-cursor-void-stock-effect.md.
+- **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۰ — overlay اول با tip 313de3ec / LRC=223956a9… (بکاپ crm.db.20261111-192242-void-stock-v637؛ stamp .sftp-deploy-stamp-void-stock-effect-fix-v637؛ snapshot JE 805 / 186946878880 / ledger max 4577 / p342=342|7217|0 / p122 WH35=-2 / INV-4091=posted|121|1). سپس rebase روی main (hotfix تصویر) و redeploy ترکیبی SW **v638** تا app.js هم evaluateWithStockGate و هم فیکس deleteProductImage(fn) را داشته باشد.
+- **باگ:** روی INV-4091 (stock_reconcile OUT 1، واریانت 121، انبار 35 allow_negative=0، Σqty محصول -2) گزینه «با اثر موجودی» disabled بود چون withStockOk فقط after>=0 می‌خواست، در حالی که qtyDelta=+1 بهبود است. هشدار «منفی می‌شود / رنگ‌سایز 1» غلط بود. «فقط کاردکس» در UI فعال می‌ماند ولی POST با E_LEDGER_SSOT_REQUIRES_STOCK_EFFECT می‌مرد.
+- **فیکس:** planCorrection/409: qtyDelta>=0 ⇒ گیت منفی نه؛ qtyDelta<0 ⇒ after>=0 مگر allow_negative انبار/سراسری. هشدار فقط روی لایه‌های واقعاً منفی. UI: kardex_only disabled وقتی kardex_only_allowed=false. دو ردیف با یک je_id ⇒ یک voucher_drafts زنده (reuse).
+- **hashes LRC:** قبل 97716092ea51cf2523204065c5754dbaab6ed42197a47c6dde70f9f3f8fcda97؛ بعد 223956a996efc78d37a3b17d55c464cda4becfc04c58f158d7f4164b6906a510.
+- **SW:** erp-taranom-v637 → erp-taranom-v638؛ index.html ?v=638.
+- **تست (Node 20.19.5):** test-void-stock-effect-already-negative 20/0؛ test-p334-ledger-reverse-correction 65/0؛ test-sms 22/0؛ new Function(app.js) OK. محصول 342 دست‌نخورده.
+- **خارج از محدوده:** هیچ repair روی INV-4091/4092/VR-0191/JE921/محصول 122 یا 342.
+- **فایل‌ها:** lib/inventory/ledger-reverse-correction.js، public/{app.js,sw.js,index.html}، scripts/{test-void-stock-effect-already-negative,test-p334-ledger-reverse-correction}.js، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۲۰ — fix: حذف primary دیگر «نام فایل نامعتبر است» نمی‌دهد (SW v637)
 - **باگ زنده:** بعد از deploy v636، × روی «اصلی» (۱۰۰۱۰۲/۷۰۶۳) ⇒ `DELETE …/images/primary` **400** با پیام «نام فایل نامعتبر است» (دو toast). لاگ: چند درخواست 400 در ۱۵:۴۸–۱۵:۵۰ UTC.
 - **علت:** در `data-csp-click` مقدار `('${safe}')` داخل **function معمولی** بود ⇒ به سرور رشتهٔ literal `` `${safe}` `` می‌رفت، نه `p_….webp`.
 - **فیکس:** UI با closure مقدار واقعی `fn` را می‌فرستد؛ `deleteProductImage` basename می‌گیرد و `${…}` را دور می‌اندازد؛ سرور اگر filename نامعتبر بود به `products.image` فعلی fallback می‌کند (دیگر 400 برای garbage).

@@ -368,6 +368,10 @@ async function main() {
       const prev = await call('GET', `/api/inventory/ledger/${led.id}/reverse-correction-preview?stock_effect=with_stock`);
       ok(prev.status === 200 && prev.body.with_stock_allowed === false && prev.body.ready === false && prev.body.warehouse_stock.after_with_stock === -3,
         'preview: with_stock not allowed (2 → −3)', prev.body);
+      const warns = prev.body.warnings || [];
+      ok(warns.some((w) => /منفی می‌شود/.test(w) && /انبار -3/.test(w))
+        && !warns.some((w) => /رنگ‌سایز (?!-)/.test(w)),
+        'blocked IN-void warning names the warehouse shortage (no positive variant-as-shortage)', warns);
       const c0 = changes();
       const r = await call('POST', `/api/inventory/ledger/${led.id}/reverse-correction`, { reason: 'تست منفی‌شدن', confirm: true, stock_effect: 'with_stock' });
       ok(r.status === 409 && r.body.code === 'E_REVERSE_STOCK_NEGATIVE' && changes() === c0
