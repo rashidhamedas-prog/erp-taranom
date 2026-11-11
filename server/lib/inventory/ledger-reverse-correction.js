@@ -374,6 +374,12 @@ function applyStockEffect(db, { plan, user, note }) {
       .run(productId, (user && user.id) || 0, plan.qty_delta, note);
   } catch (_) { /* legacy stock_logs optional */ }
   require('./stock-cache').rebuildStockCache(db, productId);
+  // Warn-only: with_stock void may touch colour caches after ledger rewrite elsewhere.
+  try {
+    require('./stock-cache').assertVariantCellMirrorsLedger(db, {
+      productId, warehouseId, variantId: plan && plan.variant_id, mode: 'warn',
+    });
+  } catch (_) { /* plan may lack variant_id */ }
   return { before: wsBefore, after: wsQty(db, productId, warehouseId) };
 }
 

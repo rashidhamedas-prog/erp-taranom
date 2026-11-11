@@ -74,7 +74,8 @@ function withCacheWriter(db, fn) {
 /**
  * Ledger-derived figures for one product (read-only).
  * @returns {{ product_id, header, warehouses: Map<wh,qty>, variants: Map<vid,qty>,
- *             variantWarehouses: Map<'vid:wh',qty>, unattributed: Map<wh|0,qty> }}
+ *             variantWarehouses: Map<'vid:wh',qty>, unattributed: Map<wh|0,qty>,
+ *             variantRows: Map<vid,count>, variantWarehouseRows: Map<'vid:wh',count> }}
  */
 function deriveProductStock(db, productId) {
   const pid = Number(productId) || 0;
@@ -83,7 +84,9 @@ function deriveProductStock(db, productId) {
   const rows = db.prepare(`
     SELECT warehouse_id, ${vSel},
       SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS q,
-      SUM(CASE WHEN ${headerFilterSql()} THEN COALESCE(qty_in,0) - COALESCE(qty_out,0) ELSE 0 END) AS hq
+      SUM(CASE WHEN ${headerFilterSql()} THEN COALESCE(qty_in,0) - COALESCE(qty_out,0) ELSE 0 END) AS hq,
+      COUNT(*) AS cnt,
+      SUM(CASE WHEN ${headerFilterSql()} THEN 1 ELSE 0 END) AS hcnt
     FROM inventory_ledger
     WHERE product_id=? AND ${liveSql()}
     GROUP BY warehouse_id, ${hasVariantCol ? 'variant_id' : '2'}
@@ -95,19 +98,25 @@ function deriveProductStock(db, productId) {
     variants: new Map(),
     variantWarehouses: new Map(),
     unattributed: new Map(),
+    variantRows: new Map(),
+    variantWarehouseRows: new Map(),
   };
   for (const r of rows) {
     const wh = r.warehouse_id != null ? Number(r.warehouse_id) : null;
     const vid = r.variant_id != null && Number(r.variant_id) > 0 ? Number(r.variant_id) : null;
     const q = Number(r.q) || 0;
     const hq = Number(r.hq) || 0;
+    const cnt = Number(r.cnt) || 0;
+    const hcnt = Number(r.hcnt) || 0;
     out.header += hq;
     if (wh) out.warehouses.set(wh, (out.warehouses.get(wh) || 0) + q);
     if (vid) {
       out.variants.set(vid, (out.variants.get(vid) || 0) + hq);
+      out.variantRows.set(vid, (out.variantRows.get(vid) || 0) + hcnt);
       if (wh) {
         const k = `${vid}:${wh}`;
         out.variantWarehouses.set(k, (out.variantWarehouses.get(k) || 0) + q);
+        out.variantWarehouseRows.set(k, (out.variantWarehouseRows.get(k) || 0) + cnt);
       }
     } else {
       const k = wh || 0;
@@ -171,19 +180,21 @@ function loadVariantMovementHints(db, variantIds) {
 
 /**
  * Variant-layer write policy when unattributed live qty remains:
- *   - always write non-zero attributed figures from the ledger
- *   - NEVER zero an existing non-zero cache cell that has no void movement
- *     (incident 2026-11-03 guard — historical colour split without ledger rows)
- *   - EXCEPTION (void leftover): if attributed ledger is 0 AND the cell has at
- *     least one inventory_movements row whose doc_type ends with `_void` AND
- *     net(movements) equals attributed ledger (usually 0) → write the ledger
- *     figure (clear the stale cell after reverseStockDocument).
+ *   - if the cell has any live attributed ledger rows → always mirror ledger
+ *     (including exactly 0 — adjust/transfer to empty must clear the cache)
+ *   - otherwise (seed-only colour split, incident 2026-11-03):
+ *       · always write non-zero attributed figures from the ledger
+ *       · NEVER zero an existing non-zero cache cell that has no void movement
+ *       · EXCEPTION (void leftover): attributed ledger 0 AND a `_void` movement
+ *         whose net equals ledger → write the ledger figure
  * Product / warehouse_stock still follow the full ledger (including unattributed).
  *
  * @param {{ net?: number, hasVoid?: boolean }|null} [movHint]
+ * @param {number} [ledgerRowCount]
  */
-function variantWant(fromLedger, current, preserveZeros, movHint) {
+function variantWant(fromLedger, current, preserveZeros, movHint, ledgerRowCount) {
   const want = round3(fromLedger);
+  if ((Number(ledgerRowCount) || 0) > 0) return want;
   if (!preserveZeros) return want;
   if (Math.abs(want) > EPS) return want;
   if (movHint && movHint.hasVoid && Math.abs(round3(movHint.net) - want) < EPS) {
@@ -238,8 +249,9 @@ function rebuildStockCache(db, productId, opts = {}) {
       const vid = Number(v.id);
       const fromLedger = d.variants.get(vid) || 0;
       const cur = Number(v.stock) || 0;
-      const want = variantWant(fromLedger, cur, preserveZeros, movHints.byVariant.get(vid) || null);
-      if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(cur) > EPS
+      const rowCount = d.variantRows.get(vid) || 0;
+      const want = variantWant(fromLedger, cur, preserveZeros, movHints.byVariant.get(vid) || null, rowCount);
+      if (preserveZeros && rowCount === 0 && Math.abs(fromLedger) < EPS && Math.abs(cur) > EPS
         && Math.abs(want - round3(cur)) < EPS) preservedVariantCells += 1;
       if (round3(cur) !== want) vUpd.run(want, v.id);
     }
@@ -256,8 +268,9 @@ function rebuildStockCache(db, productId, opts = {}) {
         seen.add(k);
         const fromLedger = d.variantWarehouses.get(k) || 0;
         const curQ = Number(r.qty) || 0;
-        const want = variantWant(fromLedger, curQ, preserveZeros, movHints.byVW.get(k) || null);
-        if (preserveZeros && Math.abs(fromLedger) < EPS && Math.abs(curQ) > EPS
+        const rowCount = d.variantWarehouseRows.get(k) || 0;
+        const want = variantWant(fromLedger, curQ, preserveZeros, movHints.byVW.get(k) || null, rowCount);
+        if (preserveZeros && rowCount === 0 && Math.abs(fromLedger) < EPS && Math.abs(curQ) > EPS
           && Math.abs(want - round3(curQ)) < EPS) preservedVariantCells += 1;
         if (round3(curQ) !== want) upd.run(want, r.variant_id, r.warehouse_id);
       }
@@ -323,6 +336,55 @@ function derivedQty(db, { productId, warehouseId = null, variantId = null } = {}
     `SELECT COALESCE(SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)),0) AS q FROM inventory_ledger WHERE ${where.join(' AND ')}`
   ).get(...params);
   return round3(r && r.q);
+}
+
+/**
+ * After an adjust/void (throw) or other posting path (warn): the touched colour×warehouse
+ * cell must mirror the live attributed ledger. Missing VWS row counts as 0.
+ * @returns {boolean} true when mirrored; warn mode returns false on divergence
+ */
+function assertVariantCellMirrorsLedger(db, {
+  productId, variantId, warehouseId, mode = 'throw',
+} = {}) {
+  const pid = Number(productId) || 0;
+  const vid = Number(variantId) || 0;
+  const wh = Number(warehouseId) || 0;
+  if (!pid || !vid) return true;
+  const d = deriveProductStock(db, pid);
+  const ledgerVw = wh ? (d.variantWarehouses.get(`${vid}:${wh}`) || 0) : 0;
+  const ledgerPv = d.variants.get(vid) || 0;
+  let vws = 0;
+  if (wh && tableExists(db, 'variant_warehouse_stock')) {
+    const r = db.prepare(
+      'SELECT qty FROM variant_warehouse_stock WHERE variant_id=? AND warehouse_id=?'
+    ).get(vid, wh);
+    vws = r ? (Number(r.qty) || 0) : 0;
+  }
+  let pv = 0;
+  if (tableExists(db, 'product_variants')) {
+    const r = db.prepare('SELECT stock FROM product_variants WHERE id=?').get(vid);
+    pv = r ? (Number(r.stock) || 0) : 0;
+  }
+  const okVw = !wh || Math.abs(round3(vws) - round3(ledgerVw)) < EPS;
+  const okPv = Math.abs(round3(pv) - round3(ledgerPv)) < EPS;
+  if (okVw && okPv) return true;
+  const detail = {
+    product_id: pid,
+    variant_id: vid,
+    warehouse_id: wh || null,
+    ledger: { variant_warehouse: round3(ledgerVw), variant: round3(ledgerPv) },
+    vws: round3(vws),
+    pv: round3(pv),
+  };
+  if (mode === 'warn') {
+    console.warn('[E_STOCK_CACHE_DIVERGED]', JSON.stringify(detail));
+    return false;
+  }
+  const e = new Error('کش موجودی رنگ با کاردکس هم‌خوان نیست');
+  e.code = 'E_STOCK_CACHE_DIVERGED';
+  e.status = 409;
+  Object.assign(e, detail);
+  throw e;
 }
 
 /**
@@ -399,5 +461,6 @@ module.exports = {
   rebuildStockCache,
   rebuildAllStockCaches,
   derivedQty,
+  assertVariantCellMirrorsLedger,
   stockCacheVsLedger,
 };

@@ -420,7 +420,14 @@ function vsrDeletePreset() {
 function vsrStatusText(data) {
   const k = data.kpis || {};
   const flagged = (data.cells || []).filter(vsrIsFlagged).length;
-  return 'موجودی ' + vsrQty(k.total_qty) + ' · ' + vsrMoney(k.color_count) + ' رنگ · ' + vsrMoney(k.size_count) + ' سایز · ' + vsrMoney(k.gap_count) + ' شکستگی' + (flagged ? ' · ' + vsrMoney(flagged) + ' پرچم اختلاف/ارزش' : '');
+  const drift = Number(k.layer_drift_count) || 0;
+  const badge = drift
+    ? ' · ⚠ اختلاف با کاردکس: ' + vsrMoney(drift)
+    : ' · ✅ جمع گزارش = کاردکس';
+  const unattr = Math.abs(Number(k.unattributed_qty) || 0) > 1e-9
+    ? ' · بدون رنگ/سایز: ' + vsrQty(k.unattributed_qty)
+    : '';
+  return 'موجودی ' + vsrQty(k.total_qty) + ' · ' + vsrMoney(k.color_count) + ' رنگ · ' + vsrMoney(k.size_count) + ' سایز · ' + vsrMoney(k.gap_count) + ' شکستگی' + (flagged ? ' · ' + vsrMoney(flagged) + ' پرچم اختلاف/ارزش' : '') + badge + unattr;
 }
 
 function vsrChips(data) {
@@ -460,6 +467,7 @@ function vsrPaint(data) {
   }
   const st = vsrState();
   let html = vsrChips(data);
+  if (st.view !== 'overview') html += vsrKardexBadge(data);
   if (st.view === 'matrix') html += vsrHtmlMatrix(data);
   else if (st.view === 'gaps') html += vsrHtmlGaps(data);
   else if (st.view === 'detail') html += vsrHtmlDetail(data);
@@ -473,11 +481,41 @@ function vsrKpi(id, label, value, sub, active, click) {
   return '<button type="button" class="vsr-kpi' + (active ? ' active' : '') + '" data-csp-click="' + CSP.bind('click', click) + '"><span>' + esc(label) + '</span><strong>' + value + '</strong><em>' + esc(sub) + '</em></button>';
 }
 
+function vsrKardexBadge(data) {
+  const k = data.kpis || {};
+  const drift = Number(k.layer_drift_count) || 0;
+  const pid = (vsrState().filters && vsrState().filters.product_id) || '';
+  const checkBtn = '<button type="button" class="btn sm ghost" title="بررسی فقط‌خواندنی اختلاف کش/گزارش/کاردکس" data-csp-click="' + CSP.bind('click', function () { vsrOpenSyncCheck(pid); }) + '">🔍 همگامی رنگ</button>';
+  if (!drift) {
+    return '<div class="vsr-badge vsr-badge-ok" data-csp-style="' + CSP.style('margin:8px 0;padding:8px 12px;border-radius:8px;background:#ecfdf5;color:#065f46;display:flex;gap:10px;align-items:center;flex-wrap:wrap') + '"><b>✅ جمع گزارش = کاردکس</b>' + checkBtn + '</div>';
+  }
+  return '<div class="vsr-badge vsr-badge-drift" data-csp-style="' + CSP.style('margin:8px 0;padding:8px 12px;border-radius:8px;background:#fef2f2;color:#991b1b;display:flex;gap:10px;align-items:center;flex-wrap:wrap') + '"><b>⚠ اختلاف با کاردکس: ' + vsrMoney(drift) + ' کالا×انبار</b>' + checkBtn + '</div>';
+}
+
+async function vsrOpenSyncCheck(productId) {
+  try {
+    const q = productId ? ('?product_id=' + encodeURIComponent(productId)) : '';
+    const d = await api('GET', '/inventory/variant-sync-check' + q, null, false, true);
+    const rows = (d && d.products) || [];
+    const lines = rows.slice(0, 20).map(function (p) {
+      const bad = (p.warehouses || []).filter(function (w) {
+        return Math.abs((w.report_qty || 0) - (w.kardex_qty || 0)) > 1e-6 || (w.mismatches || []).length;
+      });
+      return (p.product_code || p.product_id) + ' — ' + (bad.length ? (bad.length + ' انبار ناهمخوان') : 'هم‌خوان');
+    });
+    showToast(lines.length ? lines.join(' · ') : 'اختلافی نیست', rows.some(function (p) {
+      return (p.warehouses || []).some(function (w) { return (w.mismatches || []).length || Math.abs((w.report_qty || 0) - (w.kardex_qty || 0)) > 1e-6; });
+    }) ? 'error' : undefined);
+  } catch (e) {
+    showToast((e && e.message) || 'بررسی همگامی ناموفق', 'error');
+  }
+}
+
 function vsrHtmlOverview(data) {
   const k = data.kpis || {};
   const st = vsrState();
-  const cards = '<div class="vsr-kpis">'
-    + vsrKpi('qty', 'موجودی', vsrQty(k.total_qty), 'جمع عدد رنگ×سایز', st.view === 'overview' && !st.onlyLow, function () { vsrSetView('overview', false); })
+  const cards = vsrKardexBadge(data) + '<div class="vsr-kpis">'
+    + vsrKpi('qty', 'موجودی', vsrQty(k.total_qty), 'جمع عدد رنگ×سایز (+بدون رنگ)', st.view === 'overview' && !st.onlyLow, function () { vsrSetView('overview', false); })
     + vsrKpi('sales', 'ارزش فروش', vsrMoney(k.sales_value_rial), 'موجودی × قیمت فروش', false, function () { vsrSetView('detail', false); })
     + vsrKpi('cost', 'ارزش موجودی', vsrMoney(k.cost_value_rial), 'موجودی × بها', false, function () { vsrSetView('detail', false); })
     + vsrKpi('colors', 'رنگ دارای موجودی', vsrMoney(k.color_count), 'حداقل یک عدد', false, function () { vsrSetView('matrix', false); })
@@ -661,15 +699,18 @@ function vsrHtmlDetail(data) {
     const nrm = vsrNorm(cell);
     const rowCls = nrm && nrm.ghost ? ' class="whrep-ghost"' : (nrm && nrm.drift ? ' class="whrep-drift"' : '');
     const drifted = !!(nrm && (nrm.drift || nrm.ghost)) || !!(vsrLayerOf(cell) && vsrLayerOf(cell).drift);
+    const unattr = !!cell.unattributed;
+    const unattrNeg = unattr && (Number(cell.qty) || 0) < 0;
+    if (unattr) rowCls = ' class="vsr-unattr' + (unattrNeg ? ' neg-qty' : '') + '"';
     const fixCell = canFix
-      ? '<td>' + (drifted ? '<button type="button" class="btn sm ghost" title="اصلاح تفکیک رنگ و سایز این کالا در همین انبار (بدون اثر روی دفتر کل)" data-csp-click="' + CSP.bind('click', function () { openVariantReclassModal({ product_id: cell.product_id, warehouse_id: cell.warehouse_id, onDone: function () { vsrReload(); } }); }) + '">🎨 اصلاح تفکیک</button>' : '') + '</td>'
+      ? '<td>' + (drifted && !unattr ? '<button type="button" class="btn sm ghost" title="اصلاح تفکیک رنگ و سایز این کالا در همین انبار (بدون اثر روی دفتر کل)" data-csp-click="' + CSP.bind('click', function () { openVariantReclassModal({ product_id: cell.product_id, warehouse_id: cell.warehouse_id, onDone: function () { vsrReload(); } }); }) + '">🎨 اصلاح تفکیک</button>' : (unattr ? '<span class="muted" title="ردیف کاردکس بدون رنگ؛ با «تفکیک رنگ» یا «ابطال اصلاحی» در کاردکس اصلاح شود">بدون رنگ</span>' : '')) + '</td>'
       : '';
-    return '<tr' + rowCls + '>' + cols.map(function (col) {
+    return '<tr' + rowCls + (unattr ? ' title="ردیف کاردکس بدون رنگ؛ با «تفکیک رنگ» یا «ابطال اصلاحی» در کاردکس اصلاح شود"' : '') + ' data-csp-style="' + (unattrNeg ? CSP.style('color:#b91c1c;font-weight:700') : '') + '">' + cols.map(function (col) {
       if (col.html) return '<td>' + col.html(cell) + '</td>';
       const raw = col.pick(cell);
       const text = col.key === 'qty' ? vsrQty(raw) : (col.kind === 'money' || col.kind === 'avg' ? vsrMoney(raw) : esc(raw || '—'));
       const color = col.key === 'color' ? vsrSwatch(cell.color_hex, cell.color_name) + ' ' + esc(cell.color_name) : text;
-      return '<td class="' + (col.kind || col.key === 'code' || col.key === 'sku' ? 'mono' : '') + '"' + (col.kind ? ' data-col-kind="' + col.kind + '"' : '') + '>' + (col.key === 'color' ? color : text) + '</td>';
+      return '<td class="' + (col.kind || col.key === 'code' || col.key === 'sku' ? 'mono' : '') + (unattrNeg && col.key === 'qty' ? ' neg-qty' : '') + '"' + (col.kind ? ' data-col-kind="' + col.kind + '"' : '') + '>' + (col.key === 'color' ? color : text) + '</td>';
     }).join('') + fixCell + '</tr>';
   }).join('');
   const empty = '<tr><td colspan="' + (cols.length + (canFix ? 1 : 0)) + '" class="muted">' + (vsrState().onlyLow ? 'خانه‌ای در بازهٔ کم‌موجود نیست. آستانه را از بالا عوض کنید.' : 'ردیفی برای این فیلتر نیست. اگر صفرها را می‌خواهید، «موجودی صفر در جدول» را روشن کنید.') + '</td></tr>';
@@ -718,6 +759,7 @@ async function vsrDrawCharts(data) {
     window._vsrCharts.push(chart);
   }
   draw('vsrChartColor', (data.by_color || []).slice(0, 12), function (row, i) {
+    if (row.unattributed || row.name === 'بدون رنگ/سایز') return '#b91c1c';
     const hex = String(row.hex || '').toLowerCase();
     if (hex === '#fff' || hex === '#ffffff') return '#94a3b8';
     return vsrHexOk(row.hex) ? row.hex : colors[i % colors.length];

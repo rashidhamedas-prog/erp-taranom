@@ -721,4 +721,111 @@ router.post('/adjust', auth, requireAdjust, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+/**
+ * Read-only diagnostic: colour-report Σ vs kardex vs VWS for one (or all) products.
+ * Never writes. Gate: adminOrAccounting.
+ */
+router.get('/variant-sync-check', auth, adminOrAccounting, (req, res) => {
+  try {
+    const db = getDB();
+    const SC = require('../lib/inventory/stock-cache');
+    const { buildVariantStockReport } = require('../lib/inventory/variant-report');
+    const { LEDGER_LIVE_SQL } = require('../lib/inventory/layer-reconcile');
+    const pid = req.query.product_id != null && req.query.product_id !== ''
+      ? Number(req.query.product_id) : null;
+    const pids = pid
+      ? [pid]
+      : db.prepare(`
+          SELECT DISTINCT p.id FROM products p
+          JOIN product_variants v ON v.product_id=p.id
+          WHERE COALESCE(v.is_default,0)=0
+          ORDER BY p.id LIMIT 500
+        `).all().map((r) => Number(r.id));
+    const products = [];
+    for (const productId of pids) {
+      const d = SC.deriveProductStock(db, productId);
+      const p = db.prepare('SELECT id, code, name, stock FROM products WHERE id=?').get(productId) || {};
+      const report = buildVariantStockReport(db, { product_id: productId });
+      const byWh = new Map();
+      for (const [wh, q] of d.warehouses) {
+        byWh.set(wh, {
+          warehouse_id: wh,
+          kardex_qty: q,
+          attributed_qty: 0,
+          unattributed_qty: d.unattributed.get(wh) || 0,
+          vws_qty: 0,
+          report_qty: 0,
+          mismatches: [],
+        });
+      }
+      for (const [wh, q] of d.unattributed) {
+        if (!byWh.has(wh || 0) && wh) {
+          byWh.set(wh, {
+            warehouse_id: wh, kardex_qty: 0, attributed_qty: 0,
+            unattributed_qty: q, vws_qty: 0, report_qty: 0, mismatches: [],
+          });
+        }
+      }
+      for (const [k, q] of d.variantWarehouses) {
+        const [, wh] = k.split(':').map(Number);
+        if (!byWh.has(wh)) {
+          byWh.set(wh, {
+            warehouse_id: wh, kardex_qty: d.warehouses.get(wh) || 0,
+            attributed_qty: 0, unattributed_qty: d.unattributed.get(wh) || 0,
+            vws_qty: 0, report_qty: 0, mismatches: [],
+          });
+        }
+        byWh.get(wh).attributed_qty = Math.round(((byWh.get(wh).attributed_qty || 0) + q) * 1000) / 1000;
+      }
+      const vs = db.prepare('SELECT id, stock FROM product_variants WHERE product_id=?').all(productId);
+      if (vs.length) {
+        const ids = vs.map((v) => Number(v.id));
+        const vws = db.prepare(
+          `SELECT variant_id, warehouse_id, qty FROM variant_warehouse_stock WHERE variant_id IN (${ids.map(() => '?').join(',')})`
+        ).all(...ids);
+        for (const r of vws) {
+          const wh = Number(r.warehouse_id);
+          if (!byWh.has(wh)) continue;
+          byWh.get(wh).vws_qty = Math.round(((byWh.get(wh).vws_qty || 0) + (Number(r.qty) || 0)) * 1000) / 1000;
+          const key = `${Number(r.variant_id)}:${wh}`;
+          const led = d.variantWarehouses.get(key) || 0;
+          const pv = Number((vs.find((v) => Number(v.id) === Number(r.variant_id)) || {}).stock) || 0;
+          const ledPv = d.variants.get(Number(r.variant_id)) || 0;
+          if (Math.abs((Number(r.qty) || 0) - led) > 1e-9 || Math.abs(pv - ledPv) > 1e-9) {
+            byWh.get(wh).mismatches.push({
+              variant_id: Number(r.variant_id),
+              ledger: led,
+              vws: Number(r.qty) || 0,
+              pv,
+              pv_ledger: ledPv,
+            });
+          }
+        }
+      }
+      for (const cell of (report.cells || [])) {
+        if (cell.source === 'cache') continue;
+        const wh = Number(cell.warehouse_id);
+        if (!byWh.has(wh)) {
+          byWh.set(wh, {
+            warehouse_id: wh, kardex_qty: d.warehouses.get(wh) || 0,
+            attributed_qty: 0, unattributed_qty: d.unattributed.get(wh) || 0,
+            vws_qty: 0, report_qty: 0, mismatches: [],
+          });
+        }
+        byWh.get(wh).report_qty = Math.round(((byWh.get(wh).report_qty || 0) + (Number(cell.qty) || 0)) * 1000) / 1000;
+      }
+      products.push({
+        product_id: productId,
+        product_code: p.code || '',
+        product_name: p.name || '',
+        header_stock: Number(p.stock) || 0,
+        header_ledger: d.header,
+        warehouses: [...byWh.values()],
+        live_sql: LEDGER_LIVE_SQL,
+      });
+    }
+    res.json({ ok: true, products });
+  } catch (e) { sendErr(res, e); }
+});
+
 module.exports = router;

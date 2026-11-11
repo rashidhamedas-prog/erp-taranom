@@ -281,6 +281,10 @@ function postStockMovement(db, opts) {
   // Idempotent re-derive (covers callers whose ledger row was written before this layer).
   require('./stock-cache').rebuildStockCache(db, productId);
   if (variantId) {
+    // Warn-only: some legacy callers write the ledger row after the movement.
+    require('./stock-cache').assertVariantCellMirrorsLedger(db, {
+      productId, variantId, warehouseId, mode: 'warn',
+    });
     try { require('../product-variants').afterVariantStockWrite(db, productId); } catch (_) { /* optional */ }
   }
   try {

@@ -172,42 +172,65 @@ function loadVariantRows(db) {
   `).all();
 }
 
-function loadVws(db) {
-  const map = new Map();
-  let ledgerHasVariantRows = false;
+/**
+ * Stock maps for the colour report:
+ *   attributed  — live ledger rows with variant_id (source of truth for totals)
+ *   cacheOnly   — VWS fallback for variants that have ZERO live attributed rows
+ *   unattributed — live ledger Σ with variant_id NULL/≤0 per product×warehouse
+ */
+function loadStockMaps(db) {
+  const attributed = new Map();
+  const cacheOnly = new Map();
+  const unattributed = new Map();
+  const hasAttributed = new Set();
   if (tableExists(db, 'inventory_ledger') && columnSet(db, 'inventory_ledger').has('variant_id')) {
     const { LEDGER_LIVE_SQL } = require('./layer-reconcile');
     const lRows = db.prepare(`
-      SELECT variant_id, warehouse_id,
+      SELECT product_id, variant_id, warehouse_id,
         SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
       FROM inventory_ledger
-      WHERE (${LEDGER_LIVE_SQL}) AND variant_id IS NOT NULL AND variant_id > 0 AND warehouse_id IS NOT NULL
-      GROUP BY variant_id, warehouse_id
+      WHERE (${LEDGER_LIVE_SQL}) AND warehouse_id IS NOT NULL
+      GROUP BY product_id, variant_id, warehouse_id
     `).all();
-    if (lRows.length > 0) {
-      ledgerHasVariantRows = true;
-      for (const row of lRows) {
-        const id = Number(row.variant_id);
-        if (!map.has(id)) map.set(id, []);
-        map.get(id).push({
-          warehouse_id: Number(row.warehouse_id),
-          qty: Number(row.qty) || 0,
-        });
+    for (const row of lRows) {
+      const wh = Number(row.warehouse_id);
+      const qty = Number(row.qty) || 0;
+      const vid = row.variant_id != null && Number(row.variant_id) > 0 ? Number(row.variant_id) : null;
+      if (vid) {
+        hasAttributed.add(vid);
+        if (!attributed.has(vid)) attributed.set(vid, []);
+        attributed.get(vid).push({ warehouse_id: wh, qty, source: 'ledger' });
+      } else {
+        const k = `${Number(row.product_id)}:${wh}`;
+        unattributed.set(k, n3((unattributed.get(k) || 0) + qty));
       }
     }
   }
-  if (!tableExists(db, 'variant_warehouse_stock')) return map;
-  const rows = db.prepare(
-    'SELECT variant_id, warehouse_id, qty FROM variant_warehouse_stock'
-  ).all();
-  for (const row of rows) {
-    const id = Number(row.variant_id);
-    if (ledgerHasVariantRows && map.has(id)) continue;
-    if (!map.has(id)) map.set(id, []);
-    map.get(id).push({
-      warehouse_id: Number(row.warehouse_id),
-      qty: Number(row.qty) || 0,
-    });
+  if (tableExists(db, 'variant_warehouse_stock')) {
+    const rows = db.prepare(
+      'SELECT variant_id, warehouse_id, qty FROM variant_warehouse_stock'
+    ).all();
+    for (const row of rows) {
+      const id = Number(row.variant_id);
+      if (hasAttributed.has(id)) continue;
+      if (!cacheOnly.has(id)) cacheOnly.set(id, []);
+      cacheOnly.get(id).push({
+        warehouse_id: Number(row.warehouse_id),
+        qty: Number(row.qty) || 0,
+        source: 'cache',
+      });
+    }
+  }
+  return { attributed, cacheOnly, unattributed };
+}
+
+/** @deprecated use loadStockMaps — kept for callers that expect the old Map shape */
+function loadVws(db) {
+  const { attributed, cacheOnly } = loadStockMaps(db);
+  const map = new Map();
+  for (const [vid, rows] of attributed) map.set(vid, rows);
+  for (const [vid, rows] of cacheOnly) {
+    if (!map.has(vid)) map.set(vid, rows);
   }
   return map;
 }
@@ -221,12 +244,12 @@ function warehouseNames(db) {
   return map;
 }
 
-function makeCell(row, warehouseId, qty, whName) {
+function makeCell(row, warehouseId, qty, whName, extra) {
   const q = n3(qty);
   const unitCost = unitCostOf(row);
   const unitPrice = unitPriceOf(row);
   const whId = Number(warehouseId) || 0;
-  return {
+  const cell = {
     variant_id: Number(row.variant_id),
     sku: row.sku || '',
     product_id: Number(row.product_id),
@@ -247,10 +270,16 @@ function makeCell(row, warehouseId, qty, whName) {
     unit_price_rial: unitPrice,
     amount_rial: Math.round(q * unitCost),
     sales_value_rial: Math.round(q * unitPrice),
+    source: 'ledger',
   };
+  if (extra && typeof extra === 'object') Object.assign(cell, extra);
+  return cell;
 }
 
-function buildCells(variants, vwsByVariant, whName, warehouseFilter) {
+function buildCells(variants, stockMaps, whName, warehouseFilter) {
+  const attributed = stockMaps.attributed || new Map();
+  const cacheOnly = stockMaps.cacheOnly || new Map();
+  const unattributed = stockMaps.unattributed || new Map();
   const byProduct = new Map();
   for (const row of variants) {
     const id = Number(row.product_id);
@@ -259,11 +288,18 @@ function buildCells(variants, vwsByVariant, whName, warehouseFilter) {
   }
   const cells = [];
   for (const list of byProduct.values()) {
+    const pid = Number(list[0].product_id);
     const touched = new Set();
     for (const row of list) {
-      for (const stock of (vwsByVariant.get(Number(row.variant_id)) || [])) {
+      const vid = Number(row.variant_id);
+      for (const stock of (attributed.get(vid) || cacheOnly.get(vid) || [])) {
         if (stock.warehouse_id) touched.add(stock.warehouse_id);
       }
+    }
+    for (const [k, q] of unattributed) {
+      if (Math.abs(Number(q) || 0) < 1e-9) continue;
+      const [p, w] = k.split(':').map(Number);
+      if (p === pid && w) touched.add(w);
     }
     const home = Number(list[0].product_warehouse_id) || 0;
     let warehouses;
@@ -278,16 +314,49 @@ function buildCells(variants, vwsByVariant, whName, warehouseFilter) {
     }
     const useHeader = touched.size === 0;
     for (const row of list) {
-      const byWh = new Map(
-        (vwsByVariant.get(Number(row.variant_id)) || []).map((stock) => [stock.warehouse_id, stock.qty])
-      );
+      const vid = Number(row.variant_id);
+      const attrRows = attributed.get(vid) || null;
+      const cacheRows = !attrRows ? (cacheOnly.get(vid) || null) : null;
+      const byWh = new Map((attrRows || cacheRows || []).map((stock) => [stock.warehouse_id, stock]));
+      const source = attrRows ? 'ledger' : (cacheRows ? 'cache' : 'ledger');
       for (const whId of warehouses) {
         let qty;
         if (useHeader) qty = Number(row.variant_stock) || 0;
-        else if (byWh.has(whId)) qty = byWh.get(whId);
+        else if (byWh.has(whId)) qty = byWh.get(whId).qty;
         else qty = 0;
-        cells.push(makeCell(row, whId, qty, whName));
+        cells.push(makeCell(row, whId, qty, whName, { source }));
       }
+    }
+    const unitCost = unitCostOf(list[0]);
+    const unitPrice = unitPriceOf(list[0]);
+    for (const whId of warehouses) {
+      const uq = unattributed.get(`${pid}:${whId}`);
+      if (uq == null || Math.abs(Number(uq) || 0) < 1e-9) continue;
+      const q = n3(uq);
+      cells.push({
+        variant_id: 0,
+        sku: '',
+        product_id: pid,
+        code: list[0].product_code || '',
+        name: list[0].product_name || '',
+        category: list[0].category_name || '',
+        warehouse_id: whId,
+        warehouse_name: whName.get(whId) || ('انبار ' + whId),
+        color_id: 0,
+        color_name: 'بدون رنگ/سایز',
+        color_hex: '',
+        color_sort: 9999,
+        size_id: 0,
+        size_name: 'بدون رنگ/سایز',
+        size_sort: 9999,
+        qty: q,
+        unit_cost_rial: unitCost,
+        unit_price_rial: unitPrice,
+        amount_rial: Math.round(q * unitCost),
+        sales_value_rial: Math.round(q * unitPrice),
+        source: 'ledger',
+        unattributed: true,
+      });
     }
   }
   return cells;
@@ -322,6 +391,9 @@ function summarize(cells, lowQty) {
   let cost = 0;
   let sales = 0;
   let low = 0;
+  let cacheOnlyQty = 0;
+  let unattributedQty = 0;
+  const unattributedProducts = new Set();
   const colors = new Set();
   const sizes = new Set();
   const products = new Set();
@@ -332,39 +404,53 @@ function summarize(cells, lowQty) {
 
   for (const cell of cells) {
     const qty = Number(cell.qty) || 0;
+    const isCache = cell.source === 'cache';
+    const isUnattr = !!cell.unattributed;
+    if (isCache) {
+      cacheOnlyQty = n3(cacheOnlyQty + qty);
+      continue; // display-only — not in totals / by_*
+    }
     totalQty += qty;
-    skuQty.set(cell.variant_id, (skuQty.get(cell.variant_id) || 0) + qty);
-    if (qty > 0) {
-      cost += cell.amount_rial;
-      sales += cell.sales_value_rial;
+    if (isUnattr) {
+      unattributedQty = n3(unattributedQty + qty);
+      unattributedProducts.add(cell.product_id);
+    } else {
+      skuQty.set(cell.variant_id, (skuQty.get(cell.variant_id) || 0) + qty);
+    }
+    if (qty > 0 || isUnattr) {
+      if (qty > 0) {
+        cost += cell.amount_rial;
+        sales += cell.sales_value_rial;
+      }
       colors.add(cell.color_id);
       sizes.add(cell.size_id);
       products.add(cell.product_id);
-      if (qty <= lowQty) low += 1;
+      if (qty > 0 && qty <= lowQty) low += 1;
     }
 
     if (!colorMap.has(cell.color_id)) {
       colorMap.set(cell.color_id, {
         color_id: cell.color_id, name: cell.color_name, hex: cell.color_hex,
         sort: cell.color_sort, qty: 0, sku_count: 0, sales_value_rial: 0,
+        unattributed: isUnattr,
       });
     }
     const color = colorMap.get(cell.color_id);
     color.qty = n3(color.qty + qty);
-    if (qty > 0) {
+    if (qty > 0 || isUnattr) {
       color.sku_count += 1;
-      color.sales_value_rial += cell.sales_value_rial;
+      if (qty > 0) color.sales_value_rial += cell.sales_value_rial;
     }
 
     if (!sizeMap.has(cell.size_id)) {
       sizeMap.set(cell.size_id, {
         size_id: cell.size_id, name: cell.size_name, sort: cell.size_sort,
-        qty: 0, sku_count: 0,
+        qty: 0, sku_count: 0, unattributed: isUnattr,
       });
     }
     const size = sizeMap.get(cell.size_id);
     size.qty = n3(size.qty + qty);
-    if (qty > 0) size.sku_count += 1;
+    if (qty > 0 || isUnattr) size.sku_count += 1;
 
     if (!productMap.has(cell.product_id)) {
       productMap.set(cell.product_id, {
@@ -375,12 +461,14 @@ function summarize(cells, lowQty) {
     }
     const product = productMap.get(cell.product_id);
     product.qty = n3(product.qty + qty);
-    if (qty > 0) {
-      product.sales_value_rial += cell.sales_value_rial;
-      product.amount_rial += cell.amount_rial;
+    if (qty > 0 || isUnattr) {
+      if (qty > 0) {
+        product.sales_value_rial += cell.sales_value_rial;
+        product.amount_rial += cell.amount_rial;
+      }
       product.colors.add(cell.color_id);
       product.sizes.add(cell.size_id);
-      product.sku_count += 1;
+      if (!isUnattr && qty > 0) product.sku_count += 1;
     }
   }
 
@@ -391,14 +479,15 @@ function summarize(cells, lowQty) {
     else skuZero += 1;
   }
 
+  const keepAgg = (row) => Math.abs(Number(row.qty) || 0) > 1e-9;
   const byColor = [...colorMap.values()]
-    .filter((row) => row.qty > 0)
+    .filter(keepAgg)
     .sort((a, b) => b.qty - a.qty || a.sort - b.sort);
   const bySize = [...sizeMap.values()]
-    .filter((row) => row.qty > 0)
+    .filter(keepAgg)
     .sort((a, b) => b.qty - a.qty || a.sort - b.sort);
   const byProduct = [...productMap.values()]
-    .filter((row) => row.qty > 0)
+    .filter(keepAgg)
     .map((row) => ({
       product_id: row.product_id,
       code: row.code,
@@ -425,6 +514,9 @@ function summarize(cells, lowQty) {
       sku_zero: skuZero,
       low_count: low,
       low_qty: lowQty,
+      cache_only_qty: n3(cacheOnlyQty),
+      unattributed_qty: n3(unattributedQty),
+      unattributed_products: unattributedProducts.size,
     },
     by_color: byColor,
     by_size: bySize,
@@ -507,10 +599,15 @@ function buildLayerDrift(db, cellsAll, cellsShown, warehouseId) {
   }
   const shown = new Set(cellsShown.map((c) => c.product_id + ':' + c.warehouse_id));
   const variantQty = new Map();
+  const unattrQty = new Map();
   for (const cell of cellsAll) {
+    if (cell.source === 'cache') continue; // display-only; not part of kardex invariant
     const k = cell.product_id + ':' + cell.warehouse_id;
     if (!shown.has(k)) continue;
     variantQty.set(k, n3((variantQty.get(k) || 0) + (Number(cell.qty) || 0)));
+    if (cell.unattributed) {
+      unattrQty.set(k, n3((unattrQty.get(k) || 0) + (Number(cell.qty) || 0)));
+    }
   }
   const ledgerByKey = new Map(val.rows.map((r) => [r.product_id + ':' + r.warehouse_id, r]));
   const layers = [];
@@ -526,6 +623,7 @@ function buildLayerDrift(db, cellsAll, cellsShown, warehouseId) {
       kardex_qty: n3(kardexQty),
       kardex_value_rial: r ? r.ledger_value_rial : 0,
       ws_qty: r ? r.ws_qty : null,
+      unattributed_qty: unattrQty.get(k) || 0,
       drift_qty: diff,
       drift: Math.abs(diff) > 1e-6,
       ws_vs_vws: !!(r && r.flags.drift_ws_vws),
@@ -548,8 +646,9 @@ function buildVariantStockReport(db, query) {
   };
   const options = loadOptions(db);
   const variants = loadVariantRows(db);
-  const cellsAll = buildCells(variants, loadVws(db), warehouseNames(db), filters.warehouseId);
-  const forGaps = applyFilters(cellsAll, filters, { ignoreSize: true });
+  const stockMaps = loadStockMaps(db);
+  const cellsAll = buildCells(variants, stockMaps, warehouseNames(db), filters.warehouseId);
+  const forGaps = applyFilters(cellsAll.filter((c) => !c.unattributed && c.source !== 'cache'), filters, { ignoreSize: true });
   const cells = applyFilters(cellsAll, filters);
   const summary = summarize(cells, filters.lowQty);
   const gaps = findGaps(forGaps);
@@ -578,7 +677,7 @@ function buildVariantStockReport(db, query) {
     notes: {
       as_of: 'live',
       size_filter_ignored_for: ['matrix', 'gaps'],
-      source: 'vws',
+      source: 'ledger',
       warehouse_total_source: 'kardex',
       drift_available: layerInfo.available,
     },
@@ -595,4 +694,4 @@ function buildVariantStockReport(db, query) {
   return payload;
 }
 
-module.exports = { buildVariantStockReport };
+module.exports = { buildVariantStockReport, loadStockMaps, loadVws };

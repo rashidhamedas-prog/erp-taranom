@@ -136,6 +136,26 @@ function planAdjust(db, body, user, { peek = true } = {}) {
   const mv = require('./movement');
   const matrix = mv.hasActiveMatrixVariants(db, productId);
   const unalloc = unallocatedNet(db, productId, warehouseId);
+  const unattributedOther = [];
+  try {
+    const d = require('./stock-cache').deriveProductStock(db, productId);
+    const whName = (id) => {
+      try {
+        const r = db.prepare('SELECT name FROM warehouses WHERE id=?').get(id);
+        return (r && r.name) || (`انبار ${id}`);
+      } catch (_) { return `انبار ${id}`; }
+    };
+    for (const [wh, q] of d.unattributed) {
+      if (Math.abs(Number(q) || 0) < 1e-9) continue;
+      if (warehouseId && Number(wh) === Number(warehouseId)) continue;
+      const wid = wh || null;
+      unattributedOther.push({
+        warehouse_id: wid,
+        warehouse_name: wid ? whName(wid) : 'بدون انبار',
+        qty: round3(q),
+      });
+    }
+  } catch (_) { /* optional */ }
   const whQty = warehouseQtyOf(db, productId, warehouseId);
   const variantUsable = !matrix || !!variantId;
   const cur = variantUsable
@@ -151,6 +171,11 @@ function planAdjust(db, body, user, { peek = true } = {}) {
   if (matrix && warehouseId && Math.abs(unalloc) > 1e-9) {
     warnings.push(
       `در این انبار ${unalloc} واحد بدون رنگ/سایز مانده است؛ ابتدا «تفکیک رنگ» یا «ابطال اصلاحی با اثر موجودی» را روی ردیف بی‌واریانت انجام دهید، سپس تعدیل رنگ`
+    );
+  }
+  for (const u of unattributedOther) {
+    warnings.push(
+      `این کالا در «${u.warehouse_name}» ${u.qty} عدد بدون رنگ/سایز دارد؛ گزارش رنگ و سایز تا تفکیک آن ردیف با کاردکس برابر نمی‌شود`
     );
   }
   if (!matrix && !warehouseId) warnings.push('انبار انتخاب نشده؛ فقط موجودی کل کالا تعدیل می‌شود');
@@ -226,6 +251,7 @@ function planAdjust(db, body, user, { peek = true } = {}) {
     variant_qty: variantId ? cur : null,
     warehouse_qty: whQty,
     unallocated_net: unalloc,
+    unattributed_other: unattributedOther,
     new_qty: newQty,
     delta_qty: delta,
     unit_cost_rial: unit,
@@ -333,6 +359,12 @@ function postAdjust(db, body, user, opts = {}) {
         qtyDelta: delta, docType: SOURCE, docId: led.id, userId: user && user.id, note: ledgerNote,
         allowNegative: L.allowNegative(db, plan.warehouse_id),
       });
+      require('./stock-cache').assertVariantCellMirrorsLedger(db, {
+        productId: plan.product_id,
+        variantId: plan.variant_id,
+        warehouseId: plan.warehouse_id,
+        mode: 'throw',
+      });
       // P1: a color leaves the live pack only when EVERY size is exactly 0 (see retireZeroStockColors).
       try { require('../product-variants').afterVariantStockWrite(db, plan.product_id); } catch (_) { /* optional */ }
     }
@@ -414,6 +446,14 @@ function reverseAdjustInTx(db, row, user, { date, note } = {}) {
     require('./movement').reverseStockDocument(db, {
       docType: SOURCE, docId: row.id, userId: user && user.id, note: why, applyHeaderStock: false,
     });
+    if (row.variant_id) {
+      require('./stock-cache').assertVariantCellMirrorsLedger(db, {
+        productId: row.product_id,
+        variantId: row.variant_id,
+        warehouseId: row.warehouse_id,
+        mode: 'throw',
+      });
+    }
     require('./value-approval').cancelForSource(db, SOURCE, row.id, user, why);
     // P1: the reversal put a quantity back on a SKU that was retired meanwhile → bring it back,
     // otherwise the color would vanish from the form/kardex while still holding pieces.

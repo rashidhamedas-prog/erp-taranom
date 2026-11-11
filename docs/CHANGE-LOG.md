@@ -1,3 +1,16 @@
+### ۱۴۰۵/۰۸/۲۱ — fix: کش رنگ دیگر روی تعدیل/انتقال به ۰ یخ نمی‌زند؛ گزارش = کاردکس (+بدون رنگ) (SW v640)
+- **شاخه:** `fix/adjust-variant-sync-fix` (پایه: `origin/main` @ `6fcad545` / v639). منبع: `taranom-cursor-adjust-variant-sync-fix.md`.
+- **Deploy:** ⏳ gated — فقط بعد از عبارت دقیق `GO deploy adjust-variant-sync-fix`. هیچ rebuild/heal روی `crm.db` در بوت یا deploy؛ حامد ۷۱۵۴ و بقیه را خودش اصلاح می‌کند. محصول ۳۴۲/۷۲۱۷ دست‌نخورده.
+- **باگ:** وقتی کالا در هر انبار `unattributed` زنده داشت، `preserveZeros` خانه‌های attributed با ledger=۰ را در VWS/`product_variants.stock` نگه می‌داشت (مثال ۷۱۵۴: کاردکس ۳، گزارش رنگ ۸؛ WH34 بعد از تعدیل به ۰ هنوز مقادیر قبل از تعدیل). گزارش رنگ فقط attributed می‌شمرد و ردیف «بدون رنگ» نداشت.
+- **فیکس:**
+  - `stock-cache.js`: `deriveProductStock` شمار ردیف attributed هم برمی‌گرداند؛ اگر `ledgerRowCount>0` ⇒ همیشه ledger (حتی ۰). گارد seed-only ۲۰۲۶-۱۱-۰۳ فقط وقتی ردیف attributed نیست. `assertVariantCellMirrorsLedger` (throw بعد از adjust/void؛ warn در transfer/invoice/LRC).
+  - `variant-report.js`: سلول «بدون رنگ/سایز» از ledger؛ fallback VWS فقط نمایشی (`cache_only_qty`)؛ `notes.source='ledger'`؛ KPI `unattributed_*`؛ drift با unattr ≈ ۰.
+  - `manual-adjust.js`: هشدار غیرمسدود `unattributed_other` برای انبارهای دیگر؛ assert throw بعد از post/void.
+  - UI: رفرش برچسب رنگ بعد از ثبت در مسیر کسری؛ badge «جمع گزارش = کاردکس»؛ ردیف بدون‌رنگ قرمز؛ `GET /api/inventory/variant-sync-check` فقط‌خواندنی.
+- **SW:** `erp-taranom-v640`؛ `app.js?v=640`؛ `variant-stock-report.js?v=640`.
+- **تست Node 20.19.5:** `test-adjust-variant-sync` ۵۱۷/۰؛ `test-stock-cache-recon` ۱۷/۰؛ `test-stock-adjust-v525` ۱۱۴/۰؛ `test-p334-ledger-reverse-correction` ۶۵/۰؛ `test-void-stock-effect-already-negative` ۲۰/۰؛ `test-variant-reclass` ۶۷/۰؛ `test-stock-adjust-fix` سبز؛ `new Function(app.js/vsr)` OK.
+- **فایل‌ها:** `lib/inventory/{stock-cache,variant-report,manual-adjust,movement,ledger-reverse-correction}.js`، `routes/inventory.js`، `public/{app.js,variant-stock-report.js,sw.js,index.html}`، `scripts/test-adjust-variant-sync.js`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۲۰ — fix: تعدیل موجودی count/delta + ابطال افتتاحیهٔ بی‌واریانت + حساب مقابل ۴۲۰۵/۶۱۱۸/۶۱۰۸۰۱ (SW v639)
 - **Commit:** `7bd7e10b` (+ stamp docs `69c0efdf`) روی `fix/stock-adjust-fix` / `main` / alias (پایه: `25bc125d` / v638). منبع: `taranom-cursor-stock-adjust-fix.md`.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۰ — SFTP overlay روی درخت کثیف VPS (HEAD گیت `8a5cd54`؛ بدون `git pull`/`reset --hard`/`--update-env`). عبارت `GO deploy stock-adjust-fix`. بکاپ `/home/taranom/backups/crm.db.20261111-223420-stock-adjust-v639` (+wal/shm؛ sha256 `3e0fd9b7…`). `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v639**؛ `app.js?v=639`؛ stamp `.sftp-deploy-stamp-stock-adjust-fix-v639` (UTC `2026-11-11T19:04:40Z`). snapshot پیش/پس یکسان: JE approved c=1716 sum=201004932850؛ ledger max=4598؛ p342=`342|7217|0`؛ p329/7136 stock=17؛ WH34=15 WH35=2؛ INV-0796/4594–4598 همچنان posted. بدون write روی دادهٔ زنده جز overlay فایل.
