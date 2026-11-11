@@ -1,5 +1,6 @@
 ﻿### ۱۴۰۵/۰۸/۲۰ — fix: حذف تصویر کالا ستون `products.image` را پاک/promote می‌کند + × برای primary لگاسی (SW v636)
-- **شاخه:** `fix/product-image-delete` (پایه: `origin/main` `80043871` شامل tip variant `5d3b6657` / SW v635).
+- **Commit:** `bff54b3f` → merge `7504dc7a` (PR #206) روی `main` (پایه: `80043871` / tip variant `5d3b6657` / SW v635).
+- **شاخه:** `fix/product-image-delete`.
 - **Deploy:** ❌ عمداً تا عبارت دقیق `GO deploy product-image-delete` — بدون SFTP/pm2/write روی `crm.db` زنده / بدون SQL sweep. محصول **342** دست‌نخورده.
 - **باگ (اندازه‌گیری زنده):** DELETE `/api/products/images/:id` ردیف گالری و فایل را برمی‌داشت ولی `products.image` را خالی/promote نمی‌کرد؛ مودال با `id:0` دکمهٔ × نمی‌کشید ⇒ ghost «اصلی» غیرقابل‌حذف (مثلاً ۱۰۰۱۰۲ / ۷۰۶۳).
 - **فیکس بک‌اند (`routes/products.js`):** helper `removeProductImage` (حذف ردیف‌ها، rebuild `images_json`، promote/clear `products.image`، unlink فقط اگر هیچ محصول دیگری ارجاع ندهد، مسیر داخل `UPLOAD_DIR`، audit). مسیر جدید `DELETE /:id/images/primary` (+ اختیاری `{filename}`) برای primary بدون `product_images.id`. GET لیست/`/:id` با `attachGalleryImages` stub `legacy_primary:true` بدون write.
