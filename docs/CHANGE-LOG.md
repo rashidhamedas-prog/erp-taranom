@@ -1,6 +1,12 @@
-﻿### ۱۴۰۵/۰۸/۲۰ — ops: preflight آمادهٔ deploy حذف تصویر (v636) — بدون overlay
+﻿### ۱۴۰۵/۰۸/۲۰ — ops: deploy حذف تصویر کالا روی Iran (SW v636) — GO
+- **Deploy:** ✅ tip `07a14bdf` — overlay SFTP (بدون `git pull`/`--update-env`) — بکاپ `/home/taranom/backups/crm.db.20261111-191716` (+wal/shm؛ sha256 `19d8732b…`) — pm2 restart erp-taranom — health 200 + sharp 0.33.5 — SW **erp-taranom-v636** — stamp `.sftp-deploy-stamp-product-image-delete-v636`.
+- **Overlay hashes = tip:** products=`1b927535…`، app=`009dc414…`، sw=`94a864eb…`، index=`505c56bb…`.
+- **Snapshot پیش/پس یکسان:** JE approved lines c=1701 sum=186946878880؛ ledger max=4577؛ p342=`342|7217|0`؛ p100 image=`p_7ef0…` / `images_json=[]` (داده عمداً دست نخورد؛ حامد با × روی ۱۰۰۱۰۲/۷۰۶۳/… پاک می‌کند).
+- **عبارت:** `GO deploy product-image-delete`.
+
+### ۱۴۰۵/۰۸/۲۰ — ops: preflight آمادهٔ deploy حذف تصویر (v636) — بدون overlay
 - **Commit:** `9827d0d1` روی `main` / `fix/product-image-delete`.
-- **Deploy:** ❌ هنوز متوقف تا `GO deploy product-image-delete`. فقط خواندن Iran.
+- **Deploy:** بعداً ✅ با tip `07a14bdf` (ورود GO زیر همین تاریخ).
 - **Preflight (خواندنی):** live = baseline `80043871` برای `products.js`/`app.js`/`sw.js`/`index.html` (LF sha256 یکسان؛ SW v635؛ `app.js?v=635`). tip overlay (`1d6d4be1`+): products=`1b927535…`، app=`009dc414…`، sw=`94a864eb…` (v636)، index=`505c56bb…`. health 200 + sharp. snapshot: JE lines approved c=1701 sum=186946878880؛ ledger max=4577؛ p342=`342|7217|0`؛ p100 image=`p_7ef0…` / `images_json=[]`. VPS dirty (1447) ⇒ فقط SFTP overlay.
 - **اسکریپت:** `scripts/_preflight-product-image-delete-v636.py` (commit شده). deploy gated محلی (gitignore `_deploy-*`) با `--go='GO deploy product-image-delete'`.
 - **فایل‌ها:** `scripts/_preflight-product-image-delete-v636.py`، CHANGE-LOG.
@@ -8,7 +14,7 @@
 ### ۱۴۰۵/۰۸/۲۰ — fix: حذف تصویر کالا ستون `products.image` را پاک/promote می‌کند + × برای primary لگاسی (SW v636)
 - **Commit:** `bff54b3f` → merge `7504dc7a` (PR #206) روی `main` (پایه: `80043871` / tip variant `5d3b6657` / SW v635).
 - **شاخه:** `fix/product-image-delete`.
-- **Deploy:** ❌ عمداً تا عبارت دقیق `GO deploy product-image-delete` — بدون SFTP/pm2/write روی `crm.db` زنده / بدون SQL sweep. محصول **342** دست‌نخورده.
+- **Deploy:** ✅ Iran با tip `07a14bdf` / SW v636 (ورود GO زیر همین تاریخ).
 - **باگ (اندازه‌گیری زنده):** DELETE `/api/products/images/:id` ردیف گالری و فایل را برمی‌داشت ولی `products.image` را خالی/promote نمی‌کرد؛ مودال با `id:0` دکمهٔ × نمی‌کشید ⇒ ghost «اصلی» غیرقابل‌حذف (مثلاً ۱۰۰۱۰۲ / ۷۰۶۳).
 - **فیکس بک‌اند (`routes/products.js`):** helper `removeProductImage` (حذف ردیف‌ها، rebuild `images_json`، promote/clear `products.image`، unlink فقط اگر هیچ محصول دیگری ارجاع ندهد، مسیر داخل `UPLOAD_DIR`، audit). مسیر جدید `DELETE /:id/images/primary` (+ اختیاری `{filename}`) برای primary بدون `product_images.id`. GET لیست/`/:id` با `attachGalleryImages` stub `legacy_primary:true` بدون write.
 - **فیکس فرانت (`public/app.js`):** × برای هر thumb وقتی `iid` یا filename؛ `deleteProductImage(id, productId, filename)` مسیر legacy را صدا می‌زند و خطای API را نشان می‌دهد. Help ادمین بند v636.
