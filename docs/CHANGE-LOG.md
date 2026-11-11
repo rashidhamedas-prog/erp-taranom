@@ -4,7 +4,7 @@
 - **فیکس:** UI با closure مقدار واقعی `fn` را می‌فرستد؛ `deleteProductImage` basename می‌گیرد و `${…}` را دور می‌اندازد؛ سرور اگر filename نامعتبر بود به `products.image` فعلی fallback می‌کند (دیگر 400 برای garbage).
 - **SW:** `erp-taranom-v637`؛ `app.js?v=637`.
 - **تست Node 20:** `test-product-image-delete-clears-primary` OK (+assertion برای body=`${safe}`).
-- **Deploy:** در همان نوبت overlay Iran پس از commit.
+- **Deploy:** ✅ tip `2625f0d4` — overlay Iran — بکاپ `crm.db.20261111-192236` — pm2 restart — health 200 — SW **v637** — stamp `.sftp-deploy-stamp-product-image-delete-v637` — snapshot پیش/پس یکسان.
 - **فایل‌ها:** `routes/products.js`، `public/{app.js,sw.js,index.html}`، `scripts/test-product-image-delete-clears-primary.js`، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۲۰ — ops: deploy حذف تصویر کالا روی Iran (SW v636) — GO
