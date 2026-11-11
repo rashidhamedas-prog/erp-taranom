@@ -11324,7 +11324,7 @@ async function prodModal(id){
                     const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
                     return `<div data-csp-style="${CSP.style(`position:relative;cursor:zoom-in`)}" data-csp-click="${CSP.bind('click',function(event){openProductAlbumFromCard((id||0))})}">
                       ${prodImgTag(fn,'class=\"prod-thumb\"')}
-                      ${iid&&id?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(id))})}">×</button>`:''}
+                      ${id&&(iid||fn)?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(id),('${safe}'))})}">×</button>`:''}
                       ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;inset-inline-start:4px`)}">اصلی</span>`:''}
                     </div>`;
                   }).join('');
@@ -13262,10 +13262,11 @@ function bindProductImageInstantUpload(productId){
           box.innerHTML=gallery.length?gallery.map((fn,i)=>{
             const row=(saved.images||[]).find(im=>(im.filename||im)===fn);
             const iid=row&&row.id?row.id:0;
+            const safe=String(fn).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
             return `<div data-csp-style="${CSP.style(`position:relative;cursor:zoom-in`)}" data-csp-click="${CSP.bind('click',function(event){openProductAlbumFromCard((productId))})}">
               ${prodImgTag(fn,'class=\"prod-thumb\"')}
-              ${iid?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;left:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(productId))})}">×</button>`:''}
-              ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;left:4px`)}">اصلی</span>`:''}
+              ${(iid||fn)?`<button type="button" class="btn sm red" data-csp-style="${CSP.style(`position:absolute;top:2px;inset-inline-start:2px;z-index:2`)}" data-csp-click="${CSP.bind('click',function(event){event.stopPropagation();deleteProductImage((iid),(productId),('${safe}'))})}">×</button>`:''}
+              ${i===0?`<span class="img-badge" data-csp-style="${CSP.style(`bottom:4px;inset-inline-start:4px`)}">اصلی</span>`:''}
             </div>`;
           }).join(''):'<span class="muted">تصویری ثبت نشده</span>';
           inp.value='';
@@ -38586,13 +38587,22 @@ async function openHtmlAuth(url){
   }catch(e){ showToast('خطا','error'); }
 }
 
-async function deleteProductImage(imageId, productId){
+async function deleteProductImage(imageId, productId, filename){
   if(!confirm('این تصویر حذف شود؟')) return;
   try{
-    await api('DELETE','/products/images/'+imageId);
+    if(imageId){
+      await api('DELETE','/products/images/'+imageId);
+    }else if(productId){
+      const body = filename ? { filename: String(filename) } : {};
+      await api('DELETE','/products/'+productId+'/images/primary', body);
+    }else{
+      throw new Error('شناسه تصویر یا محصول نامعتبر است');
+    }
     showToast('حذف شد');
     if(productId) prodModal(productId);
-  }catch(e){}
+  }catch(e){
+    showToast((e&&e.message)||'خطا در حذف تصویر','error');
+  }
 }
 async function approveInvoice(id){
   if(!confirm('این فاکتور تأیید و در محاسبه انگیزه فروش لحاظ شود؟')) return;
@@ -44502,6 +44512,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>گروه کالا در نوار سمت راست؛ جدول کالاها سمت چپ</li>
         <li>انتخاب و حذف گروهی؛ ویرایش با ✏️</li>
         <li>چند تصویر برای هر کالا — عکس‌های جدید به گالری <b>اضافه</b> می‌شوند و عکس قبلی را پاک نمی‌کنند</li>
+        <li><b>حذف تصویر (v636):</b> دکمهٔ × روی هر تصویر گالری (حتی «اصلی» بدون ردیف گالری) تصویر را حذف می‌کند؛ ستون تصویر اصلی پاک یا به تصویر بعدی منتقل می‌شود و با ذخیرهٔ بعدی دوباره برنمی‌گردد</li>
         <li>آپلود فوری عکس در مودال ویرایش فقط تصویر را ذخیره می‌کند و <b>موجودی، تعداد در پک، قیمت و سایر فیلدها را تغییر نمی‌دهد</b></li>
         <li>دسته‌بندی‌ها از زیرمنوی گروه‌های کالا</li>
       </ul>

@@ -32,6 +32,191 @@ function listProductImages(db, productId) {
   } catch (_) { return []; }
 }
 
+/** Basename-only product image name under UPLOAD_DIR (rejects traversal). */
+function sanitizeProductImageFilename(name) {
+  const raw = String(name || '').trim();
+  if (!raw || raw.includes('..') || /[\\/]/.test(raw) || path.isAbsolute(raw)) return null;
+  try {
+    const { isValidFileName } = require('../sync/files');
+    if (!isValidFileName(raw, 'products')) return null;
+  } catch (_) {
+    if (!/^p_[0-9a-f]+\.(webp|jpe?g|png)$/i.test(raw)) return null;
+  }
+  return raw;
+}
+
+function resolveProductUploadPath(filename) {
+  const safe = sanitizeProductImageFilename(filename);
+  if (!safe) {
+    const err = new Error('نام فایل نامعتبر است');
+    err.status = 400;
+    throw err;
+  }
+  const root = path.resolve(UPLOAD_DIR);
+  const full = path.resolve(UPLOAD_DIR, safe);
+  if (full !== root && !full.startsWith(root + path.sep)) {
+    const err = new Error('مسیر فایل نامعتبر است');
+    err.status = 400;
+    throw err;
+  }
+  return { safe, full };
+}
+
+function productImageStillReferenced(db, filename) {
+  const safe = sanitizeProductImageFilename(filename);
+  if (!safe) return false;
+  try {
+    const { isReferencedFile } = require('../sync/files');
+    return !!isReferencedFile(db, 'products', safe);
+  } catch (_) {
+    if (db.prepare('SELECT 1 FROM products WHERE image=? LIMIT 1').get(safe)) return true;
+    if (db.prepare('SELECT 1 FROM product_images WHERE filename=? LIMIT 1').get(safe)) return true;
+    return false;
+  }
+}
+
+/**
+ * Attach gallery for API responses without writing the DB.
+ * If products.image is set but missing from product_images, append legacy_primary stub (id:0).
+ */
+function attachGalleryImages(db, row) {
+  if (!row) return row;
+  let imgs = listProductImages(db, row.id);
+  if (!imgs.length && row.images_json) {
+    try {
+      imgs = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i }));
+    } catch (_) { imgs = []; }
+  }
+  if (row.image) {
+    const has = imgs.some((im) => (im.filename || im) === row.image);
+    if (!has) {
+      imgs = imgs.concat([{
+        id: 0,
+        filename: row.image,
+        sort_order: imgs.length,
+        legacy_primary: true,
+      }]);
+    }
+  }
+  row.images = imgs;
+  if (!row.image && imgs[0]) row.image = imgs[0].filename;
+  return row;
+}
+
+/**
+ * Delete a gallery row and/or legacy products.image primary.
+ * Promotes products.image to next remaining filename (ORDER BY sort_order,id) or ''.
+ * Unlinks the file only when no other product still references that filename.
+ */
+function removeProductImage(db, { productId, imageId, filename } = {}) {
+  const pidHint = Number(productId) || 0;
+  const idNum = Number(imageId) || 0;
+  let targetFilename = null;
+  let resolvedProductId = pidHint;
+
+  if (idNum > 0) {
+    const img = db.prepare('SELECT * FROM product_images WHERE id=?').get(idNum);
+    if (!img) {
+      const err = new Error('یافت نشد');
+      err.status = 404;
+      throw err;
+    }
+    if (pidHint && Number(img.product_id) !== pidHint) {
+      const err = new Error('یافت نشد');
+      err.status = 404;
+      throw err;
+    }
+    targetFilename = sanitizeProductImageFilename(img.filename) || String(img.filename || '').trim();
+    if (!sanitizeProductImageFilename(targetFilename)) {
+      const err = new Error('یافت نشد');
+      err.status = 404;
+      throw err;
+    }
+    resolvedProductId = Number(img.product_id);
+  } else {
+    if (!pidHint) {
+      const err = new Error('شناسه محصول الزامی است');
+      err.status = 400;
+      throw err;
+    }
+    const prod = db.prepare('SELECT id, image FROM products WHERE id=?').get(pidHint);
+    if (!prod) {
+      const err = new Error('یافت نشد');
+      err.status = 404;
+      throw err;
+    }
+    resolvedProductId = Number(prod.id);
+    if (filename != null && String(filename).trim() !== '') {
+      const requested = sanitizeProductImageFilename(filename);
+      if (!requested) {
+        const err = new Error('نام فایل نامعتبر است');
+        err.status = 400;
+        throw err;
+      }
+      const inGallery = db.prepare(
+        'SELECT 1 FROM product_images WHERE product_id=? AND filename=? LIMIT 1'
+      ).get(resolvedProductId, requested);
+      if (prod.image !== requested && !inGallery) {
+        const err = new Error('یافت نشد');
+        err.status = 404;
+        throw err;
+      }
+      targetFilename = requested;
+    } else {
+      targetFilename = sanitizeProductImageFilename(prod.image);
+      if (!targetFilename) {
+        const err = new Error('یافت نشد');
+        err.status = 404;
+        throw err;
+      }
+    }
+  }
+
+  const applied = db.transaction(() => {
+    db.prepare('DELETE FROM product_images WHERE product_id=? AND filename=?')
+      .run(resolvedProductId, targetFilename);
+    const remaining = listProductImages(db, resolvedProductId);
+    const names = remaining.map((r) => r.filename);
+    try {
+      db.prepare('UPDATE products SET images_json=? WHERE id=?')
+        .run(JSON.stringify(names), resolvedProductId);
+    } catch (_) { /* images_json may be absent on very old DBs */ }
+
+    const cur = db.prepare('SELECT image FROM products WHERE id=?').get(resolvedProductId);
+    const curPrimary = cur && cur.image ? String(cur.image) : '';
+    if (!curPrimary || curPrimary === targetFilename) {
+      db.prepare('UPDATE products SET image=? WHERE id=?')
+        .run(names[0] || '', resolvedProductId);
+    }
+    const after = db.prepare('SELECT image FROM products WHERE id=?').get(resolvedProductId);
+    return {
+      images: names,
+      image: (after && after.image) || '',
+    };
+  })();
+
+  let unlinked = false;
+  if (!productImageStillReferenced(db, targetFilename)) {
+    try {
+      const { full } = resolveProductUploadPath(targetFilename);
+      fs.unlinkSync(full);
+      unlinked = true;
+    } catch (e) {
+      if (e && e.status) throw e;
+      // ENOENT / missing file is fine for ghost primaries
+    }
+  }
+
+  return {
+    ok: true,
+    productId: resolvedProductId,
+    filename: targetFilename,
+    images: applied.images,
+    image: applied.image,
+    unlinked,
+  };
+}
+
 function jsonSafeProduct(row) {
   if (!row || typeof row !== 'object') return row;
   try {
@@ -234,15 +419,7 @@ router.get('/', auth, (req, res) => {
   } catch (_) { /* keep cached columns on error */ }
   // Attach gallery filenames for album UI (catalog / marketer / cards)
   for (const row of rows) {
-    let imgs = listProductImages(db, row.id);
-    if (!imgs.length && row.images_json) {
-      try {
-        imgs = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i }));
-      } catch (_) { imgs = []; }
-    }
-    if (!imgs.length && row.image) imgs = [{ id: 0, filename: row.image, sort_order: 0 }];
-    row.images = imgs;
-    if (!row.image && imgs[0]) row.image = imgs[0].filename;
+    attachGalleryImages(db, row);
   }
   attachVariantFlags(db, rows);
   if (warehouseId) attachAvailableQty(db, rows, warehouseId);
@@ -338,13 +515,47 @@ router.get('/by-barcode/:code', auth, (req, res) => {
 
 router.delete('/images/:imageId', auth, adminOrAccounting, (req, res) => {
   const db = getDB();
-  const img = db.prepare('SELECT * FROM product_images WHERE id=?').get(req.params.imageId);
-  if (!img) return res.status(404).json({ error: 'یافت نشد' });
-  db.prepare('DELETE FROM product_images WHERE id=?').run(img.id);
-  try { fs.unlinkSync(path.join(UPLOAD_DIR, img.filename)); } catch (_) {}
-  const all = listProductImages(db, img.product_id).map(r => r.filename);
-  try { db.prepare('UPDATE products SET images_json=? WHERE id=?').run(JSON.stringify(all), img.product_id); } catch (_) {}
-  res.json({ ok: true, images: all });
+  try {
+    const result = removeProductImage(db, { imageId: req.params.imageId });
+    try {
+      const prod = db.prepare('SELECT name FROM products WHERE id=?').get(result.productId);
+      audit(
+        req.user.id,
+        'delete',
+        'product_image',
+        result.productId,
+        `حذف تصویر محصول ${(prod && prod.name) || ''}: ${result.filename}`,
+        req
+      );
+    } catch (_) {}
+    res.json({ ok: true, images: result.images, image: result.image });
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message || 'خطا' });
+  }
+});
+
+// Legacy primary with no product_images.id — do not use DELETE /images/0 (404).
+// Optional filename (query or JSON body) is a guard only; unlink uses DB value.
+router.delete('/:id/images/primary', auth, adminOrAccounting, (req, res) => {
+  const db = getDB();
+  try {
+    const filename = (req.body && req.body.filename) || req.query.filename || null;
+    const result = removeProductImage(db, { productId: req.params.id, filename });
+    try {
+      const prod = db.prepare('SELECT name FROM products WHERE id=?').get(result.productId);
+      audit(
+        req.user.id,
+        'delete',
+        'product_image',
+        result.productId,
+        `حذف تصویر اصلی محصول ${(prod && prod.name) || ''}: ${result.filename}`,
+        req
+      );
+    } catch (_) {}
+    res.json({ ok: true, images: result.images, image: result.image });
+  } catch (e) {
+    return res.status(e.status || 500).json({ error: e.message || 'خطا' });
+  }
 });
 
 // Image-only upload — NEVER touches stock/pack_size/price/code/note/etc.
@@ -362,7 +573,7 @@ router.post('/:id/images', auth, adminOrAccounting, uploadProductMedia, async (r
     audit(req.user.id, 'update', 'product', req.params.id, `آپلود تصویر محصول ${prod.name}`);
   } catch (_) {}
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
-  row.images = listProductImages(db, row.id);
+  attachGalleryImages(db, row);
   res.json(jsonSafeProduct(row));
 });
 
@@ -390,11 +601,7 @@ router.get('/:id', auth, (req, res) => {
     WHERE ${where.join(' AND ')}
   `).get(...params);
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
-  row.images = listProductImages(db, row.id);
-  if (!row.images.length && row.images_json) {
-    try { row.images = JSON.parse(row.images_json).map((filename, i) => ({ id: 0, filename, sort_order: i })); } catch (_) {}
-  }
-  if (!row.image && row.images && row.images[0]) row.image = row.images[0].filename;
+  attachGalleryImages(db, row);
   try {
     if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='inventory_ledger' AND EXISTS (SELECT 1 FROM inventory_ledger WHERE product_id=? LIMIT 1)").get(row.id)) {
       const { derivedQty } = require('../lib/inventory/stock-cache');
