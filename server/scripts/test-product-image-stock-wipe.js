@@ -18,17 +18,22 @@ fs.mkdirSync(path.join(uploadsDir, 'products'), { recursive: true });
 
 process.env.DB_PATH = dbPath;
 process.env.UPLOADS_DIR = uploadsDir;
-process.env.JWT_SECRET = 'test-secret-product-image-wipe-fix';
+process.env.JWT_SECRET = 'test-secret-product-image-wipe-fix-32chars!!';
+process.env.AUTH_SESSION_DB_PATH = path.join(tmpDir, 'sessions.db');
 process.env.SYNC_ROLE = 'central';
 process.env.NODE_ENV = 'test';
+process.env.ERP_TEST_ISOLATION = '1';
+process.env.SMS_DISABLED = '1';
+delete process.env.HTTP_PROXY;
+delete process.env.HTTPS_PROXY;
 
 delete require.cache[require.resolve('../db')];
 const { getDB, initDB } = require('../db');
 initDB();
 const db = getDB();
 
-const user = db.prepare("SELECT id FROM users WHERE role='admin' AND active=1 LIMIT 1").get()
-  || db.prepare('SELECT id FROM users WHERE active=1 LIMIT 1').get();
+const user = db.prepare("SELECT * FROM users WHERE role='admin' AND active=1 LIMIT 1").get()
+  || db.prepare('SELECT * FROM users WHERE active=1 LIMIT 1').get();
 assert(user, 'need an active user');
 // Clear must_change so auth doesn't block
 try { db.prepare('UPDATE users SET must_change_password=0 WHERE id=?').run(user.id); } catch (_) {}
@@ -46,9 +51,8 @@ if (whId) {
     .run(pid, whId, 48);
 }
 
-const jwt = require('jsonwebtoken');
-const { SECRET } = require('../middleware/auth');
-const token = jwt.sign({ id: user.id, role: 'admin', name: 'test' }, SECRET, { expiresIn: '1h' });
+const { issueStaffSession } = require('../lib/auth-sessions');
+const { token } = issueStaffSession(db, user, { deviceName: 'img-wipe-test', deviceKind: 'web' });
 
 const productsRouter = require('../routes/products');
 const app = express();

@@ -1,4 +1,14 @@
-﻿### ۱۴۰۵/۰۸/۲۰ — fix: ذخیرهٔ رنگ×سایز با VWS=0/opening_seed دیگر رنگ را خاموش نمی‌کند (SW v635)
+﻿### ۱۴۰۵/۰۸/۲۰ — fix: حذف تصویر کالا ستون `products.image` را پاک/promote می‌کند + × برای primary لگاسی (SW v636)
+- **شاخه:** `fix/product-image-delete` (پایه: `origin/main` `80043871` شامل tip variant `5d3b6657` / SW v635).
+- **Deploy:** ❌ عمداً تا عبارت دقیق `GO deploy product-image-delete` — بدون SFTP/pm2/write روی `crm.db` زنده / بدون SQL sweep. محصول **342** دست‌نخورده.
+- **باگ (اندازه‌گیری زنده):** DELETE `/api/products/images/:id` ردیف گالری و فایل را برمی‌داشت ولی `products.image` را خالی/promote نمی‌کرد؛ مودال با `id:0` دکمهٔ × نمی‌کشید ⇒ ghost «اصلی» غیرقابل‌حذف (مثلاً ۱۰۰۱۰۲ / ۷۰۶۳).
+- **فیکس بک‌اند (`routes/products.js`):** helper `removeProductImage` (حذف ردیف‌ها، rebuild `images_json`، promote/clear `products.image`، unlink فقط اگر هیچ محصول دیگری ارجاع ندهد، مسیر داخل `UPLOAD_DIR`، audit). مسیر جدید `DELETE /:id/images/primary` (+ اختیاری `{filename}`) برای primary بدون `product_images.id`. GET لیست/`/:id` با `attachGalleryImages` stub `legacy_primary:true` بدون write.
+- **فیکس فرانت (`public/app.js`):** × برای هر thumb وقتی `iid` یا filename؛ `deleteProductImage(id, productId, filename)` مسیر legacy را صدا می‌زند و خطای API را نشان می‌دهد. Help ادمین بند v636.
+- **SW:** `erp-taranom-v636`؛ `index.html` `app.js?v=636`.
+- **تست (Node 20.19.5):** `test-product-image-delete-clears-primary.js` OK؛ `test-product-image-stock-wipe.js` OK (auth با `issueStaffSession`)؛ `test-sms` ۲۲/۰؛ `new Function(app.js)` OK. `test-sync` همان HARNESS ERROR از قبل روی baseline — بدون ارتباط با این فیکس.
+- **فایل‌ها:** `server/routes/products.js`، `server/public/{app.js,sw.js,index.html}`، `server/scripts/test-product-image-delete-clears-primary.js`، `server/scripts/test-product-image-stock-wipe.js`، `docs/CHANGE-LOG.md`.
+
+### ۱۴۰۵/۰۸/۲۰ — fix: ذخیرهٔ رنگ×سایز با VWS=0/opening_seed دیگر رنگ را خاموش نمی‌کند (SW v635)
 - **Commit:** tip `5d3b6657` (فیکس `ae3c719b`) روی `fix/variant-save-history-zero` / `main` (پایه: `eb6bdd48` / v634).
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۰ — overlay SFTP روی درخت کثیف VPS (HEAD گیت `8a5cd54`؛ بدون `git pull`/`reset --hard`/`--update-env`). قبل: `service.js`=`4b5182e9…`، `website-stock-sync.js`=`3bc08471…`، SW v634. بعد: hashes محلی مطابق tip؛ SW **v635**؛ `app.js?v=635`؛ بکاپ `/home/taranom/backups/crm.db.20261111-172543` (+wal/shm)؛ `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + `image_engine` sharp 0.33.5؛ stamp `.sftp-deploy-stamp-variant-save-fix-v635`. snapshot DB پیش/پس یکسان: JE approved 804 / sum debit 186940421923 / ledger max 4559 / p342=`342|7217|0` / p100 ledger `560:NULL:148:831`. بدون write روی دادهٔ زنده جز overlay فایل.
 - **تست (Node 20):** `test-variant-save-history-zero-persists` ۲۳/۰؛ `test-new-color-persists-on-save` ۱۴/۰؛ `test-prod-sku-color-panel` ۷۱؛ `test-sms` ۲۲/۰.
