@@ -43,7 +43,22 @@ db.exec(`
   CREATE TABLE variant_warehouse_stock (
     variant_id INTEGER, warehouse_id INTEGER, qty REAL, PRIMARY KEY (variant_id, warehouse_id)
   );
+  CREATE TABLE inventory_ledger (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER, variant_id INTEGER, warehouse_id INTEGER,
+    qty_in REAL DEFAULT 0, qty_out REAL DEFAULT 0,
+    event_type TEXT DEFAULT 'opening',
+    status TEXT DEFAULT 'posted', reversed_of INTEGER, replaces_id INTEGER
+  );
 `);
+
+function seedLedger(productId, variantId, warehouseId, qty) {
+  if (!(qty > 0)) return;
+  db.prepare(`
+    INSERT INTO inventory_ledger (product_id, variant_id, warehouse_id, qty_in, qty_out, event_type, status)
+    VALUES (?,?,?,?,0,'opening','posted')
+  `).run(productId, variantId, warehouseId, qty);
+}
 
 const wh1 = db.prepare("INSERT INTO warehouses (name, code) VALUES ('محصول','FG')").run().lastInsertRowid;
 const wh2 = db.prepare("INSERT INTO warehouses (name, code) VALUES ('شعبه','BR')").run().lastInsertRowid;
@@ -89,15 +104,22 @@ addVariant(p1, red, s38, 70, { active: 0 });
 db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vBlack38, wh1, 10);
 db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vWhite38, wh1, 4);
 db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vWhite40, wh1, 3);
+seedLedger(p1, vBlack38, wh1, 10);
+seedLedger(p1, vWhite38, wh1, 4);
+seedLedger(p1, vWhite40, wh1, 3);
 
 const vRed38 = addVariant(p2, red, s38, 8);
 const vRed40 = addVariant(p2, red, s40, 0);
 db.prepare('UPDATE product_variants SET cost=50, price_rial=80 WHERE id IN (?,?)').run(vRed38, vRed40);
+// Scarf has no VWS — header/variant stock path when no ledger; seed ledger so totals use SSOT
+seedLedger(p2, vRed38, wh1, 8);
 
 const vShirt38 = addVariant(p3, black, s38, 0);
 const vShirt40 = addVariant(p3, black, s40, 0);
 db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vShirt38, wh1, 5);
 db.prepare('INSERT INTO variant_warehouse_stock (variant_id, warehouse_id, qty) VALUES (?,?,?)').run(vShirt40, wh2, 2);
+seedLedger(p3, vShirt38, wh1, 5);
+seedLedger(p3, vShirt40, wh2, 2);
 
 console.log('\n══ Variant stock report ══\n');
 

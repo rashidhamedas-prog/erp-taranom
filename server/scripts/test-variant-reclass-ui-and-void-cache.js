@@ -366,20 +366,22 @@ async function main() {
     ok(n3(dRem.unattributed.get(WHA) || 0) === 3, 'OPEN2 leaves unattributed 3 for void-cache test', dRem.unattributed.get(WHA));
 
     console.log('— INV-4556/4557 void leftover cache —');
+    // Adjust must run on a warehouse without live unattributed (v640 blocks same-WH colour adjust).
+    // OPEN2 unattr stays on WHA; exercise void-cache restore on WHB.
     const colour = V[0];
-    const beforeVws = vws(colour, WHA);
+    const beforeVws = vws(colour, WHB);
     const beforePv = pvStock(colour);
     const adj = MA.postAdjust(db, {
-      product_id: P, warehouse_id: WHA, variant_id: colour,
+      product_id: P, warehouse_id: WHB, variant_id: colour,
       mode: 'delta', qty: 2, reason_code: 'surplus', note: 'شبیه‌سازی INV-4556',
     }, { id: ADMIN_ID, role: 'admin' });
     ok(!!adj && !!adj.id, 'postAdjust +2', adj && adj.id);
-    ok(vws(colour, WHA) === n3(beforeVws + 2), 'VWS +2 after adjust');
+    ok(vws(colour, WHB) === n3(beforeVws + 2), 'VWS +2 after adjust');
     ok(pvStock(colour) === n3(beforePv + 2), 'pv.stock +2 after adjust');
 
     r = await call('POST', `/api/inventory/ledger/${adj.id}/reverse`, { note: 'ابطال شبیه INV-4557' });
     ok(r.status === 200, 'void adjust via ledger reverse', r.body);
-    ok(vws(colour, WHA) === beforeVws, 'VWS restored after void (not stale +2)', { now: vws(colour, WHA), before: beforeVws });
+    ok(vws(colour, WHB) === beforeVws, 'VWS restored after void (not stale +2)', { now: vws(colour, WHB), before: beforeVws });
     ok(pvStock(colour) === beforePv, 'pv.stock restored after void', { now: pvStock(colour), before: beforePv });
     ok(n3(SC.deriveProductStock(db, P).unattributed.get(WHA) || 0) === 3, 'unattributed remainder still 3');
 
@@ -387,7 +389,7 @@ async function main() {
     ok(r.status >= 400, 'second void rejected', r.status);
 
     const sum2 = SC.rebuildStockCache(db, P);
-    ok(vws(colour, WHA) === beforeVws, 'rebuild again idempotent for VWS');
+    ok(vws(colour, WHB) === beforeVws, 'rebuild again idempotent for VWS');
     ok(sum2 && sum2.force_variant_ledger === false, 'rebuild without force');
 
     // Other reverseStockDocument path: synthetic colour inbound then void movements
@@ -499,7 +501,7 @@ async function main() {
       ok(false, 'new Function(app.js)', String(e && e.message));
     }
 
-    ok(/erp-taranom-v634/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')), 'SW v634');
+    ok(/erp-taranom-v641/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'sw.js'), 'utf8')), 'SW v641');
     ok(/counterpart/.test(appJs) && /net_blocked/.test(appJs), 'app.js keeps counterpart + net_blocked');
   } finally {
     server.close();

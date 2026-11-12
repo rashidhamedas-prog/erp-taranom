@@ -42,10 +42,23 @@ function vsrNorm(c) {
   if (typeof whRepNormRow !== 'function' || !c) return null;
   if (!c._vsrNorm) {
     const L = vsrLayerOf(c);
-    const src = L ? Object.assign({}, c, {
-      kardex_qty: L.kardex_qty, ledger_value_rial: L.kardex_value_rial, ws_qty: L.ws_qty,
-      drift_qty: L.drift_qty, drift_ws_vws: !!L.ws_vs_vws, layer_drift: !!L.drift,
-    }) : c;
+    let src = c;
+    if (L) {
+      // Prefer explicit unexplained flag (v641+); fall back to raw ws_vs_vws for older payloads.
+      const unexplained = L.ws_vs_vws_unexplained != null ? !!L.ws_vs_vws_unexplained : !!L.ws_vs_vws;
+      const reportDrift = !!L.drift;
+      // Warehouse-level flags only when unexplained cache drift or report≠kardex —
+      // an unattributed-explained gap is shown once on the unattr row / status line.
+      const applyWh = unexplained || reportDrift;
+      src = Object.assign({}, c, {
+        kardex_qty: L.kardex_qty,
+        ledger_value_rial: L.kardex_value_rial,
+        ws_qty: L.ws_qty,
+        drift_qty: L.drift_qty,
+        drift_ws_vws: applyWh ? unexplained : false,
+        layer_drift: applyWh ? reportDrift : false,
+      });
+    }
     c._vsrNorm = whRepNormRow(src);
   }
   return c._vsrNorm;
@@ -566,7 +579,12 @@ function vsrGrid(cells) {
   const colors = new Map();
   const sizes = new Map();
   const qty = new Map();
+  let unattrQty = 0;
   cells.forEach(function (cell) {
+    if (cell.unattributed) {
+      unattrQty += vsrCellQty(cell);
+      return;
+    }
     if (!colors.has(cell.color_id)) colors.set(cell.color_id, cell);
     if (!sizes.has(cell.size_id)) sizes.set(cell.size_id, cell);
     const key = cell.color_id + ':' + cell.size_id;
@@ -576,6 +594,7 @@ function vsrGrid(cells) {
     colors: [...colors.values()].sort(function (a, b) { return a.color_sort - b.color_sort || String(a.color_name).localeCompare(String(b.color_name), 'fa'); }),
     sizes: [...sizes.values()].sort(function (a, b) { return a.size_sort - b.size_sort || String(a.size_name).localeCompare(String(b.size_name), 'fa'); }),
     qty: qty,
+    unattrQty: unattrQty,
   };
 }
 
@@ -607,12 +626,17 @@ function vsrHtmlMatrix(data) {
     + '</select></label>';
   const sizeNote = vsrState().filters.size_id ? '<p class="vsr-note">فیلتر سایز اینجا اعمال نشده تا خانهٔ خالی پنهان نشود.</p>' : '';
   const sumNote = warehouses.size > 1 ? '<p class="vsr-note">عدد هر خانه جمع انبارهای داخل فیلتر است. برای یک انبار، انبار را بالا انتخاب کنید.</p>' : '';
+  const hasUnattr = Math.abs(Number(grid.unattrQty) || 0) > 1e-9;
   if (!grid.colors.length || !grid.sizes.length) {
-    return select + sizeNote + '<div class="empty">با این فیلتر خانه‌ای برای ماتریس نیست.</div>';
+    if (!hasUnattr) {
+      return select + sizeNote + '<div class="empty">با این فیلتر خانه‌ای برای ماتریس نیست.</div>';
+    }
   }
+  const colSpan = Math.max(grid.sizes.length, 1);
   const head = '<tr><th class="vsr-sticky">رنگ</th>' + grid.sizes.map(function (size) {
     return '<th>' + esc(size.size_name) + '</th>';
   }).join('') + '<th>جمع</th></tr>';
+  let colourSum = 0;
   const body = grid.colors.map(function (color) {
     let rowQty = 0;
     let rowHas = false;
@@ -621,21 +645,33 @@ function vsrHtmlMatrix(data) {
       rowQty += q;
       if (q > 0) rowHas = true;
     });
+    colourSum += rowQty;
     const cells = grid.sizes.map(function (size) {
       const q = grid.qty.get(color.color_id + ':' + size.size_id) || 0;
       const heat = vsrHeat(q, max);
       const lowCls = q > 0 && q <= low ? ' vsr-low' : '';
       const gapCls = rowHas && !(q > 0) ? ' vsr-gap' : '';
-      const flagCls = (lens.cells || []).some(function (cl) { return cl.color_id === color.color_id && cl.size_id === size.size_id && vsrIsFlagged(cl); }) ? ' vsr-flagged' : '';
+      const flagCls = (lens.cells || []).some(function (cl) {
+        return !cl.unattributed && cl.color_id === color.color_id && cl.size_id === size.size_id && vsrIsFlagged(cl);
+      }) ? ' vsr-flagged' : '';
       const label = color.color_name + '، سایز ' + size.size_name + '، موجودی ' + vsrQty(q);
       const pid = lens.pick === 'all' ? '' : lens.pick;
       return '<td><button type="button" class="vsr-cell vsr-h' + heat + lowCls + gapCls + flagCls + '" aria-label="' + esc(label) + '" data-csp-click="' + CSP.bind('click', function () { vsrDrill(pid, color.color_id, size.size_id); }) + '">' + vsrQty(q) + '</button></td>';
     }).join('');
     return '<tr><th class="vsr-sticky">' + vsrSwatch(color.color_hex, color.color_name) + '<span>' + esc(color.color_name) + '</span></th>' + cells + '<td class="mono vsr-row-total">' + vsrQty(rowQty) + '</td></tr>';
   }).join('');
+  const unattrNeg = (Number(grid.unattrQty) || 0) < 0;
+  const unattrRow = hasUnattr
+    ? '<tr class="vsr-unattr' + (unattrNeg ? ' neg-qty' : '') + '" title="ردیف کاردکس بدون رنگ؛ در شکستگی سایز حساب نمی‌شود"><th class="vsr-sticky"><span>بدون رنگ/سایز</span></th><td colspan="' + colSpan + '" class="mono' + (unattrNeg ? ' neg-qty' : '') + '" data-csp-style="' + (unattrNeg ? CSP.style('color:#b91c1c;font-weight:700') : '') + '">' + vsrQty(grid.unattrQty) + '</td><td class="mono vsr-row-total' + (unattrNeg ? ' neg-qty' : '') + '" data-csp-style="' + (unattrNeg ? CSP.style('color:#b91c1c;font-weight:700') : '') + '">' + vsrQty(grid.unattrQty) + '</td></tr>'
+    : '';
+  const grand = colourSum + (Number(grid.unattrQty) || 0);
+  const foot = '<tr class="vsr-total-row"><th class="vsr-sticky">جمع</th><td colspan="' + colSpan + '"></td><td class="mono vsr-row-total">' + vsrQty(grand) + '</td></tr>';
+  if (!grid.colors.length && !hasUnattr) {
+    return select + sizeNote + '<div class="empty">با این فیلتر خانه‌ای برای ماتریس نیست.</div>';
+  }
   return '<div class="vsr-matrix-head">' + select + '</div>' + sizeNote + sumNote
-    + '<p class="vsr-legend">پررنگ‌تر یعنی تعداد بیشتر. خط‌چین یعنی صفر. قاب قرمز یعنی این سایز تمام شده در حالی که همان رنگ سایز دیگری دارد. قاب نارنجی یعنی کم‌موجود. نقطه‌چین قرمز یعنی اختلاف کاردکس با لایهٔ دیگر یا ارزش ≠ ۰ با مقدار ۰ (جزئیات در نمای «جدول»). عدد همیشه داخل خانه است.</p>'
-    + '<div class="vsr-matrix-wrap"><table class="vsr-matrix"><thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>';
+    + '<p class="vsr-legend">پررنگ‌تر یعنی تعداد بیشتر. خط‌چین یعنی صفر. قاب قرمز یعنی این سایز تمام شده در حالی که همان رنگ سایز دیگری دارد. قاب نارنجی یعنی کم‌موجود. نقطه‌چین قرمز یعنی اختلاف کاردکس با لایهٔ دیگر یا ارزش ≠ ۰ با مقدار ۰ (جزئیات در نمای «جدول»). عدد همیشه داخل خانه است. ردیف بدون رنگ/سایز جدا نشان داده می‌شود و در شکستگی حساب نمی‌شود.</p>'
+    + '<div class="vsr-matrix-wrap"><table class="vsr-matrix"><thead>' + head + '</thead><tbody>' + body + unattrRow + foot + '</tbody></table></div>';
 }
 
 function vsrDrill(productId, colorId, sizeId) {
@@ -697,7 +733,7 @@ function vsrHtmlDetail(data) {
   }).join('') + (canFix ? '<th class="no-sort"></th>' : '');
   const body = rows.map(function (cell) {
     const nrm = vsrNorm(cell);
-    const rowCls = nrm && nrm.ghost ? ' class="whrep-ghost"' : (nrm && nrm.drift ? ' class="whrep-drift"' : '');
+    let rowCls = nrm && nrm.ghost ? ' class="whrep-ghost"' : (nrm && nrm.drift ? ' class="whrep-drift"' : '');
     const drifted = !!(nrm && (nrm.drift || nrm.ghost)) || !!(vsrLayerOf(cell) && vsrLayerOf(cell).drift);
     const unattr = !!cell.unattributed;
     const unattrNeg = unattr && (Number(cell.qty) || 0) < 0;

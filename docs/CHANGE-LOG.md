@@ -1,3 +1,15 @@
+### ۱۴۰۵/۰۸/۲۱ — fix: پرچم/قاب قرمز کاذب گزارش رنگ و کرش نمای جدول با «بدون رنگ/سایز» (SW v641)
+- **شاخه / Commit:** `fix/variant-report-flags-fix` (پایه: `46956281` / v640). منبع: `taranom-cursor-variant-report-flags-fix.md`.
+- **Deploy:** ⏳ gated — فقط بعد از عبارت دقیق `GO deploy variant-report-flags-fix`. فقط کد/UI گزارش؛ بدون rebuild/heal/write روی `crm.db`. محصول ۳۴۲/۷۲۱۷ دست‌نخورده. حامد خودش INV-1766 و ۷۱۵۴ را اصلاح می‌کند.
+- **باگ (v640):** (B1) سلول «بدون رنگ/سایز» به‌عنوان سایز سوم در ماتریس → قاب قرمز کاذب روی همهٔ رنگ‌های دارای موجودی؛ (B2) پرچم `ws_vs_vws` لایهٔ انبار روی همهٔ خانه‌های رنگ (۱۵ پرچم کاذب وقتی اختلاف فقط به‌خاطر unattr توضیح‌پذیر است)؛ (B3) `color_count`/`size_count` شبه‌رنگ/سایز ۰ را می‌شمرد («۶ رنگ · ۳ سایز» به‌جای ۵·۲)؛ (B4) `vsrHtmlDetail` با `const rowCls` روی ردیف unattr ⇒ TypeError.
+- **فیکس:**
+  - `variant-report.js` `summarize`: رنگ/سایز ۰ unattr وارد `color_count`/`size_count` نمی‌شود (by_color/by_size برای جمع کاردکس می‌ماند). `buildLayerDrift`: `ws_vs_vws_explained` / `ws_vs_vws_unexplained` (بدون تغییر `layer-reconcile`/`valuation`).
+  - `variant-stock-report.js`: پرچم لایه فقط وقتی unexplained یا drift گزارش≠کاردکس؛ ماتریس ردیف جدا «بدون رنگ/سایز» + جمع؛ `let rowCls` در جدول؛ راهنمای legend.
+  - Help ادمین/فروش یک جمله دربارهٔ ردیف جدا در ماتریس.
+- **SW:** `erp-taranom-v641`؛ `app.js?v=641`؛ `variant-stock-report.js?v=641`.
+- **تست Node 20.19.5:** `test-variant-report-flags` ۳۸/۰؛ `test-adjust-variant-sync` ۵۱۷/۰؛ `test-variant-stock-report` ۲۴/۰ (seed لجر برای SSOT)؛ `test-stock-cache-recon` ۱۷/۰؛ `test-variant-reclass` ۶۷/۰؛ `test-variant-reclass-ui-and-void-cache` ۸۰/۰ (تعدیل void-cache روی انبار بدون unattr + SW v641)؛ `new Function(app/vsr)` OK.
+- **فایل‌ها:** `lib/inventory/variant-report.js`، `public/{variant-stock-report.js,app.js,sw.js,index.html}`، `scripts/{test-variant-report-flags,test-variant-stock-report,test-variant-reclass-ui-and-void-cache}.js`، CHANGE-LOG.
+
 ### ۱۴۰۵/۰۸/۲۱ — fix: کش رنگ دیگر روی تعدیل/انتقال به ۰ یخ نمی‌زند؛ گزارش = کاردکس (+بدون رنگ) (SW v640)
 - **شاخه / Commit:** `fix/adjust-variant-sync-fix` → `main` @ `6083deb4` (+ stamp docs `d99949d4`) (پایه: `6fcad545` / v639). منبع: `taranom-cursor-adjust-variant-sync-fix.md`.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۱ — SFTP overlay روی درخت کثیف (HEAD گیت `8a5cd54`؛ بدون `git pull`/`reset --hard`/`--update-env`). عبارت `GO deploy adjust-variant-sync-fix`. بکاپ `/home/taranom/backups/crm.db.20261112-012317-adjust-variant-sync-v640` (+wal/shm). live hashes قبل از overlay = §۰ (v639). `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v640**؛ stamp `.sftp-deploy-stamp-adjust-variant-sync-fix-v640`. snapshot نهایی: ledger max=4700؛ JE approved c=821 sum=201,278,044,634؛ p342=`342|7217|0` (۸ ردیف کاردکس)؛ mismatch_count=12. **نکته:** بلافاصله بعد از restart، ۸ خانهٔ VWS + ۲ pv کالای ۱۵۳/۷۱۵۴ با کد جدید به ledger heal شده بود (بدون افزایش `max(ledger.id)` — مسیر ناخواسته، نه boot heal پرچم‌دار)؛ همان خانه‌ها از بکاپ deploy برگردانده شد تا شرط «deploy دیتابیس را عوض نکند» برقرار بماند. محصول ۳۴۲/۷۲۱۷ دست‌نخورده.

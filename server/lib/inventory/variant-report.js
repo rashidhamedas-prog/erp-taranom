@@ -422,8 +422,11 @@ function summarize(cells, lowQty) {
         cost += cell.amount_rial;
         sales += cell.sales_value_rial;
       }
-      colors.add(cell.color_id);
-      sizes.add(cell.size_id);
+      // Pseudo color/size 0 of «بدون رنگ/سایز» must not inflate color_count / size_count.
+      if (!isUnattr) {
+        colors.add(cell.color_id);
+        sizes.add(cell.size_id);
+      }
       products.add(cell.product_id);
       if (qty > 0 && qty <= lowQty) low += 1;
     }
@@ -466,8 +469,10 @@ function summarize(cells, lowQty) {
         product.sales_value_rial += cell.sales_value_rial;
         product.amount_rial += cell.amount_rial;
       }
-      product.colors.add(cell.color_id);
-      product.sizes.add(cell.size_id);
+      if (!isUnattr) {
+        product.colors.add(cell.color_id);
+        product.sizes.add(cell.size_id);
+      }
       if (!isUnattr && qty > 0) product.sku_count += 1;
     }
   }
@@ -616,17 +621,32 @@ function buildLayerDrift(db, cellsAll, cellsShown, warehouseId) {
     const r = ledgerByKey.get(k) || null;
     const kardexQty = r ? r.ledger_qty : 0;
     const diff = n3(vq - kardexQty);
+    const wsQty = r ? r.ws_qty : null;
+    const uq = unattrQty.get(k) || 0;
+    const wsVsVws = !!(r && r.flags.drift_ws_vws);
+    const vwsSum = r && r.vws_sum != null ? Number(r.vws_sum) : null;
+    // Explained: report (variant_qty incl. unattr) matches WS, and the WS≠ΣVWS
+    // gap is exactly the live unattributed qty — not an extra cache error.
+    const gapMatchesUnattr = vwsSum == null
+      || Math.abs((Number(wsQty) - vwsSum) - uq) <= 1e-6;
+    const wsVsVwsExplained = wsVsVws
+      && Math.abs(Number(uq) || 0) > 1e-6
+      && wsQty != null
+      && Math.abs(Number(wsQty) - vq) <= 1e-6
+      && gapMatchesUnattr;
     layers.push({
       product_id: pid,
       warehouse_id: wid,
       variant_qty: vq,
       kardex_qty: n3(kardexQty),
       kardex_value_rial: r ? r.ledger_value_rial : 0,
-      ws_qty: r ? r.ws_qty : null,
-      unattributed_qty: unattrQty.get(k) || 0,
+      ws_qty: wsQty,
+      unattributed_qty: uq,
       drift_qty: diff,
       drift: Math.abs(diff) > 1e-6,
-      ws_vs_vws: !!(r && r.flags.drift_ws_vws),
+      ws_vs_vws: wsVsVws,
+      ws_vs_vws_explained: wsVsVwsExplained,
+      ws_vs_vws_unexplained: wsVsVws && !wsVsVwsExplained,
     });
   }
   layers.sort((a, b) => (a.product_id - b.product_id) || (a.warehouse_id - b.warehouse_id));
