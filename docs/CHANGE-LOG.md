@@ -1,5 +1,5 @@
 ﻿### ۱۴۰۵/۰۸/۲۱ — fix: st.values در کارت‌های تعدیل تجمیعی (SW v646)
-- **شاخه / Commit:** `fix/stock-adjust-cell-values-v646` (پایه: `bc2c536a` / v645). منبع: `taranom-cursor-stock-adjust-cell-values.md`.
+- **شاخه / Commit:** `fix/stock-adjust-cell-values-v646` @ `a2fd2414` (پایه: `bc2c536a` / v645). منبع: `taranom-cursor-stock-adjust-cell-values.md`.
 - **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-cell-values` — بدون pm2/نوشتن production تا GO.
 - **باگ زنده (v645):** افزودن کالا resolve می‌شد ولی کارت نمی‌آمد؛ `#sadd-add-err` = `Cannot read properties of undefined (reading '111:33:141')` چون `st.values` ساخته نشده بود و `renderCards` روی `st.values[ck]` می‌ترکید (حفره از v644؛ با picker v645 نمایان شد).
 - **فیکس UI:** `st.values={}` + `ensureValues()` در خواندن/نوشتن سلول؛ fallback کارت اگر render هنوز throw کند؛ `safeRenderCards` برای 🗑 و toggle انبار. بدون تغییر موتور/picker/API.
