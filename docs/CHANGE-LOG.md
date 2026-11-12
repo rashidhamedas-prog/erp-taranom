@@ -1,6 +1,6 @@
 ﻿### ۱۴۰۵/۰۸/۲۱ — fix: انتخاب کالا در تعدیل تجمیعی با productSelect (SW v645)
-- **شاخه / Commit:** `fix/stock-adjust-add-picker-v645` @ `afa4f3b1` (پایه: `b1b44546` / v644). منبع: `taranom-cursor-stock-adjust-add-picker.md`.
-- **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-add-picker` — بدون pm2/نوشتن production تا GO.
+- **شاخه / Commit:** `fix/stock-adjust-add-picker-v645` @ `afa4f3b1` → tip stamp `080fcb16` (پایه: `b1b44546` / v644). منبع: `taranom-cursor-stock-adjust-add-picker.md`.
+- **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۱ ۲۱:۱۰ تهران — SFTP overlay روی درخت کثیف (بدون `git pull`/`reset --hard`/`--update-env`). عبارت `GO deploy stock-adjust-add-picker`. live قبل = SW v644 + `openStockAdjustDocModal`/`saddAddProduct` حاضر + then-live hashes ثبت شد. بکاپ `/home/taranom/backups/crm.db.20261112-211009-stock-adjust-add-picker-v645` (+wal/shm). pre=`/tmp/saap-pre-645-20261112-211009`. `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v645**؛ stamp `.sftp-deploy-stamp-stock-adjust-add-picker-v645`. snapshot پیش=پس: ledger n=4808 max=4989؛ JE n=1294 · jl n=2775 Σdebit=459,691,476,290؛ p342=`342|7217|0` ledger=8؛ mismatch=0؛ ADJ docs/lines=0؛ hash PV/VWS/WS ثابت.
 - **باگ زنده (v644):** در «تعدیل تجمیعی» تایپ کد/نام + «افزودن» اغلب هیچ کارتی نمی‌ساخت (datalist بومی + تطبیق سخت `pLabel` با em-dash + toast کوتاه بدون پیام داخل مودال).
 - **فیکس UI:** `openStockAdjustDocModal` → `productSelect('sadd-prod')` + `initCustSearches(sadjRoot())`؛ `resolveAdjustDocProduct` (کد/نام/بارکد/SKU + ارقام فارسی + نام یکتا/`textMatchesQuery`)؛ خطای ماندگار `#sadd-add-err`؛ Enter روی فیلد؛ z-index دراپ بالای overlay تعدیل؛ بدون تغییر موتور ADJ/routes/schema.
 - **SW:** `erp-taranom-v645`؛ `app.js?v=645`.
