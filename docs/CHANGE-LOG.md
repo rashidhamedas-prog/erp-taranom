@@ -1,4 +1,13 @@
-﻿### ۱۴۰۵/۰۸/۲۱ — feat: تعدیل تجمیعی (ADJ) + انبار الزامی برای تعدیل تکی (SW v644)
+﻿### ۱۴۰۵/۰۸/۲۱ — fix: انتخاب کالا در تعدیل تجمیعی با productSelect (SW v645)
+- **شاخه / Commit:** `fix/stock-adjust-add-picker-v645` (پایه: `b1b44546` / v644). منبع: `taranom-cursor-stock-adjust-add-picker.md`.
+- **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-add-picker` — بدون pm2/نوشتن production تا GO.
+- **باگ زنده (v644):** در «تعدیل تجمیعی» تایپ کد/نام + «افزودن» اغلب هیچ کارتی نمی‌ساخت (datalist بومی + تطبیق سخت `pLabel` با em-dash + toast کوتاه بدون پیام داخل مودال).
+- **فیکس UI:** `openStockAdjustDocModal` → `productSelect('sadd-prod')` + `initCustSearches(sadjRoot())`؛ `resolveAdjustDocProduct` (کد/نام/بارکد/SKU + ارقام فارسی + نام یکتا/`textMatchesQuery`)؛ خطای ماندگار `#sadd-add-err`؛ Enter روی فیلد؛ z-index دراپ بالای overlay تعدیل؛ بدون تغییر موتور ADJ/routes/schema.
+- **SW:** `erp-taranom-v645`؛ `app.js?v=645`.
+- **تست (Node 20):** `test-stock-adjust-add-picker`؛ regression `test-stock-adjust-aggregated` + `test-stock-adjust-v525`. محصول ۳۴۲ دست‌نخورده.
+- **فایل‌ها:** `public/{app.js,sw.js,index.html}`، `lib/inventory/adjust-product-resolve.js`، `scripts/test-stock-adjust-add-picker.js`، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۲۱ — feat: تعدیل تجمیعی (ADJ) + انبار الزامی برای تعدیل تکی (SW v644)
 - **شاخه / Commit:** `feat/stock-adjust-aggregated-v644` @ `cf267a83` → tip stamp `d6b15b3a` (پایه: `1009f711` / v643). منبع: `taranom-cursor-stock-adjust-aggregated.md`.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۱ ۲۰:۲۶ تهران — SFTP overlay روی درخت کثیف (بدون `git pull`/`reset --hard`/`--update-env`). عبارت `GO deploy stock-adjust-aggregated`. live قبل از overlay ≠ §۰ پرامپت (SW/index از قبل v644 زده شده بود بدون موتور ADJ؛ `adjust-doc.js` غایب؛ then-live ثبت شد؛ stamp v643 موجود). بکاپ `/home/taranom/backups/crm.db.20261112-202657-stock-adjust-aggregated-v644` (+wal/shm). pre=`/tmp/saa-pre-644-20261112-202657`. `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v644**؛ جداول `stock_adjust_docs`/`stock_adjust_doc_lines` ساخته و **خالی (0)**؛ stamp `.sftp-deploy-stamp-stock-adjust-aggregated-v644`. **HALT snapshot (گزارش؛ بدون restore):** بین snapshot پیش/پس یک ردیف کاردکس+JE جدید از ترافیک زندهٔ کاربر (INV-4971 / `inventory_adjust` دستی محصول ۱۰۱ WH35 — نه boot-heal و نه ADJ تجمیعی). hash PV ثابت؛ p342=`342|7217|0` ledger=8؛ mismatch=0؛ ADJ docs=0. VWS/WS به‌خاطر همان تعدیل دستی عوض شدند. DB restore نشد.
 - **Part A (شکاف بدون انبار):** `postAdjust` برای هر کالا بدون انبار → ۴۰۹ `E_WAREHOUSE_REQUIRED`؛ پیش‌نمایش «انبار الزامی است» + `current_qty_usable:false`؛ `isAdjustMatrix` (= هر واریانت غیرپیش‌فرض فعال/بازنشسته) جایگزین گیت ماتریس؛ هشدار unattributed فقط برای ماتریس؛ UI بدون گزینهٔ «کل کالا (بدون انبار)»؛ اکسل بدون `warehouse_id` → `excel_stock_warning` و بدون `postAdjust`.
