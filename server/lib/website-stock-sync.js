@@ -44,8 +44,104 @@ const MATRIX_TIMEOUT_MS = 45_000;
  * Each chunk is an absolute stock set for those variants, so a retry is safe.
  */
 const MATRIX_CHUNK_SIZE = 6;
+/** Gap between matrix chunks / outbox rows (env WEBSITE_STOCK_CHUNK_GAP_MS). */
+const MATRIX_CHUNK_GAP_MS = (() => {
+  const n = parseInt(process.env.WEBSITE_STOCK_CHUNK_GAP_MS, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 400;
+})();
 const PING_TIMEOUT_MS = 15_000;
 const DRAIN_INTERVAL_MS = 30_000;
+
+/** In-memory global pause after 429 (ms epoch). Durable companion: next_at bump. */
+let _pauseUntil = 0;
+let _nowOverrideMs = null;
+
+function clockMs() {
+  return _nowOverrideMs != null ? Number(_nowOverrideMs) : Date.now();
+}
+function clockSec() {
+  return Math.floor(clockMs() / 1000);
+}
+function __setClockForTests(ms) {
+  _nowOverrideMs = ms == null || ms === '' ? null : Number(ms);
+}
+function __setPauseUntilForTests(ms) {
+  _pauseUntil = ms == null || ms === '' ? 0 : Number(ms);
+}
+function __getPauseUntilForTests() {
+  return _pauseUntil;
+}
+function sleepMs(ms) {
+  const n = Math.max(0, Number(ms) || 0);
+  if (!n) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, n));
+}
+
+function isTransientPushFailure(push) {
+  if (!push) return false;
+  const status = Number(push.status) || 0;
+  if (status === 0) return true;
+  if (status === 429) return true;
+  if (status >= 500 && status <= 599) return true;
+  const reason = String(push.reason || push.body || '').trim();
+  if (reason === 'OUTBOUND_TIMEOUT' || /^OUTBOUND_DNS_/.test(reason)) return true;
+  if (/timeout|مهلت/i.test(reason) && status === 0) return true;
+  return false;
+}
+
+function isTransientErrorText(text) {
+  const t = String(text || '');
+  if (!t) return false;
+  if (/هم[\s\u200c]*خوان[\s\u200c]*نشد|پیدا[\s\u200c]*نشد|variant_unmatched|sku_not_found|product_sku_not_found/i.test(t)) {
+    return false;
+  }
+  if (/\bHTTP\s+401\b|\bHTTP\s+403\b/.test(t)) return false;
+  if (/\bHTTP\s+0\b/.test(t)) return true;
+  if (/\bHTTP\s+429\b/.test(t)) return true;
+  if (/\bHTTP\s+5\d{2}\b/.test(t)) return true;
+  if (/\bOUTBOUND_TIMEOUT\b/.test(t)) return true;
+  if (/\bOUTBOUND_DNS_[A-Z_]+\b/.test(t)) return true;
+  if (/میزبان[\s\S]*resolve/i.test(t)) return true;
+  if (/\btimeout\b/i.test(t) && /مهلت|OUTBOUND|ارتباط/i.test(t)) return true;
+  return false;
+}
+
+function parseRetryAfterHeader(headers, nowMs) {
+  if (!headers || typeof headers !== 'object') return null;
+  const raw = headers['retry-after'] != null ? headers['retry-after']
+    : (headers['Retry-After'] != null ? headers['Retry-After'] : null);
+  if (raw == null || raw === '') return null;
+  const str = String(Array.isArray(raw) ? raw[0] : raw).trim();
+  if (!str) return null;
+  if (/^\d+$/.test(str)) {
+    const sec = parseInt(str, 10);
+    return Number.isFinite(sec) && sec >= 0 ? sec : null;
+  }
+  const when = Date.parse(str);
+  if (!Number.isFinite(when)) return null;
+  const base = nowMs != null ? Number(nowMs) : clockMs();
+  return Math.max(0, Math.ceil((when - base) / 1000));
+}
+
+function transientBackoffSec(attempts) {
+  const a = Math.max(0, Math.min(Number(attempts) || 0, 8));
+  const base = Math.min(3600, 15 * Math.pow(2, a));
+  const jitter = 1 + ((Math.random() * 0.4) - 0.2);
+  return Math.max(1, Math.min(3600, Math.round(base * jitter)));
+}
+
+function warehouseSetKey(ids) {
+  return normalizeWarehouseIds(ids).slice().sort((a, b) => a - b).join('+');
+}
+
+function warehouseKeyFromPayloadHash(hash) {
+  const m = String(hash || '').match(/:wh([0-9+]+):/);
+  return m ? m[1] : '';
+}
+
+function warehouseSetEqual(a, b) {
+  return warehouseSetKey(a) === warehouseSetKey(b);
+}
 
 const SECRET_LABELS = Object.freeze({
   website_b2b_token: 'کلید API موجودی سایت',
@@ -697,35 +793,72 @@ function buildMatrixPayload(db, productId, channel, warehouseIdOrIds) {
       ORDER BY c.sort_order, s.sort_order, v.id
     `).all(...(hasLedgerVar ? [warehouseIds[0], productId, warehouseIds[0], productId] : [warehouseIds[0], productId]));
   } else {
+    // SUM over warehouses of COALESCE(vws_wh, led_wh, 0) — never COALESCE(SUM(vws), SUM(led)).
     const placeholders = warehouseIds.map(() => '?').join(',');
-    const ledJoin = hasLedgerVar ? `
-      LEFT JOIN (
-        SELECT variant_id, SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
-        FROM inventory_ledger
-        WHERE product_id = ? AND warehouse_id IN (${placeholders}) AND (${LEDGER_LIVE_SQL}) AND variant_id IS NOT NULL
-        GROUP BY variant_id
-      ) led ON led.variant_id = v.id` : '';
-    const qtyExpr = hasLedgerVar ? 'COALESCE(vws.qty, led.qty, 0)' : 'COALESCE(vws.qty, 0)';
-    rows = db.prepare(`
-      SELECT v.id AS variant_id, v.sku, v.barcode,
-             COALESCE(c.name, '') AS color_name,
-             COALESCE(s.name, '') AS size_name,
-             ${qtyExpr} AS qty
-      FROM product_variants v
-      LEFT JOIN product_colors c ON c.id = v.color_id
-      LEFT JOIN product_sizes s ON s.id = v.size_id
-      LEFT JOIN (
-        SELECT variant_id, SUM(COALESCE(qty, 0)) AS qty
-        FROM variant_warehouse_stock
-        WHERE warehouse_id IN (${placeholders})
-        GROUP BY variant_id
-      ) vws ON vws.variant_id = v.id
-      ${ledJoin}
-      WHERE v.product_id = ?
-        AND COALESCE(v.active, 1) = 1
-        AND COALESCE(v.is_default, 0) = 0
-      ORDER BY c.sort_order, s.sort_order, v.id
-    `).all(...(hasLedgerVar ? [...warehouseIds, productId, ...warehouseIds, productId] : [...warehouseIds, productId]));
+    const whUnion = warehouseIds.map(() => 'SELECT ? AS warehouse_id').join(' UNION ALL ');
+    if (hasLedgerVar) {
+      rows = db.prepare(`
+        SELECT v.id AS variant_id, v.sku, v.barcode,
+               COALESCE(c.name, '') AS color_name,
+               COALESCE(s.name, '') AS size_name,
+               COALESCE(agg.qty, 0) AS qty
+        FROM product_variants v
+        LEFT JOIN product_colors c ON c.id = v.color_id
+        LEFT JOIN product_sizes s ON s.id = v.size_id
+        LEFT JOIN (
+          SELECT per.variant_id AS variant_id,
+                 SUM(COALESCE(per.vws_qty, per.led_qty, 0)) AS qty
+          FROM (
+            SELECT v2.id AS variant_id,
+                   w.warehouse_id AS warehouse_id,
+                   vws.qty AS vws_qty,
+                   led.qty AS led_qty
+            FROM product_variants v2
+            CROSS JOIN (${whUnion}) w
+            LEFT JOIN variant_warehouse_stock vws
+              ON vws.variant_id = v2.id AND vws.warehouse_id = w.warehouse_id
+            LEFT JOIN (
+              SELECT variant_id, warehouse_id,
+                     SUM(COALESCE(qty_in,0) - COALESCE(qty_out,0)) AS qty
+              FROM inventory_ledger
+              WHERE product_id = ?
+                AND warehouse_id IN (${placeholders})
+                AND (${LEDGER_LIVE_SQL})
+                AND variant_id IS NOT NULL
+              GROUP BY variant_id, warehouse_id
+            ) led ON led.variant_id = v2.id AND led.warehouse_id = w.warehouse_id
+            WHERE v2.product_id = ?
+              AND COALESCE(v2.active, 1) = 1
+              AND COALESCE(v2.is_default, 0) = 0
+          ) per
+          GROUP BY per.variant_id
+        ) agg ON agg.variant_id = v.id
+        WHERE v.product_id = ?
+          AND COALESCE(v.active, 1) = 1
+          AND COALESCE(v.is_default, 0) = 0
+        ORDER BY c.sort_order, s.sort_order, v.id
+      `).all(...warehouseIds, productId, ...warehouseIds, productId, productId);
+    } else {
+      rows = db.prepare(`
+        SELECT v.id AS variant_id, v.sku, v.barcode,
+               COALESCE(c.name, '') AS color_name,
+               COALESCE(s.name, '') AS size_name,
+               COALESCE(vws.qty, 0) AS qty
+        FROM product_variants v
+        LEFT JOIN product_colors c ON c.id = v.color_id
+        LEFT JOIN product_sizes s ON s.id = v.size_id
+        LEFT JOIN (
+          SELECT variant_id, SUM(COALESCE(qty, 0)) AS qty
+          FROM variant_warehouse_stock
+          WHERE warehouse_id IN (${placeholders})
+          GROUP BY variant_id
+        ) vws ON vws.variant_id = v.id
+        WHERE v.product_id = ?
+          AND COALESCE(v.active, 1) = 1
+          AND COALESCE(v.is_default, 0) = 0
+        ORDER BY c.sort_order, s.sort_order, v.id
+      `).all(...warehouseIds, productId);
+    }
   }
 
   if (!rows.length) {
@@ -807,8 +940,11 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
   let transportOk = true;
   let status = 0;
   let failReason = '';
-  for (const body of requests) {
-    const res = await requestJSON(url, 'PUT', body, b2bAuthHeaders(token), {
+  let failHeaders = null;
+  for (let ci = 0; ci < requests.length; ci += 1) {
+    const body = requests[ci];
+    if (ci > 0 && MATRIX_CHUNK_GAP_MS > 0) await sleepMs(MATRIX_CHUNK_GAP_MS);
+    const res = await module.exports.requestJSON(url, 'PUT', body, b2bAuthHeaders(token), {
       timeoutMs: MATRIX_TIMEOUT_MS,
     });
     status = res.status;
@@ -818,6 +954,7 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
     if (!chunkOk) {
       transportOk = false;
       failReason = formatOutboundFailure(res);
+      failHeaders = res.headers || null;
       break;
     }
     if (parsed && Array.isArray(parsed.matched)) matched.push(...parsed.matched);
@@ -850,6 +987,7 @@ async function pushMatrixToSite(db, payload, { dryRun = false } = {}) {
     onSite: verdict.onSite,
     message: verdict.message,
     body: { chunks: requests.length, matched: matched.length, unmatched: unmatched.length },
+    headers: transportOk ? undefined : (failHeaders || undefined),
     dryRun: !!dryRun,
   };
 }
@@ -873,7 +1011,7 @@ function enqueueWebsiteStock(db, productId, opts = {}) {
     ? [String(opts.channel).toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE']
     : configuredChannels(s);
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = clockSec();
   const nextAt = now + Math.ceil(DEBOUNCE_MS / 1000);
   // A new pending attempt must not keep the previous miss. clearHold is accepted
   // and ignored: every requeue clears last_result.
@@ -909,12 +1047,53 @@ let _drainRunning = false;
 
 function scheduleDrain(db) {
   if (_drainTimer) return;
+  const pauseWait = _pauseUntil > clockMs() ? (_pauseUntil - clockMs()) + 50 : 0;
+  const delay = Math.max(DEBOUNCE_MS + 50, pauseWait);
   _drainTimer = setTimeout(() => {
     _drainTimer = null;
     drainWebsiteStockOutbox(db).catch((e) => {
       console.error('[website-stock-sync] drain', e.message);
     });
-  }, DEBOUNCE_MS + 50);
+  }, delay);
+  if (typeof _drainTimer.unref === 'function') _drainTimer.unref();
+}
+
+/** Qty held in non-primary retail warehouses on variants the site did not match. */
+function extraWarehouseQtyOnUnmatched(db, payload, whIds, unmatched) {
+  try {
+    const ids = normalizeWarehouseIds(whIds);
+    if (ids.length < 2 || !payload || !Array.isArray(payload.variants)) return 0;
+    const list = Array.isArray(unmatched) ? unmatched : [];
+    if (!list.length) return 0;
+    const bySku = new Set();
+    const byLabel = new Set();
+    for (const u of list) {
+      const sku = String((u && (u.erpVariantSku || u.sku)) || '').trim();
+      if (sku) bySku.add(sku);
+      const color = String((u && u.color) || '').trim();
+      const size = String((u && u.size) || '').trim();
+      if (color || size) byLabel.add(`${color}|${size}`);
+    }
+    const skus = [];
+    for (const v of payload.variants) {
+      if (bySku.has(v.erpVariantSku) || byLabel.has(`${v.color}|${v.size}`)) skus.push(v.erpVariantSku);
+    }
+    if (!skus.length) return 0;
+    const extra = ids.slice(1);
+    const whPh = extra.map(() => '?').join(',');
+    const skuPh = skus.map(() => '?').join(',');
+    const row = db.prepare(`
+      SELECT COALESCE(SUM(COALESCE(vws.qty, 0)), 0) AS q
+      FROM variant_warehouse_stock vws
+      JOIN product_variants v ON v.id = vws.variant_id
+      WHERE v.product_id = ?
+        AND vws.warehouse_id IN (${whPh})
+        AND COALESCE(NULLIF(TRIM(v.sku), ''), 'V-' || v.id) IN (${skuPh})
+    `).get(payload.productId || null, ...extra, ...skus);
+    return Math.max(0, Math.round(Number(row && row.q) || 0));
+  } catch (_) {
+    return 0;
+  }
 }
 
 async function drainWebsiteStockOutbox(db) {
@@ -925,15 +1104,24 @@ async function drainWebsiteStockOutbox(db) {
     const s = getSettingsMap(db, { needB2b: true, needWoo: false });
     if (!syncPushEnabled(s)) return { skipped: true };
 
-    const now = Math.floor(Date.now() / 1000);
+    if (_pauseUntil > clockMs()) {
+      scheduleDrain(db);
+      return { ok: true, paused: true, pauseUntil: Math.ceil(_pauseUntil / 1000), processed: 0, results: [] };
+    }
+
+    const tick = clockSec();
     const due = db.prepare(`
       SELECT * FROM website_stock_outbox
       WHERE status='pending' AND next_at<=?
       ORDER BY next_at ASC LIMIT ?
-    `).all(now, DRAIN_BATCH);
+    `).all(tick, DRAIN_BATCH);
 
     const results = [];
-    for (const row of due) {
+    let paused = false;
+    for (let i = 0; i < due.length; i += 1) {
+      const row = due[i];
+      if (i > 0 && MATRIX_CHUNK_GAP_MS > 0) await sleepMs(MATRIX_CHUNK_GAP_MS);
+      const now = clockSec();
       const channel = row.channel === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
       const whIds = channelWarehouseIds(s, channel);
       if (!whIds.length) {
@@ -970,24 +1158,30 @@ async function drainWebsiteStockOutbox(db) {
         // Site answered. 'done' only when every sellable row matched;
         // otherwise 'error' (needs attention) — no retry burn, no false green.
         const rowStatus = push.ok ? 'done' : 'error';
+        const lastResult = {
+          matched: matchedCount(push.matched),
+          unmatched: push.unmatched,
+          status: push.status,
+          catalogMissing: isAllProductSkuNotFound(push.unmatched),
+          expected: push.expected,
+          unmatchedCount: push.unmatchedCount,
+          examples: push.examples,
+          onSite: push.onSite || [],
+          code: push.code,
+          message: push.message,
+        };
+        if (!push.ok && channel === 'RETAIL' && whIds.length > 1) {
+          lastResult.extraWhQtyOnUnmatched = extraWarehouseQtyOnUnmatched(
+            db, { ...payload, productId: row.product_id }, whIds, push.unmatched
+          );
+        }
         db.prepare(`
           UPDATE website_stock_outbox
           SET status=?, last_result=?, last_error=?, payload_hash=?, updated_at=?
           WHERE id=? AND updated_at=?
         `).run(
           rowStatus,
-          JSON.stringify({
-            matched: matchedCount(push.matched),
-            unmatched: push.unmatched,
-            status: push.status,
-            catalogMissing: isAllProductSkuNotFound(push.unmatched),
-            expected: push.expected,
-            unmatchedCount: push.unmatchedCount,
-            examples: push.examples,
-            onSite: push.onSite || [],
-            code: push.code,
-            message: push.message,
-          }),
+          JSON.stringify(lastResult),
           push.ok ? '' : String(push.message || '').slice(0, 500),
           payload.idempotencyKey,
           now,
@@ -1016,32 +1210,56 @@ async function drainWebsiteStockOutbox(db) {
           examples: push.examples,
           message: push.message,
           unmatched: push.unmatched,
+          extraWhQtyOnUnmatched: lastResult.extraWhQtyOnUnmatched,
         });
       } else {
         const attempts = (Number(row.attempts) || 0) + 1;
-        const backoff = Math.min(3600, Math.pow(2, attempts) * 15);
-        const status = attempts >= MAX_ATTEMPTS ? 'error' : 'pending';
         const errText = String(push.reason || formatOutboundFailure(push) || `HTTP ${push.status}`).slice(0, 500);
+        const transient = isTransientPushFailure(push);
+        let status;
+        let nextAt;
+        let pauseUntilSec = 0;
+        if (transient) {
+          // Transient (timeout / 429 / 5xx / no response): never burn the row into 'error'.
+          status = 'pending';
+          let backoff = transientBackoffSec(attempts);
+          const st = Number(push.status) || 0;
+          if (st === 429 || st === 503) {
+            const ra = parseRetryAfterHeader(push.headers, clockMs());
+            if (ra != null) backoff = Math.max(backoff, Math.min(3600, ra));
+            backoff = Math.max(1, Math.min(3600, backoff));
+            _pauseUntil = clockMs() + backoff * 1000;
+            pauseUntilSec = Math.ceil(_pauseUntil / 1000);
+            paused = true;
+          }
+          nextAt = now + backoff;
+        } else {
+          const backoff = Math.min(3600, Math.pow(2, attempts) * 15);
+          status = attempts >= MAX_ATTEMPTS ? 'error' : 'pending';
+          nextAt = now + backoff;
+        }
         db.prepare(`
           UPDATE website_stock_outbox
           SET attempts=?, next_at=?, status=?, last_error=?, last_result=COALESCE(last_result,''), updated_at=?
           WHERE id=? AND updated_at=?
-        `).run(
-          attempts,
-          now + backoff,
-          status,
-          errText,
-          now,
-          row.id,
-          row.updated_at
-        );
-        results.push({ id: row.id, ok: false, attempts, status, error: errText });
+        `).run(attempts, nextAt, status, errText, now, row.id, row.updated_at);
+        results.push({
+          id: row.id, ok: false, attempts, status, error: errText, transient, next_at: nextAt,
+        });
+        if (paused) {
+          db.prepare(`
+            UPDATE website_stock_outbox
+            SET next_at = CASE WHEN next_at < ? THEN ? ELSE next_at END
+            WHERE status='pending'
+          `).run(pauseUntilSec, pauseUntilSec);
+          break;
+        }
         if (status === 'pending') scheduleDrain(db);
       }
     }
 
     // Legacy webhook + woo for product header (optional)
-    if (due.length && wooEnabled(s)) {
+    if (due.length && wooEnabled(s) && !paused) {
       const seen = new Set();
       for (const row of due) {
         if (seen.has(row.product_id)) continue;
@@ -1063,10 +1281,10 @@ async function drainWebsiteStockOutbox(db) {
     const more = db.prepare(`
       SELECT COUNT(*) AS c FROM website_stock_outbox
       WHERE status='pending' AND next_at<=?
-    `).get(Math.floor(Date.now() / 1000));
-    if (more && Number(more.c) > 0) scheduleDrain(db);
+    `).get(clockSec());
+    if (paused || (more && Number(more.c) > 0)) scheduleDrain(db);
 
-    return { ok: true, processed: results.length, results };
+    return { ok: true, processed: results.length, paused, results };
   } finally {
     _drainRunning = false;
   }
@@ -1207,13 +1425,19 @@ async function dryRunProductMatrix(db, raw) {
       continue;
     }
     const push = await pushMatrixToSite(db, payload, { dryRun: true });
+    if (channel === 'RETAIL') {
+      try { push.breakdown = retailWarehouseBreakdown(db, productId, whIds); } catch (_) { /* optional */ }
+    }
     results.push(push);
   }
   const failed = results.filter((r) => !r.ok);
   const lines = [
     `کالا: ${resolved.label} (جستجو با ${resolved.via === 'code' ? 'کد' : 'شناسه'})`,
-    ...results.map(formatDryRunChannel),
   ];
+  for (const r of results) {
+    lines.push(formatDryRunChannel(r));
+    if (r && r.breakdown) lines.push(r.breakdown);
+  }
   return {
     ok: failed.length === 0,
     productId,
@@ -1228,46 +1452,250 @@ async function dryRunProductMatrix(db, raw) {
   };
 }
 
-/** Enqueue every product that has matrix variants for both configured channels. */
-function enqueueFullSync(db) {
-  ensureWebsiteStockOutbox(db);
-  // Site-B2B outbox only — never require Woo/webhook secrets here.
-  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
-  if (!siteB2bEnabled(s)) return { ok: false, reason: 'site_b2b disabled' };
-  let products;
-  let skippedWebsiteStockOff = 0;
+/** Warehouse names for a breakdown line. */
+function warehouseNames(db, whIds) {
+  const out = new Map();
   try {
-    const eligible = db.prepare(`
+    const ids = normalizeWarehouseIds(whIds);
+    if (!ids.length) return out;
+    const rows = db.prepare(
+      `SELECT id, name FROM warehouses WHERE id IN (${ids.map(() => '?').join(',')})`
+    ).all(...ids);
+    for (const r of rows) out.set(Number(r.id), String(r.name || '').trim());
+  } catch (_) { /* warehouses table optional in unit stubs */ }
+  return out;
+}
+
+/**
+ * RETAIL breakdown line: «تکی = انبار الف 5 + انبار ب 3 = 8».
+ * Per-warehouse numbers use the same qty rule as the matrix push (VWS, else ledger);
+ * the total is the exact sum that is sent to the site.
+ */
+function retailWarehouseBreakdown(db, productId, whIds) {
+  const ids = normalizeWarehouseIds(whIds);
+  if (!ids.length) return '';
+  const names = warehouseNames(db, ids);
+  const parts = [];
+  let sumParts = 0;
+  for (const wid of ids) {
+    const p = buildMatrixPayload(db, productId, 'RETAIL', [wid]);
+    const qty = p && Array.isArray(p.variants)
+      ? p.variants.reduce((a, v) => a + (Number(v.qty) || 0), 0)
+      : 0;
+    sumParts += qty;
+    parts.push(`${names.get(wid) || `انبار ${wid}`} ${qty}`);
+  }
+  let total = sumParts;
+  if (ids.length > 1) {
+    const all = buildMatrixPayload(db, productId, 'RETAIL', ids);
+    if (all && Array.isArray(all.variants)) {
+      total = all.variants.reduce((a, v) => a + (Number(v.qty) || 0), 0);
+    }
+  }
+  return ids.length === 1
+    ? `تکی = ${parts[0]}`
+    : `تکی = ${parts.join(' + ')} = ${total}`;
+}
+
+/** Product ids that have sellable matrix variants and may push to the site. */
+function eligibleWebsiteProductIds(db) {
+  try {
+    return db.prepare(`
       SELECT DISTINCT v.product_id AS id
       FROM product_variants v
       INNER JOIN products p ON p.id = v.product_id
       WHERE COALESCE(v.active,1)=1 AND COALESCE(v.is_default,0)=0
         AND COALESCE(p.website_stock_push, 1)=1
-    `).all();
-    products = eligible;
+      ORDER BY v.product_id
+    `).all().map((r) => Number(r.id));
+  } catch (_) {
+    return db.prepare(`
+      SELECT DISTINCT product_id AS id FROM product_variants
+      WHERE COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
+      ORDER BY product_id
+    `).all().map((r) => Number(r.id));
+  }
+}
+
+function countSellableMatrixProducts(db) {
+  try {
     const total = db.prepare(`
       SELECT COUNT(DISTINCT product_id) AS c FROM product_variants
       WHERE COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
     `).get();
-    skippedWebsiteStockOff = Math.max(0, (Number(total && total.c) || 0) - products.length);
-  } catch (_) {
-    products = db.prepare(`
-      SELECT DISTINCT product_id AS id FROM product_variants
-      WHERE COALESCE(active,1)=1 AND COALESCE(is_default,0)=0
-    `).all();
-  }
+    return Number(total && total.c) || 0;
+  } catch (_) { return 0; }
+}
+
+const STAGGER_START_SEC = 2;
+const STAGGER_STEP_SEC = 3;
+
+/**
+ * Upsert pending rows with a staggered next_at (now+2+i*3) so a full sync does not
+ * hit the site's rate limit with one burst. Does not use the enqueue debounce.
+ */
+function enqueueStaggered(db, s, channels, productIds) {
+  const now = clockSec();
+  const upsert = db.prepare(`
+    INSERT INTO website_stock_outbox (product_id, channel, next_at, attempts, status, last_error, last_result, updated_at)
+    VALUES (?, ?, ?, 0, 'pending', '', '', ?)
+    ON CONFLICT(product_id, channel) DO UPDATE SET
+      next_at=excluded.next_at,
+      status='pending',
+      attempts=0,
+      last_error='',
+      last_result='',
+      updated_at=excluded.updated_at
+  `);
+  let i = 0;
   let n = 0;
-  for (const p of products) {
-    const r = enqueueWebsiteStock(db, p.id, { force: true });
-    n += r.enqueued || 0;
+  const run = db.transaction(() => {
+    for (const pid of productIds) {
+      for (const ch of channels) {
+        if (!channelWarehouseIds(s, ch).length) continue;
+        upsert.run(pid, ch, now + STAGGER_START_SEC + i * STAGGER_STEP_SEC, now);
+        i += 1;
+        n += 1;
+      }
+    }
+  });
+  run();
+  if (n) scheduleDrain(db);
+  return n;
+}
+
+/** Enqueue every product that has matrix variants for both configured channels (staggered). */
+function enqueueFullSync(db) {
+  ensureWebsiteStockOutbox(db);
+  // Site-B2B outbox only — never require Woo/webhook secrets here.
+  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
+  if (!siteB2bEnabled(s)) return { ok: false, reason: 'site_b2b disabled' };
+  const ids = eligibleWebsiteProductIds(db);
+  const skippedWebsiteStockOff = Math.max(0, countSellableMatrixProducts(db) - ids.length);
+  const enqueued = enqueueStaggered(db, s, configuredChannels(s), ids);
+  return { ok: true, products: ids.length, enqueued, skippedWebsiteStockOff };
+}
+
+/**
+ * Re-enqueue one channel (e.g. after the warehouse set changed).
+ * opts.productIds limits to those products (still gated by website_stock_push).
+ */
+function enqueueChannelResync(db, channel, opts = {}) {
+  ensureWebsiteStockOutbox(db);
+  const ch = String(channel || '').toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
+  const s = getSettingsMap(db, { needB2b: true, needWoo: false });
+  if (!siteB2bEnabled(s)) return { ok: false, channel: ch, reason: 'site_b2b disabled', enqueued: 0, products: 0 };
+  if (!channelWarehouseIds(s, ch).length) {
+    return { ok: false, channel: ch, reason: 'warehouse_not_configured', enqueued: 0, products: 0 };
   }
-  return { ok: true, products: products.length, enqueued: n, skippedWebsiteStockOff };
+  let ids = eligibleWebsiteProductIds(db);
+  if (Array.isArray(opts.productIds)) {
+    const want = new Set(opts.productIds.map((x) => parseInt(x, 10)).filter((x) => x > 0));
+    ids = ids.filter((id) => want.has(id));
+  }
+  const enqueued = enqueueStaggered(db, s, [ch], ids);
+  return { ok: true, channel: ch, products: ids.length, enqueued };
+}
+
+/**
+ * Move 429/5xx/timeout errors back to pending. Only rows whose last_error is
+ * transient; last_result is intentionally kept (last known site answer).
+ */
+function requeueTransientWebsiteStockErrors(db, opts = {}) {
+  ensureWebsiteStockOutbox(db);
+  const ch = opts.channel
+    ? (String(opts.channel).toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE')
+    : null;
+  const rows = (ch
+    ? db.prepare(`SELECT id, last_error FROM website_stock_outbox WHERE status='error' AND channel=? ORDER BY id`).all(ch)
+    : db.prepare(`SELECT id, last_error FROM website_stock_outbox WHERE status='error' ORDER BY id`).all()
+  ).filter((r) => isTransientErrorText(r.last_error));
+  const now = clockSec();
+  const upd = db.prepare(`
+    UPDATE website_stock_outbox
+    SET status='pending', attempts=0, next_at=?, updated_at=?
+    WHERE id=? AND status='error'
+  `);
+  let requeued = 0;
+  db.transaction(() => {
+    rows.forEach((r, i) => {
+      const info = upd.run(now + STAGGER_START_SEC + i * STAGGER_STEP_SEC, now, r.id);
+      requeued += Number(info && info.changes) || 0;
+    });
+  })();
+  if (requeued) scheduleDrain(db);
+  return { ok: true, requeued, channel: ch || undefined };
+}
+
+/**
+ * Settled rows (done/error) whose recorded warehouse set differs from the
+ * current channel setting — they reflect an old warehouse selection.
+ */
+function staleWarehouseSetRows(db, settingsMap) {
+  ensureWebsiteStockOutbox(db);
+  const s = settingsMap || getSettingsMap(db, { needB2b: false, needWoo: false });
+  const current = {
+    RETAIL: warehouseSetKey(channelWarehouseIds(s, 'RETAIL')),
+    WHOLESALE: warehouseSetKey(channelWarehouseIds(s, 'WHOLESALE')),
+  };
+  const rows = db.prepare(`
+    SELECT id, product_id, channel, status, payload_hash
+    FROM website_stock_outbox
+    WHERE status IN ('done','error') AND COALESCE(payload_hash,'') <> ''
+  `).all();
+  const out = [];
+  for (const r of rows) {
+    const ch = r.channel === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
+    const raw = warehouseKeyFromPayloadHash(r.payload_hash);
+    if (!raw || !current[ch]) continue;
+    const rowKey = warehouseSetKey(raw.split('+'));
+    if (rowKey && rowKey !== current[ch]) {
+      out.push({
+        id: r.id,
+        product_id: r.product_id,
+        channel: ch,
+        status: r.status,
+        row_warehouse_set: rowKey,
+        current_warehouse_set: current[ch],
+      });
+    }
+  }
+  return out;
+}
+
+function staleWarehouseSetSummary(db) {
+  let rows = [];
+  try { rows = staleWarehouseSetRows(db); } catch (_) { rows = []; }
+  const byChannel = { RETAIL: 0, WHOLESALE: 0 };
+  const productIds = { RETAIL: [], WHOLESALE: [] };
+  for (const r of rows) {
+    byChannel[r.channel] += 1;
+    productIds[r.channel].push(r.product_id);
+  }
+  const message = rows.length
+    ? `${rows.length} کالا هنوز با انبارهای قبلی روی سایت است`
+    : '';
+  return { count: rows.length, byChannel, productIds, message };
 }
 
 function parseOutboxLastResult(raw) {
   if (raw == null || raw === '') return {};
   if (typeof raw === 'object') return raw;
   try { return JSON.parse(String(raw)); } catch { return {}; }
+}
+
+/** HH:MM in Tehran time for an epoch-ms instant. */
+function formatTehranHM(ms) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Tehran', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(new Date(ms));
+    const h = (parts.find((p) => p.type === 'hour') || {}).value || '00';
+    const m = (parts.find((p) => p.type === 'minute') || {}).value || '00';
+    return `${h}:${m}`;
+  } catch (_) {
+    return '';
+  }
 }
 
 /** Human-facing summary for one outbox row (Persian, manager language). */
@@ -1301,6 +1729,11 @@ function summarizeOutboxRow(row) {
   // catalog = site SKU, variant = color/size names, site = API up,
   // auth = saved key, queued = drain has not run, ok = stock written.
   let cause = 'other';
+
+  const transientErr = isTransientErrorText(err);
+  const nextAtSec = Number(row.next_at) || 0;
+  const retryAtText = nextAtSec > 0 ? formatTehranHM(nextAtSec * 1000) : '';
+  const extraWhQty = Math.max(0, Math.round(Number(lr.extraWhQtyOnUnmatched) || 0));
 
   const httpMatch = err.match(/\bHTTP\s+(\d{3})\b/);
   const httpCode = httpMatch ? Number(httpMatch[1]) : 0;
@@ -1341,6 +1774,11 @@ function summarizeOutboxRow(row) {
     }
     tone = status === 'error' ? 'bad' : 'warn';
     cause = 'site';
+    if (status === 'error' && transientErr) {
+      nextStep = 'تلاش‌ها متوقف شده — «ارسال دوبارهٔ خطاهای موقت» را بزنید';
+    } else if (status === 'pending' && transientErr && retryAtText) {
+      nextStep = `سایت موقتاً محدود کرد — تلاش بعدی ساعت ${retryAtText} (تهران). ${nextStep}`;
+    }
   } else if (status === 'done' && unmatchedN === 0 && !err) {
     outcome = matched > 0 ? 'موجودی در سایت به‌روز شد' : 'انجام شد';
     nextStep = '';
@@ -1354,6 +1792,9 @@ function summarizeOutboxRow(row) {
     nextStep = present.length
       ? `روی سایت این رنگ/سایزها هست: ${present.join('، ')}. نام در ERP باید عین همان باشد؛ رنگ نزدیک حدس زده نمی‌شود.`
       : 'رنگ/سایزهای بدون هم‌خوانی را در سایت وصل کنید، بعد دوباره همگام‌سازی کنید';
+    if (extraWhQty > 0) {
+      nextStep += ` ${extraWhQty} عدد از انبار کیمیا روی رنگ/سایزهایی است که در سایت نیست — باید در سایت ساخته یا وصل شوند`;
+    }
     tone = 'warn';
     cause = 'variant';
   } else if (status === 'error') {
@@ -1399,6 +1840,10 @@ function summarizeOutboxRow(row) {
     updated_at: row.updated_at || null,
     variantHints,
     last_error: err,
+    transient: !!transientErr,
+    retryAt: retryAtText,
+    next_at: nextAtSec || null,
+    extraWhQtyOnUnmatched: extraWhQty,
   };
 }
 
@@ -1411,7 +1856,7 @@ function outboxStatus(db) {
     SELECT status, COUNT(*) AS c FROM website_stock_outbox GROUP BY status
   `).all();
   const all = db.prepare(`
-    SELECT o.id, o.product_id, o.channel, o.status, o.attempts, o.last_error, o.last_result, o.updated_at,
+    SELECT o.id, o.product_id, o.channel, o.status, o.attempts, o.next_at, o.last_error, o.last_result, o.updated_at,
            p.code AS product_code, p.name AS product_name
     FROM website_stock_outbox o
     LEFT JOIN products p ON p.id = o.product_id
@@ -1446,7 +1891,7 @@ function outboxStatus(db) {
     total: summarized.length,
     truncated,
   };
-  return { counts, causes, summary, recent, items };
+  return { counts, causes, summary, recent, items, stale_warehouse_set: staleWarehouseSetSummary(db) };
 }
 
 // Legacy alias used by older call sites
@@ -1467,6 +1912,10 @@ module.exports = {
   resolveSyncProduct,
   formatDryRunChannel,
   enqueueFullSync,
+  enqueueChannelResync,
+  requeueTransientWebsiteStockErrors,
+  staleWarehouseSetRows,
+  retailWarehouseBreakdown,
   outboxStatus,
   ensureWebsiteStockOutbox,
   stockPayload,
@@ -1495,6 +1944,19 @@ module.exports = {
   normalizeWebsiteStockPush,
   productAllowsWebsiteStockPush,
   silenceProductWebsiteOutbox,
+  isTransientPushFailure,
+  isTransientErrorText,
+  parseRetryAfterHeader,
+  transientBackoffSec,
+  warehouseSetKey,
+  warehouseKeyFromPayloadHash,
+  warehouseSetEqual,
+  parseWarehouseSettingId,
+  __setClockForTests,
+  __setPauseUntilForTests,
+  __getPauseUntilForTests,
+  MAX_ATTEMPTS,
+  MATRIX_CHUNK_GAP_MS,
   DEBOUNCE_MS,
   MATRIX_TIMEOUT_MS,
   MATRIX_CHUNK_SIZE,

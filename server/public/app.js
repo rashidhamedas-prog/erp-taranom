@@ -42591,6 +42591,7 @@ ROUTES.settings = async function(){
           <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockDryRun()})}">بازرسی نگاشت (dry-run)</button>
           <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteRetryOne()})}">ارسال دوبارهٔ همین کالا</button>
           <button type="button" class="btn" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteStockFullSync()})}">همگام‌سازی کامل</button>
+          <button type="button" class="btn ghost" ${syncBlockedBySecret?'disabled title="ابتدا کلید API را دوباره ذخیره کنید"':''} data-csp-click="${CSP.bind('click',function(event){websiteRequeueTransient()})}">ارسال دوبارهٔ خطاهای موقت (۴۲۹/۵۰۳)</button>
           <button type="button" class="btn ghost" data-csp-click="${CSP.bind('click',function(event){loadWebsiteOutbox()})}">بروزرسانی صف</button>
           <span id="s-website-test-status" class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${syncBlockedBySecret?'کلید API ناخواناست — ابتدا ذخیره مجدد':''}</span>
         </div>
@@ -42864,7 +42865,31 @@ async function websiteStockFullSync(){
   try{
     const r=await api('POST','/settings/website-full-sync',{});
     if(st) st.textContent=`صف: ${r.enqueued||0} از ${r.products||0} کالا`;
-    showToast('همگام‌سازی کامل در صف قرار گرفت','success');
+    showToast('همگام‌سازی کامل در صف قرار گرفت (با فاصله بین کالاها تا سایت محدود نکند)','success');
+    loadWebsiteOutbox();
+  }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
+}
+async function websiteRequeueTransient(){
+  if(!confirm('فقط ردیف‌های «نیاز به رسیدگی» که علتشان موقتی است (۴۲۹ / ۵۰۳ / مهلت / بدون پاسخ) دوباره در صف قرار گیرند؟')) return;
+  const st=el('s-website-test-status');
+  if(st) st.textContent='در حال ارسال دوباره…';
+  try{
+    const r=await api('POST','/settings/website-requeue-transient',{});
+    const n=Number(r?.requeued||0);
+    if(st) st.textContent=`${n.toLocaleString('fa-IR')} ردیف دوباره در صف`;
+    showToast(n?`${n.toLocaleString('fa-IR')} خطای موقت دوباره در صف قرار گرفت`:'خطای موقتی برای ارسال دوباره نبود', n?'success':'info');
+    loadWebsiteOutbox();
+  }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
+}
+async function websiteResyncStale(){
+  if(!confirm('ردیف‌هایی که با انبارهای قدیمی فرستاده شده‌اند دوباره در صف قرار گیرند؟')) return;
+  const st=el('s-website-test-status');
+  if(st) st.textContent='در حال ارسال دوباره…';
+  try{
+    const r=await api('POST','/settings/website-resync-stale',{});
+    const n=Number(r?.enqueued||0);
+    if(st) st.textContent=`${n.toLocaleString('fa-IR')} ردیف دوباره در صف`;
+    showToast(n?`${n.toLocaleString('fa-IR')} ردیف با انبارهای فعلی دوباره در صف قرار گرفت`:'ردیف قدیمی برای ارسال دوباره نبود', n?'success':'info');
     loadWebsiteOutbox();
   }catch(e){ if(st) st.textContent=e.message||'خطا'; showToast(e.message||'خطا','error'); }
 }
@@ -42936,7 +42961,8 @@ function wqNormalize(r){
     pending: Number(counts.pending||0),
     error: Number(counts.error||0),
   };
-  return { items, causes, counts, summary };
+  const stale=r.stale_warehouse_set&&typeof r.stale_warehouse_set==='object'?r.stale_warehouse_set:{count:0,message:''};
+  return { items, causes, counts, summary, stale };
 }
 function wqVisible(it){
   const q=String(WQ_QUERY||'').trim().toLowerCase();
@@ -42994,6 +43020,8 @@ function renderWebsiteQueue(){
       const tries=Number(it.attempts)>1?`<span>تلاش ${wqNum(it.attempts)}</span>`:'';
       const hints=(it.variantHints||[]).length?`<div class="wq-hints">نمونه‌ها: ${esc((it.variantHints||[]).join(' · '))}</div>`:'';
       const next=it.nextStep?`<div class="wq-next">${esc(it.nextStep)}</div>`:'';
+      const extraQty=Number(it.extraWhQtyOnUnmatched||0);
+      const extraWh=extraQty>0?`<div class="wq-next">موجودی ${wqNum(extraQty)} عدد در انبار دوم/سوم روی همین رنگ/سایزهای بدون هم‌خوانی مانده و به سایت نمی‌رسد.</div>`:'';
       const retry=code&&cause!=='ok'?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){websiteRetryCode(code)})}">ارسال دوباره</button>`:'';
       return `<article class="wq-row">
         <div class="wq-row-top">
@@ -43002,7 +43030,7 @@ function renderWebsiteQueue(){
         </div>
         <div class="wq-meta"><span class="wq-ch">${esc(it.channelLabel||'')}</span><span>${esc(it.statusLabel||'')}</span>${tries}${when?`<span>${esc(when)}</span>`:''}</div>
         <div class="wq-out">${esc(it.outcome||'')}</div>
-        ${hints}${next}
+        ${hints}${next}${extraWh}
       </article>`;
     }).join('');
     return `<details class="wq-group" data-cause="${esc(cause)}"${open?' open':''}>
@@ -43016,8 +43044,13 @@ function renderWebsiteQueue(){
     ? `<div class="wq-empty">الان ردیفی در صف نیست. هر ردیف، موجودی یک کانال (عمده یا تکی) برای یک کالاست.</div>`
     : (groups||`<div class="wq-empty">در این نما ردیفی نیست. «موارد باز» همه‌چیز جز موجودیِ نوشته‌شده را نشان می‌دهد.</div>`);
   const reset=WQ_FILTER!=='action'?`<button type="button" class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){wqApplyFilter('action')})}">موارد باز</button>`:'';
+  const staleInfo=data.stale||{};
+  const staleBox=Number(staleInfo.count||0)>0
+    ? `<div class="wq-note" role="status" data-csp-style="${CSP.style(`display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border:1px solid #fde68a;background:#fffbeb;border-radius:8px`)}"><span>${esc(staleInfo.message||`${wqNum(staleInfo.count)} ردیف با مجموعهٔ انبار قدیمی ارسال شده‌اند`)}</span><button type="button" class="btn sm" data-csp-click="${CSP.bind('click',function(){websiteResyncStale()})}">ارسال دوبارهٔ همین‌ها</button></div>`
+    : '';
   box.innerHTML=`<section class="wq" aria-label="گزارش صف موجودی سایت">
     <div class="wq-live" id="wq-live" aria-live="polite">شمارنده‌ها کل صف‌اند. هر ردیف یک کانال است، نه یک کالا.</div>
+    ${staleBox}
     <div class="wq-kpis" role="group" aria-label="وضعیت صف">
       ${kpi('error', error, 'نیاز به رسیدگی', 'ارسال قطع شده. علت را از وابستگی پایین بخوانید.')}
       ${kpi('pending', pending, 'در صف', 'منتظر تخلیه. اگر سایت ۵۰۳ بدهد همین‌جا می‌ماند و دوباره می‌رود.')}
@@ -43121,6 +43154,7 @@ async function saveSettings(){
     subtitle: el('s-inv-subtitle')?.value||'تولیدی پوشاک زنانه'
   });
   CACHE.settings = await api('PUT','/settings',data);
+  const websiteResync=CACHE.settings&&CACHE.settings.website_resync;
   CACHE.moduleFlags=null;
   CACHE._moduleFlagsLoading=false;
   try{
@@ -43128,6 +43162,11 @@ async function saveSettings(){
   }catch(_){ CACHE.moduleFlags={}; }
   buildNav();
   showToast('تنظیمات ذخیره شد — منو و ماژول‌ها همین الان به‌روز شد');
+  if(websiteResync&&websiteResync.RETAIL&&websiteResync.RETAIL.ok){
+    showToast(`موجودی تکی ${Number(websiteResync.RETAIL.enqueued||0).toLocaleString('fa-IR')} کالا با انبارهای جدید در صف ارسال قرار گرفت`,'info');
+  }else if(websiteResync&&websiteResync.WHOLESALE&&websiteResync.WHOLESALE.ok){
+    showToast(`موجودی عمده ${Number(websiteResync.WHOLESALE.enqueued||0).toLocaleString('fa-IR')} کالا با انبار جدید در صف ارسال قرار گرفت`,'info');
+  }
 }
 async function loadAuditLog(){
   const body=el('audit-log-body'); if(!body) return;
@@ -44130,6 +44169,7 @@ function renderAdminGuide(){
         <li>عدد قبلی روی فروشگاه تا روشن کردن دوبارهٔ تیک همان‌جا می‌ماند و خودکار صفر نمی‌شود.</li>
         <li>روی کارت کالا، «ارسال موجودی به سایت: خاموش» فقط یادآور است.</li>
         <li>در تنظیمات → وب‌سایت: انبار <b>عمده</b> یکی است؛ برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری). موجودی تکی روی سایت = <b>جمع</b> همان انبارها در یک کانال RETAIL. بدون انبار اصلی تکی، کانال تکی باز نمی‌شود.</li>
+        <li><b>(v643)</b> جمع چندانباری هر رنگ/سایز به‌صورت <b>جمع موجودی هر انبار</b> حساب می‌شود (نه «یا این یا آن»)؛ در بازرسی نگاشت خط «تکی = انبار الف ۵ + انبار ب ۳ = ۸» را می‌بینید. اگر انبارهای کانال را در تنظیمات عوض کنید، همان کانال خودکار دوباره در صف می‌رود؛ ردیف‌هایی که با انبار قدیمی فرستاده شده‌اند با «ارسال دوبارهٔ همین‌ها» دوباره می‌روند. خطاهای موقت سایت (۴۲۹/۵۰۳/مهلت) هرگز ردیف را «نیاز به رسیدگی» دائمی نمی‌کنند و با فاصله دوباره تلاش می‌شوند؛ اگر قبلاً متوقف شده‌اند دکمهٔ «ارسال دوبارهٔ خطاهای موقت (۴۲۹/۵۰۳)» را بزنید. همگام‌سازی کامل هم کالاها را پله‌پله (چند ثانیه فاصله) به صف می‌برد.</li>
       </ul>`),
     helpSec('👤','ورود مدیر به حساب کاربر',`
       <p>در <b>تنظیمات → کاربران</b> دکمه <b>ورود به حساب</b> مدیر را با دسترسی همان کاربر وارد برنامه می‌کند. نشست وب، ویندوز و اندروید او سر جایش می‌ماند.</p>

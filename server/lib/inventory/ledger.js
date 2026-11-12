@@ -747,6 +747,13 @@ function postInventoryMovement(db, opts) {
     });
   }
 
+  // Website stock sync: any qty movement may change what the site shows (lazy require — no top-level dependency).
+  if (qtyIn || qtyOut) {
+    try {
+      require('../website-stock-sync').notifyStockChanged(db, productId, { warehouseId });
+    } catch (_) { /* website sync is best-effort */ }
+  }
+
   return {
     id: ledgerId,
     tx_no: txNo,
@@ -859,6 +866,11 @@ function reverseInventoryMovement(db, ledgerId, {
   if (!valueOnly) rebuildCache(db, row.product_id);
   if ((Number(row.qty_in) || 0) > 0 || CLOSED_RETURN_EVENTS.has(String(row.event_type || ''))) {
     require('./value-approval').onLedgerReversed(db, row.id, { createdBy, note: note || `معکوس ${row.tx_no}` });
+  }
+  if ((Number(row.qty_in) || 0) > 0 || (Number(row.qty_out) || 0) > 0) {
+    try {
+      require('../website-stock-sync').notifyStockChanged(db, row.product_id, { warehouseId: row.warehouse_id });
+    } catch (_) { /* best-effort; idempotent with the notify in postInventoryMovement */ }
   }
   return rev;
 }

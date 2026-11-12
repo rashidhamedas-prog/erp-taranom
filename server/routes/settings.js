@@ -166,9 +166,46 @@ router.post('/website-full-sync', auth, adminOnly, centralOnly, async (req, res)
   try {
     const sync = require('../lib/website-stock-sync');
     const result = sync.enqueueFullSync(getDB());
+    audit(req.user.id, 'website_full_sync', 'settings', null,
+      `همگام‌سازی کامل سایت؛ ${result && result.enqueued || 0} ردیف در صف`);
     res.json(result);
   } catch (e) {
     res.status(400).json(websiteSyncErrorBody(e, 'همگام‌سازی کامل ناموفق'));
+  }
+});
+
+router.post('/website-requeue-transient', auth, adminOnly, centralOnly, (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    const channel = req.body && req.body.channel ? req.body.channel : undefined;
+    const result = sync.requeueTransientWebsiteStockErrors(getDB(), { channel });
+    audit(req.user.id, 'website_requeue_transient', 'settings', null,
+      `ارسال دوبارهٔ خطاهای موقت سایت؛ ${result.requeued || 0} ردیف`);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json(websiteSyncErrorBody(e, 'ارسال دوبارهٔ خطاهای موقت ناموفق'));
+  }
+});
+
+router.post('/website-resync-stale', auth, adminOnly, centralOnly, (req, res) => {
+  try {
+    const sync = require('../lib/website-stock-sync');
+    const db = getDB();
+    const rows = sync.staleWarehouseSetRows(db);
+    const byChannel = { RETAIL: new Set(), WHOLESALE: new Set() };
+    for (const r of rows) byChannel[r.channel].add(r.product_id);
+    const out = { ok: true, stale: rows.length, enqueued: 0, channels: {} };
+    for (const ch of ['RETAIL', 'WHOLESALE']) {
+      if (!byChannel[ch].size) continue;
+      const r = sync.enqueueChannelResync(db, ch, { productIds: [...byChannel[ch]] });
+      out.channels[ch] = r;
+      out.enqueued += Number(r.enqueued) || 0;
+    }
+    audit(req.user.id, 'website_resync_stale', 'settings', null,
+      `ارسال دوبارهٔ ردیف‌های انبار قدیمی؛ ${out.enqueued} ردیف`);
+    res.json(out);
+  } catch (e) {
+    res.status(400).json(websiteSyncErrorBody(e, 'ارسال دوبارهٔ ردیف‌های قدیمی ناموفق'));
   }
 });
 
@@ -317,6 +354,20 @@ router.put('/', auth, adminOrManagerForStoreKeys, centralOnly, async (req, res) 
     }
   }
 
+  // Snapshot website warehouse sets so a change can re-push the affected channel.
+  const WH_SETTING_KEYS = ['website_wh_wholesale_id', 'website_wh_retail_id', 'website_wh_retail_2_id', 'website_wh_retail_3_id'];
+  let whBefore = null;
+  if (entries.some(([k]) => WH_SETTING_KEYS.includes(k))) {
+    try {
+      const sync = require('../lib/website-stock-sync');
+      const sBefore = sync.getSettingsMap(db, { needB2b: false, needWoo: false });
+      whBefore = {
+        RETAIL: sync.channelWarehouseIds(sBefore, 'RETAIL'),
+        WHOLESALE: sync.channelWarehouseIds(sBefore, 'WHOLESALE'),
+      };
+    } catch (_) { whBefore = null; }
+  }
+
   updateSettings(db, entries, new Set(ALLOWED_KEYS));
   if (entries.some(([k]) => k.startsWith('coa_') || k === 'feature_cogs_voucher')) clearCoaCache();
   audit(req.user.id, 'update', 'settings', null, 'بروزرسانی تنظیمات');
@@ -324,7 +375,28 @@ router.put('/', auth, adminOrManagerForStoreKeys, centralOnly, async (req, res) 
     // manager path: never echo the full settings payload
     return res.json({ ok: true, store_insufficient_stock_mode: body.store_insufficient_stock_mode });
   }
-  res.json(getPublicSettings(db));
+  let websiteResync = null;
+  if (whBefore) {
+    try {
+      const sync = require('../lib/website-stock-sync');
+      const sAfter = sync.getSettingsMap(db, { needB2b: false, needWoo: false });
+      for (const ch of ['RETAIL', 'WHOLESALE']) {
+        const afterIds = sync.channelWarehouseIds(sAfter, ch);
+        if (sync.warehouseSetKey(whBefore[ch]) === sync.warehouseSetKey(afterIds)) continue;
+        if (!afterIds.length) continue;
+        const r = sync.enqueueChannelResync(db, ch);
+        websiteResync = websiteResync || {};
+        websiteResync[ch] = { ...r, before: whBefore[ch], after: afterIds };
+        audit(req.user.id, 'website_resync', 'settings', null,
+          `تغییر انبار کانال ${ch}؛ ارسال دوبارهٔ ${r.enqueued || 0} ردیف`);
+      }
+    } catch (e) {
+      websiteResync = { error: (e && e.message) || 'website resync failed' };
+    }
+  }
+  const publicSettings = getPublicSettings(db);
+  if (websiteResync) publicSettings.website_resync = websiteResync;
+  res.json(publicSettings);
 });
 
 const DEFAULT_WELCOME_SMS = `سلام 🌸 به خانواده پوشاک ترنم خوش‌آمدید!

@@ -198,6 +198,14 @@ function checkReason(body) {
   return reason;
 }
 
+/** Variant split changes the matrix the site shows — tell website sync (lazy, best-effort, no warehouseId). */
+function notifyWebsiteStock(db, productId) {
+  if (!productId) return;
+  try {
+    require('../website-stock-sync').notifyStockChanged(db, productId);
+  } catch (_) { /* best-effort */ }
+}
+
 /** Post inside the caller's transaction (or its own). Returns the doc. */
 function postReclass(db, body, user) {
   const reason = checkReason(body);
@@ -268,7 +276,9 @@ function postReclass(db, body, user) {
     require('./stock-cache').rebuildStockCache(db, row.product_id, { forceVariantLedger: true });
     return getDoc(db, docId);
   };
-  return db.inTransaction ? run() : db.transaction(run)();
+  const doc = db.inTransaction ? run() : db.transaction(run)();
+  notifyWebsiteStock(db, doc && doc.product_id);
+  return doc;
 }
 
 /** R13: full reverse of a posted reclass. */
@@ -364,7 +374,9 @@ function voidReclass(db, docId, body, user) {
     require('./stock-cache').rebuildStockCache(db, doc.product_id, { forceVariantLedger: true });
     return getDoc(db, doc.id);
   };
-  return db.inTransaction ? run() : db.transaction(run)();
+  const voided = db.inTransaction ? run() : db.transaction(run)();
+  notifyWebsiteStock(db, voided && voided.product_id);
+  return voided;
 }
 
 function getDoc(db, id) {
