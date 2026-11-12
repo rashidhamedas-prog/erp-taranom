@@ -1,5 +1,5 @@
 ﻿### ۱۴۰۵/۰۸/۲۲ — feat: انبار عمدهٔ دوم اختیاری برای جمع با اصلی (SW v648)
-- **شاخه / Commit:** `feat/website-wholesale-extra-warehouse-v648` (پایه: tip v647 / `85edd66e`). منبع: `taranom-cursor-website-wholesale-extra-warehouse.md`.
+- **شاخه / Commit:** `feat/website-wholesale-extra-warehouse-v648` @ `b7a61c6c` → `main` (پایه: tip v647 / `85edd66e`). منبع: `taranom-cursor-website-wholesale-extra-warehouse.md`.
 - **Deploy:** ⏸ کد آماده — فقط بعد از عبارت دقیق `GO deploy website-wholesale-extra-warehouse` (بدون نوشتن `settings` / بدون انتخاب انبار روی ایران / بدون requeue/full-sync/test-connection).
 - **هدف:** مثل تکی ۲/۳، یک انبار عمدهٔ اختیاری (`website_wh_wholesale_2_id`) که با انبار عمدهٔ اصلی جمع می‌شود و به‌عنوان یک کانال WHOLESALE به Site-B2B می‌رود. پیش‌فرض خالی («— بدون انبار اضافه —»). wholesale ۳ اضافه نشد.
 - **فیکس/سیم‌کشی:** `channelWarehouseIds(WHOLESALE)` مثل RETAIL (اصلی اجباری + `_2` اختیاری + dedupe)؛ `getSettingsMap` / `NON_COA_ALLOWED_KEYS` / `WH_SETTING_KEYS` / `update-md-schema` default `''` / `saveSettings` keys؛ dry-run `channelWarehouseBreakdown` برای هر دو کانال (برچسب تکی/عمده)؛ ping `wholesaleIds`؛ `extraWhQtyOnUnmatched` برای هر کانال چندانباره. بدون تغییر `buildMatrixPayload` و بدون تغییر رفتار RETAIL ۲/۳.
