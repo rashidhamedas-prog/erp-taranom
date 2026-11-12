@@ -137,6 +137,18 @@ console.log('website-retail-multi-wh v331');
 ok(channelWarehouseIds({ website_wh_wholesale_id: '10' }, 'WHOLESALE').join(',') === '10', 'A1 wholesale [10]');
 ok(channelWarehouseIds({ website_wh_wholesale_id: '' }, 'WHOLESALE').length === 0, 'A2 wholesale empty');
 ok(channelWarehouseId({ website_wh_wholesale_id: '0' }, 'WHOLESALE') == null, 'A2b wholesale 0 → null');
+ok(channelWarehouseIds({
+  website_wh_wholesale_id: '10',
+  website_wh_wholesale_2_id: '11',
+}, 'WHOLESALE').join(',') === '10,11', 'A1b wholesale primary+_2');
+ok(channelWarehouseIds({
+  website_wh_wholesale_id: '',
+  website_wh_wholesale_2_id: '11',
+}, 'WHOLESALE').length === 0, 'A1c wholesale _2 alone → []');
+ok(channelWarehouseIds({
+  website_wh_wholesale_id: '10',
+  website_wh_wholesale_2_id: '10',
+}, 'WHOLESALE').join(',') === '10', 'A1d wholesale dedupe _2=primary');
 
 ok(channelWarehouseIds({
   website_wh_retail_id: '20',

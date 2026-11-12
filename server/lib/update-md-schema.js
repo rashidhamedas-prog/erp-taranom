@@ -111,6 +111,7 @@ function ensureUpdateMdSchema(db, ensureColumn) {
     website_b2b_url: '',
     website_b2b_token: '',
     website_wh_wholesale_id: '',
+    website_wh_wholesale_2_id: '',
     website_wh_retail_id: '',
     website_wh_retail_2_id: '',
     website_wh_retail_3_id: '',

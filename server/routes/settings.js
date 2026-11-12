@@ -46,7 +46,7 @@ const NON_COA_ALLOWED_KEYS = [
   'website_stock_sync_enabled', 'website_stock_sync_mode', 'website_stock_webhook_url',
   'website_wc_url', 'website_wc_key', 'website_wc_secret',
   'website_target', 'website_b2b_url', 'website_b2b_token', 'website_b2b_channel',
-  'website_wh_wholesale_id', 'website_wh_retail_id',
+  'website_wh_wholesale_id', 'website_wh_wholesale_2_id', 'website_wh_retail_id',
   'website_wh_retail_2_id', 'website_wh_retail_3_id',
   'rubika_bot_token', 'rubika_chat_id', 'rubika_invoice_enabled',
   // Invoice print: formal ×3, casual-simple (fixed), thermal width 58/80 + customize JSON
@@ -355,7 +355,7 @@ router.put('/', auth, adminOrManagerForStoreKeys, centralOnly, async (req, res) 
   }
 
   // Snapshot website warehouse sets so a change can re-push the affected channel.
-  const WH_SETTING_KEYS = ['website_wh_wholesale_id', 'website_wh_retail_id', 'website_wh_retail_2_id', 'website_wh_retail_3_id'];
+  const WH_SETTING_KEYS = ['website_wh_wholesale_id', 'website_wh_wholesale_2_id', 'website_wh_retail_id', 'website_wh_retail_2_id', 'website_wh_retail_3_id'];
   let whBefore = null;
   if (entries.some(([k]) => WH_SETTING_KEYS.includes(k))) {
     try {

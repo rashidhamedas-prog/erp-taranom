@@ -42990,8 +42990,8 @@ ROUTES.settings = async function(){
   const webPanel = `
     <div class="panel"><div class="panel-head"><h4>${lucide('plug')} سینک موجودی وب‌سایت (ماتریس رنگ×سایز)</h4></div><div class="panel-body">
       <div class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:12px;line-height:1.9`)}">
-        ERP منبع حقیقت است. برای <b>عمده</b> یک انبار؛ برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری)
-        انتخاب کنید — موجودی تکی = <b>جمع</b> انبارهای انتخاب‌شده، همچنان یک کانال RETAIL روی سایت
+        ERP منبع حقیقت است. برای <b>عمده</b> تا دو انبار (اصلی + یک اختیاری) و برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری)
+        انتخاب کنید — موجودی هر کانال = <b>جمع</b> انبارهای همان کانال، همچنان یک کانال WHOLESALE و یک کانال RETAIL روی سایت
         (<code dir="ltr">PUT /api/v1/erp/inventory/matrix</code>).
         کلید باید همان <code dir="ltr">ERP_INVENTORY_API_KEY</code> سایت باشد — نه JWT ادمین.
       </div>
@@ -43010,10 +43010,16 @@ ROUTES.settings = async function(){
         </select></div>
         <div class="fg full"><label>آدرس API سایت</label><input id="s-website_b2b_url" value="${esc(s.website_b2b_url||'')}" dir="ltr" placeholder="https://api.poshaktaranom.com"></div>
         <div class="fg"><label>کلید API موجودی سایت${s.website_b2b_token_unreadable?` <span data-csp-style="${CSP.style(`color:#b91c1c`)}">(باید دوباره وارد شود)</span>`:''}</label><input id="s-website_b2b_token" type="text" value="${s.website_b2b_token_unreadable?'':esc(s.website_b2b_token||'')}" dir="ltr" autocomplete="off" data-lpignore="true" data-1p-ignore="true" placeholder="${s.website_b2b_token_unreadable?'کلید واقعی سایت را وارد کنید':(s.website_b2b_token_has_value?'********':'')}"></div>
-        <div class="fg fg-md"><label>انبار عمده (WHOLESALE)</label>
+        <div class="fg fg-md"><label>انبار عمده ۱ — اصلی (WHOLESALE)</label>
           <select id="s-website_wh_wholesale_id">
             <option value="">— انتخاب انبار —</option>
             ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_wholesale_id||'')===String(id)?' selected':''}`)}
+          </select>
+        </div>
+        <div class="fg fg-md"><label>انبار عمده ۲ (اختیاری — جمع با اصلی)</label>
+          <select id="s-website_wh_wholesale_2_id">
+            <option value="">— بدون انبار اضافه —</option>
+            ${whOpts.replace(/value="([^"]*)"/g, (m,id)=>`value="${id}"${String(s.website_wh_wholesale_2_id||'')===String(id)?' selected':''}`)}
           </select>
         </div>
         <div class="fg fg-md"><label>انبار تکی ۱ — اصلی (RETAIL)</label>
@@ -43550,7 +43556,7 @@ async function loadWebsiteOutbox(){
   }
 }
 async function saveSettings(){
-  const keys=['company_name','company_phone','company_address','company_economic_code','company_national_id','company_postal_code','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_retail_id','website_wh_retail_2_id','website_wh_retail_3_id'];
+  const keys=['company_name','company_phone','company_address','company_economic_code','company_national_id','company_postal_code','kimia_address','welcome_sms_text','telegram_bot_token','telegram_chat_id','sms_provider','sms_api_key','sms_from','api_v1_enabled','api_rate_limit','webhook_secret','backup_smtp_user','backup_smtp_pass','backup_email','invoice_num_prefix','purchase_num_prefix','fiscal_year_start_month','vat_rate','ai_api_key','ai_model','ai_provider','rubika_bot_token','rubika_chat_id','website_stock_webhook_url','website_wc_url','website_wc_key','website_wc_secret','website_stock_sync_mode','website_target','website_b2b_url','website_b2b_token','website_wh_wholesale_id','website_wh_wholesale_2_id','website_wh_retail_id','website_wh_retail_2_id','website_wh_retail_3_id'];
   const data={};
   keys.forEach(k=>{ const e=el('s-'+k); if(e) data[k]=e.value; });
   if(window._clearAiKey){ data.ai_api_key=null; window._clearAiKey=0; }
@@ -44620,7 +44626,7 @@ function renderAdminGuide(){
         <li>اگر تیک کالا خاموش باشد، بعد از حرکت انبار آن کالا به صف سایت نمی‌رود (سکوت صف برای همان SKU)؛ موجودی داخل ERP، فاکتور و انبار تغییر نمی‌کند.</li>
         <li>عدد قبلی روی فروشگاه تا روشن کردن دوبارهٔ تیک همان‌جا می‌ماند و خودکار صفر نمی‌شود.</li>
         <li>روی کارت کالا، «ارسال موجودی به سایت: خاموش» فقط یادآور است.</li>
-        <li>در تنظیمات → وب‌سایت: انبار <b>عمده</b> یکی است؛ برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری). موجودی تکی روی سایت = <b>جمع</b> همان انبارها در یک کانال RETAIL. بدون انبار اصلی تکی، کانال تکی باز نمی‌شود.</li>
+        <li>در تنظیمات → وب‌سایت: برای <b>عمده</b> تا دو انبار (اصلی + یک اختیاری؛ جمع در یک کانال WHOLESALE) و برای <b>سایت تک</b> تا سه انبار (اصلی + دو اختیاری؛ جمع در یک کانال RETAIL). بدون انبار اصلی هر کانال، همان کانال باز نمی‌شود.</li>
         <li><b>(v643)</b> جمع چندانباری هر رنگ/سایز به‌صورت <b>جمع موجودی هر انبار</b> حساب می‌شود (نه «یا این یا آن»)؛ در بازرسی نگاشت خط «تکی = انبار الف ۵ + انبار ب ۳ = ۸» را می‌بینید. اگر انبارهای کانال را در تنظیمات عوض کنید، همان کانال خودکار دوباره در صف می‌رود؛ ردیف‌هایی که با انبار قدیمی فرستاده شده‌اند با «ارسال دوبارهٔ همین‌ها» دوباره می‌روند. خطاهای موقت سایت (۴۲۹/۵۰۳/مهلت) هرگز ردیف را «نیاز به رسیدگی» دائمی نمی‌کنند و با فاصله دوباره تلاش می‌شوند؛ اگر قبلاً متوقف شده‌اند دکمهٔ «ارسال دوبارهٔ خطاهای موقت (۴۲۹/۵۰۳)» را بزنید. همگام‌سازی کامل هم کالاها را پله‌پله (چند ثانیه فاصله) به صف می‌برد.</li>
       </ul>`),
     helpSec('👤','ورود مدیر به حساب کاربر',`

@@ -2,9 +2,11 @@
  * Website stock sync — ERP → Site-B2B matrix (color×size).
  *
  * System of record: variant_warehouse_stock for the warehouse(s) configured
- * per channel. WHOLESALE: website_wh_wholesale_id (single). RETAIL/سایت تک:
- * website_wh_retail_id (+ optional website_wh_retail_2_id / _3_id) — qty is
- * the SUM across the selected retail warehouses, still one Site channel RETAIL.
+ * per channel. WHOLESALE: website_wh_wholesale_id (+ optional
+ * website_wh_wholesale_2_id) — qty is the SUM across those warehouses, still
+ * one Site channel WHOLESALE. RETAIL/سایت تک: website_wh_retail_id (+ optional
+ * website_wh_retail_2_id / _3_id) — qty is the SUM across the selected retail
+ * warehouses, still one Site channel RETAIL.
  *
  * Push contract: PUT {resolved}/erp/inventory/matrix
  * URL resolution via siteApiUrl(): Nest API hosts (api.*) use /v1/...;
@@ -189,6 +191,7 @@ function getSettingsMap(db, opts = {}) {
     'website_b2b_url',
     'website_b2b_channel',
     'website_wh_wholesale_id',
+    'website_wh_wholesale_2_id',
     'website_wh_retail_id',
     'website_wh_retail_2_id',
     'website_wh_retail_3_id',
@@ -339,25 +342,24 @@ function parseWarehouseSettingId(raw) {
 /**
  * Warehouse id set for a Site channel.
  * RETAIL: primary website_wh_retail_id required; optional _2/_3 appended; deduped.
- * WHOLESALE: single website_wh_wholesale_id.
+ * WHOLESALE: primary website_wh_wholesale_id required; optional _2 appended; deduped.
  */
 function channelWarehouseIds(s, channel) {
   const ch = String(channel || '').toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
-  if (ch === 'RETAIL') {
-    const primary = parseWarehouseSettingId(s && s.website_wh_retail_id);
-    if (!primary) return [];
-    const out = [];
-    const seen = new Set();
-    for (const key of ['website_wh_retail_id', 'website_wh_retail_2_id', 'website_wh_retail_3_id']) {
-      const id = parseWarehouseSettingId(s && s[key]);
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      out.push(id);
-    }
-    return out;
+  const keys = ch === 'RETAIL'
+    ? ['website_wh_retail_id', 'website_wh_retail_2_id', 'website_wh_retail_3_id']
+    : ['website_wh_wholesale_id', 'website_wh_wholesale_2_id'];
+  const primary = parseWarehouseSettingId(s && s[keys[0]]);
+  if (!primary) return [];
+  const out = [];
+  const seen = new Set();
+  for (const key of keys) {
+    const id = parseWarehouseSettingId(s && s[key]);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
   }
-  const id = parseWarehouseSettingId(s && s.website_wh_wholesale_id);
-  return id ? [id] : [];
+  return out;
 }
 
 /** Primary warehouse for channel (RETAIL = website_wh_retail_id only). */
@@ -1058,7 +1060,7 @@ function scheduleDrain(db) {
   if (typeof _drainTimer.unref === 'function') _drainTimer.unref();
 }
 
-/** Qty held in non-primary retail warehouses on variants the site did not match. */
+/** Qty held in non-primary channel warehouses on variants the site did not match. */
 function extraWarehouseQtyOnUnmatched(db, payload, whIds, unmatched) {
   try {
     const ids = normalizeWarehouseIds(whIds);
@@ -1170,7 +1172,7 @@ async function drainWebsiteStockOutbox(db) {
           code: push.code,
           message: push.message,
         };
-        if (!push.ok && channel === 'RETAIL' && whIds.length > 1) {
+        if (!push.ok && whIds.length > 1) {
           lastResult.extraWhQtyOnUnmatched = extraWarehouseQtyOnUnmatched(
             db, { ...payload, productId: row.product_id }, whIds, push.unmatched
           );
@@ -1375,19 +1377,20 @@ async function testWebsiteConnection(arg) {
     const token = String(s.website_b2b_token || '').trim();
     if (!base) return { ok: false, target, status: 0, reason: 'missing website_b2b_url' };
     if (!token) return { ok: false, target, status: 0, reason: 'missing website_b2b_token' };
-    const res = await requestJSON(siteApiUrl(base, 'erp/inventory/ping'), 'GET', null, b2bAuthHeaders(token), {
+    const res = await module.exports.requestJSON(siteApiUrl(base, 'erp/inventory/ping'), 'GET', null, b2bAuthHeaders(token), {
       timeoutMs: PING_TIMEOUT_MS,
     });
     const ok = res.status >= 200 && res.status < 300;
     const whW = channelWarehouseId(s, 'WHOLESALE');
     const whR = channelWarehouseId(s, 'RETAIL');
     const retailIds = channelWarehouseIds(s, 'RETAIL');
+    const wholesaleIds = channelWarehouseIds(s, 'WHOLESALE');
     return {
       ok,
       target,
       status: res.status,
       reason: ok ? 'ok' : 'site_b2b unreachable or unauthorized',
-      warehouses: { wholesale: whW, retail: whR, retailIds },
+      warehouses: { wholesale: whW, retail: whR, retailIds, wholesaleIds },
     };
   }
 
@@ -1425,9 +1428,7 @@ async function dryRunProductMatrix(db, raw) {
       continue;
     }
     const push = await pushMatrixToSite(db, payload, { dryRun: true });
-    if (channel === 'RETAIL') {
-      try { push.breakdown = retailWarehouseBreakdown(db, productId, whIds); } catch (_) { /* optional */ }
-    }
+    try { push.breakdown = channelWarehouseBreakdown(db, productId, channel, whIds); } catch (_) { /* optional */ }
     results.push(push);
   }
   const failed = results.filter((r) => !r.ok);
@@ -1467,18 +1468,20 @@ function warehouseNames(db, whIds) {
 }
 
 /**
- * RETAIL breakdown line: «تکی = انبار الف 5 + انبار ب 3 = 8».
+ * Channel breakdown line: «تکی/عمده = انبار الف 5 + انبار ب 3 = 8».
  * Per-warehouse numbers use the same qty rule as the matrix push (VWS, else ledger);
  * the total is the exact sum that is sent to the site.
  */
-function retailWarehouseBreakdown(db, productId, whIds) {
+function channelWarehouseBreakdown(db, productId, channel, whIds) {
+  const ch = String(channel || '').toUpperCase() === 'RETAIL' ? 'RETAIL' : 'WHOLESALE';
+  const label = ch === 'RETAIL' ? 'تکی' : 'عمده';
   const ids = normalizeWarehouseIds(whIds);
   if (!ids.length) return '';
   const names = warehouseNames(db, ids);
   const parts = [];
   let sumParts = 0;
   for (const wid of ids) {
-    const p = buildMatrixPayload(db, productId, 'RETAIL', [wid]);
+    const p = buildMatrixPayload(db, productId, ch, [wid]);
     const qty = p && Array.isArray(p.variants)
       ? p.variants.reduce((a, v) => a + (Number(v.qty) || 0), 0)
       : 0;
@@ -1487,14 +1490,19 @@ function retailWarehouseBreakdown(db, productId, whIds) {
   }
   let total = sumParts;
   if (ids.length > 1) {
-    const all = buildMatrixPayload(db, productId, 'RETAIL', ids);
+    const all = buildMatrixPayload(db, productId, ch, ids);
     if (all && Array.isArray(all.variants)) {
       total = all.variants.reduce((a, v) => a + (Number(v.qty) || 0), 0);
     }
   }
   return ids.length === 1
-    ? `تکی = ${parts[0]}`
-    : `تکی = ${parts.join(' + ')} = ${total}`;
+    ? `${label} = ${parts[0]}`
+    : `${label} = ${parts.join(' + ')} = ${total}`;
+}
+
+/** RETAIL alias kept for older call sites / tests. */
+function retailWarehouseBreakdown(db, productId, whIds) {
+  return channelWarehouseBreakdown(db, productId, 'RETAIL', whIds);
 }
 
 /** Product ids that have sellable matrix variants and may push to the site. */
@@ -1916,6 +1924,7 @@ module.exports = {
   requeueTransientWebsiteStockErrors,
   staleWarehouseSetRows,
   retailWarehouseBreakdown,
+  channelWarehouseBreakdown,
   outboxStatus,
   ensureWebsiteStockOutbox,
   stockPayload,
