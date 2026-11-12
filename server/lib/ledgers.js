@@ -25,12 +25,14 @@ const SAFE_REF_TYPES = new Set([
   'warehouse_doc', 'warehouse_transfer',
   // Phase 3 (v576) kardex source links
   'production', 'adjust', 'sales_return', 'purchase_return',
+  'inventory_adjust_doc',
 ]);
 
 /** Source types that may collapse multi-SKU lines into one parent row. */
 const STOCK_AGGREGATE_SOURCES = new Set([
   'invoice', 'purchase', 'warehouse_transfer', 'warehouse_move',
   'sales_return', 'purchase_return', 'sales_return_invoice',
+  'inventory_adjust_doc',
 ]);
 
 function LedgerError(status, error, extra) {
@@ -533,9 +535,19 @@ function stockLineGroupKey(line) {
 }
 
 /** Kardex wording: document type + number only; colour/size live in details[]. */
-function shortStockDescription(r) {
+function shortStockDescription(r, db) {
   const st = String(r.source_type || '');
   const et = String(r.event_type || '');
+  if (st === 'inventory_adjust_doc') {
+    let docNo = r.doc_no || r._adjust_doc_no || null;
+    if (!docNo && db && r.source_id != null) {
+      try {
+        const d = db.prepare('SELECT doc_no FROM stock_adjust_docs WHERE id=?').get(r.source_id);
+        if (d && d.doc_no) docNo = d.doc_no;
+      } catch (_) { /* table may not exist yet */ }
+    }
+    return docNo ? `سند تعدیل تجمیعی ${docNo}` : 'سند تعدیل تجمیعی';
+  }
   if (st === 'stock_reconcile') return 'تعدیل موجودی';
   if (isOpeningStockRow(r)) return 'موجودی اول دوره';
   let note = normalizeFaLetters(String(r.note || r.description || et || '').trim());
@@ -716,6 +728,7 @@ function kardexSourceLink(r, whDocId) {
   else if (base === 'sales_return') refType = 'sales_return';
   else if (base === 'purchase_return') refType = 'purchase_return';
   else if (base === 'stocktaking' || base === 'stocktake') refType = 'stocktaking';
+  else if (base === 'inventory_adjust_doc') refType = 'inventory_adjust_doc';
   else if (base === 'inventory_adjust' || base === 'stock_adjust' || base === 'inventory_recon_adjust') refType = 'adjust';
   else if (/^production_/.test(base) || base === 'production') refType = 'production';
   else refType = raw || String(r.event_type || '') || null;
@@ -903,7 +916,7 @@ function buildStockLedger(db, {
       id: r.id,
       tx_no: r.tx_no || null,
       date: r.date,
-      description: shortStockDescription(r),
+      description: shortStockDescription(r, db),
       event_type: r.event_type,
       warehouse_id: r.warehouse_id,
       warehouse_name: r.warehouse_name || '',

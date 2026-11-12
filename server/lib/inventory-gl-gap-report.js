@@ -25,6 +25,7 @@ const SOURCE_COMPARE_REF_PREFIXES = [
   'warehouse_transfer',
   'inventory_adjust',
   'stock_adjust',
+  'inventory_adjust_doc',
   'stocktaking',
 ];
 

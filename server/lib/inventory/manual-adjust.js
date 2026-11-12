@@ -51,6 +51,17 @@ function canOverrideCost(user, db) {
   return require('../rbac').canDo(user, 'acc_inv_valuation', 'create', db);
 }
 
+/** True if the product has any non-default variant (active or retired). Used for adjust gates. */
+function isAdjustMatrix(db, productId) {
+  try {
+    return !!db.prepare(`
+      SELECT 1 AS x FROM product_variants
+      WHERE product_id=? AND COALESCE(is_default,0)=0
+      LIMIT 1
+    `).get(Number(productId) || 0);
+  } catch (_) { return false; }
+}
+
 function parseInputs(db, body = {}) {
   const productId = Number(body.product_id) || 0;
   if (!productId) throw adjErr('E_ADJUST_ARGS', 400, 'کالا الزامی است');
@@ -133,8 +144,7 @@ function planAdjust(db, body, user, { peek = true } = {}) {
   const inp = parseInputs(db, body);
   const { productId, warehouseId, variantId, mode, qty, reasonCode, date, product } = inp;
   const warnings = [];
-  const mv = require('./movement');
-  const matrix = mv.hasActiveMatrixVariants(db, productId);
+  const matrix = isAdjustMatrix(db, productId);
   const unalloc = unallocatedNet(db, productId, warehouseId);
   const unattributedOther = [];
   try {
@@ -173,12 +183,14 @@ function planAdjust(db, body, user, { peek = true } = {}) {
       `در این انبار ${unalloc} واحد بدون رنگ/سایز مانده است؛ ابتدا «تفکیک رنگ» یا «ابطال اصلاحی با اثر موجودی» را روی ردیف بی‌واریانت انجام دهید، سپس تعدیل رنگ`
     );
   }
-  for (const u of unattributedOther) {
-    warnings.push(
-      `این کالا در «${u.warehouse_name}» ${u.qty} عدد بدون رنگ/سایز دارد؛ گزارش رنگ و سایز تا تفکیک آن ردیف با کاردکس برابر نمی‌شود`
-    );
+  if (matrix) {
+    for (const u of unattributedOther) {
+      warnings.push(
+        `این کالا در «${u.warehouse_name}» ${u.qty} عدد بدون رنگ/سایز دارد؛ گزارش رنگ و سایز تا تفکیک آن ردیف با کاردکس برابر نمی‌شود`
+      );
+    }
   }
-  if (!matrix && !warehouseId) warnings.push('انبار انتخاب نشده؛ فقط موجودی کل کالا تعدیل می‌شود');
+  if (!warehouseId) warnings.push('انبار الزامی است');
   if (integer && delta != null && Math.abs(delta - Math.round(delta)) > 1e-9) {
     warnings.push('این کالا قطعه‌ای است؛ تعداد باید عدد صحیح باشد');
   }
@@ -247,7 +259,7 @@ function planAdjust(db, body, user, { peek = true } = {}) {
     reason_code: reasonCode,
     reason_label: reasonCode ? VA.ADJUST_REASONS[reasonCode] : null,
     current_qty: cur,
-    current_qty_usable: variantUsable,
+    current_qty_usable: variantUsable && !!warehouseId,
     variant_qty: variantId ? cur : null,
     warehouse_qty: whQty,
     unallocated_net: unalloc,
@@ -297,9 +309,8 @@ function postAdjust(db, body, user, opts = {}) {
     if (plan.warehouse_id) {
       require('./cycle-count').assertWarehouseNotCounting(db, [plan.warehouse_id], { label: 'تعدیل موجودی' });
     }
-    // SSOT: every ledger row of a matrix product names its SKU (the ledger refuses otherwise).
-    if (plan.matrix && !plan.warehouse_id) {
-      throw adjErr('E_WAREHOUSE_REQUIRED', 409, 'برای کالای رنگ×سایز، انبار را انتخاب کنید');
+    if (!plan.warehouse_id) {
+      throw adjErr('E_WAREHOUSE_REQUIRED', 409, 'انبار را انتخاب کنید؛ تعدیل بدون انبار مجاز نیست');
     }
     if (plan.matrix && !plan.variant_id) {
       throw adjErr('E_VARIANT_REQUIRED', 409, 'برای کالای رنگ×سایز، رنگ/سایز را انتخاب کنید');
@@ -510,6 +521,18 @@ module.exports = {
   canAdjustStock,
   canVoidAdjust,
   canOverrideCost,
+  isAdjustMatrix,
+  adjErr,
+  round3,
+  today,
+  parseInputs,
+  currentQty,
+  unallocatedNet,
+  warehouseQtyOf,
+  liveRate,
+  isPeriodic,
+  counterFor,
+  voucherNo,
   planAdjust,
   postAdjust,
   reverseAdjustInTx,

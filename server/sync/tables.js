@@ -281,6 +281,9 @@ const SYNCABLE_TABLES = [
   { name: 'product_opening_stock',             upsertKey: 'id' },
   // سند اصلاح تفکیک واریانت VR (append-only؛ ثبت/ابطال فقط روی مرکز)
   { name: 'variant_reclass_docs',              upsertKey: 'id' },
+  // تعدیل تجمیعی ADJ (append-only؛ ثبت/ابطال فقط روی مرکز)
+  { name: 'stock_adjust_docs',                 upsertKey: 'id' },
+  { name: 'stock_adjust_doc_lines',            upsertKey: 'id' },
 ];
 
 // Provisional id-space partitioning. A paired device with device_id D writes
@@ -695,6 +698,15 @@ const FK_COLUMNS = [
   ['variant_reclass_docs', 'warehouse_id'],
   ['variant_reclass_docs', 'source_ledger_id'],
   ['variant_reclass_docs', 'reversal_ledger_id'],
+  // stock_adjust_docs (append-only)
+  ['stock_adjust_docs', 'je_id'],
+  ['stock_adjust_docs', 'created_by'],
+  ['stock_adjust_docs', 'voided_by'],
+  ['stock_adjust_doc_lines', 'doc_id'],
+  ['stock_adjust_doc_lines', 'product_id'],
+  ['stock_adjust_doc_lines', 'warehouse_id'],
+  ['stock_adjust_doc_lines', 'variant_id'],
+  ['stock_adjust_doc_lines', 'ledger_id'],
 ];
 
 module.exports = { SYNCABLE_TABLES, FK_COLUMNS, PROVISIONAL_FLOOR, DEVICE_SPAN, TABLE_SPAN, LEGACY_TABLE_SLOTS, OVERFLOW_FLOOR, tableBase, isProvisionalId };

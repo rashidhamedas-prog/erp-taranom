@@ -1143,19 +1143,22 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   // JE) on the primary warehouse. After warehouse circulation Excel must not smash live qty
   // (excelHasMoves → excelWantStock stays null). A normal UI PUT never touches warehouse_stock.
   let excelAdjusted = false;
+  let excelStockWarning = null;
   if (excelWantStock != null) {
     const MA = require('../lib/inventory/manual-adjust');
     const mv = require('../lib/inventory/movement');
     if (mv.hasActiveMatrixVariants(db, Number(req.params.id))) {
       // matrix SKUs need a variant per cell — Excel's single qty column cannot express that
+    } else if (!whId) {
+      excelStockWarning = 'انبار کالا مشخص نیست؛ موجودی اکسل ثبت نشد';
     } else {
       const L = require('../lib/inventory/ledger');
-      const curQty = L.warehouseQty(db, Number(req.params.id), whId || null);
+      const curQty = L.warehouseQty(db, Number(req.params.id), whId);
       if (Math.abs(excelWantStock - curQty) > 1e-9) {
         try {
           MA.postAdjust(db, {
             product_id: Number(req.params.id),
-            warehouse_id: whId || undefined,
+            warehouse_id: whId,
             mode: 'count',
             qty: excelWantStock,
             note: 'موجودی اکسل',
@@ -1186,6 +1189,7 @@ router.put('/:id', auth, adminOrAccounting, uploadProductMedia, async (req, res)
   }
   const row = db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   row.images = listProductImages(db, row.id);
+  if (excelStockWarning) row.excel_stock_warning = excelStockWarning;
   try {
     const completeness = require('../lib/production/product-completeness');
     const ready = completeness.assessProduct(db, Number(req.params.id), 'activate');

@@ -302,6 +302,19 @@ function findProductRealActivity(db, productId, prod) {
       return blocker('variant_reclass', 'variant_reclass_docs', doc, `این کالا در سند اصلاح واریانت ${doc} استفاده شده و قابل حذف نیست — می‌توانید غیرفعال کنید`);
     }
   }
+  // stock_adjust_doc_lines (تعدیل تجمیعی)
+  if (tableExists(db, 'stock_adjust_doc_lines')) {
+    const sad = db.prepare(`
+      SELECT d.id, d.doc_no FROM stock_adjust_doc_lines l
+      JOIN stock_adjust_docs d ON d.id=l.doc_id
+      WHERE l.product_id=? LIMIT 1
+    `).get(pid);
+    if (sad) {
+      const doc = sad.doc_no || sad.id;
+      return blocker('stock_adjust_doc', 'stock_adjust_docs', doc,
+        `این کالا در سند تعدیل تجمیعی ${doc} استفاده شده و قابل حذف نیست — می‌توانید غیرفعال کنید`);
+    }
+  }
 
   // Opening stock lines — draft AND posted
   if (tableExists(db, 'opening_stock_lines') && tableExists(db, 'opening_stock_docs')) {

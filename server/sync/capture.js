@@ -36,6 +36,8 @@ const BLOCKLIST = [
   '/api/admin/restore-product-stock-wipe',
   '/api/crm/automations',
   '/api/inventory/adjust/preview', // v525 read-only POST
+  '/api/inventory/adjust-docs/preview', // v644 read-only POST
+  '/api/inventory/adjust-docs/grid', // v644 read-only GET
   '/api/inventory/line-availability', // v580 read-only POST (sellable qty) — never replay
   '/api/inventory/opening-stock/preview', // read-only POST (پیش‌نمایش اصلاحیهٔ موجودی اول دوره)
   '/api/inventory/opening-stock/migrate', // central-only one-shot migration
@@ -165,6 +167,7 @@ const PATH_TABLE_MAP = [
   ['/api/inventory/opening-stock', 'product_opening_stock'],
   ['/api/inventory/variant-reclass', 'variant_reclass_docs'],
   ['/api/inventory/ledger', 'inventory_ledger'],
+  ['/api/inventory/adjust-docs', 'stock_adjust_docs'],
   ['/api/inventory/adjust', 'inventory_ledger'],
   ['/api/inventory/seed-avg-cost', 'products'],
   ['/api/opening-stock', 'opening_stock_docs'],

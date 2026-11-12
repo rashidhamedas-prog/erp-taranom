@@ -2362,6 +2362,8 @@ function initSyncSchema(db, opts) {
   } catch (e) { console.warn('⚠️ ایندکس یکتای افتتاحیه انبار ایجاد نشد:', e.message); }
   try { require('./lib/inventory/variant-reclass').ensureVariantReclassSchema(db); }
   catch (e) { console.warn('⚠️ variant_reclass_docs:', e.message); }
+  try { require('./lib/inventory/adjust-doc').ensureAdjustDocSchema(db); }
+  catch (e) { console.warn('⚠️ stock_adjust_docs:', e.message); }
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_opening_stock_docs_no ON opening_stock_docs(doc_no)'); }
   catch (e) { console.warn('⚠️ ایندکس یکتای شمارهٔ سند افتتاحیه انبار ایجاد نشد:', e.message); }
   if (!db.prepare('SELECT 1 FROM number_sequences WHERE key=?').get('opening_stock')) {
@@ -3922,6 +3924,20 @@ function initSyncSchema(db, opts) {
         }
       }
       db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v37','1')").run();
+    }
+    // v38: stock_adjust_docs / stock_adjust_doc_lines (تعدیل تجمیعی)
+    const backfillV38 = db.prepare("SELECT value FROM settings WHERE key='sync_seq_backfill_v38'").get();
+    if (!backfillV38 || backfillV38.value !== '1') {
+      for (const t of SYNCABLE_TABLES) {
+        if (!tableExists(db, t.name)) continue;
+        if (!tableColumns(db, t.name).includes('sync_seq')) continue;
+        try {
+          db.prepare(`UPDATE ${t.name} SET sync_seq = 0 WHERE sync_seq IS NULL`).run();
+        } catch (e) {
+          console.warn(`⚠️ sync_seq backfill v38 skipped for ${t.name}:`, e.message);
+        }
+      }
+      db.prepare("INSERT OR REPLACE INTO settings (key,value) VALUES ('sync_seq_backfill_v38','1')").run();
     }
     // موجودی اول دوره: مهاجرت یک‌بارهٔ کاردکس → product_opening_stock (پیش‌فرض خاموش؛
     // فقط با settings.product_opening_stock_migrate_enabled='1' یا PRODUCT_OPENING_STOCK_MIGRATE=1).

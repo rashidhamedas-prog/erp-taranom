@@ -721,6 +721,61 @@ router.post('/adjust', auth, requireAdjust, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+// ---- v644 aggregated stock adjust docs (تعدیل تجمیعی) ----
+// Declare /grid and /preview BEFORE /:id so they are not captured as ids.
+const AD = () => require('../lib/inventory/adjust-doc');
+router.get('/adjust-docs/grid', auth, requireAdjust, (req, res) => {
+  try {
+    res.json(AD().buildGrid(getDB(), {
+      product_id: req.query.product_id,
+      warehouse_ids: req.query.warehouse_ids,
+    }));
+  } catch (e) { sendErr(res, e); }
+});
+router.post('/adjust-docs/preview', auth, requireAdjust, (req, res) => {
+  try {
+    res.json(AD().planDoc(getDB(), req.body || {}, req.user));
+  } catch (e) { sendErr(res, e); }
+});
+router.get('/adjust-docs', auth, requireAdjust, (req, res) => {
+  try {
+    res.json({ rows: AD().listDocs(getDB(), { limit: req.query.limit, offset: req.query.offset }) });
+  } catch (e) { sendErr(res, e); }
+});
+router.get('/adjust-docs/:id', auth, requireAdjust, (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'شناسه نامعتبر', code: 'E_BAD_ID' });
+    res.json(AD().getDoc(getDB(), id));
+  } catch (e) { sendErr(res, e); }
+});
+router.post('/adjust-docs', auth, requireAdjust, (req, res, next) => {
+  const { centralOnlyStrict } = require('../middleware/auth');
+  return centralOnlyStrict(req, res, next);
+}, (req, res) => {
+  try {
+    const out = AD().postDoc(getDB(), req.body || {}, req.user);
+    audit(req.user.id, 'create', 'stock_adjust_doc', out.id,
+      `${out.doc_no} lines=${out.line_count || (out.lines && out.lines.length) || 0}`);
+    res.json(out);
+  } catch (e) { sendErr(res, e); }
+});
+router.post('/adjust-docs/:id/void', auth, (req, res, next) => {
+  if (MA.canVoidAdjust(req.user, getDB())) return next();
+  return res.status(403).json({ error: 'برای ابطال سند تعدیل تجمیعی دسترسی لازم است', code: 'E_PERMISSION' });
+}, (req, res, next) => {
+  const { centralOnlyStrict } = require('../middleware/auth');
+  return centralOnlyStrict(req, res, next);
+}, (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'شناسه نامعتبر', code: 'E_BAD_ID' });
+    const out = AD().voidDoc(getDB(), id, req.body || {}, req.user);
+    audit(req.user.id, 'void', 'stock_adjust_doc', id, String((req.body && req.body.reason) || '').slice(0, 200));
+    res.json(out);
+  } catch (e) { sendErr(res, e); }
+});
+
 /**
  * Read-only diagnostic: colour-report Σ vs kardex vs VWS for one (or all) products.
  * Never writes. Gate: adminOrAccounting.
