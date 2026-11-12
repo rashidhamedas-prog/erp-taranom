@@ -725,16 +725,15 @@ function checkCostDeviation(db, po, unitCost) {
   const thresh = Number(setting(db, 'production_cost_deviation_pct', '15')) / 100 || 0.15;
   if (pct > thresh) {
     try {
-      db.prepare(`
-        INSERT INTO app_notifications (user_id, title, body, type, created_at)
-        VALUES (?,?,?,?,strftime('%s','now'))
-      `).run(
-        po.created_by || 1,
-        'انحراف بهای تولید',
-        `سفارش ${po.order_no}: بهای واقعی ${unitCost} در برابر استاندارد ${std}`,
-        'warning'
-      );
-    } catch { /* table optional */ }
+      require('../notifications').notifyRoles(db, {
+        kind: 'production_cost_deviation',
+        entity_type: 'production_order',
+        entity_id: po.id,
+        title: 'انحراف بهای تولید',
+        body: `سفارش ${po.order_no}: بهای واقعی ${unitCost} در برابر استاندارد ${std}`,
+        target_roles: ['admin', 'accounting'],
+      });
+    } catch { /* non-blocking */ }
   }
 }
 

@@ -19,11 +19,11 @@ const SECTIONS = {
     label: 'ERP / مشتریان',
     transactions: [
       'followups', 'orders', 'reminders', 'messages', 'customer_ledger',
-      'ai_insights', 'app_notifications',
+      'ai_insights', 'app_notifications', 'app_notification_user_state',
     ],
     full: [
       'followups', 'orders', 'reminders', 'messages', 'customer_ledger',
-      'ai_insights', 'app_notifications', 'customers',
+      'ai_insights', 'app_notifications', 'app_notification_user_state', 'customers',
     ],
     afterTx: (db) => {
       try { db.prepare('UPDATE customers SET balance=0, churn_score=0').run(); } catch (_) {}

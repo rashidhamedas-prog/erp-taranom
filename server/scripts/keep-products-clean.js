@@ -86,7 +86,7 @@ const WIPE_FIRST = [
   'inventory_reservations', 'landed_cost_headers', 'landed_cost_lines',
   'landed_cost_docs', 'landed_cost_allocations',
   'consignments', 'trust_checks', 'cheque_records',
-  'followups', 'orders', 'reminders', 'messages', 'ai_insights', 'app_notifications',
+  'followups', 'orders', 'reminders', 'messages', 'ai_insights', 'app_notifications', 'app_notification_user_state',
   'marketer_carts', 'user_catalog_categories',
   'customers', 'suppliers', 'persons', 'parties', 'party_groups',
   'person_categories', 'customer_groups', 'detail_accounts', 'detail_categories',

@@ -35,7 +35,10 @@ console.log('\n[1] notifClick routes nightly recon to report page');
 console.log('\n[2] Help + SW stamp v537');
 {
   ok(swAtLeast(swJs, 537), 'sw cache v537');
-  ok(/app\.js\?v=537/.test(indexHtml), 'index app.js?v=537');
+  {
+    const m = indexHtml.match(/app\.js\?v=(\d+)/);
+    ok(!!m && Number(m[1]) >= 537, 'index app.js?v>=537', m && m[0]);
+  }
   ok(/با زدن همان اعلان/.test(appJs), 'Help mentions bell click opens recon');
 }
 

@@ -67,7 +67,7 @@ const TABLES = [
   'inventory_reservations', 'landed_cost_headers', 'landed_cost_lines',
   'consignments', 'trust_checks', 'cheque_records',
   // CRM
-  'followups', 'orders', 'reminders', 'messages', 'ai_insights', 'app_notifications',
+  'followups', 'orders', 'reminders', 'messages', 'ai_insights', 'app_notifications', 'app_notification_user_state',
   'marketer_carts', 'product_images', 'user_catalog_categories',
   // masters
   'customers', 'suppliers', 'persons', 'parties', 'party_groups',

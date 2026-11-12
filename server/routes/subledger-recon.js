@@ -67,6 +67,20 @@ router.get('/last', ...read, (req, res) => {
   } catch (e) { sendErr(res, e); }
 });
 
+router.get('/runs', ...read, (req, res) => {
+  try {
+    res.json({ runs: recon.listRuns(dbReady(), { limit: req.query.limit }) });
+  } catch (e) { sendErr(res, e); }
+});
+
+router.get('/runs/:id(\\d+)', ...read, (req, res) => {
+  try {
+    const run = recon.getRun(dbReady(), +req.params.id);
+    if (!run) return res.status(404).json({ error: 'اجرا یافت نشد', code: 'E_RECON_NO_RUN' });
+    res.json(run);
+  } catch (e) { sendErr(res, e); }
+});
+
 router.get('/fixes', ...read, (req, res) => {
   try {
     res.json({ fixes: recon.listFixes(dbReady(), { limit: req.query.limit }) });

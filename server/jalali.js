@@ -36,6 +36,61 @@ function todayJalali() {
   return `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`;
 }
 
+/** Asia/Tehran calendar+clock parts (independent of process TZ). */
+function tehranParts(now = new Date()) {
+  const d = now instanceof Date ? now : new Date(now);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tehran',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d);
+  const get = (t) => parts.find((p) => p.type === t)?.value;
+  return {
+    gy: Number(get('year')),
+    gm: Number(get('month')),
+    gd: Number(get('day')),
+    hh: Number(get('hour')),
+    mi: Number(get('minute')),
+  };
+}
+
+function todayJalaliTehran(now = new Date()) {
+  const { gy, gm, gd } = tehranParts(now);
+  const [jy, jm, jd] = g2j(gy, gm, gd);
+  return `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`;
+}
+
+function jalaliDayNumber(s) {
+  const parts = String(s || '').trim().split(/[/-]/).map((x) => parseInt(x, 10));
+  if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [jy, jm, jd] = parts;
+  if (jm < 1 || jm > 12 || jd < 1 || jd > 31) return null;
+  try {
+    const [gy, gm, gd] = j2g(jy, jm, jd);
+    return Date.UTC(gy, gm - 1, gd) / 86400000;
+  } catch {
+    return null;
+  }
+}
+
+function diffJalaliDays(a, b) {
+  const na = jalaliDayNumber(a);
+  const nb = jalaliDayNumber(b);
+  if (na == null || nb == null) return null;
+  return na - nb;
+}
+
+function addJalaliDaysExact(s, n) {
+  const base = jalaliDayNumber(s);
+  if (base == null) return null;
+  const target = base + Number(n || 0);
+  const ms = target * 86400000;
+  const d = new Date(ms);
+  const [jy, jm, jd] = g2j(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  return `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`;
+}
+
 function nowHHMM() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -91,4 +146,5 @@ function periodEndJalali(period) {
 module.exports = {
   g2j, j2g, todayJalali, nowHHMM, addDaysToJalali,
   isJalaliLeapYear, daysInJalaliMonth, periodEndJalali,
+  tehranParts, todayJalaliTehran, jalaliDayNumber, diffJalaliDays, addJalaliDaysExact,
 };

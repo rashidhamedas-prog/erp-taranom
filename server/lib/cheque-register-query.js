@@ -5,7 +5,8 @@
  */
 
 const { OPENING_NOTE, sqlIsRegistered } = require('./cheque-lifecycle');
-const { digitsOnly, jalaliOrdinal } = require('./cheque-quality');
+const { digitsOnly, jalaliOrdinal, daysUntilDue } = require('./cheque-quality');
+const { addJalaliDaysExact } = require('../jalali');
 
 const SORT_WHITELIST = {
   due_asc: 'due_date ASC, id DESC',
@@ -310,12 +311,7 @@ function runChequeSummary(db, todayRaw) {
   };
 
   for (const r of openRows) {
-    const days = (() => {
-      const a = jalaliOrdinal(r.due_date);
-      const b = jalaliOrdinal(today);
-      if (a == null || b == null) return null;
-      return a - b;
-    })();
+    const days = daysUntilDue(r.due_date, today);
     if (days == null) continue;
     const amtR = Number(r.amount) || 0;
     if (days < 0) {
@@ -333,16 +329,9 @@ function runChequeSummary(db, todayRaw) {
   return { today, cards, aging };
 }
 
-/** Approximate Jalali day add using ordinal (good enough for filters). */
+/** Exact Jalali day add (name kept for callers); uses UTC day-number math. */
 function addJalaliDaysApprox(today, n) {
-  const o = jalaliOrdinal(today);
-  if (o == null) return today;
-  const target = o + n;
-  const y = Math.floor(target / 372);
-  const rem = target % 372;
-  const m = Math.min(12, Math.max(1, Math.floor(rem / 31)));
-  const d = Math.min(31, Math.max(1, rem % 31 || 1));
-  return String(y).padStart(4, '0') + '/' + String(m).padStart(2, '0') + '/' + String(d).padStart(2, '0');
+  return addJalaliDaysExact(today, n) || today;
 }
 
 module.exports = {

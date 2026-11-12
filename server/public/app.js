@@ -3479,54 +3479,375 @@ function pickOmnibox(i){
   if(r.entity_type&&r.entity_id) api('POST','/notifications/entity-viewed',{entity_type:r.entity_type,entity_id:r.entity_id}).catch(()=>{});
 }
 
-/* ===== Notifications (polling + optional SSE) ===== */
+/* ===== Notifications (polling + optional SSE) — v642 professional inbox ===== */
+const NOTIF_FILTER_KEY='erp_notif_panel_filters_v642';
+let _notifPollTimer=null;
+let _notifSseAbort=null;
+let _notifSseDebounce=null;
+let _notifInboxCache=null;
+let _notifPanelBusy=false;
+
+function _notifLoadFilters(){
+  try{ return JSON.parse(sessionStorage.getItem(NOTIF_FILTER_KEY)||'{}')||{}; }catch{ return {}; }
+}
+function _notifSaveFilters(f){
+  try{ sessionStorage.setItem(NOTIF_FILTER_KEY, JSON.stringify(f||{})); }catch{}
+}
+function _notifRelTime(ts){
+  if(!ts) return '';
+  const sec=Math.max(0, Math.floor((_serverNow().getTime()/1000) - Number(ts)));
+  if(sec<60) return 'همین الان';
+  if(sec<3600) return toFa(Math.floor(sec/60))+' دقیقه پیش';
+  if(sec<86400) return toFa(Math.floor(sec/3600))+' ساعت پیش';
+  if(sec<86400*7) return toFa(Math.floor(sec/86400))+' روز پیش';
+  return '';
+}
+function _notifCatIcon(cat){
+  return ({cheque:'📒',sales:'🧾',recon:'🔍',inventory:'📦',production:'🏭',portal:'🌐',followup:'📞',system:'⚙️'}[cat]||'🔔');
+}
+function _notifBadgeText(n){
+  if(n>99) return toFa(99)+'+';
+  return toFa(n);
+}
 function initNotifications(){
   const bell=el('notifBell');
   if(!bell) return;
-  // همه کاربران اعلان می‌بینند (حداقل برای آپدیت نرم‌افزار)
   bell.style.display='block';
-  refreshPendingBadge();
   pollNotifications();
-  setInterval(pollNotifications, 45000);
+  if(_notifPollTimer) clearInterval(_notifPollTimer);
+  _notifPollTimer=setInterval(()=>{ if(!document.hidden) pollNotifications(); }, 45000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) pollNotifications(); });
+  window.addEventListener('focus', ()=>{ pollNotifications(); });
+  _notifStartSse();
 }
 async function pollNotifications(){
   try{
-    const d=await api('GET','/notifications/pending-actions', null, false, true)||{};
-    const n=(d.notifications||[]).length;
+    const d=await api('GET','/notifications/summary', null, false, true)||{};
+    const unread=Number(d.unread||0);
+    const actionable=Number(d.actionable||0);
     const badge=el('notifBadge');
-    if(badge){ badge.textContent=n; badge.classList.toggle('hide',!n); }
-    window._pendingActions=d.actions||[];
-    window._notifications=d.notifications||[];
+    if(badge){
+      badge.textContent=_notifBadgeText(unread);
+      badge.classList.toggle('hide', unread<=0 && actionable<=0);
+      badge.classList.toggle('dot', unread<=0 && actionable>0);
+      const label=unread>0 ? (toFa(unread)+' اعلان خوانده‌نشده') : (actionable>0?'اقدام در انتظار':'اعلان‌ها');
+      badge.title=label;
+      badge.setAttribute('aria-label', label);
+    }
+    // dashboard pending-actions kept separately
+    try{
+      const pa=await api('GET','/notifications/pending-actions', null, false, true)||{};
+      window._pendingActions=pa.actions||[];
+      window._notifications=pa.notifications||[];
+    }catch{}
   }catch{}
 }
 function refreshPendingBadge(){ pollNotifications(); }
-function toggleNotifPanel(){
-  const items=(window._notifications||[]);
-  openModal(`<div class="modal-head"><h3>🔔 اعلان‌ها</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
-    <div class="modal-body">${items.length?items.map(n=>`<div class="pending-action-item" data-csp-click="${CSP.bind('click',function(event){notifClick((n.id),`${String((CSP.htmlDecode(String(esc(n.entity_type||'')))) ?? '')}`,`${String((n.entity_id||0) ?? '')}`,`${String((CSP.htmlDecode(String(esc(n.kind||'')))) ?? '')}`)})}">
-      <b>${esc(n.title)}</b><div class="muted" data-csp-style="${CSP.style(`font-size:12px`)}">${esc(n.body||'')}</div></div>`).join(''):'<div class="empty">اعلان جدیدی نیست</div>'}
-    </div><div class="modal-foot"><button class="btn ghost" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">بستن</button></div>`);
+function _notifStartSse(){
+  if(_notifSseAbort) return;
+  try{
+    const token=localStorage.getItem('crm_token')||'';
+    if(!token || !window.ReadableStream) return;
+    _notifSseAbort=new AbortController();
+    fetch('/api/notifications/stream',{
+      headers:{Authorization:'Bearer '+token},
+      signal:_notifSseAbort.signal
+    }).then(async res=>{
+      if(!res.ok || !res.body) throw new Error('sse');
+      const reader=res.body.getReader();
+      const dec=new TextDecoder();
+      let buf='';
+      while(true){
+        const {value,done}=await reader.read();
+        if(done) break;
+        buf+=dec.decode(value,{stream:true});
+        const parts=buf.split('\n\n'); buf=parts.pop()||'';
+        for(const chunk of parts){
+          const line=chunk.split('\n').find(l=>l.startsWith('data:'));
+          if(!line) continue;
+          let payload={}; try{ payload=JSON.parse(line.slice(5).trim()); }catch{ continue; }
+          if(payload.type==='changed'){
+            clearTimeout(_notifSseDebounce);
+            _notifSseDebounce=setTimeout(()=>{
+              pollNotifications();
+              if(document.querySelector('.notif-panel-root')) _notifReloadPanel(false);
+            },1000);
+          }
+        }
+      }
+    }).catch(()=>{ _notifSseAbort=null; });
+  }catch{ _notifSseAbort=null; }
 }
-async function notifClick(id, entityType, entityId, kind){
-  await api('POST','/notifications/'+id+'/resolve').catch(()=>{});
+function toggleNotifPanel(){
+  const html='<div class="modal-head notif-panel-root"><h3>🔔 اعلان‌ها <span class="chip-count" id="notifUnreadLive" aria-live="polite"></span></h3>'
+    +'<div class="notif-head-actions">'
+    +'<button class="btn ghost sm" data-csp-click="'+CSP.bind('click',function(){_notifMarkAllRead();})+'" title="همه خوانده شد">همه خوانده شد</button>'
+    +'<button class="btn ghost sm" data-csp-click="'+CSP.bind('click',function(){_notifReloadPanel(true);})+'" title="بازخوانی">بازخوانی</button>'
+    +'<button class="x" data-csp-click="'+CSP.bind('click',function(){closeModal();})+'">×</button>'
+    +'</div></div>'
+    +'<div class="modal-body" id="notifPanelBody"><div class="empty">در حال بارگذاری…</div></div>'
+    +'<div class="modal-foot"><button class="btn ghost" data-csp-click="'+CSP.bind('click',function(){closeModal();})+'">بستن</button></div>';
+  openModal(html, true);
+  _notifReloadPanel(true);
+}
+async function _notifMarkAllRead(){
+  const f=_notifLoadFilters();
+  const catMap={cheque:'cheque',sales:'sales',recon:'recon',system:'system'};
+  const category=catMap[f.tab]||undefined;
+  await api('POST','/notifications/read-all', category?{category}:{}).catch(()=>{});
+  pollNotifications();
+  _notifReloadPanel(true);
+}
+async function _notifReloadPanel(force){
+  const body=el('notifPanelBody'); if(!body) return;
+  if(_notifPanelBusy) return;
+  _notifPanelBusy=true;
+  if(force) body.innerHTML='<div class="empty">در حال بارگذاری…</div>';
+  try{
+    const inbox=await api('GET','/notifications/inbox');
+    _notifInboxCache=inbox;
+    const live=el('notifUnreadLive');
+    if(live) live.textContent=inbox?.counts?.unread?('('+toFa(inbox.counts.unread)+')'):'';
+    body.innerHTML=_notifRenderPanel(inbox);
+  }catch(e){
+    body.innerHTML=`<div class="empty">خطا در بارگذاری اعلان‌ها<div style="margin-top:8px"><button class="btn" data-csp-click="${CSP.bind('click',function(event){_notifReloadPanel(true)})}">تلاش دوباره</button></div></div>`;
+  }finally{ _notifPanelBusy=false; }
+}
+function _notifSetFilter(patch){
+  const f=Object.assign(_notifLoadFilters(), patch||{});
+  _notifSaveFilters(f);
+  if(_notifInboxCache){
+    const body=el('notifPanelBody');
+    if(body) body.innerHTML=_notifRenderPanel(_notifInboxCache);
+  }
+}
+function _notifFilterItems(inbox){
+  const f=_notifLoadFilters();
+  const tab=f.tab||'all';
+  const sev=f.sev||'all';
+  const showArch=!!f.arch;
+  let items=(inbox.items||[]).slice();
+  if(!showArch) items=items.filter(i=>!i.dismissed);
+  if(tab==='unread') items=items.filter(i=>!i.read && !i.dismissed && i.source!=='action');
+  else if(tab==='action') items=items.filter(i=>i.source==='action');
+  else if(tab==='cheque') items=items.filter(i=>i.category==='cheque');
+  else if(tab==='sales') items=items.filter(i=>i.category==='sales');
+  else if(tab==='recon') items=items.filter(i=>i.category==='recon'||i.category==='inventory'||i.category==='production');
+  else if(tab==='system') items=items.filter(i=>i.category==='system'||i.category==='portal');
+  if(sev==='danger') items=items.filter(i=>i.severity==='danger');
+  else if(sev==='warning') items=items.filter(i=>i.severity==='warning'||i.severity==='danger');
+  else if(sev==='info') items=items.filter(i=>i.severity==='info'||i.severity==='success');
+  return items;
+}
+function _notifGroupKeyEvent(createdAt, todayJ){
+  if(!createdAt) return 'older';
+  const d=new Date(Number(createdAt)*1000);
+  const ds=d.toLocaleDateString('en-CA',{timeZone:'Asia/Tehran'});
+  const todayParts=String(todayJ||'').split('/');
+  // compare via Tehran jalali strings from server today
+  const dayDiff=(()=>{
+    try{
+      const now=_serverNow();
+      const sec=Math.floor(now.getTime()/1000)-Number(createdAt);
+      if(sec<86400 && ds===now.toLocaleDateString('en-CA',{timeZone:'Asia/Tehran'})) return 0;
+      if(sec<172800) return 1;
+      if(sec<86400*7) return 2;
+      return 3;
+    }catch{ return 3; }
+  })();
+  if(dayDiff===0) return 'today';
+  if(dayDiff===1) return 'yesterday';
+  if(dayDiff===2) return 'week';
+  return 'older';
+}
+function _notifRenderPanel(inbox){
+  const f=_notifLoadFilters();
+  const tab=f.tab||'all';
+  const items=_notifFilterItems(inbox);
+  const counts=inbox.counts||{};
+  const tabs=[
+    ['all','همه',null],
+    ['unread','خوانده‌نشده',counts.unread],
+    ['action','نیاز به اقدام',counts.actionable],
+    ['cheque','چک‌ها',counts.by_category&&counts.by_category.cheque],
+    ['sales','فروش',counts.by_category&&counts.by_category.sales],
+    ['recon','تطبیق و کنترل',((counts.by_category&&counts.by_category.recon)||0)+((counts.by_category&&counts.by_category.inventory)||0)+((counts.by_category&&counts.by_category.production)||0)],
+    ['system','سیستم',((counts.by_category&&counts.by_category.system)||0)+((counts.by_category&&counts.by_category.portal)||0)],
+  ];
+  const tabHtml=`<div class="inv-chip-tabs notif-tabs">${tabs.map(([id,label,c])=>`<button type="button" class="inv-chip${tab===id?' on':''}" data-csp-click="${CSP.bind('click',function(event){_notifSetFilter({tab:id})})}">${label}${c!=null?` <span class="chip-count">${toFa(c||0)}</span>`:''}</button>`).join('')}</div>`;
+  const filters=`<div class="notif-filters">
+    <label><input type="checkbox" ${f.arch?'checked':''} data-csp-change="${CSP.bind('change',function(event){_notifSetFilter({arch:!!event.target.checked})})}"> نمایش بایگانی‌شده‌ها</label>
+    <select data-csp-change="${CSP.bind('change',function(event){_notifSetFilter({sev:event.target.value})})}">
+      <option value="all" ${(!f.sev||f.sev==='all')?'selected':''}>همه شدت‌ها</option>
+      <option value="danger" ${f.sev==='danger'?'selected':''}>بحرانی</option>
+      <option value="warning" ${f.sev==='warning'?'selected':''}>هشدار</option>
+      <option value="info" ${f.sev==='info'?'selected':''}>اطلاع</option>
+    </select>
+  </div>`;
+  if(!items.length){
+    const emptyMsg=(tab==='unread'||!f.arch)?'اعلان خوانده‌نشده‌ای ندارید':'موردی با این فیلتر نیست';
+    return tabHtml+filters+`<div class="empty">${emptyMsg}</div>`;
+  }
+  const groups=[];
+  const pushGroup=(title,list)=>{ if(list.length) groups.push({title,list}); };
+  if(tab==='action'){
+    pushGroup('نیاز به اقدام', items.filter(i=>i.source==='action'));
+  } else if(tab==='cheque'){
+    pushGroup('سررسید گذشته ('+toFa(items.filter(i=>i.bucket==='overdue').length)+')', items.filter(i=>i.bucket==='overdue').sort((a,b)=>a.days-b.days));
+    pushGroup('امروز ('+toFa(items.filter(i=>i.bucket==='today').length)+')', items.filter(i=>i.bucket==='today'));
+    pushGroup('۷ روز آینده ('+toFa(items.filter(i=>i.bucket==='soon').length)+')', items.filter(i=>i.bucket==='soon').sort((a,b)=>a.days-b.days));
+  } else {
+    const actions=items.filter(i=>i.source==='action');
+    const cheques=items.filter(i=>i.source==='cheque');
+    const events=items.filter(i=>i.source==='event');
+    if(tab==='all' && actions.length) pushGroup('نیاز به اقدام', actions);
+    if(tab==='all' || tab==='unread'){
+      pushGroup('سررسید گذشته ('+toFa(cheques.filter(i=>i.bucket==='overdue').length)+')', cheques.filter(i=>i.bucket==='overdue').sort((a,b)=>a.days-b.days));
+      pushGroup('امروز ('+toFa(cheques.filter(i=>i.bucket==='today').length)+')', cheques.filter(i=>i.bucket==='today'));
+      pushGroup('۷ روز آینده ('+toFa(cheques.filter(i=>i.bucket==='soon').length)+')', cheques.filter(i=>i.bucket==='soon').sort((a,b)=>a.days-b.days));
+    } else if(cheques.length){
+      pushGroup('چک‌ها', cheques);
+    }
+    const eg={today:[],yesterday:[],week:[],older:[]};
+    const labels={today:'امروز',yesterday:'دیروز',week:'این هفته',older:'قدیمی‌تر'};
+    for(const it of events){ eg[_notifGroupKeyEvent(it.created_at, inbox.today_jalali)].push(it); }
+    for(const k of ['today','yesterday','week','older']) pushGroup(labels[k], eg[k]);
+  }
+  return tabHtml+filters+groups.map(g=>`<div class="notif-group-head">${esc(g.title)}</div>${g.list.map(it=>_notifRenderItem(it, inbox)).join('')}`).join('');
+}
+function _notifOpenItem(it){
+  const id=it.key&&String(it.key).startsWith('n:')?Number(String(it.key).slice(2)):null;
+  return notifClick(id, it.target&&it.target.kind, it.target&&it.target.id, it.kind, it);
+}
+function _notifOpenReconRun(runId, itemKey){
+  return notifClick(null, 'subledger_recon_run', runId, 'subledger_recon_nightly', {
+    key: itemKey,
+    target: { kind: 'recon_run', id: runId },
+  });
+}
+function _notifRenderItem(it, inbox){
+  const unreadCls=(!it.read && !it.dismissed && it.source!=='action')?' unread':'';
+  const amt=it.amount_rial!=null?('<span class="notif-amt">'+esc(fmt(it.amount_rial))+' '+currencyUnit()+'</span>'):'';
+  const ref=it.ref_label?('<bdi dir="ltr" class="mono">'+esc(it.ref_label)+'</bdi>'):'';
+  const tags=it.source==='cheque'?('<span class="tag">'+(it.direction==='out'?'پرداختی':'دریافتی')+'</span> <span class="tag">'+toFa(it.days)+' روز</span>'):'';
+  let reconExtra='';
+  if(it.kind==='subledger_recon_nightly'){
+    const failing=(it.meta&&it.meta.failing)||[];
+    const top=failing.slice(0,3).map(x=>'<li>'+esc(x)+'</li>').join('');
+    const more=failing.length>3?('<li>+'+toFa(failing.length-3)+'</li>'):'';
+    const hist=(inbox.recon_history||[]);
+    const histHtml=hist.map(h=>{
+      const runId=h.run_id;
+      const itemKey=it.key;
+      return '<div class="notif-hist-row" data-csp-click="'+CSP.bind('click',function(event){event.stopPropagation();_notifOpenReconRun(runId,itemKey);})+'">'
+        +esc(h.as_of||'')+' · هشدار '+toFa((h.summary&&h.summary.warn)||0)+' · خطا '+toFa((h.summary&&h.summary.error)||0)+'</div>';
+    }).join('');
+    reconExtra='<ul class="notif-failing">'+top+more+'</ul>'
+      +'<button type="button" class="btn ghost sm" data-csp-click="'+CSP.bind('click',function(event){event.stopPropagation();_notifToggleReconHist(event.currentTarget);})+'">سابقه ('+toFa(hist.length)+')</button>'
+      +'<div class="notif-recon-hist hide">'+histHtml+'</div>';
+  }
+  const isRead=!!it.read;
+  const isDismissed=!!it.dismissed;
+  const itemKey=it.key;
+  const unreadDot=unreadCls?'<span class="notif-dot" aria-hidden="true"></span>':'';
+  return '<div class="notif-item sev-'+esc(it.severity||'info')+unreadCls+'" role="button" tabindex="0"'
+    +' data-csp-click="'+CSP.bind('click',function(){_notifOpenItem(it);})+'"'
+    +' data-csp-keydown="'+CSP.bind('keydown',function(event){ if(event.key==='Enter'||event.key===' '){event.preventDefault();_notifOpenItem(it);} })+'">'
+    +'<div class="notif-item-main"><span class="notif-ico">'+_notifCatIcon(it.category)+'</span><div class="notif-item-body">'
+    +'<div class="notif-title"><b>'+esc(it.title||'')+'</b>'+unreadDot+'</div>'
+    +'<div class="muted">'+esc(it.subtitle||'')+' '+ref+'</div>'
+    +'<div class="notif-meta">'+amt+' '+tags+' <span class="muted">'+esc(_notifRelTime(it.created_at))+'</span></div>'
+    +reconExtra
+    +'</div></div><div class="notif-actions">'
+    +'<button type="button" class="btn ghost sm" aria-label="باز کردن" data-csp-click="'+CSP.bind('click',function(event){event.stopPropagation();_notifOpenItem(it);})+'">باز کردن</button>'
+    +'<button type="button" class="btn ghost sm" aria-label="'+(isRead?'نخوانده':'خوانده شد')+'" data-csp-click="'+CSP.bind('click',function(event){event.stopPropagation();_notifToggleRead(itemKey,isRead);})+'">'+(isRead?'نخوانده':'خوانده شد')+'</button>'
+    +'<button type="button" class="btn ghost sm" aria-label="'+(isDismissed?'بازگردانی':'بایگانی')+'" data-csp-click="'+CSP.bind('click',function(event){event.stopPropagation();_notifToggleDismiss(itemKey,isDismissed);})+'">'+(isDismissed?'بازگردانی':'بایگانی')+'</button>'
+    +'</div></div>';
+}
+function _notifToggleReconHist(btn){
+  const box=btn && btn.parentElement && btn.parentElement.querySelector('.notif-recon-hist');
+  if(box) box.classList.toggle('hide');
+}
+async function _notifToggleRead(key, isRead){
+  await api('POST', isRead?'/notifications/unread':'/notifications/read', {keys:[key]}).catch(()=>{});
+  pollNotifications(); _notifReloadPanel(true);
+}
+async function _notifToggleDismiss(key, isDismissed){
+  await api('POST', isDismissed?'/notifications/undismiss':'/notifications/dismiss', {keys:[key]}).catch(()=>{});
+  pollNotifications(); _notifReloadPanel(true);
+}
+async function notifClick(id, entityType, entityId, kind, item){
+  const key=item && item.key ? item.key : (id!=null ? ('n:'+id) : null);
+  if(key) await api('POST','/notifications/read',{keys:[key]}).catch(()=>{});
   closeModal(); refreshPendingBadge();
-  if(kind==='app_update' || entityType==='app_update'){
+  const target=item && item.target ? item.target : null;
+  const needAcc=(route)=>{
+    if(typeof showAccountingTab==='function' && !showAccountingTab()){
+      showToast('دسترسی به این بخش ندارید');
+      return false;
+    }
+    return true;
+  };
+  if(kind==='app_update' || entityType==='app_update' || (target&&target.kind==='app_update')){
     if(isDesktopApp()||detectClientPlatform()==='android') go(isAdmin()?'settings':'desktop-settings');
     else if(typeof go==='function') go(isAdmin()?'settings':'dash');
     return;
   }
-  // v537: nightly subledger recon bell → open report (loads last run with ردیف/ریز)
-  if(kind==='subledger_recon_nightly' || entityType==='subledger_recon_run'){
+  if(kind==='subledger_recon_nightly' || entityType==='subledger_recon_run' || (target&&target.kind==='recon_run')){
+    if(!needAcc()) return;
+    const rid=target&&target.id!=null?target.id:entityId;
+    if(rid) window._slrOpenRunId=rid;
     enterAccountingShell().then(()=>{
       go('acc-subledger-recon');
-      showToast('آخرین نتیجهٔ تطبیق شبانه — روی «ریز» هر هشدار جزئیات را ببینید');
+      showToast('نتیجهٔ تطبیق — روی «ریز» هر هشدار جزئیات را ببینید');
     });
     return;
   }
-  if(entityType==='invoice'&&entityId){ enterAccountingShell().then(()=>go('acc-sales-invoices')); }
-  else if(entityType==='followup'&&entityId) go('followups');
-  else if(kind==='invoice_approval') enterAccountingShell().then(()=>go('acc-commissions'));
-  else if(entityType==='op_parameter'||entityType==='op_department'||String(kind||'').startsWith('portal_')){
+  if((target&&target.kind==='cheque') || kind==='cheque_live'){
+    if(!needAcc()) return;
+    const cid=target&&target.id!=null?target.id:entityId;
+    const dir=(item&&item.direction)||(target&&target.route==='acc-cheques-pay'?'out':'in');
+    enterAccountingShell().then(()=>{
+      go(dir==='out'?'acc-cheques-pay':'acc-cheques-recv');
+      setTimeout(()=>{ if(typeof openChequeLeafModal==='function') openChequeLeafModal(cid); },300);
+    });
+    return;
+  }
+  if((target&&target.kind==='invoice') || entityType==='invoice' || kind==='invoice_approval' || kind==='invoice_new' || kind==='invoice_cancelled'){
+    if(!needAcc()) return;
+    const iid=target&&target.id!=null?target.id:entityId;
+    const invType=target&&target.inv_type;
+    enterAccountingShell().then(()=>{
+      if(kind==='invoice_approval') go('acc-final-invoices');
+      else if(invType==='proforma') go('acc-proforma');
+      else go('acc-sales-invoices');
+      if(iid && typeof openInvBuilder==='function' && kind!=='invoice_approval') setTimeout(()=>openInvBuilder(iid),200);
+    });
+    return;
+  }
+  if(kind==='value_change_approval' || (target&&target.kind==='value_approval')){
+    if(!needAcc()) return;
+    enterAccountingShell().then(()=>{
+      go('acc-inv-valuation');
+      setTimeout(()=>{
+        try{ if(typeof ivalApprovalShow==='function' && entityId) ivalApprovalShow(entityId); else if(el('ivalApprovalsPane')){ /* open pane if present */ } }catch{}
+      },300);
+    });
+    return;
+  }
+  if(kind==='value_change_auto_cogs'){
+    if(!needAcc()) return;
+    enterAccountingShell().then(()=>go('acc-inv-valuation'));
+    return;
+  }
+  if(kind==='production_cost_deviation' || kind==='production_period_reopen' || String(kind||'').startsWith('production_') || entityType==='production_health'){
+    if(!needAcc()) return;
+    enterAccountingShell().then(()=>go(kind==='production_period_reopen'?'acc-production-close':'acc-production-orders'));
+    return;
+  }
+  if(entityType==='followup'||kind==='followup'||(target&&target.kind==='followup')){ go('followups'); return; }
+  if(entityType==='op_parameter'||entityType==='op_department'||String(kind||'').startsWith('portal_')){
+    if(!needAcc()) return;
     enterAccountingShell().then(()=>{
       if(ME?.role==='department_manager') go('acc-portal-my-dept');
       else go('acc-portal-units');
@@ -27491,6 +27812,7 @@ async function renderSubledgerReconTab(body){
     <p class="muted" data-csp-style="${CSP.style(`font-size:12px;line-height:1.9`)}">هر بررسی، مانده یا اسناد یک زیرسیستم (انبار، اشخاص، بانک و صندوق، دارایی ثابت، کالای در راه، …) را با دفتر کل مقایسه می‌کند.
     اصلاح فقط با سند تعدیلی یا ابطال/ثبت مجدد انجام می‌شود؛ هیچ ردیفی حذف نمی‌شود.
     هر اختلاف غیرصفر (حتی ۱ ریال) نشان داده می‌شود؛ اختلافی که کاملاً با باقی‌ماندهٔ تبدیل تومان↔ریال توضیح داده شود با برچسب «اختلاف گرد کردن» جدا می‌شود.</p>
+    <div id="slr-open-banner" class="hide"></div>
     <div id="slr-nightly" class="muted" data-csp-style="${CSP.style(`font-size:12px;margin-bottom:8px`)}"></div>
     <div id="slr-out">برای دیدن آخرین نتیجه صبر کنید...</div>
   </div></div>
@@ -27498,6 +27820,22 @@ async function renderSubledgerReconTab(body){
     <div class="panel-body"><div id="slr-fixes" class="muted">...</div></div></div>`;
   slrFixesLoad();
   slrNightlyLoad();
+  const openId=window._slrOpenRunId; window._slrOpenRunId=null;
+  if(openId){
+    try{
+      const run=await api('GET','/accounting/subledger-recon/runs/'+openId);
+      if(run && run.checks){
+        slrRender(run);
+        const ban=el('slr-open-banner');
+        if(ban){
+          ban.classList.remove('hide');
+          ban.innerHTML=`<div class="oh-warn" data-csp-style="${CSP.style(`margin-bottom:8px`)}">اجرای شبانهٔ ${esc(run.as_of||'')} — اجرای قدیمی
+            <button class="btn ghost sm" data-csp-click="${CSP.bind('click',function(){api('GET','/accounting/subledger-recon/last').then(r=>{if(r&&r.checks)slrRender(r); el('slr-open-banner').classList.add('hide');})})}">نمایش آخرین اجرا</button></div>`;
+        }
+        return;
+      }
+    }catch(_){ /* fall through to last */ }
+  }
   try{
     const last=await api('GET','/accounting/subledger-recon/last');
     if(last && last.checks) slrRender(last); else el('slr-out').innerHTML='هنوز اجرا نشده.';
@@ -44706,7 +45044,7 @@ helpSec('🔑','لایسنس و entitlement',`
           <b>دسترسی</b>: ثبت تعدیل، تأیید/رد، سیاست و قواعد، ابطال و قفل ماه هرکدام تیک جدا در دسترسی کاربر دارند. <b>دستگاه‌ها (ویندوز/اندروید)</b>: همهٔ عملیات ارزش‌گذاری وقتی دستگاه به سرور وصل است مستقیم و همزمان روی سرور مرکزی (با دادهٔ مرکزی و امضای دستگاه) اجرا می‌شود و در صف همگام‌سازی نمی‌رود؛ اگر دستگاه آفلاین باشد دکمه‌های ثبت/پیش‌نمایش غیرفعال‌اند («فقط با اتصال به سرور») و فقط مشاهدهٔ دادهٔ محلی ممکن است.</li>
         <li><b>مغایرت‌گیری زیرسیستم‌ها با دفتر کل (v521)</b> (حسابداری → گزارشات): با یک دکمه، موجودی هر حساب انبار، گردش‌های کالای بی‌سند، اسناد بی‌سند حسابداری، سند زنده روی سند عملیاتی باطل‌شده، اختلاف مبلغ سند با فاکتور، دفاتر اشخاص با حساب کنترل، بانک و صندوق، کالای در راه (GRNI)، دارایی ثابت، حساب‌های معلق و تغییر در دورهٔ بسته را با دفتر کل مقایسه می‌کند. هر ردیف «ریز» دارد؛ اصلاح فقط با سند تعدیلی دارای علت یا ابطال/ثبت مجدد انجام می‌شود و پیش‌نمایش پیش‌فرض است. اتصال دوطرفه: تعدیل دستی موجودی حالا سند دارد و ابطالش سند را هم باطل می‌کند؛ برگشت ردیف کاردکس فقط برای ردیف دستی مجاز است و بقیه باید از سند مبدأ ابطال شوند؛ حذف فاکتور اتمیک شد؛ ابطال سندی که در سال مالی بسته است به‌جای دست‌کاری سال بسته، سند معکوس با تاریخ امروز صادر می‌کند.</li>
         <li><b>تکمیل اتصال مالی (v521):</b> در «مغایرت‌گیری» جدول «اصلاحیه‌های ثبت‌شده» هر سند تعدیلی را با علت نشان می‌دهد و دکمهٔ «ابطال» آن را با سند معکوس برمی‌گرداند. تغییر دستی موجودی کالا (ویرایش موجودی) سند تعدیل به نرخ میانگین می‌زند. ویرایش سندی که تاریخش در سال مالی بسته است رد می‌شود (E_CLOSED_PERIOD). <b>دارایی ثابت جدید</b> «منبع تأمین» دارد: افتتاحیه (پیش‌فرض، برای دارایی موجود از قبل)، صندوق، بانک، خرید نسیه از تأمین‌کننده (دفتر تأمین‌کننده هم ثبت می‌شود) یا «بدون سند» وقتی سند تحصیل جدا زده شده؛ غیرفعال‌کردن دارایی سند تحصیلش را ابطال می‌کند. ابطال هزینه و علی‌الحساب نماینده (API) سند و دفاتر را برمی‌گرداند؛ علی‌الحساب تسویه‌شده قابل ابطال نیست.</li>
-        <li><b>مغایرت‌گیری شبانه، بدون رواداری و دسترسی ریز (v522 / v537):</b> مغایرت‌گیری هر شب (پیش‌فرض ساعت ۰۲:۰۰ به وقت سرور، روی سرور مرکزی) خودکار اجرا می‌شود و خلاصه‌اش با تعداد سالم/هشدار/خطا/گرد کردن و نام کنترل‌های ناموفق در زنگولهٔ مدیر و حسابدار می‌آید؛ <b>با زدن همان اعلان</b> صفحهٔ «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» باز می‌شود و آخرین نتیجه (با دکمهٔ «ریز» روی هر هشدار) نمایش داده می‌شود. روشن/خاموش و ساعتش در همان تب «مغایرت‌گیری» (فقط مدیر) قابل تغییر است و دکمهٔ «اجرای اکنون» هم دارد. <b>هیچ رواداری‌ای باقی نمانده</b>: هر اختلافی حتی ۱ ریال نشان داده می‌شود؛ فقط اختلافی که از حد «گرد کردن» (جمع ناهمخوانی ستون ریال و تومان سطرهای سند به‌اضافهٔ کسر ریال در دفاتر فرعی) بیشتر نباشد با برچسب جداگانهٔ «اختلاف گرد کردن» و شمارش جدا نمایش داده می‌شود؛ اگر هیچ منبع گرد کردنی نباشد، ۱ ریال هم هشدار واقعی است. <b>دارایی ثابت بدون سند تحصیل:</b> در کنترل «دارایی ثابت» اصلاح «سند افتتاحیه یکجا» هست — یک سند به تاریخ اول سال مالی جاری (بدهکار حساب هر دارایی، بستانکار افتتاحیه، فقط بهای تمام‌شده بدون استهلاک انباشته)؛ پیش‌نمایش پیش‌فرض است و اگر دفتر کل از قبل آن مبلغ را دارد، برای جلوگیری از ثبت دوباره تأیید جدا می‌خواهد. ابطال این اصلاحیه سند را باطل و پیوند دارایی‌ها را برمی‌گرداند؛ غیرفعال‌کردن یک دارایی فقط سهم همان دارایی را با سند برگشت جدا برمی‌گرداند. <b>ابطال هزینه/مساعدهٔ نماینده</b> حالا در صفحهٔ نماینده دکمهٔ «🧾 هزینه‌ها و مساعده‌ها» دارد (علت اجباری)؛ در صورت‌حساب نماینده ردیف ابطال‌شده با برچسب «ابطال‌شده» و مبلغ صفر می‌آید و مانده تغییر نمی‌کند. <b>دسترسی‌ها:</b> در پنجرهٔ دسترسی کاربر، «ارزش‌گذاری موجودی» تیک‌های جدا دارد (ایجاد = ثبت تعدیل، تأیید = تأیید/رد، ویرایش = سیاست و قوانین، حذف = ابطال سند) و «قفل دورهٔ ارزش‌گذاری» ردیف جدا؛ «مغایرت‌گیری» ویرایش = اعمال اصلاح و حذف = ابطال اصلاحیه؛ ابطال هزینه/مساعدهٔ نماینده با تیک «حذف» نمایندگان. پیش‌فرض: مدیر همه؛ حسابدار همه به‌جز قفل دوره و ویرایش سیاست ارزش‌گذاری. دکمهٔ «⚙️ پیش‌فرض نقش» پیش‌فرض هر نقش را برای همهٔ کاربرانش تغییر می‌دهد و تیک جداگانهٔ هر کاربر بر آن مقدم است.</li>
+        <li><b>مغایرت‌گیری شبانه، بدون رواداری و دسترسی ریز (v522 / v537 / v642):</b> مغایرت‌گیری هر شب (پیش‌فرض ساعت ۰۲:۰۰ به وقت تهران، روی سرور مرکزی) خودکار اجرا می‌شود و خلاصه‌اش با تعداد سالم/هشدار/خطا/گرد کردن و نام کنترل‌های ناموفق در زنگولهٔ مدیر و حسابدار می‌آید؛ <b>با زدن همان اعلان</b> صفحهٔ «مغایرت‌گیری زیرسیستم‌ها با دفتر کل» باز می‌شود و همان اجرا (یا آخرین نتیجه) با دکمهٔ «ریز» روی هر هشدار نمایش داده می‌شود. پنل اعلان‌ها per-user است (خوانده/بایگانی جدا برای هر کاربر) و سررسید چک زنده محاسبه می‌شود. روشن/خاموش و ساعتش در همان تب «مغایرت‌گیری» (فقط مدیر) قابل تغییر است و دکمهٔ «اجرای اکنون» هم دارد. <b>هیچ رواداری‌ای باقی نمانده</b>: هر اختلافی حتی ۱ ریال نشان داده می‌شود؛ فقط اختلافی که از حد «گرد کردن» (جمع ناهمخوانی ستون ریال و تومان سطرهای سند به‌اضافهٔ کسر ریال در دفاتر فرعی) بیشتر نباشد با برچسب جداگانهٔ «اختلاف گرد کردن» و شمارش جدا نمایش داده می‌شود؛ اگر هیچ منبع گرد کردنی نباشد، ۱ ریال هم هشدار واقعی است. <b>دارایی ثابت بدون سند تحصیل:</b> در کنترل «دارایی ثابت» اصلاح «سند افتتاحیه یکجا» هست — یک سند به تاریخ اول سال مالی جاری (بدهکار حساب هر دارایی، بستانکار افتتاحیه، فقط بهای تمام‌شده بدون استهلاک انباشته)؛ پیش‌نمایش پیش‌فرض است و اگر دفتر کل از قبل آن مبلغ را دارد، برای جلوگیری از ثبت دوباره تأیید جدا می‌خواهد. ابطال این اصلاحیه سند را باطل و پیوند دارایی‌ها را برمی‌گرداند؛ غیرفعال‌کردن یک دارایی فقط سهم همان دارایی را با سند برگشت جدا برمی‌گرداند. <b>ابطال هزینه/مساعدهٔ نماینده</b> حالا در صفحهٔ نماینده دکمهٔ «🧾 هزینه‌ها و مساعده‌ها» دارد (علت اجباری)؛ در صورت‌حساب نماینده ردیف ابطال‌شده با برچسب «ابطال‌شده» و مبلغ صفر می‌آید و مانده تغییر نمی‌کند. <b>دسترسی‌ها:</b> در پنجرهٔ دسترسی کاربر، «ارزش‌گذاری موجودی» تیک‌های جدا دارد (ایجاد = ثبت تعدیل، تأیید = تأیید/رد، ویرایش = سیاست و قوانین، حذف = ابطال سند) و «قفل دورهٔ ارزش‌گذاری» ردیف جدا؛ «مغایرت‌گیری» ویرایش = اعمال اصلاح و حذف = ابطال اصلاحیه؛ ابطال هزینه/مساعدهٔ نماینده با تیک «حذف» نمایندگان. پیش‌فرض: مدیر همه؛ حسابدار همه به‌جز قفل دوره و ویرایش سیاست ارزش‌گذاری. دکمهٔ «⚙️ پیش‌فرض نقش» پیش‌فرض هر نقش را برای همهٔ کاربرانش تغییر می‌دهد و تیک جداگانهٔ هر کاربر بر آن مقدم است.</li>
         <li><b>مغایرت‌گیری دقیق‌تر (v525):</b> اصلاح «تطبیق ارزش موجودی با دفتر کل» دیگر هرگز به‌طور پیش‌فرض به ۹۹۹۹ «اصلاحات و تعدیلات» نمی‌رود: باید <b>حساب طرف مقابل</b> را خودتان انتخاب کنید (مثلاً ۳۱۰۲ تراز افتتاحیه، ۶۱۰۸/۶۱۱۸ کسری و اضافات انبار، ۵۱۰۱ بهای تمام‌شده، ۱۱۱۰/۱۱۱۱)؛ بدون آن اعمال اصلاح رد می‌شود و حساب‌های معلق/کنترل (۹۹۹۹، ۵۲۰۱، ۵۲۰۲) و حساب غیرقابل‌ثبت پذیرفته نمی‌شوند. پیش‌نمایش برای هر حساب انبار مبلغ و طرف سند را جدا نشان می‌دهد. صندوقی که ماندهٔ منفی دارد در کنترل «صندوق و بانک» با برچسب جداگانهٔ <b>«صندوق منفی»</b> و نام و مبلغ صندوق می‌آید و اختلاف تطبیق صفر می‌ماند (هشدار عملیاتی است، نه مغایرت). هشدارهای کاذب حذف شد: تسویهٔ کارتخوانی و پرداخت حقوق که سند دارند، انتقال بین دو انبار هم‌حساب، جفت گردش بی‌سندی که یکدیگر را خنثی می‌کنند (به‌صورت «اطلاع») و فاکتوری که روی حساب کنترل ثبت و بعد با سند انتقال به تفصیلی مشتری برده شده.</li>
         <li><b>ترمیم تأییدشدهٔ مغایرت‌های اول دوره (v528 داده):</b> پس از پاسخ مالک: افتتاحیه و هم‌ترازی کالای ساخته‌شده با طرف ۳۱۰۲ به تاریخ ۱۴۰۵/۰۶/۳۱ و به تفکیک کالا؛ جابه‌جایی افتتاحیهٔ چهار قلم مواد از ۱۱۰۴ به ۱۱۱۰؛ بهای تمام‌شدهٔ T-0001…T-0003؛ جذب دستمزد برش (۵۲۰۱/۶۱۰۴)؛ انتقال ۱۲۶ قلم انبار دارایی ثابت به کارت دارایی (بهای صفر تا قیمت‌گذاری جدا)؛ ابطال پرداخت تکراری تأمین‌کنندهٔ «ظریف»؛ هم‌ترازی دفتر شخص با سیاست وام روی ۱۱۱۹. طاقه روی «متفرقه» و صندوق کیمیا دست نخورده ماند. اختلاف باقی‌ماندهٔ مواد (~۵۷ میلیون تومان پس از ابطال فانتوم PO-0006) هنوز بدون سند است تا شمارش/تأیید جدا.</li>
         <li><b>خروج کاردکس بدون بها ممنوع (v529):</b> فروش/حواله/انتقال خروجی دیگر با فی و مبلغ صفر در دفتر موجودی ثبت نمی‌شود (خطای <code>E_ZERO_OUTBOUND_COST</code>). بهای خروجی همیشه با همان <b>روش ریالی مؤثر کالا ← انبار ← سراسری</b> (میانگین موزون / FIFO / ویژه) محاسبه می‌شود — سیستم میانگین را به‌زور به همهٔ کالاها تحمیل نمی‌کند. اگر قبلاً ردیف خروجی با مبلغ صفر مانده (مثلاً فروش قبل از رسید تولید با تاریخ عقب‌تر)، ترمیم زمانی فقط برای کالا/انبار با روش میانگین موزون مبلغ را از میانگین قبل از همان ردیف پر می‌کند و در صورت نیاز سند بهای تمام‌شدهٔ فاکتور را تکمیل می‌کند؛ FIFO/ویژه در گزارش ترمیم رد می‌شوند تا لایه بازسازی شود.</li>

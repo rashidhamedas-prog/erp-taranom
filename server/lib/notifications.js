@@ -9,16 +9,22 @@ function notifyRoles(db, { kind, entity_type, entity_id, title, body, target_rol
     VALUES (?,?,?,?,?,?,strftime('%s','now'))
   `);
   ins.run(kind, entity_type, entity_id, title, body || '', JSON.stringify(roles));
+  try {
+    const { broadcastNotification } = require('../routes/notifications');
+    if (typeof broadcastNotification === 'function') broadcastNotification({ type: 'changed' });
+  } catch { /* producers must never break */ }
 }
 
 function notifyNewInvoice(db, inv, cust) {
   const biz = cust?.biz || 'مشتری';
+  const { invoiceTypeLabel } = require('./sales-document');
+  const label = invoiceTypeLabel(inv.type);
   notifyRoles(db, {
     kind: 'invoice_new',
     entity_type: 'invoice',
     entity_id: inv.id,
     title: `فاکتور جدید ${inv.num || '#' + inv.id}`,
-    body: `${inv.type === 'final' ? 'فاکتور رسمی' : 'پیش‌فاکتور'} — ${biz} — ${Number(inv.final || 0).toLocaleString('fa-IR')} ریال`,
+    body: `${label} — ${biz} — ${Number(inv.final || 0).toLocaleString('fa-IR')} ریال`,
   });
 }
 
@@ -36,17 +42,19 @@ function notifyNewFollowup(db, fup, cust) {
 
 function listForUser(db, user) {
   const role = user.role;
+  // B11: role filter before limit (keep cheque_due for legacy GET /)
   return db.prepare(`
     SELECT * FROM app_notifications
     WHERE resolved_at IS NULL
-    ORDER BY created_at DESC LIMIT 100
-  `).all().filter(n => {
-    if (n.kind === 'app_update') return true; // همه نقش‌ها اعلان آپدیت را می‌بینند
+    ORDER BY created_at DESC, id DESC
+    LIMIT 400
+  `).all().filter((n) => {
+    if (n.kind === 'app_update') return true;
     try {
       const roles = JSON.parse(n.target_roles || '[]');
       return roles.includes(role) || roles.includes('*');
     } catch { return false; }
-  });
+  }).slice(0, 100);
 }
 
 /** اعلان نسخه جدید — بدون تکرار برای همان platform+version تا وقتی resolve نشود */
@@ -66,6 +74,10 @@ function notifyAppUpdate(db, { platform, version, notes }) {
     INSERT INTO app_notifications (kind, entity_type, entity_id, title, body, target_roles, created_at)
     VALUES ('app_update','app_update',NULL,?,?,?,strftime('%s','now'))
   `).run(title, body, JSON.stringify(['*']));
+  try {
+    const { broadcastNotification } = require('../routes/notifications');
+    if (typeof broadcastNotification === 'function') broadcastNotification({ type: 'changed' });
+  } catch { /* ignore */ }
   return info.lastInsertRowid;
 }
 
@@ -76,14 +88,34 @@ function markResolved(db, id, userId) {
   `).run(userId, id);
 }
 
+/** Legacy global resolve — kept for admin resolve endpoint only. */
 function markEntityViewed(db, entityType, entityId, userId) {
-  db.prepare(`
-    UPDATE app_notifications SET resolved_at=strftime('%s','now'), resolved_by=?
-    WHERE entity_type=? AND entity_id=? AND resolved_at IS NULL
-  `).run(userId, entityType, entityId);
+  // v642: per-user read; do not globally resolve.
+  const inbox = require('./notification-inbox');
+  const user = { id: userId, role: null };
+  try {
+    const row = db.prepare('SELECT id, role FROM users WHERE id=?').get(userId);
+    if (row) { user.role = row.role; user.id = row.id; }
+  } catch { /* ignore */ }
+  if (!user.role) {
+    // fallback: still avoid global resolve
+    return;
+  }
+  inbox.markEntityViewedForUser(db, user, entityType, entityId);
+}
+
+function userMayResolve(db, user, row) {
+  if (!row) return false;
+  if (user.role === 'admin') return true;
+  try {
+    const roles = JSON.parse(row.target_roles || '[]');
+    return roles.includes(user.role) || roles.includes('*');
+  } catch {
+    return false;
+  }
 }
 
 module.exports = {
   notifyRoles, notifyNewInvoice, notifyNewFollowup, notifyAppUpdate,
-  listForUser, markResolved, markEntityViewed, MANAGER_ROLES,
+  listForUser, markResolved, markEntityViewed, userMayResolve, MANAGER_ROLES,
 };

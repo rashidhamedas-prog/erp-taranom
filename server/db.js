@@ -2140,6 +2140,16 @@ function initSyncSchema(db, opts) {
       created_at INTEGER DEFAULT (strftime('%s','now'))
     );
     CREATE INDEX IF NOT EXISTS idx_notif_unresolved ON app_notifications(resolved_at);
+    CREATE TABLE IF NOT EXISTS app_notification_user_state (
+      user_id      INTEGER NOT NULL,
+      item_key     TEXT    NOT NULL,
+      read_at      INTEGER,
+      dismissed_at INTEGER,
+      updated_at   INTEGER NOT NULL DEFAULT (strftime('%s','now')),
+      PRIMARY KEY (user_id, item_key)
+    ) WITHOUT ROWID;
+    CREATE INDEX IF NOT EXISTS idx_nus_user_upd ON app_notification_user_state(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_notif_kind_entity ON app_notifications(kind, entity_type, entity_id);
     CREATE TABLE IF NOT EXISTS cheque_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       direction TEXT NOT NULL,

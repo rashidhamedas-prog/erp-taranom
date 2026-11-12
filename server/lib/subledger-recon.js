@@ -1975,7 +1975,17 @@ function lastRun(db) {
   if (!r) return null;
   let parsed = {};
   try { parsed = JSON.parse(r.result_json || '{}'); } catch (_) { parsed = {}; }
-  return { ...parsed, run_id: r.id, created_by: r.created_by, created_at: r.created_at };
+  return { ...parsed, run_id: r.id, created_by: r.created_by, created_at: r.created_at, as_of: r.as_of || parsed.as_of };
+}
+
+function listRuns(db, { limit = 30 } = {}) {
+  ensureReconSchemaOnce(db);
+  return require('./notification-inbox').listRuns(db, { limit });
+}
+
+function getRun(db, id) {
+  ensureReconSchemaOnce(db);
+  return require('./notification-inbox').getRun(db, id);
 }
 
 /** Full rows of one check (paged). */
@@ -2451,7 +2461,7 @@ function failingCheckNames(run) {
 /** Run + persist + always notify admin/accounting (bell). */
 function runNightlyRecon(db, { date } = {}) {
   ensureReconSchemaOnce(db);
-  const day = date || require('../jalali').todayJalali();
+  const day = date || require('../jalali').todayJalaliTehran();
   const run = runRecon(db, { persist: true });
   const s = run.summary || {};
   const failing = failingCheckNames(run);
@@ -2479,10 +2489,10 @@ function maybeRunNightlyRecon(db, { now, force = false } = {}) {
   const s = nightlySettings(db);
   if (!force && !s.enabled) return { ran: false, reason: 'disabled' };
   const d = now instanceof Date ? now : new Date();
-  const { g2j } = require('../jalali');
-  const [jy, jm, jd] = g2j(d.getFullYear(), d.getMonth() + 1, d.getDate());
-  const day = `${jy}/${String(jm).padStart(2, '0')}/${String(jd).padStart(2, '0')}`;
-  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const { tehranParts, todayJalaliTehran } = require('../jalali');
+  const tp = tehranParts(d);
+  const day = todayJalaliTehran(d);
+  const hhmm = `${String(tp.hh).padStart(2, '0')}:${String(tp.mi).padStart(2, '0')}`;
   if (!force && hhmm < s.time) return { ran: false, reason: 'not_yet', time: s.time };
   if (!force && s.last_date === day) return { ran: false, reason: 'already_ran', date: day };
   putSetting(db, NIGHTLY_KEYS.lastDate, day);
@@ -2495,6 +2505,8 @@ module.exports = {
   ensureReconSchemaOnce,
   runRecon,
   lastRun,
+  listRuns,
+  getRun,
   checkRows,
   applyFix,
   listFixes,

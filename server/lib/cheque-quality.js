@@ -67,10 +67,8 @@ function jalaliOrdinal(s) {
 }
 
 function daysUntilDue(due, today) {
-  const a = jalaliOrdinal(due);
-  const b = jalaliOrdinal(today);
-  if (a == null || b == null) return null;
-  return a - b;
+  const { diffJalaliDays } = require('../jalali');
+  return diffJalaliDays(due, today);
 }
 
 /**

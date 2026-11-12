@@ -1043,16 +1043,15 @@ function reopen(db, { period, reason, userId }) {
       `بازکردن دوره ${period} — دلیل: ${cleanReason}`);
 
     try {
-      db.prepare(`
-        INSERT INTO app_notifications (user_id, title, body, type, created_at)
-        VALUES (?, ?, ?, 'production', ?)
-      `).run(
-        userId || null,
-        `بازکردن دوره ${period}`,
-        cleanReason,
-        now,
-      );
-    } catch { /* optional table */ }
+      require('../notifications').notifyRoles(db, {
+        kind: 'production_period_reopen',
+        entity_type: 'production_period_close',
+        entity_id: row.id,
+        title: `بازکردن دوره ${period}`,
+        body: cleanReason,
+        target_roles: ['admin', 'accounting'],
+      });
+    } catch { /* non-blocking */ }
 
     return {
       ok: true,
