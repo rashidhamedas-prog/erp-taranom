@@ -1,5 +1,5 @@
 ﻿### ۱۴۰۵/۰۸/۲۱ — fix: انتخاب کالا در تعدیل تجمیعی با productSelect (SW v645)
-- **شاخه / Commit:** `fix/stock-adjust-add-picker-v645` (پایه: `b1b44546` / v644). منبع: `taranom-cursor-stock-adjust-add-picker.md`.
+- **شاخه / Commit:** `fix/stock-adjust-add-picker-v645` @ `afa4f3b1` (پایه: `b1b44546` / v644). منبع: `taranom-cursor-stock-adjust-add-picker.md`.
 - **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-add-picker` — بدون pm2/نوشتن production تا GO.
 - **باگ زنده (v644):** در «تعدیل تجمیعی» تایپ کد/نام + «افزودن» اغلب هیچ کارتی نمی‌ساخت (datalist بومی + تطبیق سخت `pLabel` با em-dash + toast کوتاه بدون پیام داخل مودال).
 - **فیکس UI:** `openStockAdjustDocModal` → `productSelect('sadd-prod')` + `initCustSearches(sadjRoot())`؛ `resolveAdjustDocProduct` (کد/نام/بارکد/SKU + ارقام فارسی + نام یکتا/`textMatchesQuery`)؛ خطای ماندگار `#sadd-add-err`؛ Enter روی فیلد؛ z-index دراپ بالای overlay تعدیل؛ بدون تغییر موتور ADJ/routes/schema.
