@@ -26150,7 +26150,7 @@ function openStockAdjustDocModal(opts){
   if(!canStockAdjust()){ showToast('برای ثبت سند تعدیل دسترسی لازم است','error'); return; }
   if(typeof isOfflineDevice==='function' && isOfflineDevice()){ showToast('ثبت سند تعدیل تجمیعی فقط روی سرور مرکزی است','error'); return; }
   const clientReq=(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():('sad-'+Date.now()+'-'+Math.random().toString(16).slice(2));
-  const st={ mode:'count', products:[], timer:null, seq:0, plan:null, client_request_id:clientReq };
+  const st={ mode:'count', products:[], values:{}, timer:null, seq:0, plan:null, client_request_id:clientReq };
   const reasonSel=ivalAdjustReasonSelect('sadd-reason').replace(/<option value="">[^<]*<\/option>/,'<option value="">— دلیل را انتخاب کنید —</option>');
   let cacheFailed=false, cacheErrorMsg='';
   Promise.all([
@@ -26158,6 +26158,25 @@ function openStockAdjustDocModal(opts){
     ensureProductsCache().catch(e=>{ cacheFailed=true; cacheErrorMsg=(e&&e.message)||String(e||''); return []; }),
   ]).then(()=>{
     const prods=CACHE.allProducts||[];
+    function ensureValues(){ if(!st.values || typeof st.values!=='object') st.values={}; return st.values; }
+    function renderCardsFallback(errMsg){
+      const box=el('sadd-cards'); if(!box) return;
+      box.innerHTML=(st.products||[]).map(card=>`<div class="oh-card" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px`)}">
+        <div data-csp-style="${CSP.style(`display:flex;justify-content:space-between;gap:8px;align-items:center`)}">
+          <b>${esc((card.code?card.code+' — ':'')+card.name)}</b>
+          <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){saddRemoveProduct(card.id)})}">🗑</button>
+        </div>
+        <div class="muted" data-csp-style="${CSP.style(`margin-top:6px;font-size:12px`)}">${esc(errMsg||'نمایش جدول ناموفق بود')}</div>
+      </div>`).join('')||'<div class="muted">هنوز کالایی افزوده نشده است.</div>';
+    }
+    function safeRenderCards(){
+      try{ renderCards(); }
+      catch(err){
+        const msg=err&&err.message?err.message:'خطا در نمایش کارت کالا';
+        setAddErr(msg);
+        renderCardsFallback(msg);
+      }
+    }
     sadjLayer(`<div class="modal-head"><h3>🧮 تعدیل تجمیعی</h3>
       <button class="x" data-csp-click="${CSP.bind('click',function(){closeStockAdjust()})}">×</button></div>
     <div class="modal-body">
@@ -26230,20 +26249,25 @@ function openStockAdjustDocModal(opts){
       try{ setSearchSelect('sadd-prod',''); }catch(_){ if(el('sadd-prod')) el('sadd-prod').value=''; if(el('sadd-prod-input')) el('sadd-prod-input').value=''; }
       clearAddErr();
       try{ renderCards(); schedule(); }
-      catch(err){ setAddErr(err&&err.message?err.message:'خطا در نمایش کارت کالا'); }
+      catch(err){
+        const msg=err&&err.message?err.message:'خطا در نمایش کارت کالا';
+        setAddErr(msg);
+        renderCardsFallback(msg);
+      }
     };
     window.saddRemoveProduct=function(pid){
       st.products=st.products.filter(x=>String(x.id)!==String(pid));
-      renderCards(); schedule();
+      safeRenderCards(); schedule();
     };
     window.saddToggleWh=function(pid, wid){
       const card=st.products.find(x=>String(x.id)===String(pid)); if(!card) return;
       const i=card.selectedWh.indexOf(Number(wid));
       if(i>=0) card.selectedWh.splice(i,1); else card.selectedWh.push(Number(wid));
-      renderCards(); schedule();
+      safeRenderCards(); schedule();
     };
     function cellKey(pid,wid,vid){ return pid+':'+wid+':'+(vid||0); }
     function renderCards(){
+      const vals=ensureValues();
       const box=el('sadd-cards'); if(!box) return;
       box.innerHTML=st.products.map(card=>{
         const whChips=(card.warehouses||[]).map(w=>{
@@ -26261,21 +26285,21 @@ function openStockAdjustDocModal(opts){
             const ck=cellKey(card.id,w.id,v.variant_id);
             const curCell=(v.cells||[]).find(c=>Number(c.warehouse_id)===Number(w.id));
             const cur=curCell?Number(curCell.qty)||0:0;
-            const val=st.values[ck]!=null?st.values[ck]:'';
+            const val=vals[ck]!=null?vals[ck]:'';
             const delta=st.mode==='count'?(Number(val)-cur):(Number(val)||0);
             const hl=val!==''&&Math.abs(delta)>1e-9;
             return `<td data-csp-style="${CSP.style(hl?'background:#fef3c7':'')}">
               <div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">فعلی ${fmtQtyFa(cur)}</div>
               <input class="mono" data-csp-style="${CSP.style(`width:88px`)}" type="number" step="any"
                 value="${esc(String(val))}"
-                data-csp-input="${CSP.bind('input',function(ev){ st.values[ck]=ev.target.value; schedule(); })}">
+                data-csp-input="${CSP.bind('input',function(ev){ ensureValues()[ck]=ev.target.value; schedule(); })}">
             </td>`;
           }).join('');
           const rk='reason:'+card.id+':'+(v.variant_id||0);
           return `<tr><td>${esc(v.label||'کل کالا')}</td>${cells}
-            <td><select data-csp-change="${CSP.bind('change',function(ev){ st.values[rk]=ev.target.value; schedule(); })}">
+            <td><select data-csp-change="${CSP.bind('change',function(ev){ ensureValues()[rk]=ev.target.value; schedule(); })}">
               <option value="">— پیش‌فرض —</option>
-              ${Object.entries((typeof ADJUST_REASONS!=='undefined'?ADJUST_REASONS:{})).map(([k,lab])=>`<option value="${k}" ${st.values[rk]===k?'selected':''}>${esc(lab)}</option>`).join('')||''}
+              ${Object.entries((typeof ADJUST_REASONS!=='undefined'?ADJUST_REASONS:{})).map(([k,lab])=>`<option value="${k}" ${vals[rk]===k?'selected':''}>${esc(lab)}</option>`).join('')||''}
             </select></td></tr>`;
         }).join('');
         return `<div class="oh-card" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px`)}">
@@ -26289,6 +26313,7 @@ function openStockAdjustDocModal(opts){
       }).join('')||'<div class="muted">هنوز کالایی افزوده نشده است.</div>';
     }
     function collectLines(){
+      const vals=ensureValues();
       const lines=[];
       for(const card of st.products){
         const rows=(card.variants&&card.variants.length)?card.variants:[{variant_id:null,cells:[]}];
@@ -26296,13 +26321,13 @@ function openStockAdjustDocModal(opts){
           const rk='reason:'+card.id+':'+(v.variant_id||0);
           for(const wid of card.selectedWh){
             const ck=cellKey(card.id,wid,v.variant_id);
-            const raw=st.values[ck];
+            const raw=vals[ck];
             if(raw===''||raw==null) continue;
             const curCell=((v.cells||[]).find(c=>Number(c.warehouse_id)===Number(wid)));
             const system=curCell?Number(curCell.qty)||0:0;
             lines.push({
               product_id:card.id, warehouse_id:Number(wid), variant_id:v.variant_id||undefined,
-              qty:Number(raw), reason_code:st.values[rk]||undefined, expected_system_qty:system,
+              qty:Number(raw), reason_code:vals[rk]||undefined, expected_system_qty:system,
             });
           }
         }
@@ -44935,7 +44960,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>در لحظهٔ خطا:</b> هر جا (فاکتور فروش، حوالهٔ انبار، حوالهٔ مواد، تبدیل پیش‌فاکتور، …) پیام «موجودی کافی نیست» بیاید، برای کاربر مجاز پنجره‌ای با جدول کالا/انبار/موجود/نیاز/کسری باز می‌شود. دکمهٔ «⚖️ تعدیل موجودی» هر ردیف فرم تعدیل را با «کم و زیاد» به اندازهٔ کسری و دلیل «اصلاح شمارش» پر می‌کند. <b>تکرار خودکار:</b> وقتی همهٔ ردیف‌های کسری تعدیل شد، همان عملیات قبلی (همان دکمه یا همان درخواست) خودکار <b>فقط یک بار</b> دوباره اجرا می‌شود؛ موفق ← پیام موفقیت، کسری دوباره ← همین پنجره با فهرست تازه (حلقه ندارد). «🔁 تکرار عملیات» فقط وقتی دیده می‌شود که بخشی از ردیف‌ها تعدیل شده یا تکرار خودکار ممکن نبوده. فرم/سند اصلی بسته نمی‌شود. کاربر بدون دسترسی همان جدول کسری را می‌بیند با پیام «برای تعدیل موجودی دسترسی لازم است» و بدون دکمهٔ تعدیل.</li>
         <li><b>دکمهٔ مستقل:</b> «⚖️ تعدیل موجودی»، «🧮 تعدیل تجمیعی» و «🧾 تعدیل‌های اخیر» در «عملیات انبار»، بالای کاردکس کالا (و ⚖️ کنار هر ردیف کاردکس) و در «ریالی و تعدیل بهای موجودی».</li>
         <li><b>فرم تکی (v644):</b> کالا، <b>انبار الزامی</b> (گزینهٔ «بدون انبار» حذف شده)، رنگ/سایز (برای کالای ماتریسی — حتی رنگ بازنشسته — الزامی)، نوع «🔢 تعداد شمارش‌شده» یا «± کم و زیاد»، <b>دلیل (الزامی)</b>، تاریخ و توضیح. تا انبار/رنگ انتخاب نشود موجودی فعلی معتبر نیست. اگر در همان انبار موجودی بدون رنگ مانده باشد، ثبت با ۴۰۹ (<span dir="ltr">E_ADJUST_UNATTRIBUTED_EXISTS</span>) رد می‌شود. هر ثبت تکی فقط یک انبار × یک رنگ.</li>
-        <li><b>🧮 تعدیل تجمیعی (v644/v645):</b> از «عملیات انبار» یک سند <span dir="ltr">ADJ-####</span> با چند کالا/انبار/رنگ در یک جدول، یک سند حسابداری (gross)، و ابطال کل سند. افزودن کالا با همان جستجوی نام/کد/بارکد ERP است (نه datalist بومی)؛ Enter یا «افزودن» کارت را می‌سازد و خطای انتخاب داخل مودال می‌ماند. کاردکس همان سند را به‌صورت گروهی نشان می‌دهد؛ ابطال تکی ردیف کاردکس برای این منبع مجاز نیست — از مشاهدهٔ سند «⛔ ابطال کل سند» استفاده کنید. فقط روی سرور مرکزی.</li>
+        <li><b>🧮 تعدیل تجمیعی (v644–v646):</b> از «عملیات انبار» یک سند <span dir="ltr">ADJ-####</span> با چند کالا/انبار/رنگ در یک جدول، یک سند حسابداری (gross)، و ابطال کل سند. افزودن کالا با جستجوی نام/کد/بارکد؛ بعد از افزودن، کارت انبار×رنگ باید بلافاصله دیده شود (مقادیر سلول در state سند نگه داشته می‌شوند). کاردکس گروهی؛ ابطال تکی ردیف کاردکس مجاز نیست — از «⛔ ابطال کل سند». فقط سرور مرکزی.</li>
         <li><b>کش رنگ و گزارش (v640/v641):</b> وقتی خانه‌ای در کاردکس ردیف attributed دارد، کش رنگ/سایز همیشه همان عدد کاردکس را می‌گیرد — حتی اگر تعدیل آن را دقیقاً به ۰ برساند. «گزارش رنگ و سایز» ردیف «بدون رنگ/سایز» را از کاردکس نشان می‌دهد تا جمع گزارش با کاردکس یکی باشد؛ در ماتریس این ردیف جدا زیر جدول رنگ‌ها می‌آید و در شکستگی/شمارش رنگ‌سایز حساب نمی‌شود. مسیر فقط‌خواندنی <span dir="ltr">GET /api/inventory/variant-sync-check</span> اختلاف کش/گزارش/کاردکس را فهرست می‌کند.</li>
         <li><b>حساب مقابل (هر دو حالت یکسان):</b> اضافی / اصلاح شمارشِ افزایشی ← <b>۴۲۰۵ اضافی انبارگردانی</b>؛ کسری / اصلاح شمارشِ کاهشی / سایر ← <b>۶۱۱۸ کسری و اضافات انبار</b>؛ ضایعات/خرابی ← <b>۶۱۰۸۰۱ خالص کسری انبار</b> (نه والد ۶۱۰۸). هرگز ۵۱۰۱ (بهای تمام‌شده) و هرگز ۹۹۹۹. بدون دلیل، پیش‌نمایش حساب مقابل نشان نمی‌دهد. نگاشت اختیاری دلیل در تنظیمات فقط اگر برگ فعال گروه ۴/۵/۶ باشد؛ وگرنه ۴۰۹.</li>
         <li><b>بها:</b> کسری با نرخ زندهٔ خروجی خارج می‌شود. اضافی پیش‌فرض با بهای میانگین وارد می‌شود؛ تغییر بهای واحد اضافی فقط با دسترسی «ارزش‌گذاری موجودی — ایجاد».</li>

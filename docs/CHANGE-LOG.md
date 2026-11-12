@@ -1,4 +1,13 @@
-﻿### ۱۴۰۵/۰۸/۲۱ — fix: انتخاب کالا در تعدیل تجمیعی با productSelect (SW v645)
+﻿### ۱۴۰۵/۰۸/۲۱ — fix: st.values در کارت‌های تعدیل تجمیعی (SW v646)
+- **شاخه / Commit:** `fix/stock-adjust-cell-values-v646` (پایه: `bc2c536a` / v645). منبع: `taranom-cursor-stock-adjust-cell-values.md`.
+- **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-cell-values` — بدون pm2/نوشتن production تا GO.
+- **باگ زنده (v645):** افزودن کالا resolve می‌شد ولی کارت نمی‌آمد؛ `#sadd-add-err` = `Cannot read properties of undefined (reading '111:33:141')` چون `st.values` ساخته نشده بود و `renderCards` روی `st.values[ck]` می‌ترکید (حفره از v644؛ با picker v645 نمایان شد).
+- **فیکس UI:** `st.values={}` + `ensureValues()` در خواندن/نوشتن سلول؛ fallback کارت اگر render هنوز throw کند؛ `safeRenderCards` برای 🗑 و toggle انبار. بدون تغییر موتور/picker/API.
+- **SW:** `erp-taranom-v646`؛ `app.js?v=646`.
+- **تست:** `test-stock-adjust-cell-values`؛ regression aggregated / v525 / add-picker. محصول ۳۴۲ دست‌نخورده.
+- **فایل‌ها:** `public/{app.js,sw.js,index.html}`، `scripts/test-stock-adjust-cell-values.js`، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۲۱ — fix: انتخاب کالا در تعدیل تجمیعی با productSelect (SW v645)
 - **شاخه / Commit:** `fix/stock-adjust-add-picker-v645` @ `afa4f3b1` → tip stamp `080fcb16` (پایه: `b1b44546` / v644). منبع: `taranom-cursor-stock-adjust-add-picker.md`.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۱ ۲۱:۱۰ تهران — SFTP overlay روی درخت کثیف (بدون `git pull`/`reset --hard`/`--update-env`). عبارت `GO deploy stock-adjust-add-picker`. live قبل = SW v644 + `openStockAdjustDocModal`/`saddAddProduct` حاضر + then-live hashes ثبت شد. بکاپ `/home/taranom/backups/crm.db.20261112-211009-stock-adjust-add-picker-v645` (+wal/shm). pre=`/tmp/saap-pre-645-20261112-211009`. `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v645**؛ stamp `.sftp-deploy-stamp-stock-adjust-add-picker-v645`. snapshot پیش=پس: ledger n=4808 max=4989؛ JE n=1294 · jl n=2775 Σdebit=459,691,476,290؛ p342=`342|7217|0` ledger=8؛ mismatch=0؛ ADJ docs/lines=0؛ hash PV/VWS/WS ثابت.
 - **باگ زنده (v644):** در «تعدیل تجمیعی» تایپ کد/نام + «افزودن» اغلب هیچ کارتی نمی‌ساخت (datalist بومی + تطبیق سخت `pLabel` با em-dash + toast کوتاه بدون پیام داخل مودال).
