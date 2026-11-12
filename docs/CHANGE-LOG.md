@@ -1,12 +1,14 @@
 ### ۱۴۰۵/۰۸/۲۱ — feat: پنل اعلان‌های حرفه‌ای per-user + چک زنده + تهران (SW v644)
-- **شاخه / Commit:** `fix/notifications-professional` (feature `6370dcb6`؛ bump SW پس از مشاهدهٔ زنده v643). منبع: `taranom-cursor-notifications-professional.md`. عبارت `GO deploy notifications-professional`.
-- **Deploy:** ⏳ در حال overlay ایران — SW زنده قبل از deploy **v643** (stamp `website-retail-stock-sum-v643`) بود؛ accordingly cache-bust **v644** (نه v642). بکاپ `crm.db.20261112192918-notifications-professional-v642` (+wal/shm). درخت کثیف → SFTP overlay نه `git pull`.
+- **شاخه / Commit:** `fix/notifications-professional` @ `1eb20619` (feature `6370dcb6` + bump SW). منبع: `taranom-cursor-notifications-professional.md`. عبارت `GO deploy notifications-professional`.
+- **Deploy:** ✅ ایران — SFTP overlay روی درخت کثیف (HEAD گیت `8a5cd54`؛ بدون pull/reset/`--update-env`). قبل از deploy SW زنده **v643** بود ⇒ cache-bust **v644**. بکاپ `/home/taranom/backups/crm.db.20261112192918-notifications-professional-v642` (+wal/shm). pre-files `/tmp/notif-pre-v642-20261112-155821/`. `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v644**؛ جدول `app_notification_user_state` ساخته و خالی (۰ ردیف)؛ `/api/notifications/summary|inbox` بدون توکن 401 درست؛ stamp `.sftp-deploy-stamp-notifications-professional-v644`.
+- **§7.8 HALT بررسی شد (بدون restore کش از بکاپ):** بعد از restart، `warehouse_stock`/`products.stock` Σ از ۶۶۵۰۷→۶۶۵۲۱ و `product_variants.stock` ۲۲۸۳→۲۲۹۷ (+۱۴) و ledger max ۴۹۵۶→۴۹۶۲. علت: **۶ سند هم‌زمان `inventory_adjust` روی product_id=122 / WH35** در لاگ HTTP دقیقاً اطراف restart (`تعدیل دستی — اصلاح شمارش`) — نه boot-heal و نه کد اعلان. p342=`342|7217|0` ثابت؛ `app_notifications` n/max/unresolved ثابت ۱۱۱/۱۱۱/۲۳؛ `last_date` تطبیق همان `1405/08/21` (اجرای دوبارهٔ شبانه رخ نداد). طبق پرامپت کش از بکاپ برنگشت.
 - **§1 سرور (قبل از overlay):** Node v20.20.2 + ICU تهران OK؛ `app_notification_user_state` غایب؛ چک‌های ۲۵/۲۸/۱۵ registered/posted؛ `app_notifications` n=111 max=111 unresolved=23؛ last_date تطبیق `1405/08/21`.
 - **بک‌اند:** `todayJalaliTehran`/`diffJalaliDays`/`addJalaliDaysExact`؛ جدول `app_notification_user_state` + ایندکس‌ها؛ `lib/notification-inbox.js`؛ routes inbox/summary/read*/dismiss*؛ SSE فقط `{type}`؛ `entity-viewed` per-user؛ cron `cheque_due` حذف؛ nightly با تهران؛ production kinds؛ wipe lists. **بدون sync/tables.**
 - **فرانت:** پنل مودال تب/فیلتر/گروه، badge فارسی/۹۹+، poll+SSE، ناوبری چک/فاکتور/recon؛ Help «با زدن همان اعلان».
 - **تست Node 20:** `test-notifications-inbox-v642` ۶۵/۰؛ §۶ scratch ✅؛ رگرسیون‌های مشخص‌شده سبز.
 - **اثر جانبی:** ageing چک دقیق‌تر؛ تطبیق شبانه ۰۲:۰۰ تهران (قبلاً ≈۰۵:۳۰).
 - **SW:** `erp-taranom-v644`؛ `app.js?v=644`؛ `app.css?v=644`.
+- **ساعت تطبیق بعدی به وقت تهران:** با `last_date=1405/08/21` و time پیش‌فرض ۰۲:۰۰، اجرای بعدی پس از عبور به روز جلالی بعد و رسیدن به ۰۲:۰۰ تهران است.
 - **فایل‌ها:** `jalali.js`، `db.js`، `lib/{notification-inbox,notifications,cheque-quality,cheque-register-query,subledger-recon,production/engine,production/close}.js`، `routes/{notifications,subledger-recon,data-wipe}.js`، `server.js`، `public/{app.js,app.css,i18n.js,index.html,sw.js}`، scripts تست/wipe، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۲۱ — fix: پرچم/قاب قرمز کاذب گزارش رنگ و کرش نمای جدول با «بدون رنگ/سایز» (SW v641)
