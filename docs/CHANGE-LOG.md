@@ -1,13 +1,13 @@
-### ۱۴۰۵/۰۸/۲۱ — feat: پنل اعلان‌های حرفه‌ای per-user + چک زنده + تهران (SW v642)
-- **شاخه / Commit:** `fix/notifications-professional` @ `6370dcb6` (پایه: `origin/main` @ `ffc442d1` / stamp v641). منبع: `taranom-cursor-notifications-professional.md`.
-- **Deploy:** ⏳ منتظر `GO deploy notifications-professional` — بدون pm2/overlay تا GO.
-- **§1 سرور (فقط‌خواندنی):** Node v20.20.2 + ICU تهران OK؛ SW زنده `erp-taranom-v641`؛ hash فایل‌های §۰ با جدول پرامپت یکسان؛ `app_notification_user_state` غایب؛ چک‌های ۲۵/۲۸/۱۵ همچنان registered/posted با سررسیدهای اسکرین‌شات؛ `app_notifications` n=111 max=111 (نسبت به کپی پرامپت ۱۰۶ رشد کرده). TZ پروسه UTC (cheque_due ≈۱۲:۰۰ تهران؛ recon nightly ≈۰۵:۳۰ تهران با تنظیم ۰۲:۰۰).
-- **بک‌اند:** `todayJalaliTehran`/`diffJalaliDays`/`addJalaliDaysExact`؛ جدول `app_notification_user_state` + ایندکس‌ها؛ `lib/notification-inbox.js` (event/cheque/action + read/dismiss per-user)؛ routes inbox/summary/read*/dismiss*؛ SSE فقط `{type}`؛ `entity-viewed` دیگر سراسری resolve نمی‌کند؛ cron درج `cheque_due` حذف؛ تطبیق شبانه با ساعت تهران؛ production notifyKinds درست؛ wipe lists به‌روز. **به sync/tables اضافه نشد.**
-- **فرانت:** پنل مودال با تب/فیلتر/گروه، badge فارسی/۹۹+ و نقطهٔ actionable، poll summary + SSE اختیاری، ناوبری چک/فاکتور/recon؛ Help حفظ «با زدن همان اعلان» + تهران.
-- **تست Node 20:** `test-notifications-inbox-v642` ۶۵/۰؛ §۶ scratch روی کپی live ✅ (۲۵ today، ۲۸ overdue، ۱۵ فردا، T-0058، read-all per-user، n/max/unresolved و p342 ثابت)؛ `test-notif-recon-click-v537` ۱۲/۰؛ `test-cheque-due-v563` ۲۶/۰؛ `test-sale-return-open-notify-v526` ۹/۰؛ `test-subledger-recon-v522` ۷۶/۰؛ `test-sms` ۲۲/۰؛ `new Function(app.js)` OK.
-- **اثر جانبی دقیق روز:** ageing/کارت ۷روزهٔ دفتر چک وقتی از ماه ۳۰/۲۹روزه عبور کند؛ ساعت تطبیق شبانه از ۰۵:۳۰ تهران به ۰۲:۰۰ تهران.
-- **SW:** `erp-taranom-v642`؛ `app.js?v=642`؛ `app.css?v=642`.
-- **فایل‌ها:** `jalali.js`، `db.js`، `lib/{notification-inbox,notifications,cheque-quality,cheque-register-query,subledger-recon,production/engine,production/close}.js`، `routes/{notifications,subledger-recon,data-wipe}.js`، `server.js`، `public/{app.js,app.css,i18n.js,index.html,sw.js}`، `scripts/{test-notifications-inbox-v642,test-notif-recon-click-v537,go-live-clean,keep-products-clean}.js`، CHANGE-LOG.
+### ۱۴۰۵/۰۸/۲۱ — feat: پنل اعلان‌های حرفه‌ای per-user + چک زنده + تهران (SW v644)
+- **شاخه / Commit:** `fix/notifications-professional` (feature `6370dcb6`؛ bump SW پس از مشاهدهٔ زنده v643). منبع: `taranom-cursor-notifications-professional.md`. عبارت `GO deploy notifications-professional`.
+- **Deploy:** ⏳ در حال overlay ایران — SW زنده قبل از deploy **v643** (stamp `website-retail-stock-sum-v643`) بود؛ accordingly cache-bust **v644** (نه v642). بکاپ `crm.db.20261112192918-notifications-professional-v642` (+wal/shm). درخت کثیف → SFTP overlay نه `git pull`.
+- **§1 سرور (قبل از overlay):** Node v20.20.2 + ICU تهران OK؛ `app_notification_user_state` غایب؛ چک‌های ۲۵/۲۸/۱۵ registered/posted؛ `app_notifications` n=111 max=111 unresolved=23؛ last_date تطبیق `1405/08/21`.
+- **بک‌اند:** `todayJalaliTehran`/`diffJalaliDays`/`addJalaliDaysExact`؛ جدول `app_notification_user_state` + ایندکس‌ها؛ `lib/notification-inbox.js`؛ routes inbox/summary/read*/dismiss*؛ SSE فقط `{type}`؛ `entity-viewed` per-user؛ cron `cheque_due` حذف؛ nightly با تهران؛ production kinds؛ wipe lists. **بدون sync/tables.**
+- **فرانت:** پنل مودال تب/فیلتر/گروه، badge فارسی/۹۹+، poll+SSE، ناوبری چک/فاکتور/recon؛ Help «با زدن همان اعلان».
+- **تست Node 20:** `test-notifications-inbox-v642` ۶۵/۰؛ §۶ scratch ✅؛ رگرسیون‌های مشخص‌شده سبز.
+- **اثر جانبی:** ageing چک دقیق‌تر؛ تطبیق شبانه ۰۲:۰۰ تهران (قبلاً ≈۰۵:۳۰).
+- **SW:** `erp-taranom-v644`؛ `app.js?v=644`؛ `app.css?v=644`.
+- **فایل‌ها:** `jalali.js`، `db.js`، `lib/{notification-inbox,notifications,cheque-quality,cheque-register-query,subledger-recon,production/engine,production/close}.js`، `routes/{notifications,subledger-recon,data-wipe}.js`، `server.js`، `public/{app.js,app.css,i18n.js,index.html,sw.js}`، scripts تست/wipe، CHANGE-LOG.
 
 ### ۱۴۰۵/۰۸/۲۱ — fix: پرچم/قاب قرمز کاذب گزارش رنگ و کرش نمای جدول با «بدون رنگ/سایز» (SW v641)
 - **شاخه / Commit:** `fix/variant-report-flags-fix` @ `4ce0b739` (پایه: `46956281` / v640). منبع: `taranom-cursor-variant-report-flags-fix.md`.
