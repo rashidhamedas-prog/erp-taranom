@@ -1,5 +1,5 @@
 ### ۱۴۰۵/۰۸/۲۱ — feat: پنل اعلان‌های حرفه‌ای per-user + چک زنده + تهران (SW v642)
-- **شاخه:** `fix/notifications-professional` (پایه: `origin/main` @ `ffc442d1` / stamp v641). منبع: `taranom-cursor-notifications-professional.md`.
+- **شاخه / Commit:** `fix/notifications-professional` @ `6370dcb6` (پایه: `origin/main` @ `ffc442d1` / stamp v641). منبع: `taranom-cursor-notifications-professional.md`.
 - **Deploy:** ⏳ منتظر `GO deploy notifications-professional` — بدون pm2/overlay تا GO.
 - **§1 سرور (فقط‌خواندنی):** Node v20.20.2 + ICU تهران OK؛ SW زنده `erp-taranom-v641`؛ hash فایل‌های §۰ با جدول پرامپت یکسان؛ `app_notification_user_state` غایب؛ چک‌های ۲۵/۲۸/۱۵ همچنان registered/posted با سررسیدهای اسکرین‌شات؛ `app_notifications` n=111 max=111 (نسبت به کپی پرامپت ۱۰۶ رشد کرده). TZ پروسه UTC (cheque_due ≈۱۲:۰۰ تهران؛ recon nightly ≈۰۵:۳۰ تهران با تنظیم ۰۲:۰۰).
 - **بک‌اند:** `todayJalaliTehran`/`diffJalaliDays`/`addJalaliDaysExact`؛ جدول `app_notification_user_state` + ایندکس‌ها؛ `lib/notification-inbox.js` (event/cheque/action + read/dismiss per-user)؛ routes inbox/summary/read*/dismiss*؛ SSE فقط `{type}`؛ `entity-viewed` دیگر سراسری resolve نمی‌کند؛ cron درج `cheque_due` حذف؛ تطبیق شبانه با ساعت تهران؛ production notifyKinds درست؛ wipe lists به‌روز. **به sync/tables اضافه نشد.**
