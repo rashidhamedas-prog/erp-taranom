@@ -1,5 +1,5 @@
-### ۱۴۰۵/۰۸/۲۱ — feat: تعدیل تجمیعی (ADJ) + انبار الزامی برای تعدیل تکی (SW v644)
-- **شاخه / Commit:** `feat/stock-adjust-aggregated-v644` (پایه: `1009f711` / v643). منبع: `taranom-cursor-stock-adjust-aggregated.md`.
+﻿### ۱۴۰۵/۰۸/۲۱ — feat: تعدیل تجمیعی (ADJ) + انبار الزامی برای تعدیل تکی (SW v644)
+- **شاخه / Commit:** `feat/stock-adjust-aggregated-v644` @ `cf267a83` (پایه: `1009f711` / v643). منبع: `taranom-cursor-stock-adjust-aggregated.md`.
 - **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-aggregated` — بدون pm2/نوشتن production تا GO.
 - **Part A (شکاف بدون انبار):** `postAdjust` برای هر کالا بدون انبار → ۴۰۹ `E_WAREHOUSE_REQUIRED`؛ پیش‌نمایش «انبار الزامی است» + `current_qty_usable:false`؛ `isAdjustMatrix` (= هر واریانت غیرپیش‌فرض فعال/بازنشسته) جایگزین گیت ماتریس؛ هشدار unattributed فقط برای ماتریس؛ UI بدون گزینهٔ «کل کالا (بدون انبار)»؛ اکسل بدون `warehouse_id` → `excel_stock_warning` و بدون `postAdjust`.
 - **Part B (تعدیل تجمیعی):** جداول `stock_adjust_docs` / `stock_adjust_doc_lines`؛ موتور `lib/inventory/adjust-doc.js` (`planDoc`/`postDoc`/`voidDoc`/`buildGrid`)؛ مسیرهای `/api/inventory/adjust-docs*` (grid/preview قبل از `:id`)؛ یک JE gross با `adjustCounterAccount`؛ کاردکس گروهی از طریق `STOCK_AGGREGATE_SOURCES` + لینک `inventory_adjust_doc`؛ reverse تکی → `E_REVERSE_VIA_SOURCE`؛ sync hygiene (PATH قبل از `/adjust`، BLOCKLIST preview/grid، append جداول، backfill v38)؛ UI «🧮 تعدیل تجمیعی» + ابطال کل سند؛ Help ادمین.
