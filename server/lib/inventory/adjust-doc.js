@@ -733,10 +733,12 @@ function buildGrid(db, { product_id, warehouse_ids } = {}) {
   }));
 
   const derived = require('./stock-cache').deriveProductStock(db, pid);
-  const PV = require('../product-variants');
   const variants = [];
   const cells = [];
   if (matrix) {
+    // Include EVERY non-default variant: active, retired-with-stock, and retired-at-zero.
+    // Editor keeps zero-retired colors as «بدون موجودی»; hiding them here blocked re-count.
+    // Default SKU stays excluded. plan/post already allow adjusting retired SKUs + reactivate.
     const rows = db.prepare(`
       SELECT pv.*, pc.name AS color_name, ps.name AS size_name
       FROM product_variants pv
@@ -747,7 +749,6 @@ function buildGrid(db, { product_id, warehouse_ids } = {}) {
     `).all(pid);
     for (const v of rows) {
       const active = Number(v.active) ? 1 : 0;
-      if (!active && !PV.variantCarriesStock(db, v)) continue;
       variants.push({
         variant_id: Number(v.id),
         sku: v.sku || '',
@@ -791,6 +792,56 @@ function buildGrid(db, { product_id, warehouse_ids } = {}) {
   };
 }
 
+/** Map flat grid.cells onto each variant as cells[].qty (from system_qty). Never leave cells undefined. */
+function attachCellsToVariants(variants, cells) {
+  const list = Array.isArray(variants) ? variants : [];
+  const flat = Array.isArray(cells) ? cells : [];
+  return list.map((v) => {
+    const vid = v.variant_id == null || v.variant_id === '' ? null : Number(v.variant_id);
+    const vCells = flat
+      .filter((c) => {
+        const cid = c.variant_id == null || c.variant_id === '' ? null : Number(c.variant_id);
+        return (cid == null && vid == null) || Number(cid) === Number(vid);
+      })
+      .map((c) => {
+        const qty = Number(c.system_qty != null ? c.system_qty : c.qty) || 0;
+        return {
+          warehouse_id: Number(c.warehouse_id),
+          variant_id: c.variant_id == null || c.variant_id === '' ? null : Number(c.variant_id),
+          qty,
+          system_qty: qty,
+        };
+      });
+    return Object.assign({}, v, { cells: vCells });
+  });
+}
+
+/**
+ * Default selected warehouse chips: any WH with non-zero attached cell or unattributed,
+ * plus product default warehouse if present in grid.warehouses. Empty raw/FA/WIP stay unselected.
+ */
+function defaultSelectedWarehouseIds(grid, productWarehouseId) {
+  const whs = Array.isArray(grid && grid.warehouses) ? grid.warehouses : [];
+  const whSet = new Set(whs.map((w) => Number(w.id)).filter(Boolean));
+  const selected = new Set();
+  const variants = attachCellsToVariants(grid && grid.variants, grid && grid.cells);
+  for (const v of variants) {
+    for (const c of v.cells || []) {
+      if (Math.abs(Number(c.qty) || 0) > 1e-9 && whSet.has(Number(c.warehouse_id))) {
+        selected.add(Number(c.warehouse_id));
+      }
+    }
+  }
+  for (const u of (grid && grid.unattributed) || []) {
+    if (Math.abs(Number(u.qty) || 0) > 1e-9 && whSet.has(Number(u.warehouse_id))) {
+      selected.add(Number(u.warehouse_id));
+    }
+  }
+  const def = Number(productWarehouseId) || 0;
+  if (def && whSet.has(def)) selected.add(def);
+  return Array.from(selected);
+}
+
 module.exports = {
   SOURCE,
   SEQ_KEY,
@@ -803,4 +854,6 @@ module.exports = {
   listDocs,
   getDoc,
   buildGrid,
+  attachCellsToVariants,
+  defaultSelectedWarehouseIds,
 };

@@ -105,8 +105,8 @@ ok(/resolveAdjustDocProduct/.test(app), 'resolveAdjustDocProduct present in app.
 console.log('— SW / index cache bump —');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const index = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-ok(/erp-taranom-v64[56]/.test(sw) || /erp-taranom-v646/.test(sw), 'SW CACHE v645+');
-ok(/app\.js\?v=64[56]/.test(index) || /app\.js\?v=646/.test(index), 'index app.js?v=645+');
+ok(/erp-taranom-v64[5-7]/.test(sw), 'SW CACHE v645+');
+ok(/app\.js\?v=64[5-7]/.test(index), 'index app.js?v=645+');
 
 console.log('— new Function(app.js) —');
 try {

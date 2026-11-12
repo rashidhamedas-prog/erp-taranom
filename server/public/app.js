@@ -26231,6 +26231,57 @@ function openStockAdjustDocModal(opts){
       el('sadd-m-delta')?.classList.toggle('ghost',st.mode!=='delta');
       schedule();
     };
+    /** Attach flat grid.cells → variant.cells[].qty; never leave cells undefined. Same helper for add + stale refresh. */
+    function attachAdjustGrid(card, grid){
+      const flat=Array.isArray(grid&&grid.cells)?grid.cells:[];
+      const whs=Array.isArray(grid&&grid.warehouses)?grid.warehouses:(card.warehouses||[]);
+      card.warehouses=whs;
+      card.matrix=!!(grid&&grid.matrix);
+      card.unattributed=(Array.isArray(grid&&grid.unattributed)?grid.unattributed:[]).map(u=>({
+        warehouse_id:Number(u.warehouse_id), qty:Number(u.qty)||0,
+      }));
+      const variants=Array.isArray(grid&&grid.variants)?grid.variants:[];
+      card.variants=variants.map(v=>{
+        const vid=v.variant_id==null||v.variant_id===''?null:Number(v.variant_id);
+        const cells=flat.filter(c=>{
+          const cid=c.variant_id==null||c.variant_id===''?null:Number(c.variant_id);
+          return (cid==null&&vid==null)||Number(cid)===Number(vid);
+        }).map(c=>{
+          const qty=Number(c.system_qty!=null?c.system_qty:c.qty)||0;
+          return { warehouse_id:Number(c.warehouse_id), variant_id:c.variant_id==null||c.variant_id===''?null:Number(c.variant_id), qty, system_qty:qty };
+        });
+        return Object.assign({}, v, { cells });
+      });
+      return card;
+    }
+    function defaultSelectedWh(card, productWarehouseId){
+      const whSet=new Set((card.warehouses||[]).map(w=>Number(w.id)).filter(Boolean));
+      const selected=new Set();
+      for(const v of card.variants||[]){
+        for(const c of v.cells||[]){
+          if(Math.abs(Number(c.qty)||0)>1e-9 && whSet.has(Number(c.warehouse_id))) selected.add(Number(c.warehouse_id));
+        }
+      }
+      for(const u of card.unattributed||[]){
+        if(Math.abs(Number(u.qty)||0)>1e-9 && whSet.has(Number(u.warehouse_id))) selected.add(Number(u.warehouse_id));
+      }
+      const def=Number(productWarehouseId||card.warehouse_id)||0;
+      if(def && whSet.has(def)) selected.add(def);
+      return Array.from(selected);
+    }
+    function previewWhLabel(ln){
+      const card=st.products.find(x=>Number(x.id)===Number(ln.product_id));
+      const w=card&&(card.warehouses||[]).find(x=>Number(x.id)===Number(ln.warehouse_id));
+      return (w&&w.name)||ln.warehouse_name||String(ln.warehouse_id||'');
+    }
+    function previewVarLabel(ln){
+      if(ln.variant_id==null||ln.variant_id==='') return 'کل';
+      const card=st.products.find(x=>Number(x.id)===Number(ln.product_id));
+      const v=card&&(card.variants||[]).find(x=>Number(x.variant_id)===Number(ln.variant_id));
+      if(v&&v.label) return v.label;
+      const parts=[ln.color_name,ln.size_name].filter(Boolean);
+      return parts.length?parts.join(' / '):String(ln.variant_id);
+    }
     window.saddAddProduct=async function(){
       const resolved=resolveAdjustDocProduct(prods,{
         hiddenId:el('sadd-prod')?.value,
@@ -26243,9 +26294,10 @@ function openStockAdjustDocModal(opts){
       let grid=null;
       try{ grid=await api('GET','/inventory/adjust-docs/grid?product_id='+p.id,null,false,true); }
       catch(e){ setAddErr(e.message||'بارگذاری شبکه ناموفق'); return; }
-      const whIds=(grid.warehouses||[]).map(w=>w.id);
-      if(!whIds.length && p.warehouse_id) whIds.push(p.warehouse_id);
-      st.products.push({ id:p.id, name:p.name, code:p.code, unit:p.unit||'', matrix:!!grid.matrix, warehouses:grid.warehouses||[], variants:grid.variants||[], selectedWh:whIds.slice(), values:{} });
+      const card={ id:p.id, name:p.name, code:p.code, unit:p.unit||'', warehouse_id:p.warehouse_id||null, matrix:!!grid.matrix, warehouses:[], variants:[], unattributed:[], selectedWh:[], values:{} };
+      attachAdjustGrid(card, grid);
+      card.selectedWh=defaultSelectedWh(card, p.warehouse_id);
+      st.products.push(card);
       try{ setSearchSelect('sadd-prod',''); }catch(_){ if(el('sadd-prod')) el('sadd-prod').value=''; if(el('sadd-prod-input')) el('sadd-prod-input').value=''; }
       clearAddErr();
       try{ renderCards(); schedule(); }
@@ -26278,8 +26330,17 @@ function openStockAdjustDocModal(opts){
           const w=(card.warehouses||[]).find(x=>Number(x.id)===Number(wid))||{id:wid,name:'#'+wid};
           return w;
         });
-        const rows=(card.variants&&card.variants.length)?card.variants:[{variant_id:null,label:'کل کالا',cells:[]}];
+        const rows=(card.variants&&card.variants.length)?card.variants:[{variant_id:null,label:'کل کالا',cells:[],active:1,retired:false}];
         const head=`<tr><th>رنگ / سایز</th>${cols.map(w=>`<th>${esc(w.name)}</th>`).join('')}<th>دلیل ردیف</th></tr>`;
+        const unaCells=cols.map(w=>{
+          const u=(card.unattributed||[]).find(x=>Number(x.warehouse_id)===Number(w.id));
+          const q=u?Number(u.qty)||0:0;
+          if(Math.abs(q)<=1e-9) return '<td></td>';
+          return `<td data-csp-style="${CSP.style(`background:#f8fafc`)}"><div class="muted mono" data-csp-style="${CSP.style(`font-size:11px`)}">فعلی ${fmtQtyFa(q)}</div><div class="muted" data-csp-style="${CSP.style(`font-size:11px`)}">غیرقابل تعدیل</div></td>`;
+        });
+        const unaRows=unaCells.some(td=>td!=='<td></td>')
+          ? `<tr><td><span class="muted">بدون رنگ/سایز</span></td>${unaCells.join('')}<td></td></tr>`
+          : '';
         const body=rows.map(v=>{
           const cells=cols.map(w=>{
             const ck=cellKey(card.id,w.id,v.variant_id);
@@ -26296,10 +26357,12 @@ function openStockAdjustDocModal(opts){
             </td>`;
           }).join('');
           const rk='reason:'+card.id+':'+(v.variant_id||0);
-          return `<tr><td>${esc(v.label||'کل کالا')}</td>${cells}
+          const retired=!!(v.retired||v.active===0);
+          const lab=`${esc(v.label||'کل کالا')}${retired?' <span class="muted" data-csp-style="'+CSP.style('font-size:11px')+'">(بازنشسته)</span>':''}`;
+          return `<tr><td>${lab}</td>${cells}
             <td><select data-csp-change="${CSP.bind('change',function(ev){ ensureValues()[rk]=ev.target.value; schedule(); })}">
               <option value="">— پیش‌فرض —</option>
-              ${Object.entries((typeof ADJUST_REASONS!=='undefined'?ADJUST_REASONS:{})).map(([k,lab])=>`<option value="${k}" ${vals[rk]===k?'selected':''}>${esc(lab)}</option>`).join('')||''}
+              ${Object.entries((typeof ADJUST_REASONS!=='undefined'?ADJUST_REASONS:{})).map(([k,labR])=>`<option value="${k}" ${vals[rk]===k?'selected':''}>${esc(labR)}</option>`).join('')||''}
             </select></td></tr>`;
         }).join('');
         return `<div class="oh-card" data-csp-style="${CSP.style(`border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:10px`)}">
@@ -26308,7 +26371,7 @@ function openStockAdjustDocModal(opts){
             <button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(){saddRemoveProduct(card.id)})}">🗑</button>
           </div>
           <div data-csp-style="${CSP.style(`margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap`)}">${whChips}</div>
-          <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead>${head}</thead><tbody>${body}</tbody></table></div>
+          <div class="tbl-wrap"><table class="tbl" data-csp-style="${CSP.style(`font-size:12px`)}"><thead>${head}</thead><tbody>${body}${unaRows}</tbody></table></div>
         </div>`;
       }).join('')||'<div class="muted">هنوز کالایی افزوده نشده است.</div>';
     }
@@ -26355,8 +26418,8 @@ function openStockAdjustDocModal(opts){
         const blocking=pl.blocking||[];
         const rows=(pl.lines||[]).map(ln=>`<tr>
           <td>${esc(ln.product_name||ln.product_id)}</td>
-          <td>${esc(ln.warehouse_id)}</td>
-          <td>${esc(ln.variant_id||'کل')}</td>
+          <td>${esc(previewWhLabel(ln))}</td>
+          <td>${esc(previewVarLabel(ln))}</td>
           <td class="mono">${fmtQtyFa(ln.system_qty)} → ${fmtQtyFa(ln.new_qty)} (<b>${(ln.delta_qty>0?'+':'')+fmtQtyFa(ln.delta_qty)}</b>)</td>
           <td class="mono">${fmt(Math.abs(ln.value_rial||0))}</td>
         </tr>`).join('');
@@ -26396,8 +26459,7 @@ function openStockAdjustDocModal(opts){
           for(const card of st.products){
             try{
               const grid=await api('GET','/inventory/adjust-docs/grid?product_id='+card.id,null,false,true);
-              card.warehouses=grid.warehouses||card.warehouses;
-              card.variants=grid.variants||card.variants;
+              attachAdjustGrid(card, grid);
             }catch(_){}
           }
           renderCards(); schedule();
@@ -44960,7 +45022,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>در لحظهٔ خطا:</b> هر جا (فاکتور فروش، حوالهٔ انبار، حوالهٔ مواد، تبدیل پیش‌فاکتور، …) پیام «موجودی کافی نیست» بیاید، برای کاربر مجاز پنجره‌ای با جدول کالا/انبار/موجود/نیاز/کسری باز می‌شود. دکمهٔ «⚖️ تعدیل موجودی» هر ردیف فرم تعدیل را با «کم و زیاد» به اندازهٔ کسری و دلیل «اصلاح شمارش» پر می‌کند. <b>تکرار خودکار:</b> وقتی همهٔ ردیف‌های کسری تعدیل شد، همان عملیات قبلی (همان دکمه یا همان درخواست) خودکار <b>فقط یک بار</b> دوباره اجرا می‌شود؛ موفق ← پیام موفقیت، کسری دوباره ← همین پنجره با فهرست تازه (حلقه ندارد). «🔁 تکرار عملیات» فقط وقتی دیده می‌شود که بخشی از ردیف‌ها تعدیل شده یا تکرار خودکار ممکن نبوده. فرم/سند اصلی بسته نمی‌شود. کاربر بدون دسترسی همان جدول کسری را می‌بیند با پیام «برای تعدیل موجودی دسترسی لازم است» و بدون دکمهٔ تعدیل.</li>
         <li><b>دکمهٔ مستقل:</b> «⚖️ تعدیل موجودی»، «🧮 تعدیل تجمیعی» و «🧾 تعدیل‌های اخیر» در «عملیات انبار»، بالای کاردکس کالا (و ⚖️ کنار هر ردیف کاردکس) و در «ریالی و تعدیل بهای موجودی».</li>
         <li><b>فرم تکی (v644):</b> کالا، <b>انبار الزامی</b> (گزینهٔ «بدون انبار» حذف شده)، رنگ/سایز (برای کالای ماتریسی — حتی رنگ بازنشسته — الزامی)، نوع «🔢 تعداد شمارش‌شده» یا «± کم و زیاد»، <b>دلیل (الزامی)</b>، تاریخ و توضیح. تا انبار/رنگ انتخاب نشود موجودی فعلی معتبر نیست. اگر در همان انبار موجودی بدون رنگ مانده باشد، ثبت با ۴۰۹ (<span dir="ltr">E_ADJUST_UNATTRIBUTED_EXISTS</span>) رد می‌شود. هر ثبت تکی فقط یک انبار × یک رنگ.</li>
-        <li><b>🧮 تعدیل تجمیعی (v644–v646):</b> از «عملیات انبار» یک سند <span dir="ltr">ADJ-####</span> با چند کالا/انبار/رنگ در یک جدول، یک سند حسابداری (gross)، و ابطال کل سند. افزودن کالا با جستجوی نام/کد/بارکد؛ بعد از افزودن، کارت انبار×رنگ باید بلافاصله دیده شود (مقادیر سلول در state سند نگه داشته می‌شوند). کاردکس گروهی؛ ابطال تکی ردیف کاردکس مجاز نیست — از «⛔ ابطال کل سند». فقط سرور مرکزی.</li>
+        <li><b>🧮 تعدیل تجمیعی (v644–v647):</b> از «عملیات انبار» یک سند <span dir="ltr">ADJ-####</span> با چند کالا/انبار/رنگ در یک جدول، یک سند حسابداری (gross)، و ابطال کل سند. افزودن کالا با جستجوی نام/کد/بارکد؛ کارت همهٔ رنگ‌های تعریف‌شده (حتی بازنشستهٔ بدون موجودی با برچسب «بازنشسته») را نشان می‌دهد و «فعلی» هر خانه از شبکهٔ سرور است — نه صفر ثابت. انبارهای پیش‌فرض انتخاب‌شده همان‌هایی‌اند که موجودی دارند (+ انبار پیش‌فرض کالا). پیش‌نمایش نام انبار/رنگ را نشان می‌دهد. کاردکس گروهی؛ ابطال تکی ردیف کاردکس مجاز نیست — از «⛔ ابطال کل سند». فقط سرور مرکزی.</li>
         <li><b>کش رنگ و گزارش (v640/v641):</b> وقتی خانه‌ای در کاردکس ردیف attributed دارد، کش رنگ/سایز همیشه همان عدد کاردکس را می‌گیرد — حتی اگر تعدیل آن را دقیقاً به ۰ برساند. «گزارش رنگ و سایز» ردیف «بدون رنگ/سایز» را از کاردکس نشان می‌دهد تا جمع گزارش با کاردکس یکی باشد؛ در ماتریس این ردیف جدا زیر جدول رنگ‌ها می‌آید و در شکستگی/شمارش رنگ‌سایز حساب نمی‌شود. مسیر فقط‌خواندنی <span dir="ltr">GET /api/inventory/variant-sync-check</span> اختلاف کش/گزارش/کاردکس را فهرست می‌کند.</li>
         <li><b>حساب مقابل (هر دو حالت یکسان):</b> اضافی / اصلاح شمارشِ افزایشی ← <b>۴۲۰۵ اضافی انبارگردانی</b>؛ کسری / اصلاح شمارشِ کاهشی / سایر ← <b>۶۱۱۸ کسری و اضافات انبار</b>؛ ضایعات/خرابی ← <b>۶۱۰۸۰۱ خالص کسری انبار</b> (نه والد ۶۱۰۸). هرگز ۵۱۰۱ (بهای تمام‌شده) و هرگز ۹۹۹۹. بدون دلیل، پیش‌نمایش حساب مقابل نشان نمی‌دهد. نگاشت اختیاری دلیل در تنظیمات فقط اگر برگ فعال گروه ۴/۵/۶ باشد؛ وگرنه ۴۰۹.</li>
         <li><b>بها:</b> کسری با نرخ زندهٔ خروجی خارج می‌شود. اضافی پیش‌فرض با بهای میانگین وارد می‌شود؛ تغییر بهای واحد اضافی فقط با دسترسی «ارزش‌گذاری موجودی — ایجاد».</li>

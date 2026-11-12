@@ -1,4 +1,13 @@
-﻿### ۱۴۰۵/۰۸/۲۱ — fix: st.values در کارت‌های تعدیل تجمیعی (SW v646)
+﻿### ۱۴۰۵/۰۸/۲۱ — fix: شبکهٔ تعدیل تجمیعی همهٔ رنگ‌ها + فعلی از cells (SW v647)
+- **شاخه / Commit:** `fix/stock-adjust-grid-variants-v647` (پایه: `e4664bc3` / v646). منبع: `taranom-cursor-stock-adjust-grid-variants.md`.
+- **Deploy:** ⏳ در انتظار عبارت دقیق `GO deploy stock-adjust-grid-variants` — بدون pm2/نوشتن production تا GO.
+- **باگ زنده (v646 / ۷۱۵۱):** کارت ۴ رنگ نشان می‌داد (بازنشسته‌های صفر مثل سبز یشمی/کرمی حذف می‌شدند)؛ «فعلی» همیشه ۰ بود چون `grid.cells` به `v.cells` وصل نمی‌شد → `expected_system_qty=0` و ۴۰۹ stale؛ پیش‌نمایش id خام انبار/رنگ.
+- **فیکس:** `buildGrid` همهٔ واریانت‌های غیرپیش‌فرض (حتی retired-at-zero) را برمی‌گرداند؛ UI با `attachAdjustGrid` سلول‌ها را وصل می‌کند؛ انتخاب پیش‌فرض انبار فقط موجودی‌دار (+ پیش‌فرض کالا)؛ برچسب «بازنشسته»؛ نام در پیش‌نمایش؛ یادآور غیرقابل‌ویرایش «بدون رنگ/سایز». بدون تغییر موتور post/retireZeroStockColors/تکی.
+- **SW:** `erp-taranom-v647`؛ `app.js?v=647`.
+- **تست:** `test-stock-adjust-grid-variants`؛ regression aggregated / v525 / add-picker / cell-values. محصول ۳۴۲ دست‌نخورده.
+- **فایل‌ها:** `lib/inventory/adjust-doc.js`، `public/{app.js,sw.js,index.html}`، `scripts/test-stock-adjust-grid-variants.js`، CHANGE-LOG.
+
+### ۱۴۰۵/۰۸/۲۱ — fix: st.values در کارت‌های تعدیل تجمیعی (SW v646)
 - **شاخه / Commit:** `fix/stock-adjust-cell-values-v646` @ `a2fd2414` → tip stamp این ورودی (پایه: `bc2c536a` / v645). منبع: `taranom-cursor-stock-adjust-cell-values.md`.
 - **Deploy:** ✅ ایران ۱۴۰۵/۰۸/۲۱ ۲۱:۴۷ تهران — SFTP overlay روی درخت کثیف (بدون `git pull`/`reset --hard`/`--update-env`). عبارت `GO deploy stock-adjust-cell-values`. tip overlay `448dabe9`/`a2fd2414`. live قبل = SW v645 + stamp add-picker-v645 + `openStockAdjustDocModal`/`saddAddProduct`/`renderCards`/`cellKey` حاضر + `ALREADY_FIXED=0`؛ then-live hashes ثبت شد. بکاپ `/home/taranom/backups/crm.db.20261112-214714-stock-adjust-cell-values-v646` (+wal/shm). pre=`/tmp/sacv-pre-646-20261112-214714`. `ensure-sharp-runtime` OK → `pm2 restart erp-taranom`؛ health 200 + sharp 0.33.5؛ SW **erp-taranom-v646**؛ stamp `.sftp-deploy-stamp-stock-adjust-cell-values-v646`. snapshot پیش=پس یکسان: ledger n=4833 max=5014؛ JE n=1295 · jl n=2777 Σdebit=459,698,597,858؛ p342=`342|7217|0` ledger=8؛ mismatch=0؛ ADJ docs/lines=0؛ hash PV/VWS/WS ثابت؛ HALT_NOTE=OK.
 - **باگ زنده (v645):** افزودن کالا resolve می‌شد ولی کارت نمی‌آمد؛ `#sadd-add-err` = `Cannot read properties of undefined (reading '111:33:141')` چون `st.values` ساخته نشده بود و `renderCards` روی `st.values[ck]` می‌ترکید (حفره از v644؛ با picker v645 نمایان شد).

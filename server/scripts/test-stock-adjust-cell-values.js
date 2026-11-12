@@ -64,8 +64,8 @@ ok(/safeRenderCards/.test(slice), 'safeRenderCards for remove/toggle');
 console.log('— SW / index —');
 const sw = fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf8');
 const index = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-ok(/erp-taranom-v646/.test(sw), 'SW v646');
-ok(/app\.js\?v=646/.test(index), 'index ?v=646');
+ok(/erp-taranom-v64[67]/.test(sw), 'SW v646+');
+ok(/app\.js\?v=64[67]/.test(index), 'index ?v=646+');
 
 console.log('— new Function(app.js) —');
 try {
