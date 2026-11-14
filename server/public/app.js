@@ -4634,6 +4634,13 @@ function renderCustTable(){
 }
 function toggleCust(id, checked){ if(checked) custSelected.add(id); else custSelected.delete(id); renderCustTable(); }
 function toggleAllCust(cb, ids){ ids.forEach(id=>cb.checked?custSelected.add(id):custSelected.delete(id)); renderCustTable(); }
+// PUT is a full-row update; strip computed/join keys and fields that need extra rights.
+const CUST_PUT_STRIP_KEYS=['balance','ledger_balance','balance_source','opening_balance_rial','credit_limit_rial','salesperson','group_name','group_nature','party_group_name'];
+function custRowForPut(c){
+  const out={...c};
+  for(const k of CUST_PUT_STRIP_KEYS) delete out[k];
+  return out;
+}
 async function bulkCustStatus(status){
   if(!custSelected.size) return;
   if(!confirm(`وضعیت ${custSelected.size} مشتری به "${STATUS_LABEL[status]||status}" تغییر کند؟`)) return;
@@ -4641,7 +4648,7 @@ async function bulkCustStatus(status){
   for(const id of custSelected){
     const c = CACHE.customers.find(x=>x.id===id); if(!c) continue;
     if(!canEditCustomer(c)){ skipped++; continue; }
-    await api('PUT','/customers/'+id,{...c, status});
+    await api('PUT','/customers/'+id,{...custRowForPut(c), status});
   }
   custSelected.clear(); await reloadCustomers(); renderCustTable();
   showToast(skipped?`وضعیت‌ها به‌روز شد (${skipped} مورد رد شد — بدون دسترسی ویرایش)`:'وضعیت‌ها به‌روز شد');
@@ -4724,11 +4731,16 @@ async function custModal(id){
               ${custPartyGroups.map(g=>`<option value="${g.id}" ${c.party_group_id===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}
             </select>`:`<input readonly value="${esc(c.party_group_name||'—')}" data-csp-style="${CSP.style(`background:#f9fafb`)}">`}
           </div>
-          <div class="fg"><label data-csp-style="${CSP.style(`color:var(--purple);font-weight:600`)}">💰 موجودی / مانده ${moneyColLabel()} ${hlp('مانده زنده حساب مشتری از دفتر. فقط مدیر می‌تواند مانده افتتاحیه را تغییر دهد.')}
+          ${id
+            ? `<div class="fg"><label data-csp-style="${CSP.style(`color:var(--purple);font-weight:600`)}">💰 ماندهٔ فعلی حساب (صورت‌حساب) ${hlp('مانده زنده حساب مشتری از دفتر (همان عدد صورت‌حساب). در ویرایش مشتری قابل تغییر نیست.')}</label>
+            <div class="mono" data-readonly="1" data-csp-style="${CSP.style(`background:#f9fafb;border:1px solid var(--border);border-radius:8px;padding:8px 10px`)}">${custBalSideText(c.balance)}</div>
+            <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin-top:4px`)}">مانده افتتاحیه از «اشخاص» اصلاح می‌شود</div>
+          </div>`
+            : `<div class="fg"><label data-csp-style="${CSP.style(`color:var(--purple);font-weight:600`)}">💰 موجودی / مانده ${moneyColLabel()} ${hlp('مانده افتتاحیه مشتری جدید. فقط مدیر می‌تواند آن را تعیین کند؛ بعد از ثبت، مانده افتتاحیه از «اشخاص» اصلاح می‌شود.')}
             ${isAdmin() && editable
               ? `<input id="c-balance" type="text" inputmode="numeric" class="money" value="${moneyInit(c.balance)}" data-csp-style="${CSP.style(`font-family:monospace;direction:ltr`)}">`
               : `<input readonly class="mono" value="${fmt(c.balance||0)} ریال" data-csp-style="${CSP.style(`background:#f9fafb;direction:ltr`)}">`}
-          </div>
+          </div>`}
           <div class="fg"><label data-csp-style="${CSP.style(`color:var(--purple);font-weight:600`)}">📊 ماهیت حساب ${hlp('ماهیت حساب مشتری (بدهکار/بستانکار) از گروه مشتری یا اطلاعات اشخاص.')}</label>
             ${canAccounting() && editable?`<select id="c-group_id">
               <option value="">-- بدون گروه (بدهکار پیش‌فرض) --</option>
@@ -4797,7 +4809,7 @@ async function saveCust(id){
     auto_followup: el('c-autofollow') ? (el('c-autofollow').checked ? 1 : 0) : 1
   };
   if(canAccounting()){
-    if(el('c-balance')) data.balance = moneyVal('c-balance');
+    if(!id && el('c-balance')) data.balance = moneyVal('c-balance');
     if(el('c-group_id')) data.group_id = +el('c-group_id').value||null;
     if(el('c-party_group_id')) data.party_group_id = +el('c-party_group_id').value||null;
     if(usesExtendedCoa()){
@@ -45114,7 +45126,9 @@ helpSec('🔑','لایسنس و entitlement',`
       <h5>مالکیت و دسترسی ویرایش</h5><ul>
         <li>هر مشتری یک <b>ایجادکننده</b> دارد. فقط همان کاربر یا <b>مدیر</b> می‌تواند اطلاعات را ویرایش/حذف کند.</li>
         <li>اگر مدیر مشتری را به کارشناس <b>تخصیص</b> دهد، کارشناس مشتری را می‌بیند و می‌تواند پیگیری/فاکتور ثبت کند، ولی ویرایش یا حذف مشخصات مشتری برایش مجاز نیست.</li>
-        <li><b>مانده / موجودی حساب</b> را فقط مدیر می‌تواند تغییر دهد — حتی حسابدار از مسیر ERP نمی‌تواند مانده افتتاحیه را عوض کند.</li>
+        <li><b>مانده افتتاحیه</b> فقط هنگام ثبت <b>مشتری جدید</b> و فقط توسط مدیر وارد می‌شود.</li>
+        <li><b>ویرایش مشتری (v650):</b> در فرم ویرایش، «ماندهٔ فعلی حساب (صورت‌حساب)» فقط نمایشی است (قرمز = بدهکار، سبز = بستانکار) و ذخیرهٔ فرم هیچ اثری روی مانده افتتاحیه، دفتر مشتری یا سند ندارد. برای اصلاح مانده افتتاحیهٔ مشتری موجود از <b>«اشخاص» ← مانده اول دوره</b> استفاده کنید تا سند و دفتر مشتری با هم هم‌خوان بمانند.</li>
+        <li><b>تغییر وضعیت گروهی</b> (فعال/پیگیری/VIP/خاموش) فقط وضعیت را عوض می‌کند؛ مانده و سقف اعتبار دست نمی‌خورد و کارشناس فروش هم برای مشتریان خودش خطای «سقف اعتبار» نمی‌گیرد.</li>
       </ul>
       <h5>ماهیت حساب و مانده</h5><ul>
         <li>در لیست مشتریان ستون‌های <b>ماهیت</b> (بدهکار/بستانکار) و <b>مانده زنده</b> از دفتر معین نمایش داده می‌شود.</li>
@@ -45907,6 +45921,7 @@ function renderSalesGuide(){
     helpSec('👥','کار با مشتریان',`
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
+      <h5>ویرایش و تغییر وضعیت گروهی (v650)</h5><p>در فرم ویرایش، ماندهٔ فعلی حساب فقط نمایش داده می‌شود و ذخیرهٔ فرم یا تغییر وضعیت گروهی (فعال/پیگیری/VIP/خاموش) روی مانده، دفتر مشتری و سقف اعتبار اثری ندارد. اصلاح مانده افتتاحیه فقط از «اشخاص» و توسط حسابداری/مدیر انجام می‌شود.</p>
       <h5>ثبت مشتری جدید</h5><ul>
         <li>دکمه «مشتری جدید» را بزنید</li>
         <li>نام فروشگاه اجباری است</li>

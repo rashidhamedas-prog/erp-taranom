@@ -24,6 +24,14 @@ const {
 const excelUpload = createSecureUpload('xlsx');
 const { isManagerRole } = require('../lib/rbac');
 
+/** credit_limit_rial wire value → { valid, value } ('' / null → null; negative / NaN → invalid). */
+function normalizeCreditLimitValue(raw) {
+  if (raw === null || raw === '') return { valid: true, value: null };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return { valid: false, value: null };
+  return { valid: true, value: Math.round(n) };
+}
+
 /**
  * P6 — customers.credit_limit_rial (NULL = no per-customer ceiling). Only admin / sales_manager may
  * write it. Returns { present, value } or throws 403/422.
@@ -37,16 +45,23 @@ function parseCreditLimitInput(req) {
     e.code = 'E_CREDIT_LIMIT_FORBIDDEN';
     throw e;
   }
-  const raw = body.credit_limit_rial;
-  if (raw === null || raw === '') return { present: true, value: null };
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) {
+  const norm = normalizeCreditLimitValue(body.credit_limit_rial);
+  if (!norm.valid) {
     const e = new Error('سقف اعتبار باید عدد صفر یا بزرگ‌تر (ریال) باشد، یا خالی برای بدون سقف');
     e.status = 422;
     e.code = 'E_CREDIT_LIMIT_VALUE';
     throw e;
   }
-  return { present: true, value: Math.round(n) };
+  return { present: true, value: norm.value };
+}
+
+/** Full-row PUT bodies echo the cached ceiling; an unchanged value must not need manager rights. */
+function creditLimitUnchanged(body, currentRial) {
+  if (!body || !Object.prototype.hasOwnProperty.call(body, 'credit_limit_rial')) return false;
+  const norm = normalizeCreditLimitValue(body.credit_limit_rial);
+  if (!norm.valid) return false;
+  const cur = currentRial == null || currentRial === '' ? null : Math.round(Number(currentRial));
+  return norm.value === cur;
 }
 
 // Pre-aggregated ledger balances — one GROUP BY pass instead of a correlated subquery per row.
@@ -59,6 +74,7 @@ const BAL_COL = 'COALESCE(lb.balance,0)';
 // Keep the customer's opening-ledger line in sync with the admin-set opening balance.
 // Deletes any existing opening line and re-inserts one dated at the customer's own
 // created_at so it still sorts first in the statement.
+// POST (new customer) only — PUT must never call it; existing openings change via party opening-post.
 function syncOpeningLedger(db, customerId, bal, createdAt, userId) {
   syncCustomerOpeningBooks(db, customerId, bal, createdAt, userId);
 }
@@ -264,9 +280,13 @@ router.put('/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'یافت نشد' });
   if (!canMutateCustomer(req.user, row)) return res.status(403).json({ error: 'فقط ایجادکننده یا مدیر می‌تواند این مشتری را ویرایش کند' });
   let creditLimitIn;
-  try { creditLimitIn = parseCreditLimitInput(req); }
-  catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
-  const { biz, owner, city, province, address, phone, insta, type, status, note, source, balance, assigned_to, auto_followup, group_id, party_group_id,
+  try {
+    creditLimitIn = creditLimitUnchanged(req.body, row.credit_limit_rial)
+      ? { present: false }
+      : parseCreditLimitInput(req);
+  } catch (e) { return res.status(e.status || 400).json({ error: e.message, code: e.code }); }
+  // `balance` / `opening_balance_rial` in the body (old clients, outbox replays) are ignored on purpose.
+  const { biz, owner, city, province, address, phone, insta, type, status, note, source, assigned_to, auto_followup, group_id, party_group_id,
     prefix, phone2, fax, mobile, email, economic_code, postal_code, national_id, referrer, birth_date, company_name, account_nature } = req.body;
   // 8B: validate only fields whose value actually changed — legacy invalid rows stay until edited
   try {
@@ -281,7 +301,6 @@ router.put('/:id', auth, (req, res) => {
   } catch (e) {
     return res.status(e.status || 400).json({ error: e.message, code: e.code });
   }
-  const bal = (req.user.role === 'admin' && balance !== undefined) ? (parseFloat(balance) || 0) : row.balance || 0;
   const ownerChosen = req.user.role === 'admin' && assigned_to != null && assigned_to !== '';
   const uid = ownerChosen ? parseInt(assigned_to) : (row.user_id || row.assigned_to || req.user.id);
   const autoF = (auto_followup === undefined) ? (row.auto_followup == null ? 1 : row.auto_followup) : (auto_followup ? 1 : 0);
@@ -292,9 +311,9 @@ router.put('/:id', auth, (req, res) => {
     // Keep prior owner columns until assignCustomerOwner so history sees a real change.
     const keepUserId = ownerChosen ? row.user_id : uid;
     const keepAssigned = ownerChosen ? row.assigned_to : uid;
-    db.prepare(`UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,balance=?,assigned_to=?,auto_followup=?,group_id=?,party_group_id=?,
+    db.prepare(`UPDATE customers SET user_id=?,biz=?,owner=?,city=?,province=?,address=?,phone=?,insta=?,type=?,status=?,note=?,source=?,assigned_to=?,auto_followup=?,group_id=?,party_group_id=?,
       prefix=?,phone2=?,fax=?,mobile=?,email=?,economic_code=?,postal_code=?,national_id=?,referrer=?,birth_date=?,company_name=?,account_nature=? WHERE id=?`)
-      .run(keepUserId, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', bal, keepAssigned, autoF, gid, pgid,
+      .run(keepUserId, biz, owner || '', city || '', province || '', address || '', phone || '', insta || '', type || 'بوتیک', status || 'new', note || '', source || '', keepAssigned, autoF, gid, pgid,
         prefix ?? row.prefix ?? '', phone2 ?? row.phone2 ?? '', fax ?? row.fax ?? '', mobile ?? row.mobile ?? '',
         email ?? row.email ?? '', economic_code ?? row.economic_code ?? '', postal_code ?? row.postal_code ?? '',
         national_id ?? row.national_id ?? '', referrer ?? row.referrer ?? '', birth_date ?? row.birth_date ?? '',
@@ -303,10 +322,6 @@ router.put('/:id', auth, (req, res) => {
       db.prepare('UPDATE customers SET credit_limit_rial=? WHERE id=?').run(creditLimitIn.value, req.params.id);
       audit(req.user.id, 'update', 'customer', req.params.id,
         `سقف اعتبار: ${row.credit_limit_rial == null ? 'بدون سقف' : row.credit_limit_rial} ← ${creditLimitIn.value == null ? 'بدون سقف' : creditLimitIn.value}`);
-    }
-    if (req.user.role === 'admin' && balance !== undefined && bal !== (row.balance || 0)) {
-      try { ensureCustomerTafsili(db, req.params.id); } catch (_) {}
-      syncOpeningLedger(db, req.params.id, bal, row.created_at, req.user.id);
     }
     if (ownerChosen) {
       assignCustomerOwner(db, {
