@@ -345,7 +345,8 @@ function sameBooks(label, a, b) {
   ok('static: credit ceiling input only for isManager()', modal.includes('isManager() && editable') && modal.includes('id="c-credit_limit"'));
   ok('static: syncCustomerToParty writes province/address', /province=\?, address=\?/.test(syncFn) && /coa_code, province, address\)/.test(syncFn));
   ok('static: sw >= 651', swAtLeast(swJs, 651));
-  ok('static: index app.js?v=651', idx.includes('app.js?v=651'));
+  const appV = Number((idx.match(/app\.js\?v=(\d+)/) || [])[1] || 0);
+  ok('static: index app.js?v >= 651', appV >= 651, String(appV));
   let parsed = true;
   try { new Function(appJs); } catch (e) { parsed = false; console.log(e.message); }
   ok('static: new Function(app.js)', parsed);

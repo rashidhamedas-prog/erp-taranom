@@ -8498,6 +8498,37 @@ function storeQsCanOverridePrice(){
   if(boot.can_override_price!=null) return !!boot.can_override_price;
   return canPerm('price_override','edit');
 }
+/** Re-read the server decision when the cached boot is older than 60s, or when forced. */
+async function storeQsRefreshPricePerm(opts){
+  opts=opts||{};
+  const boot=_storeQs.boot||{};
+  const age=Date.now()-Number(boot._fetched_at||0);
+  if(!opts.force && boot._fetched_at && age<60000) return storeQsCanOverridePrice();
+  try{
+    const fresh=await api('GET','/store/bootstrap');
+    if(fresh && typeof fresh==='object'){
+      _storeQs.boot=Object.assign({}, _storeQs.boot||{}, fresh, {_fetched_at:Date.now()});
+      return storeQsCanOverridePrice();
+    }
+  }catch(_){}
+  try{
+    const me=await api('GET','/rbac/me');
+    if(me && _storeQs.boot){
+      try{ USER_PERMS=me; }catch(__){}
+      _storeQs.boot.can_override_price=!!(me.price_override && me.price_override.edit);
+      _storeQs.boot._fetched_at=Date.now();
+    }
+  }catch(_){}
+  return storeQsCanOverridePrice();
+}
+function storeQsMaybeRefreshPricePerm(){
+  const boot=_storeQs.boot||{};
+  if(boot._fetched_at && (Date.now()-Number(boot._fetched_at))<60000) return;
+  const before=storeQsCanOverridePrice();
+  storeQsRefreshPricePerm().then(function(){
+    if(typeof storeQsPageActive==='function' && storeQsPageActive() && storeQsCanOverridePrice()!==before) storeQsRenderBody({keepFocus:true});
+  }).catch(function(){});
+}
 function storeQsCanSeeCost(){ return !!(ME && (ME.role==='admin' || canPerm('cost_visibility','view'))); }
 function storeQsCanSalesAmt(){ return !!(ME && (storeQsCanSeeCost() || canPerm('sales_amount','view'))); }
 /** Line gross = qty × unit price (the cap for a rial line discount). */
@@ -9525,7 +9556,11 @@ function storeQsGlobalKey(e){
   if(e.ctrlKey && (e.key==='p'||e.key==='P')){ prevent(); if(_storeQs.lastInvId) printInvoice(_storeQs.lastInvId,'THERMAL','thermal'); else storeQsPrintCartReceipt(_storeQs.lastInvMeta||null); return; }
   if(e.ctrlKey && (e.key==='k'||e.key==='K')){ prevent(); const dlg=el('posCmdPalette'); if(dlg&&dlg.showModal) dlg.showModal(); return; }
   if(e.key==='?' && !typing){ prevent(); const dlg=el('posHelpKeys'); if(dlg&&dlg.showModal) dlg.showModal(); return; }
-  if(e.key==='Escape'){ prevent(); storeQsClosePosOverlays(); const i=el('storeQsScan'); if(i) i.focus(); storeQsMountResults(); return; }
+  if(e.key==='Escape'){
+    const t=e.target;
+    if(t && t.classList && t.classList.contains('pos-price-input') && !t.readOnly) return;
+    prevent(); storeQsClosePosOverlays(); const i=el('storeQsScan'); if(i) i.focus(); storeQsMountResults(); return;
+  }
   if(!typing && (e.key==='+' || e.key==='=')){ prevent(); const i=_storeQs.selectedLineIdx; if(i>=0&&_storeQs.lines[i]){ _storeQs.lines[i].qty=(Number(_storeQs.lines[i].qty)||0)+1; storeQsRenderBody({keepFocus:true}); } return; }
   if(!typing && (e.key==='-' || e.key==='_')){ prevent(); const i=_storeQs.selectedLineIdx; if(i>=0&&_storeQs.lines[i]){ _storeQs.lines[i].qty=Math.max(1,(Number(_storeQs.lines[i].qty)||1)-1); storeQsRenderBody({keepFocus:true}); } return; }
   if(!typing && e.key==='Delete'){ prevent(); const i=_storeQs.selectedLineIdx; if(i>=0) storeQsRemoveLine(i,true); return; }
@@ -9607,6 +9642,83 @@ function storeQsEnsurePrintHook(){
   };
 }
 
+function storeQsStopCartEvent(ev){ if(ev&&ev.stopPropagation) ev.stopPropagation(); }
+function storeQsCartInputFocused(){
+  const ae=document.activeElement;
+  return !!(ae && ae.closest && ae.closest('.pos-cart-table input, .pos-cart-table textarea, .pos-cart-table select'));
+}
+function storeQsSelectLine(idx){
+  if(storeQsCartInputFocused()) return;
+  _storeQs.selectedLineIdx=idx;
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsReadPriceRaw(el){
+  return toEnDigits(String((el&&el.value)||'')).replace(/\D/g,'');
+}
+function storeQsPriceInput(idx, el){
+  const ln=_storeQs.lines&&_storeQs.lines[idx];
+  if(!ln) return;
+  const raw=storeQsReadPriceRaw(el);
+  ln.unit_price=Math.max(0, parseInt(raw||'0',10)||0);
+  storeQsRefreshTotals();
+}
+function storeQsPriceCommit(idx, el, opts){
+  opts=opts||{};
+  const ln=_storeQs.lines&&_storeQs.lines[idx];
+  if(!ln) return;
+  const raw=storeQsReadPriceRaw(el);
+  if(!raw){
+    if(el) el.value=moneyInit(ln.unit_price||0);
+    return;
+  }
+  ln.unit_price=Math.max(0, parseInt(raw,10)||0);
+  ln.price_forbid=0;
+  if(opts.focusScan) _storeQs.focusScanAfter=1;
+  storeQsRenderBody({keepFocus:!opts.focusScan});
+}
+function storeQsRestoreListPrice(idx){
+  const ln=_storeQs.lines&&_storeQs.lines[idx];
+  if(!ln) return;
+  const list=Math.round(Number(ln.list_price_rial)||0);
+  if(list>0) ln.unit_price=list;
+  ln.price_forbid=0;
+  storeQsRenderBody({keepFocus:true});
+}
+function storeQsPriceKey(idx, ev){
+  if(!ev) return;
+  ev.stopPropagation();
+  if(ev.key==='Escape'){
+    ev.preventDefault();
+    storeQsRestoreListPrice(idx);
+    return;
+  }
+  if(ev.key==='Enter'){
+    ev.preventDefault();
+    storeQsPriceCommit(idx, ev.target, {focusScan:true});
+  }
+}
+function storeQsPriceReadonlyClick(ev){
+  if(ev&&ev.stopPropagation) ev.stopPropagation();
+  storeQsUiToast('تغییر فی نیازمند مجوز «تغییر قیمت فروش» است — از مدیر بخواهید در تنظیمات › کاربران › دسترسی فروش سریع فعال کند');
+}
+function storeQsPaintLineFloor(idx){
+  const ln=_storeQs.lines&&_storeQs.lines[idx];
+  const box=document.querySelector('[data-pos-floor="'+idx+'"]');
+  const listEl=document.querySelector('[data-pos-list="'+idx+'"]');
+  const amt=document.querySelector('[data-pos-list-amt="'+idx+'"]');
+  const resetEl=document.querySelector('[data-pos-reset="'+idx+'"]');
+  if(!ln) return;
+  const listP=Math.round(Number(ln.list_price_rial)||0);
+  const overridden=listP>0 && Math.round(Number(ln.unit_price)||0)!==listP;
+  if(listEl) listEl.hidden=!overridden;
+  if(amt && overridden) amt.textContent=fmt(listP);
+  if(resetEl) resetEl.hidden=!overridden;
+  if(!box) return;
+  const warn=storeQsLineFloorWarn(ln);
+  const block=String((_storeQs.boot&&_storeQs.boot.price_floor_mode)||'warn')==='block' && (overridden||storeQsLineDiscRial(ln)>0);
+  box.textContent=warn?(warn+(block?' — ثبت مسدود است':'')):'';
+  box.hidden=!warn;
+}
 function storeQsRenderLines(){
   if(!_storeQs.lines.length){
     const exchangeHint=(_storeQs.mode||'sale')==='exchange'
@@ -9637,19 +9749,28 @@ function storeQsRenderLines(){
     const stock=ln.stock!=null?Number(ln.stock):null;
     const low=stock!=null && Number(ln.qty)>stock;
     const sel=(_storeQs.selectedLineIdx===idx?' is-selected':'')+(_storeQs.flashKey&&storeQsLineKey(ln)===_storeQs.flashKey?' pos-row-flash':'');
-    return `<tr class="pos-cart-row${sel}" data-csp-click="${CSP.bind('click',function(){_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
+    return `<tr class="pos-cart-row${sel}${ln.price_forbid?' is-price-forbid':''}" data-csp-click="${CSP.bind('click',function(){storeQsSelectLine(idx);})}">
       <td>${fmtQtyFa(idx+1)}</td>
       <td><b>${esc(ln.name)}</b>
         <div class="muted mono pos-fs-11">${esc(ln.code||'')}${varLbl?' · '+esc(varLbl):''}</div>
         ${low?`<div class="pos-stock-warn" role="status">موجودی ناکافی (موجود: ${fmtQtyFa(stock)})${String((_storeQs.boot&&_storeQs.boot.insufficient_stock_mode)||'warn')==='block'?' — ثبت مسدود است':''}</div>`:''}
-        ${floorWarn?`<div class="pos-stock-warn pos-floor-warn" role="status">${esc(floorWarn)}${String((_storeQs.boot&&_storeQs.boot.price_floor_mode)||'warn')==='block'&&(overridden||storeQsLineDiscRial(ln)>0)?' — ثبت مسدود است':''}</div>`:''}
+        <div class="pos-stock-warn pos-floor-warn" role="status" data-pos-floor="${idx}" ${floorWarn?'':'hidden'}>${floorWarn?esc(floorWarn)+(String((_storeQs.boot&&_storeQs.boot.price_floor_mode)||'warn')==='block'&&(overridden||storeQsLineDiscRial(ln)>0)?' — ثبت مسدود است':''):''}</div>
       </td>
       <td>${canPrice
         ? `<input type="text" inputmode="numeric" class="money pos-price-input" value="${moneyInit(ln.unit_price)}" aria-label="فی فروش"
-        data-csp-input="${CSP.bind('input',function(){const raw=toEnDigits(String(this.value||'')).replace(/\D/g,'');_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw||'0',10)||0);storeQsRefreshTotals();})}"
-        data-csp-change="${CSP.bind('change',function(){const raw=toEnDigits(String(this.value||'')).replace(/\D/g,'');if(!raw){this.value=moneyInit(_storeQs.lines[idx].unit_price||0);return;}_storeQs.lines[idx].unit_price=Math.max(0,parseInt(raw,10)||0);storeQsRenderBody({keepFocus:true});})}">`
-        : `<input type="text" class="money pos-price-input is-readonly" value="${moneyInit(ln.unit_price)}" readonly aria-readonly="true" title="تغییر قیمت نیازمند مجوز مدیر (تغییر قیمت فروش) است" aria-label="فی فروش (فقط‌خواندنی)">`}
-        ${overridden?`<div class="muted pos-fs-11 pos-list-price">فهرست: <s>${fmt(listP)}</s></div>`:''}</td>
+        data-csp-click="${CSP.bind('click',function(ev){ev.stopPropagation();})}"
+        data-csp-mousedown="${CSP.bind('mousedown',function(ev){ev.stopPropagation();})}"
+        data-csp-focus="${CSP.bind('focus',function(ev){ev.stopPropagation();})}"
+        data-csp-input="${CSP.bind('input',function(){storeQsPriceInput(idx,this);})}"
+        data-csp-change="${CSP.bind('change',function(){storeQsPriceCommit(idx,this);})}"
+        data-csp-keydown="${CSP.bind('keydown',function(ev){storeQsPriceKey(idx,ev);})}">`
+        : `<input type="text" class="money pos-price-input is-readonly" value="${moneyInit(ln.unit_price)}" readonly aria-readonly="true" title="تغییر قیمت نیازمند مجوز مدیر (تغییر قیمت فروش) است" aria-label="فی فروش (فقط‌خواندنی)"
+        data-csp-click="${CSP.bind('click',storeQsPriceReadonlyClick)}"
+        data-csp-mousedown="${CSP.bind('mousedown',storeQsStopCartEvent)}">`}
+        <div class="muted pos-fs-11 pos-list-price" data-pos-list="${idx}" ${overridden?'':'hidden'}>فهرست: <s data-pos-list-amt="${idx}">${fmt(listP)}</s></div>
+        <button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" data-pos-reset="${idx}" aria-label="بازگشت به قیمت فهرست" title="بازگشت به قیمت فهرست" ${overridden?'':'hidden'}
+          data-csp-click="${CSP.bind('click',function(ev){storeQsStopCartEvent(ev);storeQsRestoreListPrice(idx);})}">↺</button>
+        ${ln.price_forbid?`<button type="button" class="pos-btn pos-btn-ghost pos-btn-sm" data-csp-click="${CSP.bind('click',function(ev){storeQsStopCartEvent(ev);storeQsRestoreListPrice(idx);})}">بازگشت به قیمت فهرست</button>`:''}</td>
       <td><div class="pos-stepper" data-csp-click="${CSP.bind('click',function(ev){ev.stopPropagation();})}">
         <button type="button" aria-label="کاهش" data-csp-click="${CSP.bind('click',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);_storeQs.lines[idx].qty=Math.max(cont?0.001:1,(Number(_storeQs.lines[idx].qty)||1)-(cont?0.1:1));_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">−</button>
         <input data-pos-qty="${idx}" type="number" min="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'0.001':'1'}" step="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'0.001':'1'}" inputmode="${/متر|کیلو|یارد/i.test(String(ln.unit||''))?'decimal':'numeric'}" value="${esc(String(ln.qty))}" data-csp-change="${CSP.bind('change',function(){const u=String(_storeQs.lines[idx].unit||'');const cont=/متر|کیلو|یارد/i.test(u);const q=cont?Math.max(0.001,parseQty(this.value,1)):Math.max(1,Math.round(Number(this.value)||1));_storeQs.lines[idx].qty=q;_storeQs.selectedLineIdx=idx;storeQsRenderBody({keepFocus:true});})}">
@@ -9760,6 +9881,7 @@ function storeQsRefreshTotals(){
   (_storeQs.lines||[]).forEach((ln,idx)=>{
     const cell=document.querySelector('[data-pos-line-total="'+idx+'"]');
     if(cell) cell.textContent=fmt(storeQsLineTotal(ln));
+    storeQsPaintLineFloor(idx);
   });
   const subtotal=storeQsSubtotal();
   const lineDisc=Math.max(0, (_storeQs.lines||[]).reduce((a,ln)=>a+storeQsLineDiscRial(ln),0));
@@ -10116,7 +10238,10 @@ function storeQsRenderBody(opts){
     }, 150);
   }
   storeQsDraftSave();
-  if(!opts.keepFocus){
+  if(_storeQs.focusScanAfter){
+    _storeQs.focusScanAfter=0;
+    setTimeout(function(){ const i=el('storeQsScan'); if(i){ try{ i.focus(); i.select(); }catch(_){} } }, 40);
+  } else if(!opts.keepFocus){
     setTimeout(function(){ const i=el('storeQsScan'); if(i) i.focus(); }, 40);
   }
 }
@@ -10165,6 +10290,7 @@ function storeQsResetCart(opts){
   _storeQs.custId=walkinId;
   _storeQs.custBal=null; // v649
   storeQsDraftClear();
+  storeQsMaybeRefreshPricePerm();
   storeQsRenderBody();
 }
 /** «فاکتور جدید» on an unfinished cart = two-step confirm (second click within 4s). */
@@ -10604,6 +10730,16 @@ async function storeQsCheckout(){
       // Server answered: the request was evaluated, so the next attempt is a new request.
       _storeQs.clientRequestId=null;
       _storeQs.netError='';
+      const pForbid=(e.payload)||{};
+      const codeForbid=e.code||pForbid.code||'';
+      if(codeForbid==='E_PRICE_OVERRIDE_FORBIDDEN'){
+        const pid=Number(pForbid.product_id||0);
+        (_storeQs.lines||[]).forEach(function(ln){
+          const diff=Math.round(Number(ln.unit_price)||0)!==Math.round(Number(ln.list_price_rial)||0);
+          if((pid>0 && Number(ln.product_id)===pid) || (!(pid>0) && diff)) ln.price_forbid=1;
+        });
+        storeQsRefreshPricePerm({force:true});
+      }
       showToast(storeQsCheckoutErrorText(e),'error');
     } else {
       // Network/timeout: outcome unknown — keep cart + client_request_id so retry cannot double-post.
@@ -10648,6 +10784,7 @@ ROUTES['store-quick-sale'] = async function(){
     CACHE.posTerminalChoices = (pos && (pos.terminals || pos)) || [];
     if(!Array.isArray(CACHE.posTerminalChoices)) CACHE.posTerminalChoices = [];
     _storeQs.boot = boot || {};
+    if(_storeQs.boot) _storeQs.boot._fetched_at=Date.now();
     _storeQs.custId = Number(boot && boot.walkin_customer_id) || 0;
     _storeQs.warehouseId = Number(boot && boot.warehouse_id) || Number(ME.sales_warehouse_id)||null;
     try{
@@ -14943,6 +15080,13 @@ async function userModal(id){
           <div class="fg"><label>صندوق فروش</label><select id="u-sales-cashbox"><option value="">— بدون صندوق —</option>${(CACHE.cashBoxes||[]).filter(b=>b.active!==0).map(b=>`<option value="${b.id}" ${Number(u.sales_cash_box_id)===Number(b.id)?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
         </div>
       </div>
+      ${(id && ME && ME.role==='admin')?`
+      <div class="fg full" id="u-pos-caps" data-csp-style="${CSP.style(`grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px`)}">
+        <b>فروش سریع (صندوق)</b>
+        <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:4px 0 8px`)}">هر تیک همان لحظه ذخیره می‌شود و بقیهٔ دسترسی‌های این کاربر دست نمی‌خورد. صندوقِ باز باید یک‌بار تازه شود.</div>
+        <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;margin:6px 0`)}"><input type="checkbox" id="u-pos-price-override" data-csp-style="${CSP.style(`width:auto`)}"> اجازهٔ تغییر فی کالا در فاکتور سریع${u.role==='admin'?' <span class="muted">— مدیر همیشه دارد</span>':''}</label>
+        <label data-csp-style="${CSP.style(`display:flex;align-items:center;gap:8px;margin:6px 0`)}"><input type="checkbox" id="u-pos-credit-override" data-csp-style="${CSP.style(`width:auto`)}"> اجازهٔ عبور از سقف اعتبار مشتری (تأیید مدیر)${u.role==='admin'?' <span class="muted">— مدیر همیشه دارد</span>':''}</label>
+      </div>`:''}
       <div class="fg full" data-csp-style="${CSP.style(`grid-column:1/-1;border-top:1px dashed var(--border);padding-top:10px;margin-top:4px`)}">
         <b>دسترسی گروه کالا در کاتالوگ</b>
         <div class="muted" data-csp-style="${CSP.style(`font-size:11px;margin:4px 0 8px`)}">لیست زنده از «گروه‌های کالا». اگر هیچ‌کدام تیک نخورد، همهٔ گروه‌های مجاز دیده می‌شوند.</div>
@@ -15001,6 +15145,35 @@ async function userModal(id){
       }).join('')||'<span class="muted">گروهی در «گروه‌های کالا» تعریف نشده — ابتدا گروه بسازید</span>';
     }
   }catch(_){ const box=el('u-cat-access'); if(box) box.innerHTML='<span class="muted">خطا در بارگذاری گروه‌ها</span>'; }
+  if(id && ME && ME.role==='admin'){
+    try{ await bindUserPosCaps(id, u.role); }catch(_){}
+  }
+}
+async function bindUserPosCaps(userId, role){
+  const price=el('u-pos-price-override');
+  const credit=el('u-pos-credit-override');
+  if(!price && !credit) return;
+  if(role==='admin'){
+    if(price){ price.checked=true; price.disabled=true; }
+    if(credit){ credit.checked=true; credit.disabled=true; }
+    return;
+  }
+  const data=await api('GET','/rbac/matrix/'+userId);
+  if(!data) return;
+  const p=data.permissions||{};
+  if(price) price.checked=!!(p.price_override && p.price_override.edit);
+  if(credit) credit.checked=!!(p.credit_override && p.credit_override.approve);
+  const save=async function(resource, action, input){
+    const allowed=!!input.checked;
+    try{
+      await api('PATCH','/rbac/matrix/'+userId+'/capability',{resource:resource, action:action, allowed:allowed});
+      showToast('ذخیره شد — صندوق باز کاربر باید یک‌بار تازه شود');
+    }catch(_){
+      input.checked=!allowed;
+    }
+  };
+  if(price) price.addEventListener('change', function(){ save('price_override','edit', price); });
+  if(credit) credit.addEventListener('change', function(){ save('credit_override','approve', credit); });
 }
 const RBAC_ACT_FA={ view:'مشاهده', create:'ایجاد', edit:'ویرایش', delete:'حذف', approve:'تأیید', export:'خروجی', operate:'عملیات', negative:'موجودی منفی' };
 const RBAC_RES_FA={
@@ -15153,16 +15326,51 @@ function bindRbacMatrix(){
   });
   rbacSyncAccHint();
 }
+function rbacCapabilityCellVisible(resource, action, effective, defaults){
+  const RBAC_CAPABILITY_ACTIONS={
+    price_override:['edit'],
+    credit_override:['approve'],
+    sales_amount:['view'],
+    cost_visibility:['view'],
+    sales_cross_warehouse:['create'],
+    inventory_negative:['approve'],
+    opening_stock:['view','edit'],
+    qty_receipt:['view','create','delete']
+  };
+  const meaningful=RBAC_CAPABILITY_ACTIONS[resource];
+  if(!meaningful) return true;
+  if(meaningful.indexOf(action)>=0) return true;
+  const eff=!!(effective && effective[action]);
+  const def=!!(defaults && defaults[action]);
+  return eff!==def;
+}
+function rbacMatrixRows(resources, actions, permissions, defaults){
+  let html='';
+  let posHead=false;
+  (resources||[]).forEach(function(r){
+    if((r==='price_override'||r==='credit_override') && !posHead){
+      posHead=true;
+      html+=`<tr class="rbac-pos-group"><td colspan="${(actions||[]).length+1}"><b>فروش سریع (صندوق)</b></td></tr>`;
+    }
+    const eff=(permissions&&permissions[r])||{};
+    const def=(defaults&&defaults[r])||{};
+    html+=`<tr><td data-csp-style="${CSP.style(`white-space:nowrap;font-weight:600`)}">${esc(RBAC_RES_FA[r]||r)}</td>${(actions||[]).map(function(a){
+      if(!rbacCapabilityCellVisible(r, a, eff, def)){
+        return `<td class="rbac-cap-na" data-csp-style="${CSP.style(`text-align:center;color:var(--muted)`)}">—</td>`;
+      }
+      const on=!!eff[a];
+      return `<td data-csp-style="${CSP.style(`text-align:center`)}" title="${esc(RBAC_ACT_FA[a]||a)}"><input type="checkbox" data-r="${esc(r)}" data-a="${esc(a)}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
+    }).join('')}</tr>`;
+  });
+  return html;
+}
 async function openRbacMatrix(userId){
   const data=await api('GET','/rbac/matrix/'+userId);
   if(!data) return;
   const { resources, actions, permissions } = data;
   const uName=(CACHE.users||[]).find(x=>x.id===userId)?.name||('#'+userId);
   const general=(resources||[]).filter(r=>r!=='accounting' && !String(r).startsWith('acc_'));
-  const rows=general.map(r=>`<tr><td data-csp-style="${CSP.style(`white-space:nowrap;font-weight:600`)}">${esc(RBAC_RES_FA[r]||r)}</td>${actions.map(a=>{
-    const on=permissions[r]&&permissions[r][a];
-    return `<td data-csp-style="${CSP.style(`text-align:center`)}" title="${esc(RBAC_ACT_FA[a]||a)}"><input type="checkbox" data-r="${esc(r)}" data-a="${esc(a)}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
-  }).join('')}</tr>`).join('');
+  const rows=rbacMatrixRows(general, actions, permissions, data.role_defaults||{});
   openModal(`<div class="modal-head"><h3>🔐 دسترسی‌های کاربر — ${esc(uName)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" id="rbacMatrix">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 10px;line-height:1.7`)}">مقادیر پیش‌فرض از نقش کاربر می‌آید. آنچه اینجا ذخیره شود فقط برای همین کاربر است.</p>
@@ -15210,10 +15418,7 @@ async function openRbacRoleDefaults(role){
   if(!data) return;
   const { resources, actions, permissions } = data;
   const general=(resources||[]).filter(r=>r!=='accounting' && !String(r).startsWith('acc_'));
-  const rows=general.map(r=>`<tr><td data-csp-style="${CSP.style(`white-space:nowrap;font-weight:600`)}">${esc(RBAC_RES_FA[r]||r)}</td>${actions.map(a=>{
-    const on=permissions[r]&&permissions[r][a];
-    return `<td data-csp-style="${CSP.style(`text-align:center`)}"><input type="checkbox" data-r="${esc(r)}" data-a="${esc(a)}" ${on?'checked':''} aria-label="${esc((RBAC_RES_FA[r]||r)+' — '+(RBAC_ACT_FA[a]||a))}"></td>`;
-  }).join('')}</tr>`).join('');
+  const rows=rbacMatrixRows(general, actions, permissions, data.code_defaults||{});
   const changed=Object.keys(data.overrides||{}).length;
   openModal(`<div class="modal-head"><h3>⚙️ پیش‌فرض دسترسی نقش — ${esc(RBAC_ROLE_FA[role]||role)}</h3><button class="x" data-csp-click="${CSP.bind('click',function(event){closeModal()})}">×</button></div>
     <div class="modal-body" id="rbacMatrix">
@@ -45289,7 +45494,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>تعویض/برگشت: F3 — اگر بارگذاری فاکتور مرجع شکست بخورد به حالت فروش برمی‌گردد</li>
         <li>تعلیق F8 / بازگردانی آخرین معلق Shift+F8؛ Esc مودال‌ها و لیست را می‌بندد</li>
         <li><b>FR-POS-DRAFTS (تخفیف):</b> تخفیف کل و تخفیف هر ردیف با دکمهٔ کنار کادر بین <b>٪ و ریال</b> عوض می‌شود؛ <b>F6</b> کادر تخفیف کل را فوکوس می‌کند و <b>F6 دوباره</b> واحد را عوض می‌کند. سقف تخفیف کل = جمع پس از تخفیف ردیف‌ها و سقف تخفیف ردیف = تعداد × فی؛ منفی ممنوع. سرور مازاد را با ۴۰۰ <code>E_DISC_OVER</code> رد می‌کند. تخفیف فقط برای مدیر کل/حسابداری/مدیر فروش</li>
-        <li><b>تغییر قیمت:</b> نیازمند مجوز <code>price_override</code> «تغییر قیمت فروش (POS)» (پیش‌فرض: مدیر کل، حسابداری، مدیر فروش؛ نه فروشگاهی). بدون مجوز کادر فی فقط‌خواندنی است و سرور قیمت متفاوت با فهرست را با ۴۰۳ <code>E_PRICE_OVERRIDE_FORBIDDEN</code> رد می‌کند. ردیف <code>list_price_rial</code> و <code>price_overridden</code> را نگه می‌دارد و هر تغییر قیمت (قبل/بعد/کاربر) در لاگ ممیزی ثبت می‌شود</li>
+        <li><b>تغییر فی:</b> نیازمند مجوز <code>price_override</code> «تغییر قیمت فروش (POS)» (پیش‌فرض: مدیر کل، حسابداری، مدیر فروش؛ نه فروشگاهی). بدون مجوز کادر فی فقط‌خواندنی است و با کلیک راهنما می‌دهد؛ سرور قیمت متفاوت با فهرست را با ۴۰۳ <code>E_PRICE_OVERRIDE_FORBIDDEN</code> رد می‌کند. با مجوز، فی در خود سبد ویرایش می‌شود (کلیک، سبد را از نو نمی‌سازد)؛ «فهرست» خط‌خورده و دکمهٔ ↺ قیمت فهرست را برمی‌گرداند. اعطا از تنظیمات › کاربران › فروش سریع (صندوق) است و صندوقِ باز باید یک‌بار تازه شود. ردیف <code>list_price_rial</code> و <code>price_overridden</code> را نگه می‌دارد و هر تغییر قیمت (قبل/بعد/کاربر) در لاگ ممیزی ثبت می‌شود</li>
         <li><b>کف قیمت:</b> فروش زیر «حداقل قیمت فروش» کالا (<code>min_price_rial</code>) یا زیر بهای تمام‌شده هشدار می‌دهد (رقم بها فقط با <code>cost_visibility:view</code>). تنظیم مدیر کل <code>store_price_floor_mode</code> = <code>warn</code> (پیش‌فرض) یا <code>block</code>؛ در block ردیف تغییریافته زیر کف با ۴۲۲ <code>E_PRICE_BELOW_FLOOR</code> رد می‌شود</li>
         <li><b>سهم تخفیف کل:</b> به نسبت خالص هر ردیف پخش می‌شود (باقیمانده روی ردیف آخر؛ جمع سهم‌ها دقیقاً = تخفیف کل). ارزش افزوده پس از تخفیف و ردیف‌به‌ردیف حساب و در فیلدهای ردیف (<code>hdr_disc_share_rial</code>، <code>net_after_disc_rial</code>، <code>line_vat_rial</code>…) نگه داشته می‌شود؛ بهای تمام‌شده از کاردکس است و تخفیف روی آن اثری ندارد</li>
         <li><b>برگشت/تعویض:</b> مبلغ برگشت = خالص فروخته‌شده (پس از تخفیف ردیف و سهم تخفیف کل)، نه قیمت فهرست</li>
@@ -46040,7 +46245,7 @@ function renderSalesGuide(){
         <li>اگر شبکه قطع باشد پیام «خطای شبکه» می‌آید، نه «کالا یافت نشد»</li>
         <li>انبار و صندوق از پروفایل قفل است؛ میانبرها با دکمهٔ <b>?</b></li>
         <li>تعویض/برگشت اتمیک است؛ ابطال = R13</li>
-        <li><b>تخفیف و قیمت:</b> تخفیف (٪ یا ریال؛ F6 فوکوس، F6 دوباره تغییر واحد) و تغییر فی فقط برای مدیر/حسابداری/مدیر فروش است؛ برای نقش فروشگاهی کادر فی فقط‌خواندنی است. فروش زیر حداقل قیمت/بها هشدار می‌دهد (یا طبق تنظیم مدیر مسدود می‌شود)</li>
+        <li><b>تخفیف و قیمت:</b> تخفیف (٪ یا ریال؛ F6 فوکوس، F6 دوباره تغییر واحد) فقط برای مدیر/حسابداری/مدیر فروش است. تغییر فی اگر مجوزش را داشته باشید در همان سبد انجام می‌شود (کلیک، سبد را از نو نمی‌سازد؛ ↺ قیمت فهرست را برمی‌گرداند)؛ بدون مجوز کادر فقط‌خواندنی است و کلیک روی آن می‌گوید از مدیر بخواهید در تنظیمات › کاربران › فروش سریع فعال کند. فروش زیر حداقل قیمت/بها هشدار می‌دهد (یا طبق تنظیم مدیر مسدود می‌شود)</li>
         <li><b>جمع:</b> سبد خالی «قابل پرداخت: —»؛ نسیه/چک فقط با مشتری واقعی. برگشت به مبلغ خالص فروخته‌شده است. Alt+N فاکتور جدید</li>
         <li><b>v596:</b> پرداخت با دکمه‌های نقد / کارتخوان / چک / نسیه (Alt+1…Alt+4)؛ مبلغ پیش‌فرض = مانده؛ «باقی به مشتری» فقط از نقد؛ نسیه با روش‌های دیگر قابل ترکیب است (فقط مشتری واقعی، تا سقف اعتبار). وضعیت تسویه با متن نشان داده می‌شود و ثبت تا تسویهٔ کامل قفل است</li>
         <li><b>حالت لمسی</b> و <b>تمام‌صفحه</b> (Alt+F) از نوار بالا؛ پس از ثبت Enter = فاکتور جدید؛ در قطع شبکه «تلاش مجدد» فاکتور تکراری نمی‌سازد و سبد بعد از رفرش بازیابی می‌شود</li>
