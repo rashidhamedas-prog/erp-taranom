@@ -79,6 +79,19 @@ function syncOpeningLedger(db, customerId, bal, createdAt, userId) {
   syncCustomerOpeningBooks(db, customerId, bal, createdAt, userId);
 }
 
+/** Optional person-identity columns (same set as «اشخاص»), appended at the end of export/template; import accepts them if present. */
+const CUSTOMER_IDENTITY_COLUMNS = [
+  ['پیشوند', 'prefix'],
+  ['تلفن ۲', 'phone2'],
+  // «موبایل» header is already phone (تلفن ۱) in old files — keep it; this one is customers.mobile.
+  ['موبایل اشخاص', 'mobile'],
+  ['ایمیل', 'email'],
+  ['کد ملی', 'national_id'],
+  ['شماره اقتصادی', 'economic_code'],
+  ['کد پستی', 'postal_code'],
+  ['نام شرکت', 'company_name'],
+];
+
 // Normalize Arabic characters to Persian and convert Arabic/Persian digits to ASCII
 function normalizeStr(s) {
   if (!s) return '';
@@ -516,7 +529,8 @@ router.get('/export/excel', auth, adminOnly, async (req, res) => {
     'موبایل': r.phone, 'اینستاگرام': r.insta, 'نوع': r.type, 'وضعیت': r.status,
     'منبع آشنایی': r.source || '', 'کارشناس': r.salesperson || '',
     ...(isAdmin ? { 'موجودی حساب': r.balance || 0 } : {}),
-    'یادداشت': r.note
+    'یادداشت': r.note,
+    ...Object.fromEntries(CUSTOMER_IDENTITY_COLUMNS.map(([label, key]) => [label, r[key] || ''])),
   }));
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data);
@@ -538,7 +552,8 @@ router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, 
     let inserted = 0;
     const allUsers = db.prepare('SELECT id,name FROM users').all();
     const stmt = db.prepare(
-      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance,created_by,assigned_to) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO customers (user_id,biz,owner,city,province,address,phone,insta,type,status,source,balance,created_by,assigned_to,'
+      + 'prefix,phone2,mobile,email,national_id,economic_code,postal_code,company_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
     );
     const insertMany = db.transaction((rows) => {
       for (const row of rows) {
@@ -568,7 +583,8 @@ router.post('/import', auth, adminOnly, excelUpload.single('file'), async (req, 
           row['منبع آشنایی'] || row['source'] || '',
           balance,
           req.user.id,
-          assigned
+          assigned,
+          ...CUSTOMER_IDENTITY_COLUMNS.map(([label, key]) => normalizeStr(row[label] || row[key] || '')),
         );
         inserted++;
       }
@@ -597,7 +613,8 @@ router.get('/template', auth, adminOnly, async (req, res) => {
   const data = [
     { 'نام فروشگاه': 'بوتیک بهار', 'نام کامل': 'زهره احمدی', 'استان': 'خراسان رضوی', 'شهر': 'مشهد', 'آدرس کامل': 'بلوار فردوسی، پلاک ۱۲', 'موبایل': '09151234567', 'اینستاگرام': 'bahar_boutique', 'نوع': 'بوتیک', 'وضعیت': 'active', 'منبع آشنایی': 'instagram', 'کارشناس': '', 'موجودی حساب': 0 },
     { 'نام فروشگاه': 'فروشگاه نسیم', 'نام کامل': 'فاطمه حسینی', 'استان': 'تهران', 'شهر': 'تهران', 'آدرس کامل': 'خیابان ولیعصر', 'موبایل': '09121234567', 'اینستاگرام': 'nasim_shop', 'نوع': 'فروشگاه', 'وضعیت': 'new', 'منبع آشنایی': 'referral', 'کارشناس': '', 'موجودی حساب': 0 },
-  ];
+  ].map((r) => ({ ...r, ...Object.fromEntries(CUSTOMER_IDENTITY_COLUMNS.map(([label]) => [label, ''])) }));
+  data[0]['پیشوند'] = 'خانم';
   const ws = XLSX.utils.json_to_sheet(data);
   // Add column widths
   ws['!cols'] = [30,20,15,15,20,15,15,20,20,15].map(w=>({wch:w}));
@@ -609,6 +626,7 @@ router.get('/template', auth, adminOnly, async (req, res) => {
     { 'راهنما': 'مقادیر مجاز برای نوع: بوتیک، عمده‌فروش، تولیدی، فروشگاه، آنلاین' },
     { 'راهنما': 'ستون کارشناس: نام کارشناس دقیقاً همانطور که در سیستم ثبت شده (اختیاری)' },
     { 'راهنما': 'ستون موجودی حساب: موجودی اولیه مشتری به ریال (فقط مدیر می‌تواند تنظیم کند)' },
+    { 'راهنما': 'ستون‌های اختیاری اشخاص (آخر جدول): پیشوند (آقا/خانم/شرکت/مؤسسه/سایر)، تلفن ۲، موبایل اشخاص، ایمیل، کد ملی، شماره اقتصادی، کد پستی، نام شرکت. ستون «موبایل» همان تلفن ۱ است.' },
   ];
   const ws2 = XLSX.utils.json_to_sheet(info);
   ws2['!cols'] = [{wch:80}];

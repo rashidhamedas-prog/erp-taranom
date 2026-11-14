@@ -320,7 +320,8 @@ const creditAudits = (custId) => db.prepare(
   ok('static: PUT handler found', putSrc.length > 200);
   ok('static: PUT has no syncOpeningLedger(', putSrc.length > 200 && !putSrc.includes('syncOpeningLedger('));
   ok('static: sw >= 650', swAtLeast(swJs, 650));
-  ok('static: index app.js?v=650', idx.includes('app.js?v=650'));
+  const appV = Number((idx.match(/app\.js\?v=(\d+)/) || [])[1] || 0);
+  ok('static: index app.js?v >= 650', appV >= 650, String(appV));
   let parsed = true;
   try { new Function(appJs); } catch (e) { parsed = false; console.log(e.message); }
   ok('static: new Function(app.js)', parsed);

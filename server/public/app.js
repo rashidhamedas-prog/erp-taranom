@@ -1559,6 +1559,49 @@ async function ensureCustomerCatalog(){
   }
   return CACHE.customers;
 }
+const PARTY_PREFIX_OPTIONS=['آقا','خانم','شرکت','مؤسسه','سایر'];
+function partyPrefixSelectHtml(id, value, disabled){
+  const v=String(value||'');
+  const opts=PARTY_PREFIX_OPTIONS.slice();
+  if(v && !opts.includes(v)) opts.push(v);
+  return `<select id="${esc(id)}" ${disabled?'disabled':''}>
+    <option value="">—</option>
+    ${opts.map(x=>`<option value="${esc(x)}" ${v===x?'selected':''}>${esc(x)}</option>`).join('')}
+  </select>`;
+}
+/** «پیشوند + نام کامل» for lists/dropdowns; picker input text stays `biz — owner`. */
+function custOwnerLabel(c){
+  if(!c) return '';
+  const owner=String(c.owner||'').trim();
+  const prefix=String(c.prefix||'').trim();
+  return owner && prefix ? prefix+' '+owner : owner;
+}
+/** Shared person-identity fields: «اشخاص» (ns=pty) and «مشتریان» (ns=c) render the same set. */
+const PARTY_IDENTITY_IDS={
+  c:{ company:'c-company_name', phone:'c-phone', phone2:'c-phone2', mobile:'c-mobile', fax:'c-fax', email:'c-email',
+    national_id:'c-national_id', economic_code:'c-economic_code', postal_code:'c-postal_code', birth_date:'c-birth_date', referrer:'c-referrer' },
+  pty:{ company:'pty-company', phone:'pty-phone', phone2:'pty-phone2', mobile:'pty-mobile', fax:'pty-fax', email:'pty-email',
+    national_id:'pty-national_id', economic_code:'pty-economic_code', postal_code:'pty-postal_code', birth_date:'pty-birth_date', referrer:'pty-referrer' },
+};
+const CUST_IDENTITY_KEYS=['prefix','company_name','phone2','mobile','fax','email','national_id','economic_code','postal_code','birth_date','referrer'];
+function partyIdentityFieldsHtml(ns, v, opts){
+  const ids=PARTY_IDENTITY_IDS[ns]; v=v||{}; opts=opts||{};
+  const ro=opts.disabled?'readonly disabled':'';
+  const f=(key,label,val,extra)=>`<div class="fg${key==='company'?' full':''}"><label>${label}</label><input id="${ids[key]}" value="${esc(val||'')}" ${extra||''} ${ro}></div>`;
+  return [
+    f('company','نام شرکت',v.company_name),
+    f('phone',`تلفن ۱${opts.phoneRequired?' *':''}${opts.phoneHint?' '+hlp(opts.phoneHint):''}`,v.phone),
+    f('phone2','تلفن ۲',v.phone2),
+    f('mobile','موبایل',v.mobile),
+    f('fax','فکس',v.fax),
+    f('email','ایمیل',v.email),
+    f('national_id','کد ملی / شناسه ملی',v.national_id,'dir="ltr"'),
+    f('economic_code','شماره اقتصادی',v.economic_code),
+    f('postal_code','کد پستی',v.postal_code),
+    f('birth_date','تاریخ تولد',v.birth_date,'data-jdate'),
+    f('referrer','معرف',v.referrer),
+  ].join('');
+}
 function custSelect(id, selectedId, optional=false){
   const list=Array.isArray(CACHE.customers)?CACHE.customers:[];
   const sel=selectedId?list.find(c=>c.id===+selectedId):null;
@@ -1702,7 +1745,7 @@ function showCustDrop(id, q){
     drop.style.display='block';
     return;
   }
-  if(term) list=list.filter(c=>textMatchesQuery(((c.biz||'')+' '+(c.phone||'')+' '+(c.owner||'')+' '+(c.mobile||'')), term));
+  if(term) list=list.filter(c=>textMatchesQuery(((c.biz||'')+' '+(c.phone||'')+' '+(c.prefix||'')+' '+(c.owner||'')+' '+(c.mobile||'')), term));
   const rect=inp.getBoundingClientRect();
   drop.style.top=(rect.bottom+2)+'px';
   drop.style.left=rect.left+'px';
@@ -1712,7 +1755,7 @@ function showCustDrop(id, q){
   if(optional) html+=`<div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickCust(`${String((id) ?? '')}`,0)})}"><span>بدون مشتری</span></div>`;
   html+=list.slice(0,80).map(c=>`
     <div class="cust-si-item" data-csp-click="${CSP.bind('click',function(event){pickCust(`${String((id) ?? '')}`,(c.id))})}">
-      <span>${esc(c.biz)}${c.owner?` <span class="muted">(${esc(c.owner)})</span>`:''}</span>
+      <span>${esc(c.biz)}${c.owner?` <span class="muted">(${esc(custOwnerLabel(c))})</span>`:''}</span>
       <span class="cust-si-meta">${esc(c.phone||'')}</span>
     </div>`).join('');
   if(!html) html='<div class="cust-si-empty">مشتری با این عبارت در فهرست نیست</div>';
@@ -4589,7 +4632,7 @@ ROUTES.customers = async function(){
 };
 function renderCustTable(){
   let rows = CACHE.customers.slice();
-  if(custFilter.q){ rows=rows.filter(c=>textMatchesQuery(c.biz+' '+(c.owner||'')+' '+(c.city||'')+' '+(c.phone||''), custFilter.q)); }
+  if(custFilter.q){ rows=rows.filter(c=>textMatchesQuery(c.biz+' '+(c.prefix||'')+' '+(c.owner||'')+' '+(c.city||'')+' '+(c.phone||''), custFilter.q)); }
   if(custFilter.status) rows=rows.filter(c=>c.status===custFilter.status);
   if(custFilter.user_id) rows=rows.filter(c=>String(c.user_id)===String(custFilter.user_id)||String(c.assigned_to)===String(custFilter.user_id));
   const isAdm = ME.role==='admin';
@@ -4609,7 +4652,7 @@ function renderCustTable(){
     const editable = canEditCustomer(c);
     return `<tr data-id="${c.id}" ${custSelected.has(c.id)?`data-csp-style="${CSP.style('background:var(--purple-light)')}"`:''}>
     <td class="no-sort"><input type="checkbox" ${custSelected.has(c.id)?'checked':''} data-csp-change="${CSP.bind('change',function(event){toggleCust((c.id),this.checked)})}"></td>
-    <td>${esc(c.owner||'-')}</td><td>${esc(c.biz)}</td>
+    <td data-sort="${esc(c.owner||'')}">${esc(custOwnerLabel(c)||'-')}</td><td>${esc(c.biz)}</td>
     <td data-sort="${esc(c.phone||'')}">${phoneCell(c.phone)}</td>
     <td class="no-sort" data-csp-style="${CSP.style(`white-space:nowrap`)}">
       ${editable?`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){custModal((c.id))})}">✏️</button>`:`<button class="btn sm ghost" data-csp-click="${CSP.bind('click',function(event){custModal((c.id))})}" title="فقط مشاهده">👁️</button>`}
@@ -4702,8 +4745,9 @@ async function custModal(id){
         <input type="checkbox" id="c-autofollow" ${(id ? (c.auto_followup==null||c.auto_followup) : true) ? 'checked' : ''} data-csp-style="${CSP.style(`width:auto`)}" ${editable?'':'disabled'}>
         ایجاد خودکار پیگیری هنگام صدور فاکتور فروش ${hlp('اگر فعال باشد، با صدور هر فاکتور برای این مشتری، یک پیگیری کیفیت ۷ روزه به‌صورت خودکار ساخته می‌شود.')}
       </label></div>
+      <div class="fg"><label>پیشوند ${hlp('همان پیشوند «اشخاص» حسابداری (آقا/خانم/شرکت/…).')}</label>${partyPrefixSelectHtml('c-prefix', c.prefix, !editable)}</div>
       <div class="fg"><label>نام کامل ${hlp('نام و نام خانوادگی صاحب فروشگاه یا رابط اصلی.')}</label><input id="c-owner" value="${esc(c.owner||'')}" ${ro}></div>
-      <div class="fg"><label>موبایل ${hlp('شماره موبایل مشتری. با ثبت مشتری جدید، پیامک خوش‌آمدگویی به این شماره ارسال می‌شود.')}</label><input id="c-phone" value="${esc(c.phone||'')}" ${ro}></div>
+      ${partyIdentityFieldsHtml('c', c, { disabled:!editable, phoneHint:'شماره اصلی مشتری. با ثبت مشتری جدید، پیامک خوش‌آمدگویی به این شماره ارسال می‌شود.' })}
       <div class="fg"><label>استان ${hlp('استان محل فعالیت مشتری. با انتخاب استان، لیست شهرها به‌روز می‌شود.')}</label><select id="c-province" data-csp-change="${CSP.bind('change',function(event){updateCityDropdown(this.value)})}" ${editable?'':'disabled'}>
         <option value="">-- انتخاب استان --</option>${provOptions}
       </select></div>
@@ -4753,6 +4797,11 @@ async function custModal(id){
               ${(CACHE.users||[]).filter(u=>u.active).map(u=>`<option value="${u.id}" ${(c.assigned_to||c.user_id)===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}
             </select>
           </div>`:!isAdmin() && c.salesperson?`<div class="fg"><label>کارشناس</label><input readonly value="${esc(c.salesperson)}" data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>`:''}
+          <div class="fg"><label data-csp-style="${CSP.style(`color:var(--purple);font-weight:600`)}">🎯 سقف اعتبار مشتری ${moneyColLabel()} ${hlp('خالی = بدون سقف. فاکتور نسیه‌ای که مانده را از این سقف بالاتر ببرد رد می‌شود. فقط مدیرکل و مدیر فروش می‌توانند تغییر دهند.')}</label>
+            ${isManager() && editable
+              ? `<input id="c-credit_limit" type="text" inputmode="numeric" class="money" value="${c.credit_limit_rial==null||c.credit_limit_rial===''?'':moneyInit(c.credit_limit_rial)}" placeholder="بدون سقف" data-csp-style="${CSP.style(`font-family:monospace;direction:ltr`)}">`
+              : `<input readonly class="mono" value="${c.credit_limit_rial==null||c.credit_limit_rial===''?'بدون سقف':fmt(toDisplayAmount(c.credit_limit_rial))}" data-csp-style="${CSP.style(`background:#f9fafb;direction:ltr`)}">`}
+          </div>
           ${coaCodeFieldHtml('customer', id, c.coa_code)}
         </div>
       </div>
@@ -4812,26 +4861,34 @@ async function saveCust(id){
     if(!id && el('c-balance')) data.balance = moneyVal('c-balance');
     if(el('c-group_id')) data.group_id = +el('c-group_id').value||null;
     if(el('c-party_group_id')) data.party_group_id = +el('c-party_group_id').value||null;
-    if(usesExtendedCoa()){
-      if(el('c-prefix')) data.prefix=el('c-prefix').value;
-      if(el('c-phone2')) data.phone2=el('c-phone2').value;
-      if(el('c-fax')) data.fax=el('c-fax').value;
-      if(el('c-mobile')) data.mobile=el('c-mobile').value;
-      if(el('c-email')) data.email=el('c-email').value;
-      if(el('c-national_id')) data.national_id=el('c-national_id').value;
-      if(el('c-economic_code')) data.economic_code=el('c-economic_code').value;
-      if(el('c-postal_code')) data.postal_code=el('c-postal_code').value;
-      if(el('c-referrer')) data.referrer=el('c-referrer').value;
-      if(el('c-birth_date')) data.birth_date=el('c-birth_date').value;
-      if(el('c-company_name')) data.company_name=el('c-company_name').value;
-    }
+  }
+  for(const k of CUST_IDENTITY_KEYS){
+    const inp=el('c-'+k);
+    if(inp && !inp.disabled) data[k]=inp.value;
+  }
+  const creditInp=el('c-credit_limit');
+  if(creditInp){
+    const raw=String(creditInp.value||'').trim();
+    const next=raw==='' ? null : moneyVal('c-credit_limit');
+    const prev=id ? (CACHE.customers.find(x=>x.id===id)?.credit_limit_rial ?? null) : null;
+    const prevNorm=prev==null||prev==='' ? null : Math.round(Number(prev));
+    if(next!==prevNorm) data.credit_limit_rial=next;
   }
   if(isAdmin()){
     if(el('c-assigned_to')) data.assigned_to = +el('c-assigned_to').value||null;
   }
   if(!data.biz){ showToast('نام فروشگاه الزامی است','error'); return; }
-  if(!id){
-    const verr=clientValidateCustomerPayload(data);
+  {
+    let toCheck=data;
+    if(id){
+      const prevRow=CACHE.customers.find(x=>x.id===id)||{};
+      toCheck={};
+      for(const k of ['national_id','economic_code','postal_code','email','birth_date','mobile','phone']){
+        if(!(k in data)) continue;
+        if(String(data[k]??'')!==String(prevRow[k]??'')) toCheck[k]=data[k];
+      }
+    }
+    const verr=clientValidateCustomerPayload(toCheck);
     if(verr){ showToast(verr,'error'); return; }
   }
   if(!id) data.client_request_id=window._custIdemKey||(window._custIdemKey=newClientRequestId('cust'));
@@ -16967,22 +17024,9 @@ async function partyModal(id){
     <div class="modal-body" data-csp-style="${CSP.style(`max-height:75vh;overflow:auto`)}"><div class="form-grid">
       <div class="fg"><label>کد</label><input id="pty-code" dir="ltr" class="mono" value="${esc(p.person_code||'')}" placeholder="خودکار"></div>
       <div class="fg"><label>کد حساب تفصیلی</label><input id="pty-coa" dir="ltr" inputmode="numeric" class="mono coa-code" value="${esc(p.coa_code||'')}" placeholder="خودکار" readonly data-csp-style="${CSP.style(`background:#f9fafb`)}"></div>
-      <div class="fg"><label>پیشوند</label><select id="pty-prefix">
-        <option value="">—</option>
-        ${['آقا','خانم','شرکت','مؤسسه','سایر'].map(x=>`<option value="${x}" ${(p.prefix||'')===x?'selected':''}>${x}</option>`).join('')}
-      </select></div>
+      <div class="fg"><label>پیشوند</label>${partyPrefixSelectHtml('pty-prefix', p.prefix, false)}</div>
       <div class="fg full"><label>نام / نام فروشگاه *</label><input id="pty-name" value="${esc(p.full_name||p.biz||'')}"></div>
-      <div class="fg full"><label>نام شرکت</label><input id="pty-company" value="${esc(p.company_name||'')}"></div>
-      <div class="fg"><label>تلفن ۱ *</label><input id="pty-phone" value="${esc(p.phone||'')}"></div>
-      <div class="fg"><label>تلفن ۲</label><input id="pty-phone2" value="${esc(p.secondary_phone||'')}"></div>
-      <div class="fg"><label>موبایل</label><input id="pty-mobile" value="${esc(p.mobile||'')}"></div>
-      <div class="fg"><label>فکس</label><input id="pty-fax" value="${esc(p.fax||'')}"></div>
-      <div class="fg"><label>ایمیل</label><input id="pty-email" value="${esc(p.email||'')}"></div>
-      <div class="fg"><label>کد ملی</label><input id="pty-national_id" dir="ltr" value="${esc(p.national_id||'')}"></div>
-      <div class="fg"><label>شماره اقتصادی</label><input id="pty-economic_code" value="${esc(p.economic_code||'')}"></div>
-      <div class="fg"><label>کد پستی</label><input id="pty-postal_code" value="${esc(p.postal_code||'')}"></div>
-      <div class="fg"><label>تاریخ تولد</label><input id="pty-birth_date" data-jdate value="${esc(p.birth_date||'')}"></div>
-      <div class="fg"><label>معرف</label><input id="pty-referrer" value="${esc(p.referrer||'')}"></div>
+      ${partyIdentityFieldsHtml('pty', {...p, phone2:p.secondary_phone}, { phoneRequired:true })}
       <div class="fg"><label>شهر</label><input id="pty-city" value="${esc(p.city||'')}"></div>
       <div class="fg"><label>استان</label><input id="pty-province" value="${esc(p.province||'')}"></div>
       <div class="fg full"><label>آدرس</label><textarea id="pty-address">${esc(p.address||'')}</textarea></div>
@@ -41411,20 +41455,9 @@ function custExtraFieldsHtml(c){
   if(!usesExtendedCoa()) return '';
   c=c||{};
   return `<div class="fg full" data-csp-style="${CSP.style(`border-top:1px dashed var(--purple);margin-top:8px;padding-top:10px`)}">
-    <div data-csp-style="${CSP.style(`font-weight:600;color:var(--purple);margin-bottom:8px`)}">📋 فیلدهای تکمیلی (اشخاص)</div>
+    <div data-csp-style="${CSP.style(`font-weight:600;color:var(--purple);margin-bottom:8px`)}">📋 اطلاعات حسابداری تکمیلی</div>
     <div class="form-grid">
       <div class="fg"><label>کد عملیاتی</label><input id="c-op_code" dir="ltr" class="mono" value="${esc(c.op_code||'')}" readonly></div>
-      <div class="fg"><label>پیشوند</label><input id="c-prefix" value="${esc(c.prefix||'')}"></div>
-      <div class="fg"><label>موبایل ۲</label><input id="c-phone2" value="${esc(c.phone2||'')}"></div>
-      <div class="fg"><label>فکس</label><input id="c-fax" value="${esc(c.fax||'')}"></div>
-      <div class="fg"><label>موبایل همراه</label><input id="c-mobile" value="${esc(c.mobile||'')}"></div>
-      <div class="fg"><label>ایمیل</label><input id="c-email" value="${esc(c.email||'')}"></div>
-      <div class="fg"><label>کد ملی / شناسه ملی</label><input id="c-national_id" dir="ltr" value="${esc(c.national_id||'')}"></div>
-      <div class="fg"><label>شماره اقتصادی</label><input id="c-economic_code" value="${esc(c.economic_code||'')}"></div>
-      <div class="fg"><label>کد پستی</label><input id="c-postal_code" value="${esc(c.postal_code||'')}"></div>
-      <div class="fg"><label>معرف</label><input id="c-referrer" value="${esc(c.referrer||'')}"></div>
-      <div class="fg"><label>تاریخ تولد</label><input id="c-birth_date" data-jdate value="${esc(c.birth_date||'')}"></div>
-      <div class="fg"><label>نام شرکت</label><input id="c-company_name" value="${esc(c.company_name||'')}"></div>
       <div class="fg"><label>ماهیت فعلی</label><input id="c-account_nature" value="${esc(c.account_nature||'')}" readonly></div>
     </div>
   </div>`;
@@ -45128,6 +45161,7 @@ helpSec('🔑','لایسنس و entitlement',`
         <li>اگر مدیر مشتری را به کارشناس <b>تخصیص</b> دهد، کارشناس مشتری را می‌بیند و می‌تواند پیگیری/فاکتور ثبت کند، ولی ویرایش یا حذف مشخصات مشتری برایش مجاز نیست.</li>
         <li><b>مانده افتتاحیه</b> فقط هنگام ثبت <b>مشتری جدید</b> و فقط توسط مدیر وارد می‌شود.</li>
         <li><b>ویرایش مشتری (v650):</b> در فرم ویرایش، «ماندهٔ فعلی حساب (صورت‌حساب)» فقط نمایشی است (قرمز = بدهکار، سبز = بستانکار) و ذخیرهٔ فرم هیچ اثری روی مانده افتتاحیه، دفتر مشتری یا سند ندارد. برای اصلاح مانده افتتاحیهٔ مشتری موجود از <b>«اشخاص» ← مانده اول دوره</b> استفاده کنید تا سند و دفتر مشتری با هم هم‌خوان بمانند.</li>
+        <li><b>فیلدهای شخص در فرم مشتری (v651):</b> فرم «مشتریان» همان فیلدهای «اشخاص» را دارد: پیشوند (آقا/خانم/شرکت/مؤسسه/سایر)، نام شرکت، تلفن ۱ (شمارهٔ پیامک خوش‌آمدگویی)، تلفن ۲، موبایل، فکس، ایمیل، کد ملی، شماره اقتصادی، کد پستی، تاریخ تولد و معرف — در هر دو صفحه یکسان ذخیره و نمایش داده می‌شوند. استان و آدرس ویرایش‌شده در «مشتریان» هم به «اشخاص» می‌رسد. «سقف اعتبار مشتری» (خالی = بدون سقف) فقط برای مدیرکل و مدیر فروش قابل ویرایش است. خروجی اکسل مشتریان این ستون‌ها را در انتها دارد (ستون «موبایل اشخاص» = موبایل؛ ستون «موبایل» همچنان تلفن ۱ است).</li>
         <li><b>تغییر وضعیت گروهی</b> (فعال/پیگیری/VIP/خاموش) فقط وضعیت را عوض می‌کند؛ مانده و سقف اعتبار دست نمی‌خورد و کارشناس فروش هم برای مشتریان خودش خطای «سقف اعتبار» نمی‌گیرد.</li>
       </ul>
       <h5>ماهیت حساب و مانده</h5><ul>
@@ -45922,6 +45956,7 @@ function renderSalesGuide(){
       <h5>مانده و ماهیت</h5><p>ستون بدهکار/بستانکار ماندهٔ <b>خالص</b> همان مشتری است (تفاضل گردش بدهکار و بستانکار). ماهیت از علامت مانده زنده می‌آید، نه از نام گروه. در جمع پایین جدول و کارت‌های داشبورد، ماندهٔ بدهکاران با ماندهٔ بستانکاران <b>جمع نمی‌شود</b> — تفاضل گرفته می‌شود و سمت بزرگ‌تر ماهیت ماندهٔ خالص است.</p>
       <h5>جستجوی مشتری</h5><p>در بالای لیست مشتریان، نام فروشگاه یا شماره تلفن را تایپ کنید تا فیلتر شود.</p>
       <h5>ویرایش و تغییر وضعیت گروهی (v650)</h5><p>در فرم ویرایش، ماندهٔ فعلی حساب فقط نمایش داده می‌شود و ذخیرهٔ فرم یا تغییر وضعیت گروهی (فعال/پیگیری/VIP/خاموش) روی مانده، دفتر مشتری و سقف اعتبار اثری ندارد. اصلاح مانده افتتاحیه فقط از «اشخاص» و توسط حسابداری/مدیر انجام می‌شود.</p>
+      <h5>پیشوند و اطلاعات شخص (v651)</h5><p>فرم مشتری حالا پیشوند (آقا/خانم/…)، تلفن ۱ و ۲، موبایل، کد ملی، کد پستی و … را مثل «اشخاص» دارد. پیامک خوش‌آمدگویی به «تلفن ۱» می‌رود. در لیست و جستجوی مشتری نام با پیشوند نمایش داده می‌شود (مثلاً «خانم مریم …»).</p>
       <h5>ثبت مشتری جدید</h5><ul>
         <li>دکمه «مشتری جدید» را بزنید</li>
         <li>نام فروشگاه اجباری است</li>

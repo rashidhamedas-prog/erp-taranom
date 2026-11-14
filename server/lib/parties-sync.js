@@ -7,25 +7,27 @@ function syncCustomerToParty(db, customerId) {
     db.prepare(`
       UPDATE parties SET full_name=?, phone=?, city=?, notes=?, user_id=?, biz=?, owner=?, insta=?, status=?, type=?,
         national_id=?, economic_code=?, party_group_id=?, prefix=?, secondary_phone=?, fax=?, mobile=?, email=?,
-        postal_code=?, birth_date=?, referrer=?, company_name=?, account_nature=?, coa_code=?,
+        postal_code=?, birth_date=?, referrer=?, company_name=?, account_nature=?, coa_code=?, province=?, address=?,
         updated_at=strftime('%s','now')
       WHERE id=?
     `).run(c.owner || c.biz, c.phone || '-', c.city, c.note, c.user_id, c.biz, c.owner, c.insta, c.status, c.type,
       c.national_id, c.economic_code, c.party_group_id || null, c.prefix || null, c.phone2 || null, c.fax || null,
       c.mobile || null, c.email || null, c.postal_code || null, c.birth_date || null, c.referrer || null,
-      c.company_name || null, c.account_nature || null, c.coa_code || null, c.party_id);
+      c.company_name || null, c.account_nature || null, c.coa_code || null, c.province || null, c.address || null,
+      c.party_id);
     return c.party_id;
   }
   const code = 'CUST-' + String(c.id).padStart(5, '0');
   const r = db.prepare(`
     INSERT INTO parties (person_code, party_type, party_roles, full_name, phone, city, notes, user_id, biz, owner, insta, status, type,
       national_id, economic_code, credit_limit, legacy_table, legacy_id, party_group_id, prefix, secondary_phone, fax, mobile, email,
-      postal_code, birth_date, referrer, company_name, account_nature, coa_code)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      postal_code, birth_date, referrer, company_name, account_nature, coa_code, province, address)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   `).run(code, 'customer', '["customer"]', c.owner || c.biz, c.phone || '-', c.city, c.note, c.user_id, c.biz, c.owner, c.insta,
     c.status, c.type, c.national_id, c.economic_code, Math.round(Number(c.credit_limit) || 0), 'customers', c.id,
     c.party_group_id || null, c.prefix || null, c.phone2 || null, c.fax || null, c.mobile || null, c.email || null,
-    c.postal_code || null, c.birth_date || null, c.referrer || null, c.company_name || null, c.account_nature || null, c.coa_code || null);
+    c.postal_code || null, c.birth_date || null, c.referrer || null, c.company_name || null, c.account_nature || null, c.coa_code || null,
+    c.province || null, c.address || null);
   db.prepare('UPDATE customers SET party_id=? WHERE id=?').run(r.lastInsertRowid, customerId);
   return r.lastInsertRowid;
 }
