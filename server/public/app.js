@@ -1733,6 +1733,72 @@ function pickCust(id, custId){
 function hideCustDrop(id){
   const drop=el(id+'-drop'); if(drop) drop.style.display='none';
 }
+/* v649: ماندهٔ رسمی مشتری (همان عدد «صورت‌حساب مشتری») — فاکتور/POS/برگشت فروش */
+const _custBalInflight={};
+let _custBalSeq=0;
+function fetchCustBalance(custId){
+  const id=+custId||0;
+  if(!(id>0)) return Promise.resolve(null);
+  if(_custBalInflight[id]) return _custBalInflight[id];
+  const p=api('GET','/customers/'+id+'/balance',null,false,true)
+    .then(d=>{ if(d&&d.customer_id) refreshCustInCache(id,d); return d||null; })
+    .finally(()=>{ delete _custBalInflight[id]; });
+  _custBalInflight[id]=p;
+  return p;
+}
+function refreshCustInCache(custId, d){
+  if(!d || d.walkin) return;
+  const list=Array.isArray(CACHE.customers)?CACHE.customers:[];
+  const c=list.find(x=>Number(x.id)===Number(custId));
+  if(c) c.balance=Number(d.balance_rial)||0;
+}
+function custBalCanOpenStatement(){
+  return !!(typeof ME!=='undefined' && ME && (ME.role==='admin'||ME.role==='accounting'));
+}
+function custBalSideText(bal){
+  const b=Math.round(Number(bal)||0);
+  if(b>0) return `<span class="cust-bal-debit">${fmt(b)} ریال بدهکار</span>`;
+  if(b<0) return `<span class="cust-bal-credit">${fmt(-b)} ریال بستانکار</span>`;
+  return '<span>صفر</span>';
+}
+/** state: 'loading' | 'error' | داده‌ی پاسخ /customers/:id/balance */
+function custBalanceChipHtml(d){
+  if(d==='loading') return '<span class="muted">در حال دریافت مانده…</span>';
+  if(!d || d==='error' || typeof d!=='object') return '<span class="muted">مانده در دسترس نیست</span>';
+  if(d.walkin) return '<span class="muted">مشتری نقدی فروشگاه</span>';
+  const link=custBalCanOpenStatement()
+    ? ` <a href="#" class="cust-bal-link" data-csp-click="${CSP.bind('click',function(event){event.preventDefault();try{closeModal();}catch(_){}viewCustStatementFromDash((d.customer_id));})}">صورت‌حساب</a>`
+    : '';
+  let html=`<div class="cust-bal-line">مانده حساب: ${custBalSideText(d.balance_rial)}${link}</div>`;
+  if(!d.credit_unlimited && d.credit_limit_rial!=null){
+    html+=`<div class="cust-bal-line muted">سقف اعتبار: ${fmt(d.credit_limit_rial)} · اعتبار باقیمانده: ${fmt(d.available_credit_rial||0)} ریال</div>`;
+  }
+  if(d.party_hint && d.party_hint.has_person_activity){
+    html+='<div class="cust-bal-line muted">حساب شخص (۱۱۰۶) جداست و در این مانده نیست</div>';
+  }
+  return html;
+}
+/** چیپ مانده را در boxId برای custId می‌گذارد؛ پاسخ‌های کهنه (مشتری عوض شده) دور ریخته می‌شوند. */
+function loadCustBalanceInto(boxId, custId, onData){
+  const box=el(boxId);
+  if(!box) return;
+  const id=+custId||0;
+  const seq=++_custBalSeq;
+  box.dataset.balSeq=String(seq);
+  if(!(id>0)){ box.innerHTML=''; if(onData) onData(null); return; }
+  box.innerHTML=custBalanceChipHtml('loading');
+  fetchCustBalance(id).then(d=>{
+    const b=el(boxId);
+    if(!b || b.dataset.balSeq!==String(seq)) return;
+    b.innerHTML=custBalanceChipHtml(d||'error');
+    if(onData) onData(d||null);
+  }).catch(()=>{
+    const b=el(boxId);
+    if(!b || b.dataset.balSeq!==String(seq)) return;
+    b.innerHTML=custBalanceChipHtml('error');
+    if(onData) onData(null);
+  });
+}
 const _searchLists = {};
 function searchSelect(id, items, selectedId, opts){
   opts=opts||{};
@@ -5780,6 +5846,7 @@ async function _openInvBuilder(id){
   const allowSaveEdit = !isFinalEdit || canAmendFirm;
   const isAmendEdit = !!(inv && (inv.type==='proforma' || inv.type==='normal' || (inv.type==='final' && canAmendFirm)));
   window._invBuilderId = id || 0;
+  window._invCustBal = null; // v649: ماندهٔ مشتری — هر بار باز شدن از صفر
   invLineStockClear(); // v583: فاکتور دیگر / تازه → کش موجودی خط (و add-back آن فاکتور) از صفر
   captureInvoiceStockBaseline(inv);
   const defCashBoxId = !inv ? ((CACHE.cashBoxes||[]).find(b=>b.active)||{}).id : null;
@@ -5823,7 +5890,7 @@ async function _openInvBuilder(id){
       </header>
 
       <div class="inv-doc-essentials">
-        <div class="fg"><label>مشتری * ${hlp('فروشگاهی که این فاکتور برای او صادر می‌شود. نام یا تلفن را جستجو کنید.')}</label>${custSelect('inv-cust', inv?inv.cust_id:0)}</div>
+        <div class="fg"><label>مشتری * ${hlp('فروشگاهی که این فاکتور برای او صادر می‌شود. نام یا تلفن را جستجو کنید.')}</label>${custSelect('inv-cust', inv?inv.cust_id:0)}<div id="inv-cust-bal" class="inv-cust-bal" aria-live="polite"></div></div>
         ${canPickExpert?`<div class="fg"><label>کارشناس ${hlp('همهٔ کاربران فعال با نقش فروش: میدانی، داخلی، مدیر فروش، دفتر پخش، و مدیر/حسابدار. برای انگیزه فروش و گزارش عملکرد. گزینهٔ خودکار = کارشناس مشتری یا خود شما.')}</label>
           <select id="inv-expert"><option value="">— خودکار (کارشناس مشتری / من) —</option>
             ${salesUsers.map(u=>`<option value="${u.id}" ${Number(defExpert)===Number(u.id)?'selected':''}>${esc(u.name||u.username)}</option>`).join('')}
@@ -6029,9 +6096,25 @@ async function _openInvBuilder(id){
     typeSel.addEventListener('change', ()=>{
       renderInvoiceStockWarn();
       syncInvTypeDependentFields(!id);
+      try{ renderInvReceiptLedger(); }catch(_){} // v649: پیش‌فاکتور/قطعی → ردیف ماندهٔ پس از فاکتور
     });
   }
   syncInvTypeDependentFields(false);
+  // v649: ماندهٔ رسمی مشتری زیر فیلد مشتری + ردیف‌های «ماندهٔ قبلی» در کادر دریافت‌ها
+  const invCustEl=el('inv-cust');
+  const refreshInvCustBal=()=>{
+    window._invCustBal=null;
+    try{ renderInvReceiptLedger(); }catch(_){}
+    loadCustBalanceInto('inv-cust-bal', +(el('inv-cust')?.value||0), d=>{
+      window._invCustBal=(d&&!d.walkin)?d:null;
+      try{ renderInvReceiptLedger(); }catch(_){}
+    });
+  };
+  if(invCustEl && !invCustEl.dataset.balBound){
+    invCustEl.dataset.balBound='1';
+    invCustEl.addEventListener('change', refreshInvCustBal);
+  }
+  if(+(invCustEl?.value||0)) refreshInvCustBal();
   if((invCart||[]).some(r=>r && (r.batch_id||r.is_fabric_roll))) ensureInvoiceLiveRolls().then(()=>{
     if(el('cartRows')) renderCart();
     // renderCart recreates #inv-receipt-live — re-apply stored payment amounts/ledger (v539).
@@ -7491,6 +7574,33 @@ function renderInvReceiptLedger(){
   try{ renderInvReceiptLedgerCore(); }
   finally{ try{ invPayRefreshGuard(); }catch(_){} }
 }
+/* v649: ردیف‌های ماندهٔ حساب مشتری زیر «باقیماندهٔ این فاکتور» — از window._invCustBal در هر رندر */
+function invCustBalRowsHtml(unpaidThisInv){
+  const d=window._invCustBal;
+  if(!d || typeof d!=='object' || d.walkin) return '';
+  const bal=Math.round(Number(d.balance_rial)||0);
+  const isNew=!window._invBuilderId;
+  const type=el('inv-type')?.value||'proforma';
+  const firm=type==='normal'||type==='final';
+  let html='<div class="inv-cust-bal-rows">';
+  if(isNew){
+    html+=`<div class="inv-summary-row"><span>ماندهٔ قبلی مشتری</span><span class="mono">${custBalSideText(bal)}</span></div>`;
+    if(firm){
+      const after=bal+Math.max(0,Math.round(Number(unpaidThisInv)||0));
+      html+=`<div class="inv-summary-row"><span>ماندهٔ مشتری پس از این فاکتور</span><span class="mono">${custBalSideText(after)}</span></div>`;
+      // همان قاعدهٔ سرور (assertPartyCreditLimitOk): سهم نسیهٔ این سند > اعتبار باقیمانده — فقط اطلاع‌رسانی
+      if(!d.credit_unlimited && d.available_credit_rial!=null && Math.max(0,Math.round(Number(unpaidThisInv)||0))>Number(d.available_credit_rial)){
+        html+='<div class="inv-summary-row red"><span>از سقف اعتبار بیشتر است؛ ثبت نیاز به تأیید مدیر دارد</span><span></span></div>';
+      }
+    } else {
+      html+='<div class="inv-summary-row muted"><span>پیش‌فاکتور روی مانده اثر ندارد</span><span></span></div>';
+    }
+  } else {
+    html+=`<div class="inv-summary-row"><span>${firm?'ماندهٔ فعلی حساب (شامل همین فاکتور)':'ماندهٔ قبلی مشتری'}</span><span class="mono">${custBalSideText(bal)}</span></div>`;
+    if(!firm) html+='<div class="inv-summary-row muted"><span>پیش‌فاکتور روی مانده اثر ندارد</span><span></span></div>';
+  }
+  return html+'</div>';
+}
 function renderInvReceiptLedgerCore(){
   const box=el('inv-receipt-live');
   if(!box) return;
@@ -7500,14 +7610,14 @@ function renderInvReceiptLedgerCore(){
     box.innerHTML=`
       <div class="inv-receipt-live-head">دریافت‌ها</div>
       <div class="inv-summary-row muted"><span>بدون دریافت (نسیه)</span><span class="mono">—</span></div>
-      <div class="inv-summary-row inv-receipt-remain"><span>مانده روی حساب مشتری</span><span class="mono">${fmt(final)} ریال</span></div>`;
+      <div class="inv-summary-row inv-receipt-remain"><span>باقیماندهٔ این فاکتور</span><span class="mono">${fmt(final)} ریال</span></div>${invCustBalRowsHtml(final)}`;
     return;
   }
   if(!rows.length){
     box.innerHTML=`
       <div class="inv-receipt-live-head">دریافت‌ها</div>
       <div class="inv-summary-row muted"><span>مبلغ دریافت را وارد کنید</span><span class="mono">—</span></div>
-      <div class="inv-summary-row inv-receipt-remain"><span>مانده روی حساب مشتری</span><span class="mono">${fmt(final)} ریال</span></div>`;
+      <div class="inv-summary-row inv-receipt-remain"><span>باقیماندهٔ این فاکتور</span><span class="mono">${fmt(final)} ریال</span></div>${invCustBalRowsHtml(final)}`;
     return;
   }
   let paid=0;
@@ -7533,9 +7643,9 @@ function renderInvReceiptLedgerCore(){
     ${lines}
     <div class="inv-summary-row"><span>جمع دریافت‌ها</span><span class="mono">${fmt(paid)} ریال</span></div>
     <div class="inv-summary-row inv-receipt-remain ${over?'red':(remain===0?'ok':'')}">
-      <span>${over?'جمع دریافت از مبلغ فاکتور بیشتر است':'مانده روی حساب مشتری'}</span>
+      <span>${over?'جمع دریافت از مبلغ این فاکتور بیشتر است':'باقیماندهٔ این فاکتور'}</span>
       <span class="mono">${fmt(Math.max(0,remain))} ریال</span>
-    </div>`;
+    </div>${invCustBalRowsHtml(Math.max(0,remain))}`;
 }
 function defaultInvCashBoxIfNew(){
   const cb=el('inv-cashbox');
@@ -8093,6 +8203,8 @@ async function saveInvoice(id){
     if(!id) window._invIdemKey=null;
     invLineStockClear(); // v583: کسر/برگشت موجودی انجام شد — کش قدیمی نباید بماند
     window._invStockBaseline=null;
+    window._invCustBal=null;
+    fetchCustBalance(cust_id).catch(()=>{}); // v649: کش مانده‌ی لیست مشتری تازه شود (fire-and-forget)
     CACHE.invoices=await api('GET','/invoices'); _invoicesFetched=true; closeModal();
     if(el('invTable')) renderInvTable();
     else if(IN_ACC_SHELL && (accTab==='sales-invoices'||accTab==='proforma-invoices')) loadAccTab(accTab);
@@ -8130,6 +8242,10 @@ async function convertProforma(id, targetType){
     invLineStockClear(); // v583: تبدیل پیش‌فاکتور→فاکتور موجودی را کسر می‌کند
     try{ closeModal(); }catch(_){}
     CACHE.invoices = await api('GET','/invoices'); _invoicesFetched=true;
+    try{
+      const cv=(CACHE.invoices||[]).find(x=>Number(x.id)===Number(id));
+      if(cv && cv.cust_id) fetchCustBalance(cv.cust_id).catch(()=>{}); // v649
+    }catch(_){}
     if(el('invTable')) renderInvTable();
     else if(IN_ACC_SHELL) loadAccTab(accTab||'sales-invoices');
     showToast('تبدیل به '+label+' انجام شد');
@@ -9843,7 +9959,8 @@ function storeQsRenderBody(opts){
         <div class="pos-card">
           <div class="pos-card-title">مشتری <kbd class="pos-kbd">F4</kbd></div>
           ${custSelect('storeQsCust', custId)}
-          ${isWalkin?`<div class="muted pos-fs-11 pos-mt-6" role="status">مشتری نقدی فروشگاه — تسویه کامل نقد/کارت الزامی است</div>`:''}
+          ${isWalkin?`<div class="muted pos-fs-11 pos-mt-6" role="status">مشتری نقدی فروشگاه — تسویه کامل نقد/کارت الزامی است</div>`
+            :`<div id="storeQsCustBal" class="muted pos-fs-12 pos-mt-6 inv-cust-bal" role="status">${(_storeQs.custBal&&Number(_storeQs.custBal.id)===custId)?custBalanceChipHtml(_storeQs.custBal.data||'error'):(custId?custBalanceChipHtml('loading'):'')}</div>`}
           <button type="button" class="pos-btn pos-btn-ghost pos-btn-block pos-mt-10" data-csp-click="${CSP.bind('click',function(){storeQsQuickAddCustomer();})}">+ افزودن سریع مشتری</button>
         </div>
         <div class="pos-card">
@@ -9913,6 +10030,7 @@ function storeQsRenderBody(opts){
   if(cs){
     cs.addEventListener('change', async function(){
       _storeQs.custId=Number(this.value)||0;
+      _storeQs.custBal=null; // v649
       if((_storeQs.mode||'sale')==='exchange'){
         try{ await storeQsLoadRefInvoices(); }
         catch(_){ _storeQs.mode='sale'; }
@@ -9920,6 +10038,7 @@ function storeQsRenderBody(opts){
       storeQsRenderBody();
     }, { once:true });
   }
+  storeQsEnsureCustBal(custId, isWalkin);
   requestAnimationFrame(function(){ storeQsSyncTabIndicator(); });
   if(_storeQs.flashKey){
     setTimeout(function(){
@@ -9933,6 +10052,22 @@ function storeQsRenderBody(opts){
   }
 }
 
+/* v649: ماندهٔ مشتری در POS — فقط #storeQsCustBal به‌روز می‌شود (بدون رندر دوبارهٔ بدنه / حفظ فوکوس اسکن) */
+let _storeQsCustBalPending=0;
+function storeQsEnsureCustBal(custId, isWalkin){
+  const id=Number(custId)||0;
+  if(!(id>0) || isWalkin) return;
+  if(_storeQs.custBal && Number(_storeQs.custBal.id)===id) return;
+  if(_storeQsCustBalPending===id) return;
+  _storeQsCustBalPending=id;
+  fetchCustBalance(id).then(d=>({ok:true,d})).catch(()=>({ok:false,d:null})).then(r=>{
+    if(_storeQsCustBalPending===id) _storeQsCustBalPending=0;
+    if(Number(_storeQs.custId||0)!==id) return; // مشتری عوض شده — پاسخ کهنه
+    _storeQs.custBal={ id, data: r.d||null };
+    const b=el('storeQsCustBal');
+    if(b) b.innerHTML=custBalanceChipHtml(r.d||'error');
+  });
+}
 /* ---------- P5: new invoice / clear / draft / touch / fullscreen ---------- */
 /** After a committed sale/return/exchange: empty cart, fresh idempotency key, success panel (Enter = new invoice). */
 function storeQsAfterSuccess(info){
@@ -9941,6 +10076,7 @@ function storeQsAfterSuccess(info){
   _storeQs.uiCashTendered=null; _storeQs.uiMixedCash=null; _storeQs.uiMixedCard=null;
   _storeQs.payType='cash'; _storeQs.selectedLineIdx=-1;
   _storeQs.success=Object.assign({ at:Date.now() }, info||{});
+  _storeQs.custBal=null; // v649: بعد از فروش مانده دوباره خوانده شود
   storeQsDraftClear();
 }
 function storeQsCartDirty(){
@@ -9958,6 +10094,7 @@ function storeQsResetCart(opts){
   if(opts.force || !opts.keepSuccess) _storeQs.success=null;
   if((_storeQs.mode||'sale')==='exchange' && !opts.keepMode) _storeQs.mode='sale';
   _storeQs.custId=walkinId;
+  _storeQs.custBal=null; // v649
   storeQsDraftClear();
   storeQsRenderBody();
 }
@@ -33432,7 +33569,7 @@ async function salesReturnModal(editRow){
     <div class="modal-body">
       <p class="muted" data-csp-style="${CSP.style(`font-size:12px;margin:0 0 12px;line-height:1.7`)}">${editing?'ویرایش = ابطال کامل اثرات قبلی و ثبت مجدد روی همان شماره (JE، انبار، تخصیص، مانده فاکتور). مشتری قفل است. ':'رنگ و سایز جدا؛ برآورد بهای تمام‌شده (COGS) برای نقش‌های مجاز؛ بدون فاکتور از ماتریس انبار مقصد.'}</p>
       <div class="form-grid" data-csp-style="${CSP.style(`margin-bottom:14px`)}">
-        <div class="fg"><label>مشتری * ${hlp(editing?'مشتری در ویرایش قابل تغییر نیست.':'پس از انتخاب مشتری، فاکتورهای قطعی (معمولی/رسمی) او نمایش داده می‌شود.')}</label>${custSelect('sr-cust',editing?editRow.cust_id:0)}</div>
+        <div class="fg"><label>مشتری * ${hlp(editing?'مشتری در ویرایش قابل تغییر نیست.':'پس از انتخاب مشتری، فاکتورهای قطعی (معمولی/رسمی) او نمایش داده می‌شود.')}</label>${custSelect('sr-cust',editing?editRow.cust_id:0)}<div id="sr-cust-bal" class="inv-cust-bal" aria-live="polite"></div></div>
         <div class="fg full"><label>حالت برگشت</label>
           <div data-csp-style="${CSP.style(`display:flex;gap:14px;flex-wrap:wrap;align-items:center`)}">
             <label><input type="radio" name="sr-mode" value="linked" ${linkedDefault?'checked':''} data-csp-change="${CSP.bind('change',function(){onSrModeChange()})}"> روی فاکتور فروش</label>
@@ -33463,7 +33600,11 @@ async function salesReturnModal(editRow){
   const custEl=el('sr-cust');
   if(custEl){
     if(editing){ custEl.disabled=true; custEl.title='مشتری در ویرایش قفل است'; }
-    else custEl.addEventListener('change', loadSrInvoices);
+    else custEl.addEventListener('change', function(){
+      loadCustBalanceInto('sr-cust-bal', +(custEl.value||0)); // v649
+      loadSrInvoices();
+    });
+    if(+(custEl.value||0)) loadCustBalanceInto('sr-cust-bal', +custEl.value);
   }
   if(editing){
     const editRows=Array.isArray(editRow.rows)?editRow.rows:(typeof editRow.rows==='string'?(()=>{try{return JSON.parse(editRow.rows||'[]');}catch(_){return[];}})():[]);
@@ -44767,7 +44908,8 @@ helpSec('🔑','لایسنس و entitlement',`
         <li><b>نوع پرداخت:</b> نسیه (حساب باز)، نقد→صندوق، واریز→بانک، کارتخوان→در جریان، <b>چک دریافتی</b>→اسناد دریافتنی نزد صندوق با بانک/شعبه/حساب/شماره/صیاد ۱۶رقمی/سررسید/صادرکننده. مبلغ این پرداخت قابل اصلاح است. فهرست کارتخوان همان دستگاه‌های فعال است و به منوی «تعریف کارتخوان» وابسته نیست؛ دفتر پخش و کارشناس فروش اگر اجازهٔ ثبت فاکتور داشته باشند همین فهرست را می‌بینند</li>
         <li><b>فاکتور نقد:</b> مبلغ این پرداخت پیش‌فرض = مبلغ فاکتور و قابل اصلاح است؛ به صندوق می‌رود؛ اختلاف در حساب مشتری می‌ماند. صندوق برای نقد اجباری است</li>
         <li><b>دریافت هنگام فاکتور:</b> سند فاکتور فقط بدهی مشتری را می‌زند؛ هر دریافت (نقد/واریز/چک/کارتخوان — تک یا چندمرحله) به‌صورت ردیف تسویه جدا ثبت می‌شود، مانده مشتری کم می‌شود و در چاپ فاکتور هر رویداد اقتصادی یک‌بار دیده می‌شود (کارتخوان: ردیف POS و settlement لینک‌شده ادغام می‌شوند). صیاد را با ارقام لاتین/فارسی می‌توان وارد کرد (۱۶ رقم).</li>
-        <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و مانده روی حساب مشتری هم به‌روز است (نسیه = بدون دریافت).</li>
+        <li><b>دفتر دریافت زنده:</b> زیر «مبلغ نهایی قابل پرداخت» همان لحظه هر مرحله دریافت با نوع/مقصد/مبلغ و <b>مانده پس از همان دریافت</b> دیده می‌شود؛ جمع دریافت و «باقیماندهٔ این فاکتور» هم به‌روز است (نسیه = بدون دریافت).</li>
+        <li><b>ماندهٔ حساب مشتری (v649):</b> با انتخاب مشتری در فاکتور، صندوق فروشگاه (POS) و برگشت از فروش، زیر فیلد مشتری <b>ماندهٔ رسمی</b> او (همان عدد «صورت‌حساب مشتری»؛ قرمز = بدهکار، سبز = بستانکار) و در صورت تعریف، سقف و اعتبار باقیمانده نمایش داده می‌شود. در کادر دریافت‌ها: «ماندهٔ قبلی مشتری» و برای فاکتور جدید معمولی/رسمی «ماندهٔ مشتری پس از این فاکتور» (= قبلی + باقیماندهٔ نسیهٔ این فاکتور)؛ پیش‌فاکتور روی مانده اثر ندارد؛ در ویرایش فاکتور قطعی «ماندهٔ فعلی حساب (شامل همین فاکتور)». حساب شخص (۱۱۰۶) طرف‌حساب‌های دونقشی جمع نمی‌شود. هشدار سقف اعتبار فقط اطلاع‌رسانی است؛ کنترل اصلی در سرور است.</li>
         <li><b>پرداخت چندمرحله‌ای:</b> تیک «طی چند مرحله» برای ترکیب نقد/کارت/واریز/<b>چک</b>؛ هر ردیف مبلغ و مقصد جدا دارد و برای چک کارت مشخصات صیادی باز می‌شود. جمع ردیف‌ها از مبلغ فاکتور بیشتر نمی‌شود. در <b>ویرایش</b> فاکتور، دریافت قبلی خودکار در چندمرحله باز می‌شود تا بتوانید مرحلهٔ جدید (مثلاً چک) اضافه کنید — بدون ابطال دریافت قبلی.</li>
         <li><b>مبلغ پرداخت و سقف فاکتور (v547):</b> مبلغ «قابل پرداخت» با یک فرمول واحد (ردیف‌ها − تخفیف + مالیات + کرایهٔ عهدهٔ خریدار) در مرورگر و سرور محاسبه می‌شود. در تک‌پرداخت، تا دست‌نخورده بودن مبلغ، با هر تغییر فاکتور (همهٔ روش‌های فوری از جمله کارتخوان و واریز) خودکار هم‌گام می‌شود؛ مبلغ دستی بیش از سقف به سقف اصلاح و هشدار زرد غیرمسدودکننده نشان داده می‌شود. در چندمرحله‌ای هیچ تغییر خودکاری نیست؛ مازاد = خطای کنار فیلد و غیرفعال شدن ذخیره. اگر فی صریح در ردیف ارسال شود، سرور برای کالای ماتریسی آن را بازنویسی نمی‌کند (فقط فیِ خالی/۰ از ماتریس پر می‌شود). پیام سرور: «مبلغ پرداخت (X) از مبلغ سند (Y) بیشتر است».</li>
         <li><b>چاپ:</b> بالای صفحه فقط <b>شماره</b> (راست) و <b>تاریخ</b> (چپ). «مبلغ قابل پرداخت» = مانده پس از کسر دریافت‌های ثبت‌شده. بلوک دریافت‌ها جداگانه دیده می‌شود.</li>
@@ -45692,6 +45834,8 @@ helpSec('🔑','لایسنس و entitlement',`
 }
 function renderSalesGuide(){
   return [
+    helpSec('💳','ماندهٔ مشتری در فاکتور (v649)',`
+      <p>با انتخاب مشتری در فاکتور، POS یا برگشت از فروش، ماندهٔ رسمی حساب او (همان «صورت‌حساب مشتری») زیر فیلد مشتری دیده می‌شود: قرمز = بدهکار، سبز = بستانکار. فاکتور جدید معمولی/رسمی «ماندهٔ پس از این فاکتور» را هم نشان می‌دهد؛ پیش‌فاکتور روی مانده اثر ندارد. «باقیماندهٔ این فاکتور» فقط سهم پرداخت‌نشدهٔ همین سند است.</p>`),
     helpSec('🗑️','حذف کالای بدون گردش (v632)',`
       <p>فقط کالای بدون هرگونه سابقهٔ انبار/سند حذف می‌شود. هر کاردکس/حرکت/حواله/VR/افتتاحیه/برگشت خرید/انبارگردانی حذف را مسدود می‌کند و <b>غیرفعال‌سازی</b> پیشنهاد می‌شود. حذف ERP صفحهٔ وب‌سایت را برنمی‌دارد.</p>`),
     helpSec('📦','منبع واحد موجودی = کاردکس (v623)',`

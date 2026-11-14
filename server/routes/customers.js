@@ -413,6 +413,77 @@ router.get('/balances', auth, (req, res) => {
   }
 });
 
+/**
+ * v649 — official live balance of ONE customer (same number as «صورت‌حساب مشتری»),
+ * for the invoice builder / POS / sales-return chip. Same visibility as GET /customers.
+ * Read-only: no heal, no audit row.
+ */
+router.get('/:id/balance', auth, (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const notFound = () => res.status(404).json({ error: 'مشتری یافت نشد' });
+  const id = parseInt(req.params.id, 10);
+  if (!(id > 0)) return notFound();
+  try {
+    const db = getDB();
+    const scope = getScope(req);
+    const activeClause = ` AND ${CRM_CUSTOMER_ACTIVE_SQL}`;
+    let walkinOr = { sql: '', params: [] };
+    if (scope != null) {
+      try {
+        walkinOr = require('../lib/store-quick-sale').walkinListVisibilityOrSql(db, 'c');
+      } catch (_) { walkinOr = { sql: '', params: [] }; }
+    }
+    const row = scope === null
+      ? db.prepare(`SELECT c.id FROM customers c WHERE c.id=?${activeClause}`).get(id)
+      : db.prepare(`SELECT c.id FROM customers c WHERE c.id=? AND (${customerVisibilitySql('c')}${walkinOr.sql})${activeClause}`)
+        .get(id, scope, scope, ...walkinOr.params);
+    if (!row) return notFound();
+
+    const { customerLiveBalanceRial, customerPartyAltHint } = require('../lib/customer-books');
+    const { resolvePartyCreditLimitRial, customerCeilingRial } = require('../lib/party-credit');
+    let walkin = false;
+    let balance;
+    if (scope != null) {
+      try {
+        const { getWalkinCustomerId, walkinPersonalBalanceRial } = require('../lib/store-quick-sale');
+        if (Number(getWalkinCustomerId(db)) === id) {
+          walkin = true;
+          balance = walkinPersonalBalanceRial(db, id, scope);
+        }
+      } catch (_) { /* optional */ }
+    }
+    if (!walkin) balance = customerLiveBalanceRial(db, id);
+    balance = Math.round(Number(balance) || 0);
+
+    let limit = 0;
+    let ownCeiling = false;
+    try {
+      limit = resolvePartyCreditLimitRial(db, id);
+      ownCeiling = customerCeilingRial(db, id) != null;
+    } catch (_) { limit = 0; ownCeiling = false; }
+    // Same «unlimited» rule as assertPartyCreditLimitOk.
+    const unlimited = !ownCeiling && !(limit > 0);
+    let partyHint = null;
+    try {
+      const h = customerPartyAltHint(db, id);
+      if (h) partyHint = { has_person_activity: !!h.has_person_activity, person_coa: h.person_coa || null };
+    } catch (_) { partyHint = null; }
+    res.json({
+      customer_id: id,
+      balance_rial: balance,
+      side: balance > 0 ? 'debit' : (balance < 0 ? 'credit' : 'zero'),
+      credit_limit_rial: unlimited ? null : limit,
+      credit_unlimited: unlimited,
+      available_credit_rial: unlimited ? null : Math.max(0, limit - Math.max(0, balance)),
+      walkin,
+      party_hint: partyHint,
+    });
+  } catch (e) {
+    console.error('customers/:id/balance failed:', e.message);
+    res.status(500).json({ error: 'خطای داخلی سرور' });
+  }
+});
+
 router.get('/export/excel', auth, adminOnly, async (req, res) => {
   const db = getDB();
   const scope = getScope(req);

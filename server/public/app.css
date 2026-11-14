@@ -1969,6 +1969,24 @@ body.erp-demo-mode{padding-top:32px}
   margin-top: 4px;
   padding-top: 8px;
 }
+/* v649: ماندهٔ رسمی مشتری (فاکتور / POS / برگشت فروش) */
+.inv-cust-bal {
+  font-size: 12px;
+  line-height: 1.8;
+  margin-top: 4px;
+  min-height: 0;
+}
+.inv-cust-bal:empty { display: none; }
+.inv-cust-bal .cust-bal-line { display: block; }
+.inv-cust-bal .cust-bal-link { margin-inline-start: 6px; font-size: 11px; }
+.cust-bal-debit { color: var(--red); font-weight: 700; }
+.cust-bal-credit { color: var(--green); font-weight: 700; }
+.inv-cust-bal-rows {
+  border-top: 1px dashed var(--border);
+  margin-top: 6px;
+  padding-top: 4px;
+  font-size: 12px;
+}
 
 .inv-actions-cell {
   display: flex;

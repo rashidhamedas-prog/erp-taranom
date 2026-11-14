@@ -1260,6 +1260,47 @@ function repairGlLinesToLedger(db) {
 }
 
 /**
+ * v649 — shared SQL for the canonical live customer balance (one source for the
+ * map and the single-customer read, so they cannot drift).
+ * withCustomer=true adds `AND cl.customer_id=?` / `AND i.cust_id=?` (indexed).
+ */
+function sqlLiveLedgerFold(withCustomer) {
+  return `
+      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
+      FROM customer_ledger cl
+      WHERE ${sqlCustomerLedgerLive('cl')}${withCustomer ? ' AND cl.customer_id=?' : ''}
+      GROUP BY customer_id
+    `;
+}
+
+function sqlMissingFirmInvoiceAdd(withCustomer) {
+  return `
+      SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
+      FROM invoices i
+      WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0${withCustomer ? ' AND i.cust_id=?' : ''}
+        AND NOT EXISTS (
+          SELECT 1 FROM customer_ledger cl
+          WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
+            AND COALESCE(cl.entry_type,'')<>'reversal'
+        )
+      GROUP BY i.cust_id
+    `;
+}
+
+/**
+ * v649 — signed live balance for ONE customer (positive = بدهکار), identical to
+ * customerSignedBalanceMap(db).get(id) and buildStatement(...).ledger_closing.
+ * Read-only: never runs ensureCustomerBooksRepaired (POS/device SQLITE_BUSY safe).
+ */
+function customerLiveBalanceRial(db, customerId) {
+  const id = Number(customerId);
+  if (!(id > 0)) return 0;
+  const led = db.prepare(sqlLiveLedgerFold(true)).get(id);
+  const miss = db.prepare(sqlMissingFirmInvoiceAdd(true)).get(id);
+  return (Number(led && led.bal) || 0) + (Number(miss && miss.add_amt) || 0);
+}
+
+/**
  * Signed live balance per customer (debit − credit).
  * Same rule as buildStatement: customer_ledger + firm invoices missing from it.
  * A partial tafsili GL must not replace this figure.
@@ -1278,12 +1319,7 @@ function customerSignedBalanceMap(db) {
   const source = new Map(); // customer_id → 'gl' | 'customer_ledger'
   let led = [];
   try {
-    led = db.prepare(`
-      SELECT customer_id, COALESCE(SUM(debit)-SUM(credit),0) AS bal
-      FROM customer_ledger cl
-      WHERE ${sqlCustomerLedgerLive('cl')}
-      GROUP BY customer_id
-    `).all();
+    led = db.prepare(sqlLiveLedgerFold(false)).all();
   } catch (e) {
     console.error('customerSignedBalanceMap ledger:', e.message);
     map._source = source;
@@ -1296,17 +1332,7 @@ function customerSignedBalanceMap(db) {
 
   // Match attachMissingInvoiceRows: firm sales not yet in customer_ledger.
   try {
-    const missing = db.prepare(`
-      SELECT i.cust_id AS customer_id, COALESCE(SUM(i.final),0) AS add_amt
-      FROM invoices i
-      WHERE ${firmSaleTypeSql('i')} AND COALESCE(i.deleted_at,0)=0
-        AND NOT EXISTS (
-          SELECT 1 FROM customer_ledger cl
-          WHERE cl.customer_id=i.cust_id AND cl.ref_type='invoice' AND cl.ref_id=i.id
-            AND COALESCE(cl.entry_type,'')<>'reversal'
-        )
-      GROUP BY i.cust_id
-    `).all();
+    const missing = db.prepare(sqlMissingFirmInvoiceAdd(false)).all();
     for (const r of missing) {
       const id = Number(r.customer_id);
       map.set(id, (map.get(id) || 0) + (Number(r.add_amt) || 0));
@@ -2206,6 +2232,7 @@ module.exports = {
   glCustomersTafsiliBalance,
   customerLedgerTafsiliBalance,
   customerSignedBalanceMap,
+  customerLiveBalanceRial,
   canonicalCustomerFold,
   foldSignedRows,
   applyCustomerBalances,

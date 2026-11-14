@@ -1,7 +1,7 @@
 'use strict';
 /**
  * ADR-PARTY-001 — enforce parties.credit_limit (rial) on firm sales that raise AR.
- * limit <= 0 → unlimited. Exposure = max(0, customer_ledger debit−credit).
+ * limit <= 0 → unlimited. Exposure = max(0, canonical live customer balance) (v649).
  */
 
 class PartyCreditError extends Error {
@@ -14,12 +14,15 @@ class PartyCreditError extends Error {
   }
 }
 
+/**
+ * v649 — exposure = max(0, canonical live balance) — same number as «صورت‌حساب مشتری»
+ * (live customer_ledger + firm invoices missing from it). Create/convert call the
+ * gate BEFORE inserting the invoice, and a proforma is not a firm sale, so the
+ * missing-invoice add can never double-count the document being checked.
+ */
 function customerArExposureRial(db, customerId) {
-  const row = db.prepare(`
-    SELECT COALESCE(SUM(debit) - SUM(credit), 0) AS bal
-    FROM customer_ledger WHERE customer_id=?
-  `).get(customerId);
-  return Math.max(0, Math.round(Number(row?.bal) || 0));
+  const { customerLiveBalanceRial } = require('./customer-books'); // lazy: avoid require cycle
+  return Math.max(0, Math.round(Number(customerLiveBalanceRial(db, customerId)) || 0));
 }
 
 /**
